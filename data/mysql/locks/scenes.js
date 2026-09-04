@@ -276,6 +276,14 @@ const SCENES = [
       { id:'id=20', tag:'clean', sub:'c=200' }] },
   },
   steps:[
+  { look:{ stmt:true },
+    note:'평범한 SELECT 은 테이블 락도 잡지 않는다 — 코드가 그 자리에서 빠져나간다',
+    why:'row_search_mvcc 안에 select_lock_type == LOCK_NONE 이면 테이블 락 요청을 건너뛰는 분기가 있다. 즉 잠금 없는 읽기는 InnoDB 층에서 락을 하나도 만들지 않는다. MDL 은 이미 잡혀 있지만 그것은 서버 층이다.',
+    key:'"SELECT 은 IS 를 잡는다" 는 말은 <em>잠금 읽기일 때만</em> 맞다. 평범한 SELECT 은 <em>테이블에도 행에도</em> 아무것도 남기지 않는다 — 02 장면이 그 경우다.',
+    ref:'storage/innobase/row/row0sel.cc', sym:'row_search_mvcc',
+    fact:[['storage/innobase/include/lock0types.h','LOCK_NONE'],
+          ['storage/innobase/row/row0sel.cc','prebuilt->select_lock_type']] },
+
   { act:{ f:'stmt', t:'tl', lb:'읽기 → IS' },
     note:'SELECT … FOR SHARE 는 테이블에 IS 를 잡는다',
     why:'행에 S 를 잡을 의도이므로 테이블에는 의도 공유(LOCK_IS)를 남긴다. 값이 0 인 것은 우연이 아니라 열거의 시작이다.',
@@ -301,6 +309,14 @@ const SCENES = [
           rl:{ del:['(비었다)'], add:[{ id:'id=20', tag:'x', sub:'LOCK_X' }] },
           row:{ set:{ 'id=20':{ tag:'x', sub:'c=1  ·  잠김' } } } } },
 
+  { look:{ tl:true },
+    note:'IS 냐 IX 냐는 삼항식 한 줄이 정한다',
+    why:'row_search_mvcc 는 테이블 락을 요청할 때 select_lock_type == LOCK_S ? LOCK_IS : LOCK_IX 를 넘긴다. 읽기 잠금이면 IS, 그 밖(즉 LOCK_X)이면 IX 다. 판단할 것이 더 없다 — 문장 종류가 아니라 앞서 정해진 락 종류 하나만 본다.',
+    key:'테이블 락의 정체는 <em>추론이 아니라 한 줄</em>이다. SELECT ... FOR SHARE 는 IS, FOR UPDATE·UPDATE·DELETE 는 IX 로 간다.',
+    ref:'storage/innobase/row/row0sel.cc', sym:'row_search_mvcc',
+    fact:[['storage/innobase/row/row0sel.cc','select_lock_type == LOCK_S ? LOCK_IS : LOCK_IX'],
+          ['storage/innobase/include/lock0types.h','LOCK_IS = 0,']] },
+
   { act:{ f:'stmt', t:'tl', lb:'LOCK TABLES → S 또는 X' },
     note:'테이블 자체에 S · X 가 걸리는 것은 LOCK TABLES 뿐이다',
     why:'소스 주석이 그렇게 못박아 둔다 — "S or X table locks are only acquired for LOCK TABLES".',
@@ -310,6 +326,13 @@ const SCENES = [
     ops:{ stmt:{ set:{ 'SQL':'LOCK TABLES t WRITE', '요청 모드':'LOCK_X  ·  테이블 전체|red' } },
           tl:{ set:{ 't':{ id:'t', tag:'x', sub:'LOCK_X  ·  테이블 전체|red' } } },
           ses:{ set:{ '문장':'LOCK TABLES WRITE', '테이블 락':'X|red' } } } },
+
+  { look:{ tl:true },
+    note:'그래서 테이블 전체를 잠그려는 쪽이 의도 락과 부딪힌다',
+    why:'lock_table_other_has_incompatible 이 그 테이블의 다른 락들을 훑어 요청과 호환되지 않는 것을 찾는다. IX 끼리는 호환이므로 여러 세션이 동시에 각자 행을 고칠 수 있다. 막히는 것은 LOCK TABLES 가 요청하는 S·X 다.',
+    key:'의도 락의 존재 이유가 이것이다 — <em>행 단위 동시성은 열어 두고</em> 테이블 전체를 잠그려는 시도만 정확히 막는다. 04 장면의 호환 표가 그 규칙 전부다.',
+    ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_table_other_has_incompatible',
+    fact:[['storage/innobase/include/lock0priv.h','lock_compatibility_matrix']] },
 
   { look:{ tl:true, ses:true },
     note:'그리고 AUTO_INCREMENT 를 위한 다섯 번째 모드가 있다',
@@ -770,8 +793,15 @@ const SCENES = [
     fact:['Checks if foreign key constraint fails for an index entry. Sets shared locks'],
     ops:{ stmt:{ set:{ '검사':'부모 존재 확인' } } } },
 
+  { look:{ row:true },
+    note:'부모가 없으면 삽입이 거부된다 — 확인과 잠금이 같은 함수에서 난다',
+    why:'row_ins_check_foreign_constraint 가 부모 인덱스를 찾아 짝을 못 찾으면 DB_NO_REFERENCED_ROW 를 돌려준다. 찾으면 그 레코드를 잠근 채로 통과시킨다 — 확인만 하고 놓아주면 확인과 삽입 사이에 부모가 지워질 수 있다.',
+    key:'그래서 외래키는 <em>부모 쪽 동시성을 깎는다</em>. 자식에 넣는 동안 부모 행은 지울 수 없다.',
+    ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_check_foreign_constraint',
+    fact:[['storage/innobase/row/row0ins.cc','DB_NO_REFERENCED_ROW']] },
+
   { act:{ f:'row', t:'rl', lb:'부모 행에 S' },
-    note:'부모 행에 공유 락을 잡는다 — 자식 트랜잭션이 끝날 때까지',
+    note:'부모 행에 공유 락을 잡는다 — 자식 트랜잭션이 끝날 때까지',    note:'부모 행에 공유 락을 잡는다 — 자식 트랜잭션이 끝날 때까지',
     why:'S 를 잡아두면 다른 세션이 이 부모를 DELETE·UPDATE 하려 할 때(X 요청) 막힌다. S 와 X 는 호환되지 않는다.',
     key:'그래서 <em>자식 테이블에만 쓴 트랜잭션이 부모 테이블의 쓰기를 막는다</em>. 락이 테이블 경계를 넘어간다.',
     ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_check_foreign_constraint',
@@ -786,6 +816,14 @@ const SCENES = [
     key:'대량 자식 INSERT 가 부모 갱신을 마비시키는 경로가 이것이다. 원인이 <em>다른 테이블</em>에 있어서 찾기 어렵다.',
     ref:'storage/innobase/include/lock0priv.h', sym:'lock_mode_compatible',
     beat:1 },
+
+  { look:{ rl:true },
+    note:'반대 방향도 있다 — 부모를 지우려 할 때 자식이 있는지 본다',
+    why:'같은 검사가 반대로도 돈다. 부모를 지우거나 키를 고치려 하면 자식 쪽을 훑고, 참조가 살아 있으면 DB_ROW_IS_REFERENCED 로 막는다. ON DELETE CASCADE 가 걸려 있으면 막지 않고 row_ins_foreign_check_on_constraint 가 자식 행들을 따라가 함께 처리한다.',
+    key:'CASCADE 는 편리한 대신 <em>락이 어디까지 번질지 문장만 보고는 알 수 없다</em>. 자식의 자식까지 따라가므로 지우는 행 하나가 수천 행을 잠글 수 있다.',
+    ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_foreign_check_on_constraint',
+    fact:[['storage/innobase/row/row0ins.cc','DB_ROW_IS_REFERENCED'],
+          ['storage/innobase/row/row0ins.cc','row_ins_foreign_check_on_constraint']] },
 
   { look:{ stmt:true },
     note:'foreign_key_checks=OFF 는 이 락을 없애지만 무결성도 없앤다',

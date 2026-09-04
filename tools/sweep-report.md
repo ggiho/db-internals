@@ -228,7 +228,7 @@ narrow 는 `--widths=390`).
     node tools/sweep.js --inject-note --widths=390                    # 767 아래 안내 확인
     node tools/sweep.js --json=/tmp/sweep.json --fp=1                 # 원자료 · 계획 지문
 
-Playwright 는 `/Users/giho.seong/30_Projects/01_Personal/notion-blog/node_modules/playwright`
+Playwright 는 `$PLAYWRIGHT_PATH`
 를 절대 경로로 가져온다(이 저장소에는 설치하지 않는다).
 문제가 있으면 종료 코드 1, 스크립트 자체가 죽으면 2 다.
 
