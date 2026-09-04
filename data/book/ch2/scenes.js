@@ -354,6 +354,15 @@ const SCENES = [
     "the logarithm base is N",
     "the logarithm base is 2, since searching a key inside each node is done using binary search" ],
   steps:[
+  { look:{ op:true },
+    note:'371 은 소스에 있는 수가 아니다 — 가정에서 나온 수다',
+    why:'페이지는 16,384바이트(UNIV_PAGE_SIZE_DEF = 1 << 14)이고 그중 FIL 헤더 38바이트와 트레일러 8바이트는 데이터가 아니다. 남는 약 16,300바이트를 노드 포인터 레코드 하나당 약 44바이트로 나누면 370 남짓이 된다. 즉 371 은 <em>레코드 크기를 44바이트로 가정했을 때</em>의 수다.',
+    key:'이 장면의 모든 수(371배·3레벨·144KB)가 그 가정 위에 있다. 실제 팬아웃은 <em>키 길이와 행 형식이 정한다</em> — 긴 문자열 키를 쓰면 100 아래로 떨어지고, 그러면 같은 데이터가 4~5레벨이 된다. 소스에 팬아웃 상수는 없다.',
+    ref:'storage/innobase/include/univ.i', sym:'UNIV_PAGE_SIZE_DEF',
+    fact:[['storage/innobase/include/univ.i','constexpr uint32_t UNIV_PAGE_SIZE_DEF = 1 << UNIV_PAGE_SIZE_SHIFT_DEF;'],
+          ['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_DATA = 38;'],
+          ['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_DATA_END = 8;']] },
+
   { look:{ bt:true, op:true },
     note:'노드 하나가 자식 371개를 가리킨다 — 3레벨로 백만 개를 덮는다',
     why:'371³ ≈ 5,100만. 백만 개는 3레벨로 충분하다. 레벨마다 블록 하나씩 읽으면 3번이다.',
@@ -414,6 +423,13 @@ const SCENES = [
     "binary trees have a fanout of just two",
     "as many disk seeks as comparisons" ],
   steps:[
+  { look:{ op:true },
+    note:'이쪽 수는 가정이 필요 없다 — 팬아웃 2 는 정의다',
+    why:'이진 탐색 트리는 자식이 둘이라는 것이 구조의 정의다. 레코드 크기나 페이지 크기와 무관하다. 그래서 log₂(백만) ≈ 20 이라는 수는 가정 없이 나온다.',
+    key:'왼쪽(A)의 371 은 <em>레코드 크기를 가정해야 나오는 수</em>이고, 오른쪽의 2 는 <em>가정이 필요 없는 수</em>다. 그런데도 결론이 3레벨 대 20레벨로 갈린다 — 가정을 넉넉히 잡아 팬아웃을 100 으로 낮춰도 여전히 3~4레벨이다.',
+    ref:'storage/innobase/include/univ.i', sym:'UNIV_PAGE_SIZE_DEF',
+    fact:[['storage/innobase/include/univ.i','constexpr uint32_t UNIV_PAGE_SIZE_DEF = 1 << UNIV_PAGE_SIZE_SHIFT_DEF;']] },
+
   { look:{ bst:true, op:true },
     note:'노드 하나가 자식 2개 — 백만 개를 덮으려면 20레벨이 필요하다',
     why:'2²⁰ ≈ 백만. 레벨마다 블록 하나를 읽으면 20번이다.',

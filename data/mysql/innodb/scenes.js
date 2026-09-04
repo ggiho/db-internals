@@ -397,6 +397,7 @@ const SCENES = [
     why:'판정하려면 그 페이지를 디스크에서 먼저 읽어야 한다 — 헤더의 FIL_PAGE_LSN 을 봐야 알 수 있다. 그래서 재생 대상이 아닌 페이지도 한 번은 읽힌다.',
     key:'이 비교가 redo 재생을 <em>몇 번 해도 결과가 같게</em> 만든다. 복구 중에 또 죽어도 안전한 이유다 — 멱등성.',
     ref:'storage/innobase/log/log0recv.cc', sym:'recv_recover_page_func',
+    fact:[['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_LSN = 16;']],
     beat:1,
     ops:{ bp:{ set:{ 'p:12':{ tag:'clean', sub:'LSN 5,400 > redo · 건너뜀' } } } } },
 
