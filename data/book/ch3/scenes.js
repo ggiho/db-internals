@@ -1329,6 +1329,15 @@ const SCENES = [
           hdr:{ set:{ 'FSP FLAG':'페이지 크기 + 행 형식 비트|gold' } },
           op:{ set:{ '형식 알기':'첫 페이지를 읽어서' } } } },
 
+  { look:{ ver:true },
+    note:'버전은 0번 페이지에만 있다 — 그것도 남의 자리를 빌려 쓴다',
+    why:'FIL_PAGE_SRV_VERSION 은 8, FIL_PAGE_SPACE_VERSION 은 12 다. 그 오프셋은 원래 FIL_PAGE_PREV(8)·FIL_PAGE_NEXT(12), 즉 형제 페이지 포인터 자리다. 0번 페이지에는 형제가 없으므로 그 8바이트를 버전 두 개로 다시 쓴다.',
+    key:'헤더는 <em>고정 배치이면서도 낭비하지 않는다</em>. 같은 오프셋이 페이지 종류에 따라 다른 뜻이 되는 것이 InnoDB 헤더의 기본 수법이고, 04b 장면이 그 목록이다.',
+    ref:'storage/innobase/include/fil0types.h', sym:'FIL_PAGE_SRV_VERSION',
+    fact:[['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_SRV_VERSION = 8;'],
+          ['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_SPACE_VERSION = 12;'],
+          ['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_PREV = 8;']] },
+
   { act:{ f:'file', t:'hdr', lb:'페이지마다 종류도 적혀 있다' },
     note:'그리고 페이지 하나하나가 자기 종류를 갖는다 — FIL_PAGE_TYPE',
     why:'오프셋 24 의 2바이트다. INDEX · UNDO_LOG · INODE · SDI · LOB 등을 구분한다.',
@@ -1336,6 +1345,20 @@ const SCENES = [
     ref:'storage/innobase/include/fil0fil.h', sym:'fil_page_type_is_index',
     beat:1,
     ops:{ hdr:{ set:{ 'FIL_PAGE_TYPE':'FIL_PAGE_INDEX  (17855)|green' } } } },
+
+  { look:{ hdr:true },
+    note:'페이지 종류 값 자체가 매직 넘버다 — 작은 일련번호가 아니다',
+    why:'FIL_PAGE_INDEX 는 17855(0x45BF)다. 1, 2, 3 처럼 세지 않는다. 손상된 페이지나 다른 형식의 파일에서 우연히 그 두 바이트가 나올 확률을 낮추려는 선택이고, fil_page_type_is_index 는 그 값과 SDI·RTREE 를 함께 본다.',
+    key:'책이 든 네 방식 중 <em>헤더와 매직 넘버를 동시에</em> 쓰는 셈이다. 그래서 hexdump 로 <em>45 bf</em> 를 찾으면 인덱스 페이지의 시작을 눈으로 셀 수 있다.',
+    ref:'storage/innobase/include/fil0fil.h', sym:'fil_page_type_is_index',
+    fact:[['storage/innobase/include/fil0fil.h','constexpr page_type_t FIL_PAGE_INDEX = 17855;']] },
+
+  { look:{ ver:true },
+    note:'페이지 크기·행 형식은 0번 페이지의 플래그 한 워드에 비트로 접혀 있다',
+    why:'테이블스페이스 플래그는 FSP_SPACE_FLAGS 한 워드이고, 그 안에 페이지 크기(FSP_FLAGS_WIDTH_PAGE_SSIZE)·압축 여부·행 형식이 폭이 정해진 비트 구간으로 들어간다. fsp_flags_is_valid 가 그 조합이 성립하는지 검사한다.',
+    key:'버전 판별이 <em>한 숫자로 끝나지 않는다</em>. "이 파일이 몇 버전인가" 가 아니라 "이 조합이 지금 코드로 읽히는가" 를 묻는 구조다 — 03 장면의 비트 접기가 여기서도 쓰인다.',
+    ref:'storage/innobase/include/fsp0types.h', sym:'FSP_FLAGS_WIDTH_PAGE_SSIZE',
+    fact:[['storage/innobase/include/fsp0types.h','FSP_FLAGS_WIDTH_PAGE_SSIZE']] },
 
   { look:{ op:true },
     note:'여러 형식을 동시에 지원해야 한다',

@@ -66,6 +66,22 @@ for (const [key, { f, s }] of want) {
     }
     if (hit > 0) break;
   }
+  /* 함수로 못 찾았으면 *상수 정의* 를 찾는다 — 이 프로젝트는 FIL/PAGE 오프셋 같은
+     헤더 상수가 주제의 절반인데, 위 패턴은 전부 '심볼(' 을 요구해 상수를 놓친다.
+     constexpr·enum·#define 세 형태를 본다. 함수 뒤에 두므로 기존 해석은 바뀌지 않는다. */
+  if (hit <= 0) {
+    const cpats = [
+      new RegExp('^\\s*(?:static\\s+)?constexpr\\b[^=]*\\b' + esc(bare) + '\\s*='),
+      new RegExp('^\\s*#\\s*define\\s+' + esc(bare) + '\\b'),
+      new RegExp('^\\s*' + esc(bare) + '\\s*=\\s*[^;]*,\\s*$'),
+    ];
+    for (const re of cpats) {
+      for (let i = 0; i < src.length; i++) {
+        if (re.test(src[i])) { hit = i + 1; break; }
+      }
+      if (hit > 0) break;
+    }
+  }
   if (hit > 0) { out[key] = hit; ok++; } else miss.push(key);
 }
 function esc(x) { return x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
