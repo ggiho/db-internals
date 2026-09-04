@@ -311,6 +311,14 @@ const SCENES = [
     ops:{ op:{ set:{ '읽은 블록':'1' } },
           io:{ set:{ '누적 전송':'16 KB' } } } },
 
+  { look:{ blk:true },
+    note:'그 블록 크기는 리터럴이 아니라 시프트로 정의된다',
+    why:'UNIV_PAGE_SIZE_DEF 는 1 << UNIV_PAGE_SIZE_SHIFT_DEF 이고 그 시프트가 14 다. 즉 16384 라는 수가 코드에 적혀 있는 것이 아니라 2의 거듭제곱임이 정의에 박혀 있다. 페이지 안의 오프셋 계산이 나눗셈 대신 비트 연산으로 끝나는 이유다.',
+    key:'16KB 는 <em>고른 숫자가 아니라 2^14</em>다. 그래서 innodb_page_size 로 바꿀 수 있는 값도 4K·8K·16K·32K·64K — 전부 2의 거듭제곱뿐이다.',
+    ref:'storage/innobase/include/univ.i', sym:'UNIV_PAGE_SIZE_SHIFT_DEF',
+    fact:[['storage/innobase/include/univ.i','constexpr uint32_t UNIV_PAGE_SIZE_SHIFT_DEF = 14;'],
+          ['storage/innobase/include/univ.i','constexpr uint32_t UNIV_PAGE_SIZE_DEF = 1 << UNIV_PAGE_SIZE_SHIFT_DEF;']] },
+
   { look:{ blk:['여유'] },
     note:'여유를 남기는 것이 낭비가 아니다',
     why:'미래의 삽입이 이 자리에 들어가면 분할이 일어나지 않는다. 분할은 블록 두 개를 쓰고 부모까지 고치는 일이다.',
@@ -489,6 +497,13 @@ const SCENES = [
     ops:{ sep:{ span:{ set:{ 's2':{ kind:'ii', lb:'c2  ← 45 는 여기' } } } },
           bt:{ set:{ 'c2':{ keys:'40 ‥ 59  ← 하강', fill:.5 } } },
           op:{ set:{ '노드':'c2 로 하강|green' } } } },
+
+  { look:{ sep:true },
+    note:'분리 키는 데이터가 아니다 — 경계일 뿐이다',
+    why:'내부 노드의 항목은 (분리 키, 자식 포인터) 짝이고 그 키가 실제 행을 가리킬 필요가 없다. InnoDB 는 이런 항목을 노드 포인터 레코드로 따로 구분한다 — REC_STATUS_NODE_PTR 이 그것이다.',
+    key:'그래서 <em>분리 키는 지워진 행의 것이어도 상관없다</em>. 경계로서 유효하면 남겨 둔다 — 11 장면에서 분리 키를 아래로 내리는 이야기가 이 성질 위에 있다.',
+    ref:'storage/innobase/rem/rec.h', sym:'REC_STATUS_NODE_PTR',
+    fact:[['storage/innobase/rem/rec.h','REC_STATUS_NODE_PTR']] },
 
   { look:{ node:true },
     note:'리프 레벨에는 형제 포인터가 있다 — 범위 스캔이 부모로 안 올라간다',
@@ -830,6 +845,14 @@ const SCENES = [
                       '빈 곳':{ id:'여유', sz:7, tag:'free', sub:'미래의 삽입용' } },
                 gg:undefined },
           op:{ set:{ '대상 리프':'병합 완료|green' } } } },
+
+  { look:{ blk:true },
+    note:'"너무 비었다" 의 기준은 코드에 식으로 있다',
+    why:'BTR_CUR_PAGE_COMPRESS_LIMIT(index) 는 (UNIV_PAGE_SIZE × index->merge_threshold) / 100 이다. merge_threshold 기본값은 DICT_INDEX_MERGE_THRESHOLD_DEFAULT = 50 이므로 16KB × 50 / 100 = 8192바이트다. 주석이 그대로 말한다 — 비관적 삭제에서 페이지 데이터 크기가 이 한계 아래로 떨어지면 이웃과 병합을 시도한다.',
+    key:'절반이라는 기준은 <em>인덱스마다 바꿀 수 있다</em>. merge_threshold 는 인덱스 속성이므로, 삭제가 많은 인덱스만 문턱을 낮춰 병합을 덜 하게 만들 수 있다.',
+    ref:'storage/innobase/include/btr0cur.h', sym:'BTR_CUR_PAGE_COMPRESS_LIMIT',
+    fact:[['storage/innobase/include/btr0cur.h','#define BTR_CUR_PAGE_COMPRESS_LIMIT(index)'],
+          ['storage/innobase/include/dict0mem.h','constexpr uint32_t DICT_INDEX_MERGE_THRESHOLD_DEFAULT = 50;']] },
 
   { look:{ blk:true, op:true },
     note:'블록 하나를 반납했다 — 그런데 InnoDB 는 이걸 잘 안 한다',
