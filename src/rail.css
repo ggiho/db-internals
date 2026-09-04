@@ -1,0 +1,227 @@
+/* 레일 · 소스 패널 · 재생 스타일 — 이 파일만 B 가 쓴다 */
+
+/* ══════════ 1. 가운데 : 무대 열 + 레일 열 ══════════
+   .app 의 높이 · 초광폭 zoom · .mid 의 세로 분배는 style.css 소관이다.
+   여기서 선언하는 것은 "레일이 차지하는 열" 하나뿐이다 — 두 파일이 같은 규칙을
+   각자 쓰면 나중에 한쪽만 고치게 된다 (실제로 zoom 사다리가 4600px 에서 끊겼다).
+
+   레일 열을 grid 로 잡는다. flex 로 두면 레일의 폭이 내용에 따라 흔들리는데,
+   레일 안에는 innodb_default_row_format 같은 긴 mono 토큰이 들어온다. */
+.wrap{display:grid;grid-template-columns:minmax(0,1fr) 272px;gap:18px}
+.wrap.solo{grid-template-columns:minmax(0,1fr)}   /* 비교 모드에서는 레일을 접는다 */
+
+/* 무대 껍데기 — 세로로는 style.css 의 .mid > .stage-wrap{flex:0 1 auto} 가 정한다.
+   여기서는 두 열을 나란히 놓는 것과, 넘칠 때 잘리지 말고 스크롤하는 것만 맡는다. */
+.stage-wrap{min-width:0;min-height:0;display:flex;flex-direction:row;gap:0;
+  overflow-y:auto;overflow-x:hidden}
+.stage-wrap::-webkit-scrollbar{width:3px}
+.stage-wrap::-webkit-scrollbar-thumb{background:#1E2424}
+.scol{flex:1 1 0;min-width:0;display:flex;flex-direction:column}
+/* style.css 는 .mid 의 *직접* 자식 무대만 잡는다(.mid > .stage). 비교 모드에서는
+   .mid > .stage-wrap > .scol > .stage 로 한 단 더 들어가므로 여기서 같은 값을 준다 —
+   안 주면 열 안에서 무대가 세로로 다 먹고 카드 사이가 벌어진다. */
+.scol .stage{flex:0 1 auto;min-height:0}
+
+/* ── 비교 모드 : 두 열이 같은 스텝을 각자의 설정으로 보여준다 ── */
+.stage-wrap.split{gap:20px}
+.stage-wrap.split .scol{border:1px solid var(--line);padding:8px 9px 9px}
+.stage-wrap.split .stage-foot{display:none}    /* 열마다 두 번 말할 필요가 없다 */
+.scol-hd{flex:none;padding-bottom:6px;margin-bottom:4px;border-bottom:1px solid var(--line)}
+.scol-hd .v{font:500 9px var(--mono);letter-spacing:.2em;text-transform:uppercase;
+  color:var(--gold);overflow-wrap:anywhere}
+.scol-hd .n{font-size:11.5px;color:var(--ink);margin-top:3px;line-height:1.4}
+/* 폭이 절반이라 카드가 좁다 — 잘리기보다 접히게 한다 */
+.stage-wrap.split .lane{grid-template-columns:minmax(0,1fr)}
+.stage-wrap.split .lane-lb{display:none}
+.stage-wrap.split .row{flex-wrap:wrap;row-gap:8px}
+.stage-wrap.split .act{min-width:0;max-width:none}
+
+/* ══════════ 2. 재생 · 스크럽 ══════════ */
+.play{display:flex;align-items:center;gap:15px}
+.play .pp{width:31px;height:31px;flex:none;border:1px solid var(--line);background:var(--panel);
+  color:var(--body);cursor:pointer;display:grid;place-items:center;padding:0;
+  transition:border-color .22s,color .22s,background .22s}
+.play .pp:hover{border-color:var(--accent);color:var(--ink)}
+.play .pp svg{width:11px;height:11px;fill:currentColor}
+.play .track{flex:1 1 auto;min-width:0;height:31px;position:relative;cursor:pointer;
+  touch-action:none}
+.play .track::before{content:'';position:absolute;left:0;right:0;top:15px;height:1px;
+  background:var(--line)}
+.play .fill{position:absolute;left:0;top:15px;height:1px;background:var(--accent);
+  transition:width .3s cubic-bezier(.22,1,.36,1)}
+.play .ticks{position:absolute;inset:0}
+.play .ticks i{position:absolute;top:11px;width:1px;height:9px;background:var(--line);
+  transform:translateX(-.5px);transition:background .3s}
+.play .ticks i.done{background:#2C3A4E}
+.play .ticks i.beat{background:var(--gold);top:9px;height:13px}
+.play .knob{position:absolute;top:9px;width:13px;height:13px;margin-left:-6.5px;border-radius:50%;
+  background:var(--bg);border:1.5px solid var(--accent);pointer-events:none;
+  transition:left .3s cubic-bezier(.22,1,.36,1)}
+.play .knob::after{content:'';position:absolute;inset:3px;border-radius:50%;background:var(--accent)}
+.play .cnt{flex:none;font:400 11px var(--mono);letter-spacing:.1em;color:var(--faint)}
+.play .cnt b{color:var(--ink);font-weight:500}
+.play .vs{background:none;border:1px solid var(--line);color:var(--faint);
+  font:400 9px var(--mono);letter-spacing:.16em;padding:6px 11px;cursor:pointer;flex:none;
+  white-space:nowrap;transition:color .22s,border-color .22s,background .22s}
+.play .vs:hover{color:var(--body)}
+.play .vs.on{color:var(--gold);border-color:rgba(184,160,85,.6);background:rgba(184,160,85,.08)}
+
+/* ══════════ 3. 우측 레일 ══════════
+   열을 반드시 선언한다 — grid 에서 암시적 열은 auto 라서 min-content 로 벌어지고,
+   innodb_default_row_format 같은 긴 mono 토큰이 272px 트랙을 320px 로 밀어낸다.
+   밀려난 만큼은 잘려서 눈에 안 보인다 (옛 판에서 측정으로만 드러났고 650건이었다).
+   min-width:0 도 같이 필요하다 — grid 항목의 기본 min-width 는 auto(=min-content) 라서
+   트랙이 272px 이어도 항목 자체가 그보다 넓어질 수 있다. */
+.rail{min-width:0;min-height:0;display:grid;
+  grid-template-columns:minmax(0,1fr);
+  /* 행을 명시하고 각 절에 grid-row 를 못박는다 — 절이 하나 없는 장면에서
+     자동 배치가 한 칸씩 밀려 스텝 목록이 auto 행에 걸리는 것을 막는다 */
+  grid-template-rows:auto auto minmax(72px,1fr) auto;gap:11px;
+  padding:2px 2px 2px 16px;border-left:1px solid var(--line);
+  overflow-x:hidden;overflow-y:auto}
+.rail::-webkit-scrollbar{width:3px}
+.rail::-webkit-scrollbar-thumb{background:#1E2424}
+.rail > .rl{min-width:0;min-height:0;display:flex;flex-direction:column}
+.rail > .rl-knobs{grid-row:1}
+.rail > .rl-watch{grid-row:2}
+.rail > .rl-steps{grid-row:3}
+.rail > .rl-links{grid-row:4}
+.rail .rl > *{min-width:0}
+.rl-t{flex:none;font:400 8px var(--mono);letter-spacing:.24em;color:var(--faint);
+  text-transform:uppercase;padding-bottom:5px;margin-bottom:5px;
+  border-bottom:1px solid var(--line)}
+.rl-b{min-width:0}   /* 행이 auto 라 내용만큼 자란다 — 여기서 스크롤을 만들면 잘림이 숨는다 */
+
+/* 스텝 목록 — 한 장면의 뼈대가 한눈에 보이고, 눌러서 이동한다 */
+.steps{list-style:none;display:flex;flex-direction:column;flex:1 1 auto;min-height:0;
+  overflow-y:auto;overflow-x:hidden;padding-right:2px}
+.steps::-webkit-scrollbar{width:3px}
+.steps::-webkit-scrollbar-thumb{background:#1E2424}
+.steps li{display:flex;gap:8px;align-items:baseline;font-size:10.5px;line-height:1.35;
+  padding:2px 5px 2px 4px;cursor:pointer;color:var(--faint);min-width:0;
+  border-left:2px solid transparent;transition:color .2s,background .2s,border-color .2s}
+.steps li:hover{color:var(--body);background:rgba(255,255,255,.02)}
+.steps li b{font:400 9px var(--mono);color:var(--mid);flex:none;width:15px;transition:color .2s}
+.steps li.on{color:var(--ink);border-left-color:var(--accent);background:rgba(94,134,201,.07)}
+.steps li.on b{color:var(--accent)}
+.steps li.beat b{color:var(--gold)}
+.steps li.done{color:var(--body)}
+.steps li span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* 손잡이 · 관측 · 링크 */
+/* 긴 식별자는 줄바꿈할 곳이 없으므로 어디서든 끊는다 — 이름이 잘리는 것보다 접히는 게 낫다.
+   ellipsis 로 자르면 innodb_old_blocks_time 과 innodb_old_blocks_pct 가 같은 글자로 보인다. */
+.kn{display:flex;flex-direction:column;padding:3px 0 5px;border-bottom:1px dotted #161B1B}
+.kn:last-child{border-bottom:none}
+.kn .r{display:flex;flex-wrap:wrap;align-items:baseline;gap:7px;min-width:0;
+  overflow-wrap:anywhere}
+.kn .n{font:400 10px var(--mono);color:var(--accent);letter-spacing:0;
+  flex:0 1 auto;min-width:0;white-space:normal;overflow-wrap:anywhere}
+.kn .sp{flex:1 1 12px;min-width:8px;border-bottom:1px dotted #1A2020;transform:translateY(-3px)}
+.kn .d{font:400 10px var(--mono);color:var(--gold);flex:0 1 auto;min-width:0;
+  overflow-wrap:anywhere}
+.kn .w{font-size:10px;color:var(--mid);line-height:1.4;margin-top:1px;overflow-wrap:anywhere}
+.wt{padding:3px 0 5px;border-bottom:1px dotted #161B1B}
+.wt:last-child{border-bottom:none}
+.wt .h{font:400 9.5px var(--mono);color:var(--green);letter-spacing:0;line-height:1.3;
+  overflow-wrap:anywhere}
+.wt .b{font-size:10px;color:var(--mid);line-height:1.4;margin-top:1px;overflow-wrap:anywhere}
+.lk{display:flex;gap:8px;align-items:baseline;padding:3px 5px 4px 4px;cursor:pointer;
+  min-width:0;border-left:2px solid transparent;
+  transition:color .2s,background .2s,border-color .2s}
+.lk:hover{background:rgba(255,255,255,.02);border-left-color:var(--accent)}
+.lk b{font:500 9.5px var(--mono);color:var(--accent);flex:none}
+.lk span{font-size:10px;color:var(--mid);line-height:1.4;min-width:0;overflow-wrap:anywhere}
+.lk:hover span{color:var(--body)}
+
+/* ══════════ 4. 인라인 소스 ══════════ */
+.srcin{flex:1 1 0;min-height:0;display:flex;flex-direction:column;
+  border-top:1px solid var(--line);padding-top:8px}
+/* 남는 높이가 문턱(184px) 아래면 감춘다. display:none 이 아니라 visibility:hidden 이다 —
+   상자를 없애면 다음 스텝에 "남는 높이" 를 잴 대상이 사라진다.
+   무대는 내용만큼만 차지하므로 이 상자가 자리를 지켜도 보이는 결과는 빈 여백과 같다. */
+.srcin.small{visibility:hidden}
+.srcin-hd{flex:none;display:flex;align-items:baseline;gap:12px;padding-bottom:6px;min-width:0}
+.srcin-hd b{font:400 10px var(--mono);color:var(--accent);font-weight:400;letter-spacing:.02em;
+  min-width:0;overflow-wrap:anywhere}
+.srcin-hd span{font:400 10px var(--mono);color:var(--body);min-width:0;overflow-wrap:anywhere}
+.srcin-hd i{margin-left:auto;flex:none;font:400 8px var(--mono);letter-spacing:.22em;
+  color:var(--mid);font-style:normal;text-transform:uppercase;white-space:nowrap}
+/* 줄높이를 정수로 못박는다 — 1.5 배(15.75px)면 브라우저가 scrollTop 을 정수로 양자화해서
+   줄 경계(47.25px)에 도달할 수 없고 첫 줄이 늘 반쯤 잘린다. 스냅의 전제 조건이다. */
+.srcin-cd{flex:1 1 auto;min-height:0;overflow:auto;
+  font:400 10.5px/16px var(--mono);white-space:pre;tab-size:2}
+.srcin-cd::-webkit-scrollbar{width:3px;height:3px}
+.srcin-cd::-webkit-scrollbar-thumb{background:#1E2424}
+.srcin-cd .ln{display:block;padding-left:2px}
+.srcin-cd .ln i{display:inline-block;width:38px;text-align:right;padding-right:11px;
+  color:#2C3333;font-style:normal;user-select:none}
+.srcin-cd .ln.hit{background:rgba(94,134,201,.1);box-shadow:inset 2px 0 0 var(--accent)}
+.srcin-cd .ln.hit i{color:var(--accent)}
+
+/* ══════════ 5. 소스 모달 ══════════ */
+.src{position:fixed;inset:0;z-index:60}
+.src-bd{position:absolute;inset:0;background:rgba(4,6,6,.72)}
+.src-box{position:absolute;top:0;right:0;bottom:0;width:min(760px,94vw);background:var(--bg);
+  border-left:1px solid var(--line);display:flex;flex-direction:column}
+.src-hd{flex:none;position:relative;padding:16px 22px 13px;border-bottom:1px solid var(--line)}
+.src-hd .f{font:400 11px var(--mono);color:var(--accent);letter-spacing:.02em;
+  word-break:break-all;padding-right:80px}
+.src-hd .s{font:500 13px var(--mono);color:var(--ink);margin-top:5px;word-break:break-all}
+.src-hd .n{font:400 10px var(--mono);color:var(--faint);margin-top:6px;letter-spacing:.06em}
+.src-x{position:absolute;top:13px;right:18px;background:none;border:1px solid var(--line);
+  color:var(--faint);font:400 9px var(--mono);letter-spacing:.14em;padding:5px 9px;cursor:pointer;
+  white-space:nowrap;transition:color .2s,border-color .2s}
+.src-x:hover{color:var(--ink);border-color:var(--accent)}
+/* 모달도 줄높이를 정수로 둔다 — 여기서는 늘 맨 위에서 시작하므로 스냅이 필요 없지만
+   같은 규칙을 두 곳에 다르게 두면 나중에 한쪽만 고치게 된다. */
+.src-cd{flex:1 1 auto;min-height:0;overflow:auto;padding:12px 0 20px;
+  font:400 11.5px/20px var(--mono);white-space:pre;tab-size:2}
+.src-cd .ln{display:block;padding:0 22px 0 0}
+.src-cd .ln i{display:inline-block;width:62px;padding-right:14px;text-align:right;
+  color:#2E3636;font-style:normal;user-select:none}
+.src-cd .ln.hit{background:rgba(94,134,201,.1);box-shadow:inset 2px 0 0 var(--accent)}
+.src-cd .ln.hit i{color:var(--accent)}
+
+/* 강조 색 — 문자열·주석을 먼저 떼어냈으므로 이 색은 문맥과 어긋나지 않는다 */
+.c-k{color:#8FA9D6}.c-t{color:#7FB39B}.c-s{color:#C4A96A}.c-n{color:#C99A8A}
+.c-c{color:#5E6B68;font-style:italic}.c-p{color:#5F7A9B}
+
+/* ══════════ 6. 캡션의 ref · 발밑 안내 ══════════ */
+.o-ref{display:block;font:400 10px var(--mono);color:var(--faint);letter-spacing:.02em;
+  margin-top:8px;background:none;border:none;border-bottom:1px solid transparent;padding:0;
+  text-align:left;cursor:default;transition:color .2s,border-color .2s,opacity .3s}
+.o-ref.has{cursor:pointer}
+.o-ref.has:hover{color:var(--body);border-bottom-color:var(--line)}
+.o-ref.has::after{content:'  \2197';color:var(--mid);font-size:9px}
+.o-ref.dim{opacity:.34}     /* 인라인 소스가 같은 것을 이미 크게 보여준다 */
+
+.foot{display:flex;gap:20px;flex-wrap:wrap;font:400 9px var(--mono);letter-spacing:.14em;
+  color:var(--mid);text-transform:uppercase}
+.foot b{color:var(--faint);font-weight:400}
+
+/* ══════════ 7. 좁은 화면 ══════════
+   여기서는 뷰포트에 억지로 맞추지 않고 페이지가 스크롤된다. 그렇게 해야
+   (1) 무대가 잘리지 않고 (2) 레일을 숨기지 않고 아래에 펼 수 있다 —
+   옛 판에서 손잡이·관찰법·스텝목록·링크가 1080 아래에서 통째로 사라져 있었다. */
+@media (max-width:1560px){
+  .wrap{grid-template-columns:minmax(0,1fr) 250px;gap:15px}
+  .rail{padding-left:14px}
+}
+@media (max-width:1080px){
+  .wrap{grid-template-columns:minmax(0,1fr);gap:14px}
+  .stage-wrap{flex:none;overflow:visible}    /* 잘리지 않는다 — 페이지가 스크롤된다 */
+  .srcin{flex:none;max-height:300px}
+  .rail{display:grid;grid-template-columns:repeat(auto-fit,minmax(212px,1fr));
+    grid-template-rows:auto;gap:16px 22px;align-items:start;
+    border-left:none;border-top:1px solid var(--line);
+    padding:13px 0 0;overflow:visible}
+  /* 좁은 화면에서는 자동 배치에 맡긴다 — 행을 못박으면 빈 행이 세로 여백으로 남는다 */
+  .rail > .rl-knobs,.rail > .rl-watch,.rail > .rl-steps,.rail > .rl-links{grid-row:auto}
+  .steps{max-height:260px}
+}
+
+/* 초광폭(zoom) 규칙은 style.css 에만 둔다 — 두 파일에 나눠 두었더니
+   #app(id) 와 .app(class) 가 섞여 4600px 분기가 끊겼다. 여기서는 선언하지 않는다.
+   대신 zoom 배율은 코드 줄높이 16px 을 정수로 유지하는 값만 써야 한다는 제약이
+   이 파일의 .srcin-cd 줄높이와 묶여 있다 — 위쪽 주석 참조. */

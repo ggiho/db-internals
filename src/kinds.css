@@ -1,0 +1,118 @@
+/* 축 · 그래프 · 트리 스타일 — 이 파일만 A 가 쓴다 */
+
+/* ── axis : 인덱스 구간. 값을 % 좌표로 바꿔 눈금과 구간 띠를 놓는다 ──
+   좌우 여백이 margin 인 이유 : 구간 띠는 절대 위치이고 left/width 의 % 는
+   컨테이닝 블록의 *패딩 상자* 를 기준으로 풀린다. padding 을 26px 까지 늘려도
+   띠는 제자리였고 라벨의 9px 초과가 그대로 남았다. 라벨을 자르면 어느 구간인지
+   알 수 없게 되므로, margin 으로 삐져나올 자리를 카드 안쪽에 남긴다.
+   padding-top 은 Axis.jsx 가 행 수에 맞춰 인라인으로 덮어쓴다. */
+.ax{position:relative;flex:1;min-height:0;padding:20px 12px 26px;margin:0 22px;
+  display:flex;flex-direction:column;justify-content:center}
+.ax-line{position:relative;height:0;border-top:1px solid var(--line)}
+.ax-rec{position:absolute;top:0;display:flex;flex-direction:column;align-items:center;gap:3px}
+.ax-rec i{display:block;width:1px;height:9px;background:var(--mid);margin-top:-4px}
+.ax-rec b{font:400 9.5px var(--mono);color:var(--body);font-weight:400;white-space:nowrap}
+.ax-rec.new i{background:var(--accent)}
+.ax-rec.new b{color:var(--ink)}
+.ax-rec.gone i{background:var(--red)}
+.ax-rec.gone b{color:var(--red);text-decoration:line-through}
+
+/* min-width 가 필요하다 — 레코드 락은 from === to 인 점이라 폭이 1.2%(≈4px)로 계산되고,
+   그러면 라벨('71')이 자기 띠의 좌우 테두리에 걸려 글자가 잘려 보인다.
+   왼쪽 끝은 값 그 자리에 그대로 두고 폭만 라벨이 들어갈 만큼 확보한다. */
+.ax-sp{position:absolute;height:13px;min-width:20px;border:1px solid;display:flex;
+  align-items:center;justify-content:center;
+  margin-left:1px;margin-right:1px;   /* 붙은 구간 사이에 이음선을 남긴다 */
+  transition:top .28s cubic-bezier(.22,1,.36,1)}
+.ax-sp span{font:400 7.5px var(--mono);letter-spacing:.1em;white-space:nowrap;padding:0 3px}
+.ax-sp.rec{background:rgba(94,134,201,.2);border-color:var(--accent);color:var(--accent)}
+.ax-sp.gap{background:rgba(184,160,85,.14);border-color:rgba(184,160,85,.6);color:var(--gold);
+  border-style:dashed}
+.ax-sp.next{background:rgba(184,160,85,.2);border-color:var(--gold);color:var(--gold)}
+.ax-sp.ii{background:rgba(110,168,138,.16);border-color:rgba(122,155,110,.7);color:var(--green)}
+.ax-sp.blk{background:rgba(176,90,90,.2);border-color:var(--red);color:var(--red)}
+/* 이 스텝에 생긴 것 · 바뀐 것 — 무엇이 달라졌는지가 화면의 요점이다 */
+.ax-sp.new{box-shadow:0 0 0 1px rgba(232,237,236,.28)}
+.ax-sp.new span{color:var(--ink)}
+.ax-sp.mod{box-shadow:0 0 0 1px rgba(94,134,201,.3)}
+.ax-lb{position:absolute;left:12px;bottom:6px;font:400 8px var(--mono);letter-spacing:.14em;
+  color:var(--faint)}
+
+/* ── graph : 대기 사이클. 노드를 한 줄로 놓고 간선을 위(정방향) 아래(되돌아오는 것) ──
+   간선의 left/width 는 Graph.jsx 가 실측한 노드 중심(px)이다. */
+.gr{position:relative;flex:1;min-height:0;padding:22px 8px 24px;display:flex;
+  align-items:center;justify-content:space-around;gap:6px}
+.gr-n{position:relative;z-index:2;border:1px solid var(--line);background:var(--panel2);
+  padding:5px 9px 6px;display:flex;flex-direction:column;gap:2px;min-width:0;
+  transition:border-color .3s,background .3s}
+.gr-n .id{font:500 10px var(--mono);color:var(--body);white-space:nowrap}
+.gr-n .sub{font:400 8px var(--mono);color:var(--faint);white-space:nowrap}
+.gr-n.hold{border-color:rgba(184,160,85,.55)}
+.gr-n.hold .id{color:var(--gold)}
+.gr-n.wait{border-color:rgba(176,90,90,.55)}
+.gr-n.wait .id{color:var(--red)}
+.gr-n.x{border-color:var(--red);background:rgba(176,90,90,.12)}
+.gr-n.x .id{color:var(--red);text-decoration:line-through}
+.gr-n.new{border-color:var(--accent);background:rgba(94,134,201,.09)}
+.gr-n.mod{border-color:rgba(94,134,201,.45)}
+
+.gr-e{position:absolute;height:11px;border:1px solid var(--faint);border-bottom:none;z-index:1;
+  display:flex;align-items:flex-start;justify-content:center;pointer-events:none}
+.gr-e.dn{border-top:none;border-bottom:1px solid var(--faint);align-items:flex-end}
+.gr-e span{font:400 7.5px var(--mono);letter-spacing:.1em;color:var(--faint);
+  background:var(--panel);padding:0 4px;transform:translateY(-52%);white-space:nowrap}
+.gr-e.dn span{transform:translateY(52%)}
+.gr-e.hot{border-color:var(--red)}
+.gr-e.hot span{color:var(--red)}
+.gr-e.new{border-color:var(--accent)}
+.gr-e.new span{color:var(--accent)}
+/* 화살머리 : 목적지 쪽 다리 끝에 붙어 노드를 가리킨다.
+   위쪽 간선은 아래로, 아래쪽(되돌아오는) 간선은 위로 향한다. */
+.gr-ah{position:absolute;width:0;height:0;border-left:3px solid transparent;
+  border-right:3px solid transparent;border-top:4px solid var(--faint);bottom:-4px}
+.gr-e.dn .gr-ah{border-top:none;border-bottom:4px solid var(--faint);bottom:auto;top:-4px}
+.gr-ah.l{left:0;transform:translateX(-50%)}
+.gr-ah.r{right:0;transform:translateX(50%)}
+.gr-e.hot .gr-ah{border-top-color:var(--red)}
+.gr-e.hot.dn .gr-ah{border-bottom-color:var(--red)}
+.gr-e.new .gr-ah{border-top-color:var(--accent)}
+.gr-e.new.dn .gr-ah{border-bottom-color:var(--accent)}
+.gr-cy{position:absolute;left:8px;bottom:4px;font:500 8px var(--mono);letter-spacing:.16em;
+  color:var(--red)}
+
+/* ── tree : B+tree. 레벨별로 한 줄, 노드마다 채움률 ── */
+.tr{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center;gap:9px;
+  padding:4px 2px}
+/* position:relative 가 필요하다 — AnimatePresence 의 popLayout 은 나가는 자식을
+   position:absolute 로 바꾼다. 여기가 static 이면 그 자식의 컨테이닝 블록이 문서 최상단이
+   되어 카드 밖으로 튀어나간다. book-ch2/01/2 에서 사라지는 노드가 카드를 318px 넘었다. */
+.tr-lv{position:relative;display:flex;justify-content:center;gap:7px;align-items:stretch;
+  flex-wrap:wrap}
+.tr-n{border:1px solid var(--line);background:rgba(255,255,255,.012);padding:3px 6px 4px;
+  min-width:0;max-width:100%;display:flex;flex-direction:column;gap:2px;
+  transition:border-color .3s,background .3s}
+.tr-n .id{font:400 9px var(--mono);color:var(--faint);white-space:nowrap;letter-spacing:.04em}
+/* 키 범위 라벨은 '1 ‥ 400' 처럼 길어질 수 있다. nowrap 이면 노드 테두리를 넘어
+   흘러나가므로 접히게 둔다 — 한글은 어절 단위로(keep-all), 그래도 넘치면 어디서든(anywhere). */
+.tr-n .kv2{font:400 9.5px var(--mono);color:var(--body);
+  white-space:normal;word-break:keep-all;overflow-wrap:anywhere}
+.tr-n .fb{display:block;height:3px;border:1px solid var(--line);position:relative;
+  overflow:hidden;margin-top:1px}
+.tr-n .fb i{position:absolute;left:0;top:0;bottom:0;background:var(--mid);opacity:.6}
+.tr-n.full .fb i{background:var(--gold);opacity:.85}
+.tr-n.full{border-color:rgba(184,160,85,.5)}
+.tr-n.new{border-color:var(--accent);background:rgba(94,134,201,.09)}
+.tr-n.mod{border-color:rgba(94,134,201,.5)}
+.tr-lb{font:400 7.5px var(--mono);letter-spacing:.16em;color:var(--mid);text-align:center;
+  text-transform:uppercase}
+
+/* ── gg : 어떤 kind 위에도 덧붙는 게이지 ── */
+.gg{margin-top:2px}
+.gg-tr{height:7px;border:1px solid var(--line);position:relative;overflow:hidden}
+.gg-tr i{position:absolute;left:0;top:0;bottom:0;background:var(--accent);opacity:.5;
+  transition:background .4s,opacity .4s}
+.gg.warn .gg-tr i{background:var(--gold);opacity:.72}
+.gg.crit .gg-tr i{background:var(--red);opacity:.85}
+.gg-lb{display:flex;justify-content:space-between;font:400 8.5px var(--mono);
+  letter-spacing:.08em;color:var(--faint);margin-top:3px}
+.gg-lb b{color:var(--body);font-weight:400}

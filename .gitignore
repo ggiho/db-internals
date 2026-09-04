@@ -1,0 +1,11 @@
+node_modules/
+dist/
+
+# 책 본문 — Database Internals (Alex Petrov, O'Reilly) 의 장 전문이다.
+# 검증 도구(tools/verify.js)가 "덱의 인용이 실제 책에 있는지" 대조하는 데만 쓰고
+# 앱과 배포물은 쓰지 않는다. 공개 저장소에 두면 저작물 재배포가 되므로 제외한다.
+# 만들려면 : node tools/book.js <덱>   (booksrc.js 에 PDF 위치를 적어야 한다)
+data/*/*/booktext.js
+
+# 책 PDF 위치 — 각자 로컬 경로다
+data/*/*/booksrc.js
