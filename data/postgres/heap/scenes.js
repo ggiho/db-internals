@@ -79,7 +79,7 @@ const SCENES = [
 
   { look:{ hdr:['pd_prune_xid'] },
     note:'마지막 4바이트는 "여기 치울 것이 있다" 는 쪽지다',
-    why:'pd_prune_xid 는 이 페이지에서 정리 가능한 가장 오래된 XID 다. 0 이면 치울 것이 없다는 뜻이라 즉시 정리가 그 자리에서 빠져나온다 — mvcc 덱 03 의 heap_page_prune_opt 가 이 값을 먼저 본다.',
+    why:'pd_prune_xid 는 이 페이지에서 정리 가능한 가장 오래된 XID 다. 0 이면 치울 것이 없다는 뜻이라 즉시 정리(pruning)가 그 자리에서 빠져나온다 — mvcc 덱 03 의 heap_page_prune_opt 가 이 값을 먼저 본다.',
     key:'MVCC 를 힙에 두었기 때문에 <em>페이지 헤더에 정리용 필드가 필요해진다</em>. InnoDB 헤더에는 이런 필드가 없다 — 옛 버전이 undo 에 있으니 페이지가 정리를 알 필요가 없다.',
     ref:'src/include/storage/bufpage.h', sym:'PageHeaderData',
     fact:[['src/include/storage/bufpage.h','TransactionId pd_prune_xid;']],
@@ -135,7 +135,7 @@ const SCENES = [
 
   { look:{ lp:true, cmp:true },
     note:'LP_REDIRECT 가 HOT 사슬의 이음매다',
-    why:'HOT 갱신에서 인덱스는 옛 라인 포인터를 계속 가리킨다. 즉시 정리가 옛 튜플을 치우면 그 포인터를 지울 수 없으므로 REDIRECT 로 바꿔 새 튜플을 가리키게 한다 — lp_len 은 0 이 된다.',
+    why:'HOT 갱신에서 인덱스는 옛 라인 포인터를 계속 가리킨다. 즉시 정리(pruning)가 옛 튜플을 치우면 그 포인터를 지울 수 없으므로 REDIRECT 로 바꿔 새 튜플을 가리키게 한다 — lp_len 은 0 이 된다.',
     key:'mvcc 덱 07 의 HOT 이 <em>이 두 비트로 성립한다</em>. InnoDB 는 세컨더리 인덱스가 항상 클러스터를 다시 찾으므로 이런 이음매가 필요 없다 — 대신 매번 두 번 찾는다.',
     ref:'src/include/storage/itemid.h', sym:'LP_REDIRECT',
     fact:[['src/include/storage/itemid.h','#define LP_REDIRECT		2		/* HOT redirect (should have lp_len=0) */']],
@@ -144,7 +144,7 @@ const SCENES = [
   { look:{ sp:true },
     note:'그래서 포인터 비용도 다르다 — 튜플마다 하나씩',
     why:'PG 는 튜플마다 라인 포인터 하나가 필요하다(4바이트). InnoDB 는 슬롯을 4~8개 레코드마다 하나만 둔다(book/ch3 06) — 레코드 하나당 평균 0.25~0.5바이트다.',
-    key:'같은 8KB 에서 <em>PG 는 포인터에 더 쓰고 대신 길이를 얻는다</em>. 어느 쪽이 낫다기보다, 가시성을 힙에 둔 설계가 헤더 비용을 계속 요구한다는 점이 일관된다.',
+    key:'같은 8KB 에서 <em>PG 는 포인터에 더 쓰고 대신 길이를 얻는다</em>. 어느 쪽이 낫다기보다, 가시성(visibility)을 힙에 둔 설계가 헤더 비용을 계속 요구한다는 점이 일관된다.',
     ref:'src/include/storage/bufpage.h', sym:'PageHeaderData',
     fact:[['src/include/storage/itemid.h','lp_flags:2,		/* state of line pointer, see below */']],
     ops:{ sp:{ set:{ '레코드당':'PG 4B  ·  InnoDB 0.25~0.5B' } } },

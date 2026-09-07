@@ -688,7 +688,7 @@ const SCENES = [
   { act:{ f:'op', t:'bt', lb:'3단계 · 11 을 넣는다' },
     note:'책의 3단계 — 두 노드 중 맞는 쪽에 새 키를 넣는다',
     why:'승격된 키(10)보다 작으면 왼쪽, 크거나 같으면 오른쪽이다. 11 은 10 보다 크므로 오른쪽이다.',
-    key:'판정 근거가 <em>분리 키 불변식</em>이다. 06 에서 본 그 한 줄이 여기서 쓰인다.',
+    key:'판정 근거가 <em>분리 키(separator key) 불변식</em>이다. 06 에서 본 그 한 줄이 여기서 쓰인다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_insert_rec_low',
     ops:{ bt:{ set:{ 'leaf R':{ keys:'10 [11] 12 13', fill:.67 } } },
           node:{ set:{ 'leaf R':{ tag:'ok', sub:'11 삽입 완료 · 4/6' } } },
@@ -864,7 +864,7 @@ const SCENES = [
 
   { look:{ blk:true },
     note:'"너무 비었다" 의 기준은 코드에 식으로 있다',
-    why:'BTR_CUR_PAGE_COMPRESS_LIMIT(index) 는 (UNIV_PAGE_SIZE × index->merge_threshold) / 100 이다. merge_threshold 기본값은 DICT_INDEX_MERGE_THRESHOLD_DEFAULT = 50 이므로 16KB × 50 / 100 = 8192바이트다. 주석이 그대로 말한다 — 비관적 삭제에서 페이지 데이터 크기가 이 한계 아래로 떨어지면 이웃과 병합을 시도한다.',
+    why:'BTR_CUR_PAGE_COMPRESS_LIMIT(index) 는 (UNIV_PAGE_SIZE × index->merge_threshold) / 100 이다. merge_threshold 기본값은 DICT_INDEX_MERGE_THRESHOLD_DEFAULT = 50 이므로 16KB × 50 / 100 = 8192바이트다. 주석이 그대로 말한다 — 비관적 삭제(pessimistic delete)에서 페이지 데이터 크기가 이 한계 아래로 떨어지면 이웃과 병합을 시도한다.',
     key:'절반이라는 기준은 <em>인덱스마다 바꿀 수 있다</em>. merge_threshold 는 인덱스 속성이므로, 삭제가 많은 인덱스만 문턱을 낮춰 병합을 덜 하게 만들 수 있다.',
     ref:'storage/innobase/include/btr0cur.h', sym:'BTR_CUR_PAGE_COMPRESS_LIMIT',
     fact:[['storage/innobase/include/btr0cur.h','#define BTR_CUR_PAGE_COMPRESS_LIMIT(index)'],
