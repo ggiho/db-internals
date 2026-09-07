@@ -89,7 +89,7 @@ const HEIGHT = {
 };
 const hOf = (w) => HEIGHT[w] || Math.round(w * 0.58);
 
-const DECKS = ARG.decks ? ARG.decks.split(',') : ['mysql/innodb', 'mysql/locks', 'book/ch2', 'book/ch3'];
+const DECKS = ARG.decks ? ARG.decks.split(',') : ['mysql/innodb', 'mysql/locks', 'postgres/mvcc', 'book/ch2', 'book/ch3'];
 const EVERY = Math.max(1, parseInt(ARG.every || '1', 10)); /* 1 = 모든 스텝 */
 const DO_SPLIT = ARG.split !== '0';
 const BREAK = ARG.break || '';

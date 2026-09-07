@@ -5,6 +5,7 @@
 import fs from 'fs';
 import { execSync } from 'child_process';
 import path from 'path';
+import { srcRoot } from './srcroot.js';
 
 /* 데이터 로딩 — eval 이 아니라 import() 다. 데이터 파일이 export 를 갖게 되면서
    기존 eval 로더(^const → globalThis)는 export 문에서 깨진다. */
@@ -27,14 +28,19 @@ async function loadDeck(deck) {
 /* MySQL 소스 위치. 기본값은 이 프로젝트의 형제 디렉터리 ../mysql-server 다 —
    절대경로를 박으면 다른 사람이 쓸 수 없고 사용자명이 저장소에 남는다.
    다른 곳에 있으면 MYSQL_SRC 로 지정한다. */
-const REPO = process.env.MYSQL_SRC || path.resolve(ROOT, '..', 'mysql-server');
 const DECK = process.argv[2];
 if (!DECK) { console.error('사용법: node claimcheck.js <덱경로>'); process.exit(2); }
+const REPO = srcRoot(DECK, ROOT);
 await loadDeck(DECK);
 
 /* 저장소에서 상수 정의를 찾는다 (constexpr · #define · static const · enum 초기화) */
 const cache = new Map();
-const GREP_PATHS = [REPO + '/storage/innobase', REPO + '/sql', REPO + '/include'].join(' ');
+/* 검색 경로도 덱마다 다르다 — MySQL 은 storage/innobase·sql·include 이고
+   PostgreSQL 은 src 다. 경로를 박아 두면 PG 덱에서 없는 디렉터리를 뒤져
+   "정의 못 찾음" 이 조용히 쌓인다(실측 : HEAP_XMAX_LOCK_ONLY 등 2건). */
+const GREP_PATHS = (String(DECK).split('/')[0] === 'postgres'
+  ? [REPO + '/src']
+  : [REPO + '/storage/innobase', REPO + '/sql', REPO + '/include']).join(' ');
 function lookup(name) {
   if (cache.has(name)) return cache.get(name);
   /* grep 은 -F 로 이름만 고정 문자열로 찾고, 판별은 JS 에서 한다 —
@@ -54,7 +60,7 @@ function lookup(name) {
     new RegExp('constexpr\\s[\\w:<>*\\s]*\\b' + name + '\\s*=\\s*([^;]+);'),
     new RegExp('#define\\s+' + name + '\\s+([^/\\n]+)'),
     new RegExp('static\\s+const\\s[\\w\\s]*\\b' + name + '\\s*=\\s*([^;]+);'),
-    new RegExp('\\b' + name + '\\s*=\\s*(\\d+|0x[0-9A-Fa-f]+)\\s*[,}]'),
+    new RegExp('\\b' + name + '\\s*=\\s*(0x[0-9A-Fa-f]+|\\d+)\\s*[,}]'),
   ];
   const vals = new Set();
   for (const ln of lines)
@@ -79,7 +85,9 @@ for (const sc of SCENES) sc.steps.forEach((st, i) => {
   const S = 'SCENE ' + sc.num + '.' + String(i + 1).padStart(2, '0');
   const txt = [st.note, st.why, st.key].filter(Boolean).join(' ');
   /* NAME = 값  ·  NAME(값) */
-  const re = /\b([A-Z][A-Z0-9_]{5,})\s*(?:=\s*|\(\s*=?\s*)([0-9]+|0x[0-9A-Fa-f]+|[0-9]+\s*<<\s*[0-9]+)/g;
+  /* 16진수를 먼저 시도해야 한다 — [0-9]+ 를 앞에 두면 0x0080 에서 '0' 만 집어
+     "덱 0 ≠ 저장소 128" 같은 거짓 불일치가 난다(실측 : PostgreSQL infomask 비트 2건). */
+  const re = /\b([A-Z][A-Z0-9_]{5,})\s*(?:=\s*|\(\s*=?\s*)(0x[0-9A-Fa-f]+|[0-9]+\s*<<\s*[0-9]+|[0-9]+)/g;
   let m;
   while ((m = re.exec(txt))) {
     const name = m[1], claimed = num(m[2]);

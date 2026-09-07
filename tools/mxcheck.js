@@ -2,6 +2,7 @@
    regex 로 긁었더니 0개를 찾고도 "불일치 0" 을 보고했다. 0개면 실패로 끝낸다. */
 import fs from 'fs';
 import path from 'path';
+import { srcRoot } from './srcroot.js';
 
 /* 데이터 로딩 — eval 이 아니라 import() 다. 데이터 파일이 export 를 갖게 되면서
    기존 eval 로더(^const → globalThis)는 export 문에서 깨진다. */
@@ -24,9 +25,9 @@ async function loadDeck(deck) {
 /* MySQL 소스 위치. 기본값은 이 프로젝트의 형제 디렉터리 ../mysql-server 다 —
    절대경로를 박으면 다른 사람이 쓸 수 없고 사용자명이 저장소에 남는다.
    다른 곳에 있으면 MYSQL_SRC 로 지정한다. */
-const REPO = process.env.MYSQL_SRC || path.resolve(ROOT, '..', 'mysql-server');
 const DECK = process.argv[2];
 if (!DECK) { console.error('사용법: node mxcheck.js <덱경로>'); process.exit(2); }
+const REPO = srcRoot(DECK, ROOT);
 await loadDeck(DECK);
 
 /* 덱에서 모든 matrix 를 모은다 */

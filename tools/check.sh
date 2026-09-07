@@ -4,7 +4,7 @@
 set -e
 cd "$(dirname "$0")/.."
 FAIL=0
-for d in mysql/innodb mysql/locks book/ch2 book/ch3; do
+for d in mysql/innodb mysql/locks postgres/mvcc book/ch2 book/ch3; do
   printf '── %s\n' "$d"
   node tools/verify.js     "$d" || FAIL=1
   node tools/mxcheck.js    "$d" || FAIL=1

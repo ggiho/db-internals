@@ -2,6 +2,7 @@
    줄 번호를 손으로 쓰면 반드시 썩는다 — 빌드가 매번 다시 찾게 한다. */
 import fs from 'fs';
 import path from 'path';
+import { srcRoot } from './srcroot.js';
 
 /* 데이터 로딩 — eval 이 아니라 import() 다. 데이터 파일이 export 를 갖게 되면서
    기존 eval 로더(^const → globalThis)는 export 문에서 깨진다. */
@@ -24,9 +25,9 @@ async function loadDeck(deck) {
 /* MySQL 소스 위치. 기본값은 이 프로젝트의 형제 디렉터리 ../mysql-server 다 —
    절대경로를 박으면 다른 사람이 쓸 수 없고 사용자명이 저장소에 남는다.
    다른 곳에 있으면 MYSQL_SRC 로 지정한다. */
-const REPO = process.env.MYSQL_SRC || path.resolve(ROOT, '..', 'mysql-server');
 const DECK = process.argv[2];
 if (!DECK) { console.error('사용법: node lines.js <덱경로>'); process.exit(2); }
+const REPO = srcRoot(DECK, ROOT);
 /* 데이터 파일이 ESM(export)으로 바뀐 뒤에도 이 한 줄만 eval 로 남아 있었다 —
    `export { SCENES }` 에서 SyntaxError 로 죽는다. 위에 이미 있는 loadDeck 을 쓴다.
    (파일 상단 주석은 이미 import 를 쓴다고 적혀 있었는데 이 줄이 안 바뀌어 있었다.) */
@@ -62,6 +63,10 @@ for (const [key, { f, s }] of want) {
       const at = ln.search(new RegExp('\\b' + esc(bare) + '\\s*\\('));
       if (at > 0 && /(->|\.)\s*$/.test(ln.slice(0, at))) continue;   // 호출부다 (Class:: 는 정의다)
       if (/^\s*(return|if|while|for|ut_ad|ut_a|ib::|ASSERT)\b/.test(ln)) continue;
+      /* 주석 줄은 정의가 아니다 — 마지막 패턴이 접두어에 '*' 를 허용하므로
+         " *  HeapTupleSatisfiesMVCC()" 같은 문서 주석의 함수 목록이 정의로 잡힌다.
+         실측 : PostgreSQL heapam_visibility.c 에서 960(정의) 대신 40(주석)이 나왔다. */
+      if (/^\s*(\/\*|\*|\/\/)/.test(ln)) continue;
       hit = i + 1; break;
     }
     if (hit > 0) break;
@@ -76,6 +81,22 @@ for (const [key, { f, s }] of want) {
       new RegExp('^\\s*' + esc(bare) + '\\s*=\\s*[^;]*,\\s*$'),
     ];
     for (const re of cpats) {
+      for (let i = 0; i < src.length; i++) {
+        if (re.test(src[i])) { hit = i + 1; break; }
+      }
+      if (hit > 0) break;
+    }
+  }
+  /* 함수도 상수도 아니면 *타입 정의* 를 찾는다 — struct·union·enum·typedef.
+     PostgreSQL 편은 구조체(HeapTupleHeaderData 등)를 직접 지목하는 일이 많다.
+     세 형태를 본다 : 앞에 오는 정의, typedef 의 꼬리(} 이름;), 그리고 typedef 한 줄. */
+  if (hit <= 0) {
+    const tpats = [
+      new RegExp('^\\s*(?:typedef\\s+)?(?:struct|union|enum)\\s+' + esc(bare) + '\\b'),
+      new RegExp('^\\s*\\}\\s*' + esc(bare) + '\\s*;'),
+      new RegExp('^\\s*typedef\\b.*\\b' + esc(bare) + '\\s*;'),
+    ];
+    for (const re of tpats) {
       for (let i = 0; i < src.length; i++) {
         if (re.test(src[i])) { hit = i + 1; break; }
       }

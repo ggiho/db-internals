@@ -22,6 +22,7 @@ async function loadDeck(deck) {
   return g;
 }
 /* 기본값은 형제 디렉터리 ../mysql-server — MYSQL_SRC 로 덮어쓸 수 있다. */
+/* 이 도구는 덱과 무관하게 MySQL 소스에서 전역 표를 만든다 — 덱별 소스 루트가 필요 없다. */
 const R = process.env.MYSQL_SRC || path.resolve(ROOT, '..', 'mysql-server');
 const src = fs.readFileSync(R + '/storage/innobase/handler/ha_innodb.cc', 'utf8');
 const out = {};
