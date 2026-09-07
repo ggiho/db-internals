@@ -4,10 +4,13 @@
 set -e
 cd "$(dirname "$0")/.."
 FAIL=0
-for d in mysql/innodb mysql/locks postgres/mvcc book/ch2 book/ch3; do
+for d in mysql/innodb mysql/locks postgres/mvcc postgres/heap postgres/locks book/ch2 book/ch3; do
   printf '── %s\n' "$d"
   node tools/verify.js     "$d" || FAIL=1
-  node tools/mxcheck.js    "$d" || FAIL=1
+  # mxcheck 는 InnoDB 주석의 ASCII 표를 읽는다 — PG 덱에는 그 파일이 없다
+  case "$d" in postgres/*) : ;; *) node tools/mxcheck.js "$d" || FAIL=1 ;; esac
+  # PG 는 충돌 표가 비트마스크 배열이라 형식이 달라 별도 도구다
+  case "$d" in postgres/*) node tools/pgmx.js "$d" || FAIL=1 ;; esac
   node tools/claimcheck.js "$d" || FAIL=1
 done
 [ "$FAIL" = 0 ] && echo "── 전부 통과" || { echo "── 실패 있음"; exit 1; }

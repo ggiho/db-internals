@@ -38,9 +38,20 @@ const cache = new Map();
 /* 검색 경로도 덱마다 다르다 — MySQL 은 storage/innobase·sql·include 이고
    PostgreSQL 은 src 다. 경로를 박아 두면 PG 덱에서 없는 디렉터리를 뒤져
    "정의 못 찾음" 이 조용히 쌓인다(실측 : HEAP_XMAX_LOCK_ONLY 등 2건). */
-const GREP_PATHS = (String(DECK).split('/')[0] === 'postgres'
+/* PG 덱은 InnoDB 상수를 대조로 인용한다(예 : "InnoDB 의 FIL_PAGE_DATA = 38 은
+   리터럴이다"). 그래서 자기 트리만 뒤지면 그 주장이 "정의 못 찾음" 으로 빠진다 —
+   두 트리를 모두 본다. 상대 엔진 트리가 없으면 그 경로는 조용히 빠진다. */
+const OTHER = srcRoot(String(DECK).split('/')[0] === 'postgres' ? 'mysql/x' : 'postgres/x', ROOT);
+const SELF = (String(DECK).split('/')[0] === 'postgres'
   ? [REPO + '/src']
-  : [REPO + '/storage/innobase', REPO + '/sql', REPO + '/include']).join(' ');
+  : [REPO + '/storage/innobase', REPO + '/sql', REPO + '/include']).filter((d) => fs.existsSync(d));
+const CROSS = (String(DECK).split('/')[0] === 'postgres'
+  ? [OTHER + '/storage/innobase', OTHER + '/include']
+  : [OTHER + '/src']).filter((d) => fs.existsSync(d));
+/* 자기 트리를 먼저 보고, 못 찾을 때만 상대 트리를 본다 — 둘을 항상 뒤지면
+   덱 하나에 2분이 넘는다(실측). 대조 인용은 소수이므로 이 순서가 훨씬 빠르다. */
+const GREP_PATHS = SELF.join(' ');
+const GREP_PATHS_CROSS = CROSS.join(' ');
 function lookup(name) {
   if (cache.has(name)) return cache.get(name);
   /* grep 은 -F 로 이름만 고정 문자열로 찾고, 판별은 JS 에서 한다 —
@@ -68,6 +79,20 @@ function lookup(name) {
       const m = ln.match(re);
       if (m) { vals.add(m[1].trim().replace(/\s+/g, ' ')); break; }
     }
+  /* 자기 트리에서 못 찾았으면 상대 엔진 트리를 본다 — PG 덱이 InnoDB 상수를
+     대조로 인용하는 경우다(예 : FIL_PAGE_DATA = 38). 처음부터 둘을 뒤지면
+     덱 하나에 2분이 넘으므로 이 순서가 중요하다. */
+  if (!vals.size && GREP_PATHS_CROSS) {
+    let more = [];
+    try {
+      more = execSync('grep -rhF ' + JSON.stringify(name) + ' ' + GREP_PATHS_CROSS + ' 2>/dev/null | head -200',
+        { encoding: 'utf8', maxBuffer: 1 << 24 }).split('\n');
+    } catch (e) {
+      if (!/exit code 1/.test(String(e.status))) { console.error('  ! 상대 트리 grep 실패: ' + String(e.message).slice(0,80)); process.exitCode = 2; }
+    }
+    for (const ln of more)
+      for (const re of pats) { const m = ln.match(re); if (m) { vals.add(m[1].trim().replace(/\s+/g, ' ')); break; } }
+  }
   const out = vals.size ? [...vals] : null;
   cache.set(name, out);
   return out;

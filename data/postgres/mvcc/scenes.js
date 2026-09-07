@@ -31,7 +31,7 @@ const SCENES = [
   { look:{ hdr:true },
     note:'t_xmax 는 두 가지 일을 한다 — 삭제와 행 락',
     why:'주석이 "deleting or locking xact ID" 다. 삭제도 여기에, 행 락도 여기에 쓴다. 둘을 구분하는 것은 별도 필드가 아니라 infomask 의 HEAP_XMAX_LOCK_ONLY(0x0080) 비트다.',
-    key:'InnoDB 는 행 락을 <em>메모리의 락 구조체</em>로 만든다. PG 는 <em>튜플에 적는다</em> — 그래서 PG 에는 "락 테이블이 넘친다" 는 말이 없고, 대신 락을 잡으면 그 페이지가 더러워진다.',
+    key:'InnoDB 는 행 락을 <em>메모리의 락 구조체</em>로 만든다. PG 는 <em>행 락만 튜플에 적는다</em> — 그래서 행 락은 아무리 많아도 메모리를 안 먹지만, 대신 락을 잡으면 그 페이지가 더러워진다. 테이블·객체 락은 PG 도 공유 메모리 표에 두고 그것은 넘칠 수 있다(max_locks_per_transaction 기본 64) — locks 덱에서 본다.',
     ref:'src/include/access/htup_details.h', sym:'HeapTupleFields',
     fact:[['src/include/access/htup_details.h','deleting or locking xact ID'],
           ['src/include/access/htup_details.h','#define HEAP_XMAX_LOCK_ONLY']] },

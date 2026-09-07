@@ -14,6 +14,8 @@ const DECKS = {
   'mysql/innodb': { g: 'MYSQL', lb: 'innodb', load: () => import('../data/mysql/innodb/index.js') },
   'mysql/locks':  { g: 'MYSQL', lb: 'locks',  load: () => import('../data/mysql/locks/index.js') },
   'postgres/mvcc':{ g: 'POSTGRES', lb: 'mvcc', load: () => import('../data/postgres/mvcc/index.js') },
+  'postgres/heap':{ g: 'POSTGRES', lb: 'heap', load: () => import('../data/postgres/heap/index.js') },
+  'postgres/locks':{ g: 'POSTGRES', lb: 'locks', load: () => import('../data/postgres/locks/index.js') },
   'book/ch2':     { g: 'BOOK',  lb: 'ch2',    load: () => import('../data/book/ch2/index.js') },
   'book/ch3':     { g: 'BOOK',  lb: 'ch3',    load: () => import('../data/book/ch3/index.js') },
 };

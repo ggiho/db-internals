@@ -95,6 +95,12 @@ for (const [key, { f, s }] of want) {
       new RegExp('^\\s*(?:typedef\\s+)?(?:struct|union|enum)\\s+' + esc(bare) + '\\b'),
       new RegExp('^\\s*\\}\\s*' + esc(bare) + '\\s*;'),
       new RegExp('^\\s*typedef\\b.*\\b' + esc(bare) + '\\s*;'),
+      /* 배열·변수 정의도 찾는다 — PostgreSQL 의 LockConflicts[] 처럼
+         함수도 상수도 타입도 아닌 "표" 가 심볼일 수 있다. */
+      new RegExp('^\\s*(?:static\\s+)?(?:const\\s+)?\\w[\\w\\s\\*]*\\b' + esc(bare) + '\\s*\\[\\s*\\]\\s*='),
+      /* 초기화 없는 전역 변수 선언도 정의다 — PostgreSQL 의
+         "int\t\tmax_locks_per_xact;" 처럼 GUC 값을 받는 변수가 그렇다. */
+      new RegExp('^(?:static\\s+)?\\w[\\w\\s\\*]*?\\b' + esc(bare) + '\\s*;'),
     ];
     for (const re of tpats) {
       for (let i = 0; i < src.length; i++) {
