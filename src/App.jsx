@@ -52,6 +52,14 @@ export default function App() {
   const [split, setSplit] = useState(false);
   const [srcOpen, setSrcOpen] = useState(false);
   const [srcVisible, setSrcVisible] = useState(false);
+  /* 테마 : 'auto' 는 속성을 지우고 시스템 설정에 맡긴다. 명시적 선택만 저장한다 —
+     그래야 시스템 설정을 바꿨을 때 따라간다. */
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'auto');
+  useEffect(() => {
+    const r = document.documentElement;
+    if (theme === 'auto') { r.removeAttribute('data-theme'); localStorage.removeItem('theme'); }
+    else { r.setAttribute('data-theme', theme); localStorage.setItem('theme', theme); }
+  }, [theme]);
 
   const deckName = DECKS[route.deck] ? route.deck : DEFAULT_DECK;
 
@@ -173,6 +181,11 @@ export default function App() {
             </span>
           ))}
         </nav>
+        <button type="button" className="thm" onClick={() => setTheme(
+          theme === 'auto' ? 'light' : theme === 'light' ? 'dark' : 'auto')}
+          title={'테마 : ' + (theme === 'auto' ? '시스템 따름' : theme === 'light' ? '밝게' : '어둡게') + ' (눌러서 전환)'}>
+          {theme === 'auto' ? 'AUTO' : theme === 'light' ? 'LIGHT' : 'DARK'}
+        </button>
       </header>
 
       <nav className="tabs">
@@ -276,9 +289,12 @@ export default function App() {
         <span><b>HOME</b> 처음으로</span>
         <span><b>S</b> 소스 보기</span>
         {pairOK && <span><b>V</b> 나란히 보기</span>}
-        {/* 공개 배포용 출처 — 소스 발췌는 GPLv2, 책 인용은 짧은 구절이다. */}
+        {/* 출처는 덱마다 다르다 — PostgreSQL 은 GPLv2 가 아니라 PostgreSQL License 다.
+            MySQL 로 박아 두었더니 PG 덱에서 틀린 라이선스를 표기했다. */}
         <span className="cred">
-          소스 발췌 <b>MySQL 8.4.8 Community</b> (GPLv2)
+          {deckName.startsWith('postgres/')
+            ? <>소스 발췌 <b>PostgreSQL 18.6</b> (PostgreSQL License)</>
+            : <>소스 발췌 <b>MySQL 8.4.8 Community</b> (GPLv2)</>}
           {deckName.startsWith('book/') && <> · 인용 <b>Database Internals</b> — Alex Petrov (O&apos;Reilly)</>}
         </span>
       </div>

@@ -432,6 +432,11 @@ async function main() {
   let curDeck = null;
   const openDeck = async (d) => {
     await page.goto(`${BASE}/?deck=${d}#${d}`, { waitUntil: 'load' });
+    /* 테마는 문서를 새로 실을 때마다 다시 지정해야 한다 — --theme=light 로 밝은 모드를
+       훑는다. 지정하지 않으면 앱의 기본(시스템 따름)이고, 헤드리스는 dark 로 온다. */
+    if (ARG.theme) await page.evaluate((t) => {
+      document.documentElement.setAttribute('data-theme', t);
+    }, ARG.theme);
     await page.waitForSelector('.tabs a', { timeout: 20000 });
     await page.waitForFunction((deck) => {
       const on = document.querySelector('.decks a.on');

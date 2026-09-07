@@ -3,6 +3,13 @@
   --bg:#08090A; --panel:#0C0E0F; --panel2:#111415; --line:#1B2020;
   --ink:#E8EDEC; --body:#9AA6A3; --faint:#5E6B68; --mid:#39423F;
   --accent:#5E86C9; --gold:#B8A055; --green:#7A9B6E; --red:#B05A5A;
+  /* 토큰 밖에 하드코딩돼 있던 색들 — light 모드가 이것들을 바꿔야 하므로 올린다.
+     --hair 는 점선 구분선, --thumb 는 스크롤바, --wash 는 hover 덧칠,
+     --dim 은 줄번호처럼 아주 흐린 글자, --tick 은 재생 눈금의 지난 자리다. */
+  --hair:#161B1B; --hair2:#1A2020; --thumb:#1E2424; --wash:rgba(255,255,255,.02);
+  --wash2:rgba(255,255,255,.012); --dim:#2C3333; --dim2:#2E3636; --tick:#2C3A4E;
+  /* 문법 강조 — 키워드·타입·문자열·숫자·주석·전처리기 */
+  --c-k:#8FA9D6; --c-t:#7FB39B; --c-s:#C4A96A; --c-n:#C99A8A; --c-c:#5E6B68; --c-p:#5F7A9B;
   --mono:'SF Mono',ui-monospace,Menlo,monospace;
   --sans:-apple-system,'Pretendard',system-ui,sans-serif;
 }
@@ -18,6 +25,36 @@ html,body{background:var(--bg);color:var(--body);font-family:var(--sans)}
 /* 머리·탭·제목·타임라인·캡션은 줄어들지 않는다 — 줄어들 것은 무대뿐이다.
    기본 flex-shrink:1 이면 높이가 모자랄 때 캡션 글자가 먼저 잘렸다. */
 .top,.tabs,.head,.bar,.play,.cap,.foot{flex:0 0 auto}
+
+/* ── light 모드 ──
+   토큰만 바꾼다 — 규칙은 하나도 다시 쓰지 않는다. 그래서 어느 쪽 테마에서도
+   레이아웃이 같고, 스윕이 잡는 넘침·겹침도 같은 결과를 낸다.
+   세 상태를 모두 덮는다 : 시스템 설정(prefers-color-scheme)과
+   명시적 선택(data-theme). 명시적 선택이 시스템을 이겨야 하므로 뒤에 둔다. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg:#FBFBFA; --panel:#FFFFFF; --panel2:#F4F5F4; --line:#E2E4E2;
+    --ink:#161A19; --body:#4A5250; --faint:#8A9391; --mid:#B4BAB8;
+    --accent:#2F5CA8; --gold:#8A6D1F; --green:#3F6B33; --red:#9B3232;
+    --hair:#EDEFED; --hair2:#E7E9E7; --thumb:#CDD1CF;
+    --wash:rgba(0,0,0,.035); --wash2:rgba(0,0,0,.022);
+    --dim:#C3C8C6; --dim2:#B9BFBD; --tick:#B6C4DC;
+    --c-k:#1F4FA0; --c-t:#1F6B52; --c-s:#8A5A10; --c-n:#9B4A34; --c-c:#8A9391; --c-p:#4A6A94;
+  }
+}
+:root[data-theme="light"] {
+  --bg:#FBFBFA; --panel:#FFFFFF; --panel2:#F4F5F4; --line:#E2E4E2;
+  --ink:#161A19; --body:#4A5250; --faint:#8A9391; --mid:#B4BAB8;
+  --accent:#2F5CA8; --gold:#8A6D1F; --green:#3F6B33; --red:#9B3232;
+  --hair:#EDEFED; --hair2:#E7E9E7; --thumb:#CDD1CF;
+  --wash:rgba(0,0,0,.035); --wash2:rgba(0,0,0,.022);
+  --dim:#C3C8C6; --dim2:#B9BFBD; --tick:#B6C4DC;
+  --c-k:#1F4FA0; --c-t:#1F6B52; --c-s:#8A5A10; --c-n:#9B4A34; --c-c:#8A9391; --c-p:#4A6A94;
+}
+/* 강조색 덧칠은 rgba 로 박혀 있어 테마와 무관하게 통하지만, 밝은 배경에서는
+   너무 옅다 — 그 셋만 알파를 올린다. */
+:root[data-theme="light"] .kv.chg,
+:root:not([data-theme="dark"]) .kv.chg { background:rgba(47,92,168,.10) }
 
 /* ── 가운데 : 무대 | 레일 (레일은 rail.css 소관) ── */
 .wrap{flex:1 1 auto;min-height:0;min-width:0;display:flex;align-items:stretch}
@@ -51,6 +88,11 @@ html,body{background:var(--bg);color:var(--body);font-family:var(--sans)}
    한 단계 작게·흐리게 하고 자간을 벌려 "이름표" 로 보이게 한다. */
 .decks .grp b{font-weight:400;font-size:8.5px;color:var(--faint);letter-spacing:.2em}
 .decks .grp a{letter-spacing:.06em}
+/* 테마 토글 — 메뉴와 같은 무게로 두고, 현재 상태를 글자로 보인다.
+   세 상태(AUTO·LIGHT·DARK)를 돌린다. */
+.thm{margin-left:16px;padding:2px 7px;font:400 8.5px var(--mono);letter-spacing:.18em;
+  color:var(--faint);background:none;border:1px solid var(--line);cursor:pointer}
+.thm:hover{color:var(--body);border-color:var(--faint)}
 .top b{color:var(--body);font-weight:400}
 .decks{margin-left:auto;display:flex;gap:10px}
 .decks a{color:var(--mid);text-decoration:none}
@@ -123,7 +165,7 @@ html,body{background:var(--bg);color:var(--body);font-family:var(--sans)}
 .kv-wrap{display:flex;flex-direction:column;gap:1px}
 .kv{display:flex;align-items:baseline;gap:8px;font:400 10.5px var(--mono);padding:2px 0}
 .kv .k{color:var(--faint);letter-spacing:.05em;flex:0 1 auto;min-width:0;word-break:keep-all}
-.kv .d{flex:1 1 0;min-width:6px;border-bottom:1px dotted #1A2020;transform:translateY(-3px)}
+.kv .d{flex:1 1 0;min-width:6px;border-bottom:1px dotted var(--hair2);transform:translateY(-3px)}
 /* min-width:0 이 없으면 값이 min-content 아래로 줄지 않는다 — 비교 모드 768px 에서
    `0xAABBCCDD` 가 카드를 7.9px, `FIL_PAGE_SPACE_VERSION` 이 페이지를 2.1px 넘었다.
    16진수·상수는 끊을 자리가 없으므로 anywhere 로 접는다. */
@@ -138,7 +180,7 @@ html,body{background:var(--bg);color:var(--body);font-family:var(--sans)}
    (id·tag 는 식별 정보다). row-gap 을 줘서 두 줄이 붙어 읽히지 않게 한다. */
 .it{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;row-gap:3px;
   border:1px solid var(--line);
-  padding:5px 8px 6px;font:400 10.5px var(--mono);background:rgba(255,255,255,.012)}
+  padding:5px 8px 6px;font:400 10.5px var(--mono);background:var(--wash2)}
 /* 비교 모드 768px 에서 `SHARED_WRITE · 획득` 이 칸을 10.4px 넘었다 — 끊을 자리가 없는
    식별자는 min-width:0 만으로는 줄지 않는다. 자르지 않고 어디서든 접는다. */
 .it .id{color:var(--body);min-width:0;overflow-wrap:anywhere} .it .sp{flex:1}
@@ -178,10 +220,10 @@ html,body{background:var(--bg);color:var(--body);font-family:var(--sans)}
 .mx table{border-collapse:collapse;width:100%;table-layout:fixed}
 .mx th,.mx td{border:1px solid var(--line);text-align:center;padding:0}
 .mx thead th{font:400 9px var(--mono);color:var(--faint);letter-spacing:.08em;padding:3px 0 4px;
-  border-top:none;background:rgba(255,255,255,.012)}
+  border-top:none;background:var(--wash2)}
 .mx th.mx-c{border-left:none;width:38px}
 .mx th.mx-r{font:400 9px var(--mono);color:var(--body);width:38px;border-left:none;
-  background:rgba(255,255,255,.012)}
+  background:var(--wash2)}
 .mx td{height:20px}
 .mx td i{font:400 8px var(--mono);font-style:normal}
 .mx td.y{background:rgba(122,155,110,.07)} .mx td.y i{color:var(--green)}
