@@ -15,7 +15,7 @@ const SCENES = [
   init:{
     ses:{ kv:{ 'trx id':'—', 'trx_state':'IDLE', 'undo records':'0', 'trx_rows_locked':'0' } },
     stmt:{ kv:{ 'UPDATE':'UPDATE t SET c = 200 WHERE id = 5', '이어서':'COMMIT' } },
-    bin:{ kv:{ 'File':'binlog.000041', 'Position':'1,204' } },
+    bin:{ kv:{ 'File':'binlog.000041', 'Position':'1,204', 'sync':'—' } },
     bp:{ items:[
       { id:'p:9',  tag:'clean', sub:'LSN 4,610' },
       { id:'p:12', tag:'clean', sub:'LSN 4,702' },
@@ -116,15 +116,18 @@ const SCENES = [
     look:{ bp:['p:5'], lb:true },   /* 둘 다 메모리에만 있다 */
     beat:1 },
 
-  { note:'COMMIT — 2단계 커밋의 1단계 : prepare',
-    why:'InnoDB 가 "나는 준비됐다"고 선언한다. 이 상태의 트랜잭션은 커밋도 롤백도 스스로 결정하지 않는다.',
-    key:'참여자가 판정을 <em>남에게 맡기는</em> 상태다. 그래서 이 시점의 크래시가 2PC 에서 가장 까다롭다.',
+  { note:'COMMIT — 2단계 커밋의 1단계 : prepare. 다만 여기서 fsync 하지 않는다',
+    why:'trx_prepare 가 undo 를 PREPARED 로 바꾸고 redo 에 그 기록을 남긴다. 그런데 binlog 가 켜져 있으면 서버가 그 직전에 thd->durability_property 를 HA_IGNORE_DURABILITY 로 낮춰 두고, 그래서 trx_flush_logs 가 그 갈래에서 아무것도 하지 않고 빠져나온다. redo 는 아직 버퍼에만 있다.',
+    key:'"prepare 가 fsync 한다" 는 반만 맞다. <em>논리적으로는</em> prepare 의 내구화가 binlog 보다 먼저지만 <em>물리적 fsync 는 이 함수 안이 아니다</em> — 트랜잭션마다 디스크를 두드리지 않으려고 뒤로 미룬다.',
     ref:'storage/innobase/trx/trx0trx.cc', sym:'trx_prepare',
+    fact:[['sql/binlog.cc','thd->durability_property = HA_IGNORE_DURABILITY;'],
+          ['storage/innobase/trx/trx0trx.cc','case HA_IGNORE_DURABILITY:'],
+          ['storage/innobase/trx/trx0trx.cc','redo log in a group right before writing them to binary log']],
     ops:{ ses:{ set:{ 'trx_state':'PREPARED|gold' } } } },
 
-  { act:{ f:'lb', t:'redo', lb:'fsync  →  LSN 4,912', gold:1 },
-    note:'redo 를 디스크로 내려쓰고 fsync 한다 — 메모리·디스크 경계를 넘는다',
-    why:'log_write_up_to(4912) 가 그 LSN 까지를 파일에 밀어 넣고 fsync 를 기다린다. 여기서 실제 디스크 지연이 발생한다.',
+  { act:{ f:'lb', t:'redo', lb:'그룹 fsync  →  LSN 4,912', gold:1 },
+    note:'binlog flush 단계 ① — 미뤄둔 redo 를 그룹으로 묶어 fsync 한다',
+    why:'fetch_and_process_flush_stage_queue 가 대기 큐를 통째로 비운 뒤 ha_flush_logs(true) 를 부른다. 주석이 이유를 못박는다 — "prepared 레코드를 binlog 에 쓰기 전에 flush 하는 것을 보장하기 위해서이고, 이는 크래시 복구가 요구하는 것" 이다. 그 안에서 log_write_up_to(4912) 가 파일에 밀어 넣고 fsync 를 기다린다.',
     key:'커밋 하나가 최소 <em>두 번의 fsync</em>(redo, binlog)를 요구한다. 그룹 커밋이 이 비용을 여러 트랜잭션이 나눠 갖게 하는 장치다.',
     ref:'storage/innobase/log/log0write.cc', sym:'log_write_up_to', hot:'io',
     ops:{ redo:{ set:{ 'Log flushed up to':'4,912|green' } },
@@ -138,11 +141,20 @@ const SCENES = [
     beat:1 },
 
   { act:{ f:'ses', t:'bin', lb:'Update_rows 이벤트' },
-    note:'binlog 에 이벤트를 쓰고 sync 한다',
-    why:'SQL 계층의 로그다. 복제와 시점 복구가 이것을 읽는다. redo 와 목적도 형식도 다르다.',
-    key:'redo 는 <em>페이지</em>를, binlog 는 <em>논리 변경</em>을 적는다. 그래서 redo 는 복제에 못 쓰고 binlog 는 복구에 못 쓴다.',
-    ref:'sql/binlog.cc', sym:'MYSQL_BIN_LOG::ordered_commit',
+    note:'binlog flush 단계 ② — 그 다음에야 binlog 이벤트를 쓴다',
+    why:'process_flush_stage_queue 는 먼저 fetch_and_process_flush_stage_queue 로 큐를 비우고 redo 를 그룹 flush 한 뒤, 그 다음 줄에서 각 세션의 캐시를 binlog 로 옮긴다. 즉 한 함수 안에서 redo 가 먼저, binlog 가 나중이다.',
+    key:'순서가 뒤집힐 수 없다. binlog 가 먼저 내려가고 redo 의 PREPARE 가 버퍼에만 있는 채로 죽으면 — <em>binlog 는 커밋하라고 말하는데 엔진에 커밋할 트랜잭션이 없다</em>. 03 장면의 복구가 바로 그 짝을 맞추는 일이다.',
+    ref:'sql/binlog.cc', sym:'MYSQL_BIN_LOG::process_flush_stage_queue',
+    fact:[['sql/binlog.cc','ha_flush_logs(true);'],
+          ['sql/binlog.cc','for guaranteeing to flush prepared records of transactions before']],
     ops:{ bin:{ set:{ 'Position':'1,388|green' } } } },
+
+  { act:{ f:'bin', t:'bin', lb:'sync 단계  ·  fsync', gold:1 },
+    note:'sync 단계 — 여기서 binlog 를 fsync 한다. 이것이 커밋 판정 지점이다',
+    why:'쓰기와 fsync 는 다른 단계다. flush 단계가 이벤트를 파일에 넣고, sync 단계가 sync_binlog 설정에 따라 fsync 한다. 이 fsync 가 끝난 뒤부터 그 트랜잭션은 "binlog 에 있다" 가 된다.',
+    key:'커밋 하나가 최소 <em>두 번의 fsync</em>를 요구한다 — redo 그룹 fsync 와 binlog fsync. 둘 다 그룹으로 묶이므로 동시 커밋이 많을수록 트랜잭션당 비용은 내려간다.',
+    ref:'sql/binlog.cc', sym:'MYSQL_BIN_LOG::process_flush_stage_queue',
+    ops:{ bin:{ set:{ 'sync':'완료|gold' } } } },
 
   { note:'binlog 가 판정 기록이 되었다 — 이 순간 이후의 크래시는 커밋으로 확정된다',
     why:'복구는 PREPARED 로 남은 트랜잭션의 XID 를 binlog 에서 찾는다. 있으면 커밋, 없으면 롤백한다.',
