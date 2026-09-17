@@ -53,6 +53,7 @@ export default function App() {
   const booted = useRef(false);
 
   const [deck, setDeck] = useState(null);
+  const [deckOf, setDeckOf] = useState(null);
   const [playing, setPlaying] = useState(false);
   const [split, setSplit] = useState(false);
   const [srcOpen, setSrcOpen] = useState(false);
@@ -74,11 +75,16 @@ export default function App() {
     return () => removeEventListener('hashchange', f);
   }, []);
 
+  /* 로드된 모듈이 어느 덱인지 함께 들고 있어야 한다. 주소 정규화가 "새 deckName +
+     아직 안 바뀐 deck" 으로 계산되면 해시를 잘못된 스텝으로 되쓴다 —
+     실측 : aurora/mysql/01/3 에서 #mysql/innodb/01/12 로 가면 aurora 01 의 스텝 수(5)로
+     깎여 12 → 5 가 되고, 그 값이 해시에 박혀 6초 뒤에도 5번에 머물렀다. */
   useEffect(() => {
     let live = true;
-    DECKS[deckName].load().then((m) => live && setDeck(m));
+    DECKS[deckName].load().then((m) => { if (live) { setDeck(m); setDeckOf(deckName); } });
     return () => { live = false; };
   }, [deckName]);
+  const ready = deckOf === deckName;
 
   /* 훅은 조건보다 위에 전부 놓는다 — early return 뒤에 useMemo 를 두어
      React #310(훅 개수가 렌더마다 달라짐)로 화면이 통째로 안 떴다. */
@@ -125,14 +131,17 @@ export default function App() {
 
   /* 주소를 정규화한다 — '#innodb' 처럼 장면 없이 들어오거나 스텝이 범위를 넘으면
      실제로 보고 있는 것과 주소가 달라진다. 링크를 복사했을 때 같은 화면이 떠야 한다. */
-  const canon = scene ? deckName + '/' + scene.num + '/' + (i + 1) : null;
+  const canon = ready && scene ? deckName + '/' + scene.num + '/' + (i + 1) : null;
+  /* route 도 의존성에 넣는다. canon 만 보면, 범위를 넘는 스텝으로 들어왔을 때
+     canon 이 직전과 같아 효과가 다시 돌지 않고 주소만 어긋난 채 남는다
+     (실측 : #mysql/innodb/01/99 는 25번을 정확히 보여주는데 주소는 /99 였다). */
   useEffect(() => {
     if (!canon) return;
     if (location.hash.slice(1) !== canon) {
       history.replaceState(null, '', '#' + canon);
       setRoute(parse(canon));
     }
-  }, [canon]);
+  }, [canon, route]);
 
   useEffect(() => { setPlaying(false); setSrcOpen(false); }, [scene && scene.num, deckName]);
   useEffect(() => { if (!pairOK && split) setSplit(false); }, [pairOK, split]);
