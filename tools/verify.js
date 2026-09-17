@@ -95,7 +95,19 @@ for (const sc of SCENES) {
       if (!norm(BOOKTEXT).includes(norm(q)))
         err(T + ' cite 구절이 책 원문에 없다 — "' + q.slice(0, 56) + '"');
     });
-    if (!sc.cite || !sc.cite.length) wrn(T + ' cite 가 없다 — 책에 귀속시킨 주장의 근거가 없다');
+    /* 스텝 수준 cite 도 대조한다 — 장면 하나에 인용을 몰아 두면 어느 문장의 근거인지
+       알 수 없다. aurora 덱은 닫힌 소스라 스텝마다 문서 인용을 달아야 하고,
+       그것이 검증되지 않으면 "근거 있는 척" 이 된다(실제로 그렇게 만들었다가 잡혔다). */
+    let stepCites = 0;
+    (sc.steps || []).forEach((st, i) => {
+      (st.cite || []).forEach(q => {
+        stepCites++;
+        if (!norm(BOOKTEXT).includes(norm(q)))
+          err(T + '.' + String(i + 1).padStart(2, '0') + ' cite 구절이 원문에 없다 — "' + q.slice(0, 56) + '"');
+      });
+    });
+    if ((!sc.cite || !sc.cite.length) && !stepCites)
+      wrn(T + ' cite 가 없다 — 원문에 귀속시킨 주장의 근거가 없다');
   } else if (sc.cite) {
     wrn(T + ' 책 원문이 없어 cite 대조를 건너뛴다');
   }

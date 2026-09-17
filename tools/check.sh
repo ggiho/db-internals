@@ -4,7 +4,7 @@
 set -e
 cd "$(dirname "$0")/.."
 FAIL=0
-for d in mysql/innodb mysql/locks postgres/mvcc postgres/heap postgres/locks book/ch2 book/ch3; do
+for d in mysql/innodb mysql/locks postgres/mvcc postgres/heap postgres/locks aurora/mysql book/ch2 book/ch3; do
   printf '── %s\n' "$d"
   node tools/verify.js     "$d" || FAIL=1
   # mxcheck 는 InnoDB 주석의 ASCII 표를 읽는다 — PG 덱에는 그 파일이 없다

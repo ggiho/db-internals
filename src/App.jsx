@@ -16,6 +16,7 @@ const DECKS = {
   'postgres/mvcc':{ g: 'POSTGRES', lb: 'mvcc', load: () => import('../data/postgres/mvcc/index.js') },
   'postgres/heap':{ g: 'POSTGRES', lb: 'heap', load: () => import('../data/postgres/heap/index.js') },
   'postgres/locks':{ g: 'POSTGRES', lb: 'locks', load: () => import('../data/postgres/locks/index.js') },
+  'aurora/mysql': { g: 'AURORA', lb: 'mysql', load: () => import('../data/aurora/mysql/index.js') },
   'book/ch2':     { g: 'BOOK',  lb: 'ch2',    load: () => import('../data/book/ch2/index.js') },
   'book/ch3':     { g: 'BOOK',  lb: 'ch3',    load: () => import('../data/book/ch3/index.js') },
 };
@@ -297,6 +298,7 @@ export default function App() {
           {deckName.startsWith('postgres/')
             ? <>소스 발췌 <b>PostgreSQL 18.6</b> (PostgreSQL License)</>
             : <>소스 발췌 <b>MySQL 8.4.8 Community</b> (GPLv2)</>}
+          {deckName.startsWith('aurora/') && <> · 인용 <b>AWS Aurora User Guide</b> (docs.aws.amazon.com)</>}
           {deckName.startsWith('book/') && <> · 인용 <b>Database Internals</b> — Alex Petrov (O&apos;Reilly)</>}
         </span>
       </div>

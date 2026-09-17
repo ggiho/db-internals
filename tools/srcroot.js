@@ -7,6 +7,7 @@ export function srcRoot(deck, ROOT) {
   const g = String(deck || '').split('/')[0];
   if (g === 'postgres')
     return process.env.PG_SRC || path.resolve(ROOT, '..', '..', 'PostgreSQL', 'postgres');
-  /* mysql/* · book/* · 그 밖 */
+  /* mysql/* · book/* · aurora/* · 그 밖 — aurora 는 닫힌 소스라 대조할 코드가 없다.
+     이 덱의 ref/sym 은 Aurora 가 '무엇을 바꿨는지' 의 대상인 InnoDB 를 가리킨다. */
   return process.env.MYSQL_SRC || path.resolve(ROOT, '..', 'mysql-server');
 }
