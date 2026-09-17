@@ -9,6 +9,7 @@ const ACTORS = {
   vol:  { nm:'CLUSTER VOLUME', lane:'stor', kind:'list' },
   cmp:  { nm:'vs INNODB',      lane:'stor', kind:'kv' },
   pc:   { nm:'PAGE CACHE',      lane:'comp', kind:'kv' },
+  chk:  { nm:'검증 파이프라인',   lane:'comp', kind:'kv' },
   grade:{ nm:'근거 등급',       lane:'stor', kind:'kv' },
 };
 const EDGES = [

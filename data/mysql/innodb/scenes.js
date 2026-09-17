@@ -362,7 +362,7 @@ const SCENES = [
   knobs:[
     ['innodb_force_recovery','0','0 이 아니면 복구 단계를 건너뛴다 — 최후의 수단'],
     ['innodb_doublewrite','ON','찢어진 페이지를 되살리는 근거'],
-    ['innodb_log_file_size','—','재생 구간의 길이 = 재시작 시간'] ],
+    ['innodb_redo_log_capacity','100 MB','재생 구간의 길이 = 재시작 시간. 8.4 에서 innodb_log_file_size 는 폐기됐다'] ],
   watch:[
     ['에러 로그','Doing recovery: scanned up to log sequence number …  /  Applying a batch of N redo log records …'],
     ['SHOW ENGINE INNODB STATUS','재시작 직후 Last checkpoint at 이 어디까지 올라갔는지'],
@@ -473,7 +473,7 @@ const SCENES = [
            gg:{ v:.0, l:'checkpoint age', r:'0%' } },
   },
   knobs:[
-    ['innodb_log_file_size','—','redo 용량. 작으면 체크포인트 나이가 금방 한계에 닿는다'],
+    ['innodb_redo_log_capacity','100 MB','redo 용량. 작으면 체크포인트 나이가 금방 한계에 닿는다'],
     ['innodb_io_capacity','10000','클리너가 한 라운드에 내려쓸 페이지 수의 기준'],
     ['innodb_max_dirty_pages_pct','90.0','더티 비율 목표. 낮추면 미리 내려써 급정지를 피한다'],
     ['innodb_page_cleaners','1','클리너 스레드 수'] ],
@@ -694,7 +694,7 @@ const SCENES = [
     ibd:{ items:[{ id:'p:77', tag:'clean', sub:'읽어야 할 페이지' }] },
   },
   knobs:[
-    ['innodb_buffer_pool_size','—','가장 큰 손잡이. 작으면 축출이 상시로 일어난다'],
+    ['innodb_buffer_pool_size','128 MB','가장 큰 손잡이. 작으면 축출이 상시로 일어난다'],
     ['innodb_lru_scan_depth','1024','클리너가 LRU 꼬리를 훑는 깊이. 깊게 보면 clean 을 더 확보한다'],
     ['innodb_max_dirty_pages_pct_lwm','10.0','미리 내려쓰기를 시작하는 하한'] ],
   watch:[

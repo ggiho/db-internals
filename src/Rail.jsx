@@ -18,12 +18,19 @@ function Knobs({ knobs }) {
     <div className="rl rl-knobs">
       <div className="rl-t">손잡이</div>
       <div className="rl-b">
-        {knobs.map(([n, d, why], k) => (
+        {/* 이름이 '—' 인 행은 "이 장면에는 손잡이가 없다" 는 저작된 뜻이다.
+            그대로 그리면 "— —" 가 되어 값이 빠진 것처럼 읽힌다 — 그렇게 보이지 않게 한다. */}
+        {knobs.map(([n, d, why], k) => (n === '—' || d === '—' ? (
+          <div className="kn none" key={n + '/' + k}>
+            <div className="r"><span className="n">설정으로 바꿀 수 없다</span></div>
+            <div className="w">{why}</div>
+          </div>
+        ) : (
           <div className="kn" key={n + '/' + k}>
             <div className="r"><span className="n">{n}</span><span className="sp" /><span className="d">{d}</span></div>
             <div className="w">{why}</div>
           </div>
-        ))}
+        )))}
       </div>
     </div>
   );

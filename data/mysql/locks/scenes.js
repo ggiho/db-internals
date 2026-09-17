@@ -256,7 +256,9 @@ const SCENES = [
     key:'그래서 같은 트랜잭션 안에서 <em>SELECT 과 SELECT … FOR UPDATE 가 다른 값을 볼 수 있다</em>. 전자는 스냅샷, 후자는 최신이다 — 이 차이가 팬텀처럼 보이는 사고의 흔한 원인이다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'row_search_mvcc',
     fact:[['storage/innobase/row/row0sel.cc','if (prebuilt->select_lock_type != LOCK_NONE) {'],
-          ['storage/innobase/row/row0sel.cc','lock_clust_rec_cons_read_sees(']] },
+          ['storage/innobase/row/row0sel.cc','lock_clust_rec_cons_read_sees(']],
+    /* 읽기 뷰를 '쓰지 않는다' 는 것이 이 스텝의 요점이다 — 빈칸으로 두면 미완성처럼 읽힌다. */
+    ops:{ rv:{ set:{ 'read view':'만들지 않는다', '보는 시점':'최신 커밋 버전' } } } },
 
   { look:{ rl:true },
     note:'그 대신 이 경로는 락의 범위를 계산한다',

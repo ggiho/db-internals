@@ -26,7 +26,10 @@ const SCENES = [
           ['src/include/access/htup_details.h','inserting xact ID']],
     ops:{ op:{ set:{ 'SQL':'INSERT INTO t VALUES (1)', '단계':'튜플 쓰기' } },
           tup:{ del:['(비었다)'], add:[{ id:'튜플 A', tag:'clean', sub:'v=1' }] },
-          hdr:{ set:{ 't_xmin':'100', 't_xmax':'0', 't_ctid':'자기 자신' } } } },
+          hdr:{ set:{ 't_xmin':'100', 't_xmax':'0', 't_ctid':'자기 자신',
+                      /* 쓰는 순간의 힌트 비트 — xmax 가 없으니 XMAX_INVALID 가 켜진다.
+                         htup_details.h:208 에 0x0800 로 정의돼 있다. */
+                      't_infomask':'0x0800  HEAP_XMAX_INVALID' } } } },
 
   { look:{ hdr:true },
     note:'t_xmax 는 두 가지 일을 한다 — 삭제와 행 락(row lock)',

@@ -113,6 +113,10 @@
    ellipsis 로 자르면 innodb_old_blocks_time 과 innodb_old_blocks_pct 가 같은 글자로 보인다. */
 .kn{display:flex;flex-direction:column;padding:3px 0 5px;border-bottom:1px dotted var(--hair)}
 .kn:last-child{border-bottom:none}
+/* "손잡이가 없다" 행 — 변수 이름이 아니므로 강조색을 쓰지 않는다.
+   그러지 않으면 '설정으로 바꿀 수 없다' 가 설정 이름처럼 읽힌다. */
+.kn.none .n{color:var(--faint);font-style:normal;letter-spacing:.06em;
+  text-transform:none;border-bottom:0}
 .kn .r{display:flex;flex-wrap:wrap;align-items:baseline;gap:7px;min-width:0;
   overflow-wrap:anywhere}
 .kn .n{font:400 10px var(--mono);color:var(--accent);letter-spacing:0;

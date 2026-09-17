@@ -131,10 +131,10 @@ const SCENES = [
 {
   num:'03', tab:'HDD·SSD', title:'매체가 알고리즘을 정한다',
   sub:'같은 "디스크"인데 비싼 것이 서로 다르다',
-  cast:['op','hdd','ssd','ftl','io'],
+  cast:['op','hdd','ftl','io'],
   vsLabel:'A  ·  HDD  (회전 디스크)', pair:'03v',
   knobs:[
-    ['innodb_flush_neighbors','—','HDD 에서 인접 페이지를 함께 내려써 시크를 아낀다. SSD 에서는 끄는 것이 보통'],
+    ['innodb_flush_neighbors','0','HDD 에서 인접 페이지를 함께 내려써 시크를 아낀다. 8.4 기본은 0(끔)'],
     ['innodb_io_capacity','10000','매체의 IOPS 를 알려주는 값 — HDD 와 SSD 에서 자릿수가 다르다'],
     ['innodb_random_read_ahead','OFF','임의 접근 패턴을 보고 미리 읽는다']],
   watch:[
@@ -145,7 +145,6 @@ const SCENES = [
   init:{
     op:{ kv:{ '매체':'HDD', '최소 전송 단위':'섹터 512B ~ 4KB', '비싼 것':'헤드 위치잡기' } },
     hdd:{ kv:{ '순차 읽기':'싸다', '임의 읽기':'비싸다 · 회전 + 헤드 이동', '쓰기':'제자리 갱신 가능' } },
-    ssd:{ kv:{ '순차 읽기':'—', '임의 읽기':'—', '쓰기':'—' } },
     ftl:{ items:[] },
     io:{ kv:{ '작업':'—', '비용':'—' } },
   },
@@ -193,9 +192,9 @@ const SCENES = [
   num:'03v', tab:'—', hidden:true,
   vsLabel:'B  ·  SSD  (플래시)',
   title:'매체가 알고리즘을 정한다', sub:'SSD 에서는 비싼 것이 다르다',
-  cast:['op','hdd','ssd','ftl','io'],
+  cast:['op','ssd','ftl','io'],
   knobs:[
-    ['innodb_flush_neighbors','—','SSD 에서는 인접 페이지를 모으는 이득이 작아 끄는 것이 보통'],
+    ['innodb_flush_neighbors','0','SSD 에서는 인접 페이지를 모으는 이득이 작아 8.4 기본이 0 이다'],
     ['innodb_io_capacity','10000','SSD 기준으로 잡힌 기본값이다'],
     ['innodb_random_read_ahead','OFF','임의 접근 비용이 낮아 이득이 적다']],
   watch:[
@@ -205,7 +204,6 @@ const SCENES = [
   links:[['02','왜 시크 횟수를 줄여야 하는가'],['04','두 매체가 공유하는 제약']],
   init:{
     op:{ kv:{ '매체':'SSD', '최소 전송 단위':'페이지 2 ~ 16KB', '비싼 것':'지우기 · 쓰기 증폭' } },
-    hdd:{ kv:{ '순차 읽기':'—', '임의 읽기':'—', '쓰기':'—' } },
     ssd:{ kv:{ '순차 읽기':'싸다', '임의 읽기':'거의 같다 · 헤드가 없다', '쓰기':'빈 셀에만 가능' } },
     ftl:{ items:[
       { id:'블록 A', tag:'hold', sub:'살아있는 페이지 3 · 버려진 5' },
@@ -542,7 +540,7 @@ const SCENES = [
   cast:['op','bt','node','cost','io'],
   knobs:[
     ['innodb_adaptive_hash_index','ON','자주 찾는 지점을 해시로 건너뛴다 — 하강 자체를 생략'],
-    ['innodb_buffer_pool_size','—','상위 레벨이 여기 상주하면 실제 디스크 접근은 1회가 된다']],
+    ['innodb_buffer_pool_size','128 MB','상위 레벨이 여기 상주하면 실제 디스크 접근은 1회가 된다']],
   watch:[
     ['SHOW ENGINE INNODB STATUS','BUFFER POOL 절의 Buffer pool hit rate'],
     ['Innodb_buffer_pool_read_requests','논리 읽기 — 레벨 수만큼 발생한다'],
