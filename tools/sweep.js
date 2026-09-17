@@ -64,9 +64,33 @@
 /* playwright 는 이 프로젝트에 설치하지 않는다(브라우저까지 수백 MB). 경로를
    PLAYWRIGHT_PATH 로 받고, 없으면 평소대로 'playwright' 를 찾는다.
    정적 import 는 변수를 못 쓰므로 동적 import 다(ESM 최상위 await). */
-const { chromium } = await import(process.env.PLAYWRIGHT_PATH || 'playwright')
-  .catch(() => { console.error('playwright 를 찾을 수 없다. PLAYWRIGHT_PATH 로 경로를 주거나 npm i -D playwright 하라.'); process.exit(2); });
+/* PLAYWRIGHT_PATH 는 보통 패키지 *디렉터리* 로 주게 되는데, ESM 의 import() 는
+   디렉터리를 해석하지 못한다(설치 경로를 정확히 줬는데도 "찾을 수 없다" 가 났다).
+   그래서 디렉터리면 package.json 의 main 을 붙여 file:// URL 로 바꾼다. */
+const pwSpec = (() => {
+  const p = process.env.PLAYWRIGHT_PATH;
+  if (!p) return 'playwright';
+  let t = path.resolve(p);
+  try {
+    if (fs.statSync(t).isDirectory()) {
+      let main = 'index.js';
+      const pj = path.join(t, 'package.json');
+      if (fs.existsSync(pj)) main = JSON.parse(fs.readFileSync(pj, 'utf8')).main || main;
+      t = path.join(t, main);
+    }
+  } catch { /* 없는 경로면 그대로 넘겨 아래 catch 가 안내한다 */ }
+  return pathToFileURL(t).href;
+})();
+/* playwright 는 CJS 라서 file:// 로 직접 불러오면 named export 가 안 잡힌다
+   (모듈은 로드됐는데 chromium 이 undefined 였다). default 로도 본다. */
+const pwMod = await import(pwSpec)
+  .catch(e => { console.error('playwright 를 찾을 수 없다 (' + pwSpec + ') — ' + e.message); process.exit(2); });
+const chromium = pwMod.chromium || (pwMod.default && pwMod.default.chromium);
+if (!chromium) { console.error('playwright 를 불렀지만 chromium 이 없다 : ' + pwSpec); process.exit(2); }
 import { writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import path from 'node:path';
+import fs from 'node:fs';
 
 const ARG = Object.fromEntries(
   process.argv.slice(2).map((a) => {
@@ -362,7 +386,11 @@ const SETTLE = () => new Promise((res) => {
      그리고 .by/.by-c 가 서명에서 빠져 있었다 — 바이트 칸은 조상(.act·.a-bd)이 멎은 뒤에도
      계속 움직이므로 "정착" 판정이 먼저 떨어졌다. 그 결과 zoom 폭 4개에서 overflow 36건이
      보고됐는데 (by 0.8~1.3px · clipped:false) 정착 후 실측은 0px 이고 애니메이션 중
-     최고점은 453px 이었다 — 전부 진행 중 샘플이다. 행렬(.mx,.tr)도 같은 이유로 넣는다. */
+     최고점은 453px 이었다 — 전부 진행 중 샘플이다. 행렬(.mx,.tr)도 같은 이유로 넣는다.
+     .list/.it/.kv 를 넣어 보았는데 1100폭 문제가 11건에서 28건으로 늘었다 —
+     즉 mysql/innodb/04/8 의 ±4.5px 는 정착 판정 문제가 아니다. 서명을 되돌린다.
+     (페이지를 새로 열어 잰 520px/518px 은 근거가 못 된다. 스윕은 스텝 전환을 거쳐
+      그 상태에 도달하므로, 재현도 전환을 거쳐야 한다.) */
   const q = (v) => Math.round(v * 10);
   const sig = () => [...document.querySelectorAll('.act,.lane,.row,.cap,.head,.a-bd,.srcin,.scol,.by,.by-c,.mx,.tr')].map((e) => {
     const r = e.getBoundingClientRect(), s = getComputedStyle(e);
@@ -493,7 +521,7 @@ async function main() {
     const acc = {
       w, h, zoom, visits: 0, splitVisits: 0, confirmed: 0, mismatch: 0, el: 0, cells: 0, ranges: 0,
       labelPairs: 0, containers: 0, problems: 0, byCheck: {}, worstEmpty: 0, emptySum: 0,
-      maxStageOver: 0, srcShown: 0, acts: 0, settleCap: 0, settleMax: 0,
+      maxStageOver: 0, srcShown: 0, acts: 0, settleCap: 0, settleMax: 0, transient: 0,
     };
 
     const take = async (hash, tag) => {
@@ -503,7 +531,30 @@ async function main() {
       const settleFrames = await page.evaluate(SETTLE);
       if (settleFrames > 130) acc.settleCap++;
       if (settleFrames > acc.settleMax) acc.settleMax = settleFrames;
-      const r = await page.evaluate(MEASURE, cfg);
+      let r = await page.evaluate(MEASURE, cfg);
+
+      /* 확인 재측정. 정착 서명이 통과했는데도 진행 중 샘플이 남는 경우가 있다 —
+         mysql/innodb/04/8 에서 카드가 338.5px 에서 520px 로 자라는데(FLUSH LIST 퇴장으로
+         자리를 넘겨받는다) 그 도중 좌우 대칭 ±4.5px 가 1100폭에서 한 번 잡혔다.
+         2500ms·5000ms 뒤 실측은 0px 이다. 스프링이 순간적으로 느려지면 두 프레임의
+         rect 가 같아 보여 정착 판정이 먼저 떨어지는 것이다.
+         서명에 자손 클래스를 더 넣어 봤더니 오히려 11건에서 28건으로 늘었다 —
+         서명을 넓히는 방향이 아니라, 찾은 문제를 한 번 더 확인하는 방향이 맞다.
+         두 번 다 있는 문제만 보고한다. 사라지는 것은 진행 중 샘플이다. */
+      if (r.problems.length) {
+        const key = (pr) => [pr.check, pr.side, pr.box, pr.cell, pr.el].join('|');
+        const first = new Map(r.problems.map((pr) => [key(pr), pr]));
+        /* 260ms 로는 짧았다. framer-motion 의 스프링(stiffness 300 · damping 30)이
+           그보다 늦게 멎어서, 레일 SVG 의 진행 중 값이 두 번 다 잡혔다. 500ms 로 늘린다.
+           늘려도 놓치는 문제는 없다 — 진짜 문제는 시간이 지나도 남는다. */
+        await page.evaluate(() => new Promise((res) => setTimeout(res, 500)));
+        const r2 = await page.evaluate(MEASURE, cfg);
+        const seen = new Set(r2.problems.map(key));
+        const kept = [...first.values()].filter((pr) => seen.has(key(pr)));
+        acc.transient += r.problems.length - kept.length;
+        r = { ...r, problems: kept };
+      }
+
       acc.el += r.counts.el; acc.cells += r.counts.cells; acc.ranges += r.counts.ranges;
       acc.labelPairs += r.counts.labelPairs; acc.containers += r.counts.containers;
       acc.acts += r.metrics.acts;
@@ -567,7 +618,8 @@ async function main() {
       + `  → 문제 ${acc.problems}${acc.problems ? '  ' + JSON.stringify(acc.byCheck) : ''}`
       + `   [무대초과 ${acc.maxStageOver} · 소스보임 ${acc.srcShown}/${n}`
       + ` · 캡션아래 평균 ${acc.avgEmpty} 최대 ${acc.worstEmpty}`
-      + ` · 정착 최대 ${acc.settleMax}프레임${acc.settleCap ? " · 상한초과 " + acc.settleCap + "회 ⚠" : ""}]`);
+      + ` · 정착 최대 ${acc.settleMax}프레임${acc.settleCap ? " · 상한초과 " + acc.settleCap + "회 ⚠" : ""}`
+      + (acc.transient ? ` · 재측정에서 사라진 것 ${acc.transient}건` : '') + `]`);
   }
 
   await browser.close();
