@@ -38,11 +38,38 @@ SCENES.forEach(s => s.steps.forEach(st => {
   if (st.ref && st.sym) want.set(st.ref + '#' + st.sym, { f: st.ref, s: st.sym });
 }));
 
+/* 블록 주석 내부의 줄을 표시한다.
+   기존 가드는 줄이 '/*', '*', '//' 로 시작하는지만 봤다. 그런데 MySQL 주석은
+   본문 줄에 접두 '*' 를 붙이지 않는 스타일도 쓴다 :
+       /*
+         ... we need to call
+         binlog::Binlog_recovery::recover()          <- 이 줄이 정의로 잡혔다
+   실측 : aurora/mysql 03 의 sym 이 sql/binlog.cc 7972(주석)을 가리켰고,
+   진짜 정의는 sql/binlog/recovery.cc 53 이었다. 줄 단위가 아니라 상태를 추적해야 한다. */
+function cmtMask(src) {
+  const m = new Uint8Array(src.length);
+  let open = false;
+  for (let i = 0; i < src.length; i++) {
+    const ln = src[i];
+    if (open) m[i] = 1;
+    let j = 0, cur = open;
+    while (j < ln.length) {
+      if (!cur && ln[j] === '/' && ln[j + 1] === '*') { cur = true; j += 2; continue; }
+      if (cur && ln[j] === '*' && ln[j + 1] === '/') { cur = false; j += 2; continue; }
+      if (!cur && ln[j] === '/' && ln[j + 1] === '/') break;
+      j++;
+    }
+    open = cur;
+  }
+  return m;
+}
+
 const out = {}; let ok = 0, miss = [];
 for (const [key, { f, s }] of want) {
   const p = path.join(REPO, f);
   if (!fs.existsSync(p)) { miss.push(key + '  (파일 없음)'); continue; }
   const src = fs.readFileSync(p, 'utf8').split('\n');
+  const cmt = cmtMask(src);
   const bare = s.includes('::') ? s.split('::').pop() : s;
   const cls  = s.includes('::') ? s.split('::')[0] : null;
   let hit = -1;
@@ -67,6 +94,7 @@ for (const [key, { f, s }] of want) {
          " *  HeapTupleSatisfiesMVCC()" 같은 문서 주석의 함수 목록이 정의로 잡힌다.
          실측 : PostgreSQL heapam_visibility.c 에서 960(정의) 대신 40(주석)이 나왔다. */
       if (/^\s*(\/\*|\*|\/\/)/.test(ln)) continue;
+      if (cmt[i]) continue;          // 블록 주석 내부다
       hit = i + 1; break;
     }
     if (hit > 0) break;
