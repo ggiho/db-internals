@@ -192,10 +192,18 @@ export default function Stage({ deck, scene, frame, stage, step }) {
                 <g key={p.id + '>' + geo.pts[i + 1].id}>
                   <path className="rail" d={d} />
                   <path className="rail-lit" d={d} />
+                  {/* 원소를 스텝으로 키를 준다. 안 주면 같은 <circle> 이 스텝 사이에 살아남아
+                      사그라지는 CSS 애니메이션이 다시 시작하지 않는다.
+                      fill="freeze" 는 위치만 끝점에 고정한다 — 그것만 두면 도착한 점이
+                      영구히 남는다(실측 : 5초 뒤에도 불투명도 1, 스텝을 넘겨도 그대로).
+                      그래서 밝기는 CSS 로 따로 꺼 준다. */}
                   {[0, 1, 2].map((k) => (
-                    <circle key={k} className={'tok' + (k ? ' tail' : '')}
-                      r={k ? 5.2 - k * 1.5 : 5.4} opacity={k ? 0.5 - k * 0.16 : 1}>
-                      <animateMotion key={scene.num + '/' + si + '/' + i + '/' + k}
+                    <circle key={scene.num + '/' + si + '/' + i + '/' + k}
+                      className={'tok' + (k ? ' tail' : '')}
+                      style={{ '--o': k ? 0.5 - k * 0.16 : 1,
+                               '--delay': (i * 0.18 + k * 0.055) + 's' }}
+                      r={k ? 5.2 - k * 1.5 : 5.4}>
+                      <animateMotion
                         dur="0.9s" begin={(i * 0.18 + k * 0.055) + 's'} fill="freeze"
                         keyPoints="0;1" keyTimes="0;1" calcMode="spline"
                         keySplines="0.4 0 0.2 1" path={d} />
