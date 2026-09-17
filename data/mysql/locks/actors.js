@@ -31,9 +31,13 @@ const LANES = [
   { id:'mem',  lb:'INNODB',    note:'테이블 · 행 락' },
   { id:'disk', lb:'데이터',     note:'락은 여기 없다' },
 ];
+/* 경계 라벨은 세로 알약에 들어가므로 짧아야 한다 — 다른 덱과 같은 길이로 맞춘다.
+   원래 문장("여기서 MDL 을 얻은 뒤에야 InnoDB 로 간다" · "락은 메모리에만 있다 —
+   재시작하면 사라진다")은 세로로 쓰면 레인보다 길어 아래로 61px 넘쳤다.
+   그 내용은 각 스텝의 why·key 가 이미 설명한다. */
 const EDGES = [
-  { after:'sql',  lb:'여기서 MDL 을 얻은 뒤에야 InnoDB 로 간다',  hot:'boundary' },
-  { after:'mem',  lb:'락은 메모리에만 있다 — 재시작하면 사라진다', hot:'io' },
+  { after:'sql',  lb:'MDL → INNODB',   hot:'boundary' },
+  { after:'mem',  lb:'메모리 · 디스크', hot:'io' },
 ];
 
 export { ACTORS, LANES, EDGES };

@@ -77,7 +77,12 @@ html,body{background:var(--bg);color:var(--body);font-family:var(--sans)}
    특이도(0,2,0)가 높아 rail.css 의 좁은 폭 .srcin{flex:none} 을 이겨버린다. 건드리지 않는다. */
 .mid > .slot,.mid > .fill{flex:1 1 0;min-height:0}
 
-.top{display:flex;align-items:baseline;gap:16px;font:400 10px var(--mono);
+/* wrap 을 허용한다. 768 폭에서 브랜드 + 덱 4그룹 + 테마 버튼이 한 줄에 안 들어가
+   .thm 이 오른쪽으로 48.5px 넘치고 페이지가 32px 가로로 스크롤됐다(스윕 실측).
+   폭 경계를 새로 박지 않고 넘칠 때만 접히게 한다 — 넓은 폭에서는 wrap 이 일어나지 않는다.
+   세로 간격은 따로 준다 : gap:16px 이 두 줄 사이에도 걸리면 상단이 너무 두꺼워진다. */
+.top{display:flex;flex-wrap:wrap;align-items:baseline;gap:16px;row-gap:5px;
+  font:400 10px var(--mono);
   letter-spacing:.2em;color:var(--faint);text-transform:uppercase}
 /* 상단 메뉴는 묶음(MYSQL·BOOK) 안에 덱들이 들어간다 — 엔진이 늘어도 한 줄에서 구분된다.
    묶음 이름은 라벨이라 누를 수 없고, 덱만 링크다. */
@@ -94,7 +99,9 @@ html,body{background:var(--bg);color:var(--body);font-family:var(--sans)}
   color:var(--faint);background:none;border:1px solid var(--line);cursor:pointer}
 .thm:hover{color:var(--body);border-color:var(--faint)}
 .top b{color:var(--body);font-weight:400}
-.decks{margin-left:auto;display:flex;gap:10px}
+/* .decks 자체도 접혀야 한다. .top 만 wrap 해도 768 에서 덱 목록 한 줄이
+   5.9px 넘쳤다(스윕 실측 · 테마 버튼과 무관한 별개 초과). 오른쪽 정렬을 유지한 채 접는다. */
+.decks{margin-left:auto;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px;row-gap:4px}
 .decks a{color:var(--mid);text-decoration:none}
 .decks a.on{color:var(--gold)}
 
@@ -165,7 +172,13 @@ html,body{background:var(--bg);color:var(--body);font-family:var(--sans)}
 .kv-wrap{display:flex;flex-direction:column;gap:1px}
 .kv{display:flex;align-items:baseline;gap:8px;font:400 10.5px var(--mono);padding:2px 0}
 .kv .k{color:var(--faint);letter-spacing:.05em;flex:0 1 auto;min-width:0;word-break:keep-all}
-.kv .d{flex:1 1 0;min-width:6px;border-bottom:1px dotted var(--hair2);transform:translateY(-3px)}
+/* 점선 leader 의 min-width:6px 가 좁은 칸에서 값을 밀어냈다.
+   book/ch2/05 나란히 보기 · 768폭에서 .kv 가 129px 까지 좁아지면 값 "3" 이 3.1px 잘렸다
+   (재측정에서도 남았으므로 진행 중 샘플이 아니라 실제 잘림이다).
+   .k/.v 의 flex 를 건드리면 다른 폭이 깨진다 — 전에 flex:0 0 auto 로 30.91px 흘렸고
+   wrap 으로는 1366폭이 0에서 20건이 됐다. 그래서 여기서는 제약만 푼다 :
+   자리가 없으면 점선이 먼저 짧아지고 값은 그대로 남는다. */
+.kv .d{flex:1 1 0;min-width:0;border-bottom:1px dotted var(--hair2);transform:translateY(-3px)}
 /* min-width:0 이 없으면 값이 min-content 아래로 줄지 않는다 — 비교 모드 768px 에서
    `0xAABBCCDD` 가 카드를 7.9px, `FIL_PAGE_SPACE_VERSION` 이 페이지를 2.1px 넘었다.
    16진수·상수는 끊을 자리가 없으므로 anywhere 로 접는다. */

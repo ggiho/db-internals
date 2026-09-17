@@ -9,6 +9,9 @@ const ACTORS = {
   sp:  { nm:'FREE SPACE',  lane:'page', kind:'kv' },
   cmp: { nm:'vs INNODB',   lane:'page', kind:'kv' },
 };
-const EDGES = [];
+const EDGES = [
+  /* 연산은 페이지 한 장을 단위로 일어난다 — PG 의 기본 블록은 8KB 다. */
+  { after:'op', lb:'8KB 페이지 경계', hot:'block' },
+];
 
 export { LANES, ACTORS, EDGES };

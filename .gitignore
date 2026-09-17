@@ -9,3 +9,6 @@ data/*/*/booktext.js
 
 # 책 PDF 위치 — 각자 로컬 경로다
 data/*/*/booksrc.js
+
+# 승격 전 원본 사본 — 배포·저장소와 무관하다
+.bak/

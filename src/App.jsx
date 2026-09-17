@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import Stage from './Stage.jsx';
+import './stage.css';
 import Rail from './Rail.jsx';
 import Playback, { REDUCED } from './Playback.jsx';
 import Source, { SourceModal } from './Source.jsx';
 import { bake, onStage } from './bake.js';
+
 
 /* 덱 이름은 <묶음>/<덱> 두 단계다 — 엔진을 늘릴 것이므로 처음부터 계층을 둔다.
    평평하게 두면 PostgreSQL 의 mvcc·locks 와 InnoDB 의 것이 이름부터 부딪히고,

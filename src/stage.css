@@ -1,0 +1,147 @@
+/* 무대 — 위아래 밴드 배치 + 흐름 기능.
+
+   레인을 왼쪽→오른쪽 칼럼으로 세워 봤다. 토큰이 이동할 거리가 생겨 경계를 넘는 것이
+   사건이 됐지만, 배치가 내용과 계속 싸웠다. 실측으로 확인한 두 제약 때문이다.
+     1) 폭 : 카드의 최소 내용 폭이 종류에 따라 151px(kv)~438px(bytes·tree) 로 3배 차이다.
+             전역 상수 하나로는 칼럼 폭을 정할 수 없었다.
+     2) 높이 : 칼럼 안에서 카드를 감싸 흘리면 두 번째 열이 레인 밖으로 나간다 —
+             1100폭에서 innodb/05/5 는 184px, ch2/05/3 은 327px 튀어나왔고
+             그것이 그 폭 문제 1370건의 몸통이었다. 감싸기를 끄면 세로로 넘친다.
+   그래서 칼럼은 걷어내고, 검증된 밴드 배치 위에 흐름 기능만 남긴다.
+   남기는 것 : 레일·토큰·유령 궤적·경계 라벨(저작된 EDGES)·장면 리듬 척추·참여자 강조. */
+:root{
+  --fl-1:#4C8DFF;   /* 얕은 레인 — 컴퓨트/SQL */
+  --fl-2:#26C6A6;   /* 중간 — 메모리 */
+  --fl-3:#F5A524;   /* 깊은 레인 — 디스크/스토리지 */
+  --fl-4:#B57BFF;
+  --fl-tok:#FFFFFF;
+  --fl-glow:rgba(76,141,255,.55);
+  --fl-band:rgba(255,255,255,.024);
+}
+:root[data-theme="light"]{
+  --fl-tok:#12203A; --fl-glow:rgba(47,92,168,.42); --fl-band:rgba(16,26,25,.026);
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --fl-tok:#12203A; --fl-glow:rgba(47,92,168,.42); --fl-band:rgba(16,26,25,.026);
+  }
+}
+
+/* ── 레일 : 두 배치 공통 ────────────────────────────────────────────────── */
+.stage{position:relative}
+.stage .rails{
+  /* width/height 속성이 CSS inset:0 보다 우선해 크기를 정하는 경우가 있다 —
+     명시적으로 100% 를 줘서 상자와 어긋나지 않게 못박는다. */
+  position:absolute;inset:0;width:100%;height:100%;
+  pointer-events:none;z-index:3;overflow:visible}
+.rail{fill:none;stroke:var(--line);stroke-width:1;opacity:.45}
+.rail-lit{
+  fill:none;stroke:var(--fl-1);stroke-width:2.4;stroke-linecap:round;
+  filter:drop-shadow(0 0 6px var(--fl-glow)) drop-shadow(0 0 18px var(--fl-glow));
+  stroke-dasharray:1 1;pathLength:1;
+  animation:fl-draw .8s cubic-bezier(.4,0,.2,1) both}
+@keyframes fl-draw{ from{stroke-dasharray:0 1} to{stroke-dasharray:1 0} }
+/* 유령 궤적 : 지나온 스텝의 경로. 점선으로 두어 '지금' 과 혼동되지 않게 한다. */
+.rail-ghost{
+  fill:none;stroke:var(--fl-1);stroke-width:1;stroke-dasharray:2 4;stroke-linecap:round}
+.tok{
+  fill:var(--fl-tok);
+  filter:drop-shadow(0 0 7px var(--fl-glow)) drop-shadow(0 0 20px var(--fl-glow))
+         drop-shadow(0 0 34px var(--fl-glow))}
+
+/* ── 레인의 정체성 : 두 배치 공통 ───────────────────────────────────────── */
+.lane{position:relative;border-radius:2px}
+.lane::before{     /* 왼쪽 게이지 */
+  content:'';position:absolute;left:0;top:0;bottom:0;width:2px;border-radius:2px;
+  background:var(--line)}
+.lane > *{position:relative;z-index:1}
+.lane:nth-of-type(1)::before{background:var(--fl-1)}
+.lane:nth-of-type(2)::before{background:var(--fl-2)}
+.lane:nth-of-type(3)::before{background:var(--fl-3)}
+.lane:nth-of-type(4)::before{background:var(--fl-4)}
+.lane:nth-of-type(1) .lane-lb{color:var(--fl-1)}
+.lane:nth-of-type(2) .lane-lb{color:var(--fl-2)}
+.lane:nth-of-type(3) .lane-lb{color:var(--fl-3)}
+.lane:nth-of-type(4) .lane-lb{color:var(--fl-4)}
+.lane-lb{letter-spacing:.24em}
+.lane-lb i{color:var(--faint);letter-spacing:.04em;font-style:normal}
+
+/* ── 경계 : 저작된 EDGES 라벨을 가로선 위에 얹는다 ──────────────────────── */
+/* 배치는 기본 style.css 의 .stage/.lane/.row 가 맡는다. 경계만 다시 쓴다 —
+   기본 .edge 는 height:0 · border-top 이라 안에 든 라벨이 삐져나온다. */
+.lane{padding-left:11px}
+.edge{
+  display:flex;align-items:center;gap:9px;
+  height:auto;min-height:13px;margin:2px 0;border-top:0;opacity:1;grid-column:auto}
+.edge > span{
+  flex:1 1 auto;height:1px;
+  background:repeating-linear-gradient(to right,var(--line) 0 3px,transparent 3px 7px)}
+.edge > b{flex:0 0 auto;white-space:nowrap}
+.edge.lit > span{
+  background:linear-gradient(to right,
+    transparent 0%, var(--fl-3) 42%, #fff 50%, var(--fl-3) 58%, transparent 100%);
+  background-size:240% 100%;height:2px;
+  filter:drop-shadow(0 0 7px var(--fl-glow));
+  animation:fl-sweep 1.05s cubic-bezier(.4,0,.2,1) both}
+@keyframes fl-sweep{ from{background-position:-140% 0} to{background-position:140% 0} }
+
+/* ── 경계 라벨의 공통 모습 ──────────────────────────────────────────────── */
+.edge > b{
+  font:400 8.5px var(--mono);letter-spacing:.16em;text-transform:uppercase;
+  color:var(--faint);padding:7px 1px;
+  border:1px dotted var(--line);border-radius:9px;background:var(--bg);
+  transition:color .2s, border-color .2s, background .2s}
+.edge > b{padding:1px 7px}
+.edge.lit > b{
+  color:var(--ink);border-color:var(--fl-3);border-style:solid;
+  background:color-mix(in srgb, var(--fl-3) 14%, transparent);
+  animation:fl-pop .5s cubic-bezier(.34,1.56,.64,1) both}
+@keyframes fl-pop{ 0%{transform:scale(.9)} 60%{transform:scale(1.06)} 100%{transform:scale(1)} }
+
+/* ── 카드 : 참여자만 도드라진다 (두 배치 공통) ──────────────────────────── */
+.act{transition:opacity .28s, filter .28s;position:relative;z-index:2}
+.stage:has(.act.hot) .act:not(.hot){opacity:.4;filter:saturate(.5)}
+.act.hot{box-shadow:0 0 0 1px var(--fl-1), 0 8px 26px -14px var(--fl-glow)}
+.act.hot .a-nm{color:var(--ink)}
+.act.hot::after{
+  content:'';position:absolute;inset:-1px;border-radius:inherit;pointer-events:none;
+  border:1px solid var(--fl-1);opacity:0;animation:fl-ping .7s ease-out both}
+@keyframes fl-ping{ 0%{opacity:.85;transform:scale(1)} 100%{opacity:0;transform:scale(1.03)} }
+.act.hot .chg,.act.hot .is-chg{animation:fl-flash .8s ease-out both}
+@keyframes fl-flash{
+  0%{background:color-mix(in srgb, var(--fl-1) 34%, transparent)}
+  100%{background:transparent}
+}
+
+/* ── 척추 : 장면의 리듬 (두 배치 공통) ──────────────────────────────────── */
+.spine{
+  position:relative;display:flex;gap:3px;align-items:flex-end;
+  height:22px;margin:9px 0 2px;padding-bottom:3px;flex:0 0 auto}
+.spine::after{
+  content:'';position:absolute;left:0;right:0;bottom:2px;height:1px;
+  background:var(--line);opacity:.55}
+.spine i{
+  position:relative;z-index:1;flex:0 1 14px;max-width:14px;min-width:2px;height:4px;
+  border-radius:1px 1px 0 0;background:var(--line);opacity:.5;
+  transition:height .24s cubic-bezier(.4,0,.2,1), opacity .24s}
+.spine i[data-lane="0"]{background:var(--fl-1)}
+.spine i[data-lane="1"]{background:var(--fl-2)}
+.spine i[data-lane="2"]{background:var(--fl-3)}
+.spine i[data-lane="3"]{background:var(--fl-4)}
+.spine i.look{height:3px;opacity:.3}   /* 보기만 하는 스텝은 낮게 */
+.spine i:not(.past):not(.now){opacity:.24}
+.spine i.past{opacity:.85;height:8px}
+.spine i.now{
+  height:17px;opacity:1;border-radius:2px;
+  box-shadow:0 0 10px var(--fl-glow), 0 0 22px var(--fl-glow)}
+
+.stage-foot .fl{
+  margin-left:14px;padding:0 8px;line-height:1.5;border-radius:9px;
+  color:var(--fl-1);border:1px solid color-mix(in srgb, var(--fl-1) 45%, transparent);
+  letter-spacing:.1em}
+
+@media (prefers-reduced-motion: reduce){
+  .rail-lit,.edge.lit > span,.act.hot::after{animation:none}
+  .rail-lit{stroke-dasharray:none}
+  .tok{display:none}
+}

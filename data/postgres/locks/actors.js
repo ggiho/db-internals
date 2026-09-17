@@ -9,6 +9,9 @@ const ACTORS = {
   tup:  { nm:'TUPLE',      lane:'heap', kind:'kv' },
   cmp:  { nm:'vs INNODB',  lane:'heap', kind:'kv' },
 };
-const EDGES = [];
+const EDGES = [
+  /* 락 표는 공유 메모리에 있고 튜플은 힙에 있다 — 재시작하면 앞쪽만 사라진다. */
+  { after:'sql', lb:'락 표 · 튜플', hot:'io' },
+];
 
 export { LANES, ACTORS, EDGES };

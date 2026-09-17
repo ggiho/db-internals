@@ -14,6 +14,10 @@ const ACTORS = {
 };
 
 /* 흐름 화살표 — 아직 장면 간 이동만 있어 비어 있다 */
-const EDGES = [];
+const EDGES = [
+  /* SQL 계층과 힙 사이는 table access method 다 —
+     access/tableam.h 의 TableAmRoutine 이 그 경계이고 heapam_methods 가 힙 구현이다. */
+  { after:'sql', lb:'TABLE AM', hot:'boundary' },
+];
 
 export { LANES, ACTORS, EDGES };
