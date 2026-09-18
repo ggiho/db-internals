@@ -119,7 +119,7 @@ const SCENES = [
   { note:'COMMIT — 2단계 커밋의 1단계 : prepare. 다만 여기서 fsync 하지 않는다',
     why:'trx_prepare 가 undo 를 PREPARED 로 바꾸고 redo 에 그 기록을 남긴다. 그런데 binlog 가 켜져 있으면 서버가 그 직전에 thd->durability_property 를 HA_IGNORE_DURABILITY 로 낮춰 두고, 그래서 trx_flush_logs 가 그 갈래에서 아무것도 하지 않고 빠져나온다. redo 는 아직 버퍼에만 있다.',
     key:'"prepare 가 fsync 한다" 는 반만 맞다. <em>논리적으로는</em> prepare 의 내구화가 binlog 보다 먼저지만 <em>물리적 fsync 는 이 함수 안이 아니다</em> — 트랜잭션마다 디스크를 두드리지 않으려고 뒤로 미룬다.',
-    ref:'storage/innobase/trx/trx0trx.cc', sym:'trx_prepare',
+    ref:'storage/innobase/trx/trx0trx.cc', sym:'trx_flush_logs',
     fact:[['sql/binlog.cc','thd->durability_property = HA_IGNORE_DURABILITY;'],
           ['storage/innobase/trx/trx0trx.cc','case HA_IGNORE_DURABILITY:'],
           ['storage/innobase/trx/trx0trx.cc','redo log in a group right before writing them to binary log']],

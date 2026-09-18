@@ -857,7 +857,7 @@ const SCENES = [
 {
   num:'06a', tab:'페이지 헤더', title:'FIL 헤더가 끝난 자리에서 이어진다',
   sub:'12필드 36바이트 · 그리고 디렉터리는 반대쪽 끝에서 거꾸로 자란다',
-  cast:['op','phd','flds','addr','dir'],
+  cast:['op','phd','fsp','fins','addr','dir'],
   knobs:[
     ['innodb_page_size','16 KB','디렉터리 시작 주소가 이 값에서 역산된다'],
     ['innodb_default_row_format','dynamic','PAGE_N_HEAP 의 비트 15 가 형식을 표시한다']],
@@ -877,12 +877,13 @@ const SCENES = [
       { id:'LEVEL', sz:2, tag:'hdr', sub:'+26' },
       { id:'INDEX_ID', sz:8, tag:'hdr', sub:'+28  8B' } ],
       byl:{ l:'폭이 곧 바이트 수다', r:'합 36 B  ·  8B 둘이 절반' } },
-    flds:{ items:[
+    fsp:{ items:[
       { id:'+0  N_DIR_SLOTS', tag:'clean', sub:'슬롯 배열 길이' },
       { id:'+2  HEAP_TOP',    tag:'clean', sub:'셀이 자란 끝' },
       { id:'+4  N_HEAP',      tag:'clean', sub:'힙 레코드 수 + 형식 비트' },
       { id:'+6  FREE',        tag:'clean', sub:'삭제 레코드 목록 시작' },
-      { id:'+8  GARBAGE',     tag:'clean', sub:'삭제된 바이트 합' },
+      { id:'+8  GARBAGE',     tag:'clean', sub:'삭제된 바이트 합' } ] },
+    fins:{ items:[
       { id:'+10 LAST_INSERT', tag:'clean', sub:'마지막 삽입 위치' },
       { id:'+12 DIRECTION',   tag:'clean', sub:'삽입 방향' },
       { id:'+14 N_DIRECTION', tag:'clean', sub:'같은 방향 횟수' },
@@ -905,7 +906,7 @@ const SCENES = [
     ops:{ op:{ set:{ '헤더 시작':'38  (FIL 헤더 다음)|green' } },
           addr:{ set:{ 'PAGE_HEADER':'38' } } } },
 
-  { look:{ phd:true, flds:true },
+  { look:{ phd:true, fsp:true, fins:true },
     note:'12필드가 36바이트를 채운다 — 2바이트 아홉 개, 8바이트 둘, 2바이트 하나',
     why:'앞 18바이트에 2바이트짜리 아홉 개가 들어간다 — 옆 목록이 그 아홉 개다. 그 뒤 MAX_TRX_ID 8바이트, LEVEL 2바이트, INDEX_ID 8바이트로 36이 된다.',
     key:'폭을 보면 <em>8바이트 둘이 절반</em>을 쓴다. 트랜잭션 id 와 인덱스 id 는 좁힐 수 없는 값이라 그렇다.',
@@ -916,13 +917,24 @@ const SCENES = [
           ['storage/innobase/include/page0types.h','constexpr uint32_t PAGE_HEADER_PRIV_END = 26;']],
     beat:1 },
 
+  { look:{ fins:true },
+    note:'뒤쪽 세 필드는 따로 쓰이지 않는다 — 한 조건으로 함께 읽힌다',
+    why:'page_cur_search_with_match 가 잎 페이지에서 PAGE_CUR_LE 로 찾을 때, N_DIRECTION 이 3 보다 크고 LAST_INSERT 가 있고 DIRECTION 이 PAGE_RIGHT 이면 page_cur_try_search_shortcut 을 먼저 시도한다. 세 필드가 &&로 이어진 하나의 관문이다.',
+    key:'그래서 이 셋은 <em>통계가 아니라 캐시</em>다. "오른쪽으로만 네 번 넘게 들어왔다" 를 기억해 두고, 다음 삽입은 이진 탐색을 건너뛰고 그 자리부터 본다 — 오름차순 키 삽입이 빠른 이유가 여기 있다.',
+    ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_search_with_match',
+    fact:[['storage/innobase/page/page0cur.cc','(page_header_get_field(page, PAGE_N_DIRECTION) > 3) &&'],
+          ['storage/innobase/page/page0cur.cc','(page_header_get_field(page, PAGE_DIRECTION) == PAGE_RIGHT)) {']],
+    ops:{ fins:{ set:{ '+12 DIRECTION':{ tag:'chg', sub:'PAGE_RIGHT 이면 지름길 후보' },
+                       '+14 N_DIRECTION':{ tag:'chg', sub:'> 3 이어야 한다' } } } },
+    beat:1 },
+
   { act:{ f:'phd', t:'addr', lb:'+4 의 비트 15' },
     note:'PAGE_N_HEAP 은 레코드 수인데, 최상위 비트가 형식 플래그다',
     why:'주석 그대로다 — "number of records in the heap, bit 15=flag: new-style compact page format". 15비트가 개수, 1비트가 형식이다.',
     key:'04b 의 이야기가 여기서도 반복된다 — <em>한 필드에 두 가지</em>. 다만 이번엔 문맥이 아니라 비트로 나눈다.',
     ref:'storage/innobase/page/page.ic', sym:'page_header_get_field',
     fact:[['storage/innobase/include/page0types.h','number of records in the heap, bit 15=flag: new-style compact page format']],
-    ops:{ flds:{ set:{ '+4  N_HEAP':{ tag:'x', sub:'15비트 개수  +  1비트 형식 플래그' } } },
+    ops:{ fsp:{ set:{ '+4  N_HEAP':{ tag:'x', sub:'15비트 개수  +  1비트 형식 플래그' } } },
           phd:{ set:{ '2B × 9':{ id:'2B × 9', sz:18, tag:'hdr', sub:'+0 ~ +17  이 안의 +4 가 그것' } } } } },
 
   { act:{ f:'phd', t:'addr', lb:'+36 부터 FSEG 둘' },
@@ -936,7 +948,7 @@ const SCENES = [
           ['storage/innobase/include/fsp0types.h','constexpr uint32_t FSEG_HEADER_SIZE = 10;']],
     ops:{ phd:{ add:[{ id:'SEG_LEAF', sz:10, tag:'free', sub:'+36  루트만' },
                      { id:'SEG_TOP', sz:10, tag:'free', sub:'+46  루트만' }] },
-          flds:{ set:{ '+4  N_HEAP':{ tag:'clean', sub:'힙 레코드 수 + 형식 비트' } } },
+          fsp:{ set:{ '+4  N_HEAP':{ tag:'clean', sub:'힙 레코드 수 + 형식 비트' } } },
           addr:{ set:{ 'PAGE_DATA':'38 + 36 + 2×10 = 94|gold' } },
           op:{ set:{ '데이터 시작':'94' } } } },
 
@@ -1132,7 +1144,7 @@ const SCENES = [
     note:'status 3비트가 이 레코드가 무엇인지 정한다 — 값은 넷뿐이다',
     why:'ORDINARY 0 · NODE_PTR 1 · INFIMUM 2 · SUPREMUM 3. 경계 레코드가 별도 구조가 아니라 같은 형식의 레코드이고, 비리프의 자식 포인터도 그렇다.',
     key:'그래서 <em>페이지 안의 모든 것이 같은 형식</em>이다. infimum·supremum·자식 포인터·사용자 행이 한 가지 코드로 다뤄진다.',
-    ref:'storage/innobase/rem/rec.h', sym:'rec_get_status',
+    ref:'storage/innobase/rem/rec.h', sym:'REC_STATUS_ORDINARY',
     fact:[['storage/innobase/rem/rec.h','constexpr uint32_t REC_STATUS_ORDINARY = 0;'],
           ['storage/innobase/rem/rec.h','constexpr uint32_t REC_STATUS_NODE_PTR = 1;'],
           ['storage/innobase/rem/rec.h','constexpr uint32_t REC_STATUS_INFIMUM = 2;'],
@@ -1400,7 +1412,7 @@ const SCENES = [
     note:'페이지 종류 값 자체가 매직 넘버다 — 작은 일련번호가 아니다',
     why:'FIL_PAGE_INDEX 는 17855(0x45BF)다. 1, 2, 3 처럼 세지 않는다. 손상된 페이지나 다른 형식의 파일에서 우연히 그 두 바이트가 나올 확률을 낮추려는 선택이고, fil_page_type_is_index 는 그 값과 SDI·RTREE 를 함께 본다.',
     key:'책이 든 네 방식 중 <em>헤더와 매직 넘버를 동시에</em> 쓰는 셈이다. 그래서 hexdump 로 <em>45 bf</em> 를 찾으면 인덱스 페이지의 시작을 눈으로 셀 수 있다.',
-    ref:'storage/innobase/include/fil0fil.h', sym:'fil_page_type_is_index',
+    ref:'storage/innobase/include/fil0fil.h', sym:'FIL_PAGE_INDEX',
     fact:[['storage/innobase/include/fil0fil.h','constexpr page_type_t FIL_PAGE_INDEX = 17855;']] },
 
   { look:{ ver:true },

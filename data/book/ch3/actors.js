@@ -19,7 +19,11 @@ const ACTORS = {
   fld:  { nm:'이 필드',             lane:'page', kind:'kv', w:'w15' },
   phd:  { nm:'PAGE 헤더 (36B)',     lane:'page', kind:'bytes', w:'wide' },
   addr: { nm:'주소 산술',            lane:'page', kind:'kv', w:'w15' },
-  flds: { nm:'2B 필드 아홉 개',        lane:'page', kind:'list', w:'w2' },
+  /* 아홉 개를 한 장에 담으면 무대가 좁아진다(verify 가 8개 초과를 경고한다).
+     기능으로 나눈다 — 앞 다섯은 빈 공간이 어디인가를, 뒤 넷은 삽입 이력을 말한다.
+     뒤 셋(LAST_INSERT·DIRECTION·N_DIRECTION)은 page0cur.cc 에서 한 조건으로 함께 읽힌다. */
+  fsp:  { nm:'공간 관리 5필드',       lane:'page', kind:'list', w:'w2' },
+  fins: { nm:'삽입 이력 4필드',       lane:'page', kind:'list', w:'w2' },
   rhd:  { nm:'원점 앞  ·  extra 5B',  lane:'val',  kind:'bytes', w:'w2' },
   rdat: { nm:'원점 뒤  ·  데이터',      lane:'val',  kind:'bytes', w:'w2' },
   bit5: { nm:'5바이트 안의 다섯 값',    lane:'val',  kind:'list', w:'w2' },
