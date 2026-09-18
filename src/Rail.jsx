@@ -42,9 +42,11 @@ function Watch({ watch }) {
     <div className="rl rl-watch">
       <div className="rl-t">실제 서버에서 보는 법</div>
       <div className="rl-b">
+        {/* 이름이 '—' 인 줄은 "볼 지표가 없다" 는 저작된 뜻이다 — 손잡이 쪽과 같은 규칙이다.
+            그대로 그리면 명령어 자리에 '—' 가 떠서 값이 빠진 것처럼 읽힌다. */}
         {watch.map(([how, what], k) => (
-          <div className="wt" key={how + '/' + k}>
-            <div className="h">{how}</div>
+          <div className={'wt' + (how === '—' ? ' none' : '')} key={how + '/' + k}>
+            <div className="h">{how === '—' ? '볼 지표가 없다' : how}</div>
             <div className="b">{what}</div>
           </div>
         ))}
