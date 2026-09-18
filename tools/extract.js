@@ -61,6 +61,11 @@ for (const sc of SCENES) {
    중괄호 균형을 세도 헤더의 매크로·#ifdef 때문에 어긋났다(lock_check_trx_id_sanity).
    추정해서 틀린 이름을 적는 것보다, 심볼은 자기 정의 줄과 함께 적고
    보여 주는 구간을 따로 밝히는 편이 정직하다. */
+/* 인용이 있는 줄을 찾는다. 한 줄에 다 있으면 그 줄, 없으면 여러 줄에 걸친 것이므로
+   시작 줄을 돌려준다 — verify.js 는 공백을 정규화해 파일 전체에서 대조하므로
+   두 줄에 걸친 인용도 통과하는데, 줄 단위로만 찾으면 표시할 자리를 못 찾았다.
+   실측 : 172건 중 6건이 그랬다(mach_write_to_8(...) 같은 긴 호출, 두 줄 주석). */
+const norm = (t) => t.replace(/\s+/g, ' ').trim();
 const nearest = (src, q, anchor) => {
   let w = -1, best = Infinity;
   src.forEach((l, k) => {
@@ -68,6 +73,18 @@ const nearest = (src, q, anchor) => {
     const d = Math.abs(k + 1 - anchor);
     if (d < best) { best = d; w = k + 1; }
   });
+  if (w > 0) return w;
+  const nq = norm(q);
+  for (let k = 0; k < src.length; k++) {
+    let joined = '';
+    for (let j = k; j < Math.min(src.length, k + 5); j++) {
+      joined = norm(joined + ' ' + src[j]);
+      if (!joined.includes(nq)) continue;
+      const d = Math.abs(k + 1 - anchor);
+      if (d < best) { best = d; w = k + 1; }
+      break;
+    }
+  }
   return w;
 };
 const MAX_SPAN = 80;    /* 기본 창을 늘릴 수 있는 최대 거리. 스텝 전용 발췌가 먼 인용을 맡으므로
@@ -126,7 +143,8 @@ for (const [key, ln] of Object.entries(LINES)) {
      담기만 하고 표시하지 않으면 정의 줄이 위에 세워지는 탓에 위쪽 인용은 화면 밖이다. */
   const marks = [];
   for (const q of WANT[key] || []) {
-    for (let k = from; k <= to; k++) if (src[k - 1] && src[k - 1].includes(q)) { marks.push(k); break; }
+    const w = nearest(src, q, ln);            /* 여러 줄 인용도 시작 줄로 잡힌다 */
+    if (w >= from && w <= to) marks.push(w);
   }
   const cut = (a, b) => src.slice(a - 1, b).map(l => l.replace(/\t/g, '  ').replace(/\s+$/, ''));
   out[key] = { from, hit: ln, marks: [...new Set(marks)].sort((a, b) => a - b), lines: cut(from, to) };
@@ -139,25 +157,49 @@ for (const [key, ln] of Object.entries(LINES)) {
     if (v.key !== key) continue;
     const ws = [...new Set(v.qs.map((q) => nearest(src, q, ln)).filter((w) => w > 0))].sort((a, b) => a - b);
     if (!ws.length || ws.every((w) => w >= from && w <= to)) continue;
-    /* 스텝 창은 기본 창보다 넉넉해야 한다. MAX_WIN(101줄)을 같이 쓰던 판에서는
-       인용이 131줄·271줄 퍼진 스텝에서 가까운 인용이 잘려 나갔다 —
-       book/ch3 06a/7 은 정의 4줄 옆(311)을 버리고 먼 상수(61·64)만 담았다.
-       그래서 별도 상한을 두고, 그 안에서 가장 많이 담기는 창을 고른다. */
-    const STEP_WIN = 300;
-    let f2 = 0, t2 = 0, cov = -1;
-    for (const a1 of ws) {
-      const lo = Math.max(1, a1 - B);
-      let hi = Math.min(src.length, a1 + A);
-      for (const t of ws) if (t > hi && t + A - lo + 1 <= STEP_WIN) hi = Math.min(src.length, t + A);
-      const c = ws.filter((w) => w >= lo && w <= hi).length;
-      /* 같은 수를 담으면 정의를 담은 창을 택한다 — 맥락이 남는다. */
-      const sc2 = c * 2 + (ln >= lo && ln <= hi ? 1 : 0);
-      if (sc2 > cov) { cov = sc2; f2 = lo; t2 = hi; }
+    /* 인용들을 가까운 것끼리 묶어 구간 여럿으로 만든다. 한 창으로는 969·1947·8628줄
+       떨어진 두 곳을 함께 담을 수 없었다 — 구간을 나누고 사이에 '생략' 줄을 넣는다.
+       탭을 만들지 않아도 한 발췌 안에서 두 근거를 다 볼 수 있고, 무엇을 건너뛰었는지도
+       숫자로 남는다. */
+    const GROUP_GAP = 40;        /* 이보다 떨어지면 다른 구간으로 본다 */
+    const CLUSTER_MAX = 140;     /* 구간 하나의 최대 줄 수 */
+    const groups = [];
+    for (const w of ws) {
+      const g = groups[groups.length - 1];
+      if (g && w - g[g.length - 1] <= GROUP_GAP) g.push(w);
+      else groups.push([w]);
     }
+    /* 정의가 어느 구간에도 없으면 정의 구간을 앞에 둔다 — 맥락이 남는다. */
+    const spans = groups.map((g) => {
+      let a = Math.max(1, g[0] - B), b = Math.min(src.length, g[g.length - 1] + A);
+      if (b - a + 1 > CLUSTER_MAX) b = Math.min(src.length, a + CLUSTER_MAX - 1);
+      return [a, b];
+    });
+    if (!spans.some(([a, b]) => ln >= a && ln <= b)) {
+      spans.push([Math.max(1, ln - B), Math.min(src.length, ln + A)]);
+      spans.sort((x, y) => x[0] - y[0]);
+    }
+    /* 겹치거나 붙은 구간은 합친다 */
+    const merged = [];
+    for (const sp of spans) {
+      const last = merged[merged.length - 1];
+      if (last && sp[0] <= last[1] + 3) last[1] = Math.max(last[1], sp[1]);
+      else merged.push([...sp]);
+    }
+    const lines2 = [], nums2 = [];
+    merged.forEach(([a, b], gi) => {
+      if (gi) {
+        const skipped = a - merged[gi - 1][1] - 1;
+        lines2.push('⋯  ' + skipped.toLocaleString('en-US') + '줄 생략  ⋯');
+        nums2.push(0);
+      }
+      for (let k = a; k <= b; k++) { lines2.push(src[k - 1].replace(/\t/g, '  ').replace(/\s+$/, '')); nums2.push(k); }
+    });
     /* def : 심볼의 정의 줄. 머리글은 이것을 적고, 창은 인용 쪽을 보여 준다 —
        둘이 다르면 머리글이 '발췌 N–M' 을 함께 적어 어긋남을 밝힌다. */
-    stepOut[at] = { from: f2, hit: ws[0], def: ln,
-      marks: ws.filter((w) => w >= f2 && w <= t2), lines: cut(f2, t2) };
+    const inSpan = (w) => merged.some(([a, b]) => w >= a && w <= b);
+    stepOut[at] = { from: merged[0][0], hit: ws[0], def: ln, ranges: merged,
+      nums: nums2, marks: ws.filter(inSpan), lines: lines2 };
     perStep++;
   }
 }

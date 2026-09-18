@@ -35,9 +35,9 @@ export function snapSrc(cd) {
   if (cd.scrollTop % lh > 0.5) cd.scrollTop = Math.floor(cd.scrollTop / lh) * lh;
 }
 
-function Line({ n, toks, hit, cite }) {
+function Line({ n, toks, hit, cite, gap }) {
   return (
-    <span className={'ln' + (n === hit ? ' hit' : '') + (cite ? ' cited' : '')}>
+    <span className={'ln' + (gap ? ' gap' : '') + (!gap && n === hit ? ' hit' : '') + (cite ? ' cited' : '')}>
       <i>{n}</i>
       {toks.map((t, k) => (t.c ? <span key={k} className={t.c}>{t.v}</span> : t.v))}
     </span>
@@ -84,7 +84,9 @@ export default function Source({ deck, step, at, off, onVisible }) {
        실측 : book/ch3 06a 는 정의 328 · 인용 376 이라 인용이 안 보였다.
        심볼과 줄 번호는 위 머리글이 이미 적어 주므로, 창에서 볼 것은 근거 쪽이다. */
     const top = code.marks && code.marks.length ? code.marks[0] : code.hit;
-    el.scrollTop = Math.max(0, (top - code.from - 2) * lh);
+    /* 줄 번호가 연속이 아닐 수 있다(생략 줄) — 몇 번째 줄인지 색인으로 구한다. */
+    const idx = code.nums ? code.nums.indexOf(top) : top - code.from;
+    el.scrollTop = Math.max(0, (idx - 2) * lh);
     snapSrc(el);
   });
 
@@ -120,11 +122,11 @@ export default function Source({ deck, step, at, off, onVisible }) {
         <span>{step.sym}</span>
         {/* 스텝 전용 발췌는 심볼 정의에서 떨어진 자리를 보여 준다 —
             어느 구간인지 밝혀야 머리글의 줄 번호와 어긋나지 않는다. */}
-        {code.def ? <u className="srcin-win">발췌 {code.from}–{code.from + code.lines.length - 1}</u> : null}
+        {code.def ? <u className="srcin-win">발췌 {(code.ranges || [[code.from, code.from + code.lines.length - 1]]).map((r) => r[0] + '–' + r[1]).join('  ·  ')}</u> : null}
         <i>이 스텝의 근거</i>
       </div>
       <div className="srcin-cd" ref={cd}>
-        {lines.map((l) => <Line key={l.n} n={l.n} toks={l.toks} hit={code.hit} cite={(code.marks||[]).includes(l.n)} />)}
+        {lines.map((l, i) => <Line key={l.n + '/' + i} n={l.n} toks={l.toks} gap={l.gap} hit={code.hit} cite={!l.gap && (code.marks||[]).includes(l.n)} />)}
       </div>
     </section>
   );
@@ -159,7 +161,7 @@ export function SourceModal({ deck, step, at, open, onClose }) {
               <button className="src-x" onClick={onClose}>닫기  ESC</button>
             </div>
             <div className="src-cd" ref={cd}>
-              {lines.map((l) => <Line key={l.n} n={l.n} toks={l.toks} hit={code.hit} cite={(code.marks||[]).includes(l.n)} />)}
+              {lines.map((l, i) => <Line key={l.n + '/' + i} n={l.n} toks={l.toks} gap={l.gap} hit={code.hit} cite={!l.gap && (code.marks||[]).includes(l.n)} />)}
             </div>
           </motion.div>
         </motion.div>

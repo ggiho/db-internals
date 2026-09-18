@@ -166,6 +166,9 @@
 /* 스텝 전용 발췌의 구간 표기 — 심볼 정의 줄과 보여 주는 구간이 다를 때만 나온다. */
 .srcin-win{font:400 9px var(--mono);color:var(--faint);letter-spacing:.06em;
   text-decoration:none;border:1px dotted var(--line);border-radius:8px;padding:0 6px;margin-left:2px}
+/* 생략 줄 — 멀리 떨어진 두 구간을 한 발췌에 담을 때 사이에 들어간다. */
+.ln.gap{color:var(--faint);background:none;user-select:none}
+.ln.gap .n{visibility:hidden}
 .ln.cited{background:color-mix(in srgb, var(--gold) 9%, transparent);
   box-shadow:inset 2px 0 0 color-mix(in srgb, var(--gold) 55%, transparent)}
 .ln.hit.cited{background:color-mix(in srgb, var(--accent) 12%, transparent)}

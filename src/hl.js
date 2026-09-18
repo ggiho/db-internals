@@ -100,8 +100,12 @@ export function highlight(code) {
   if (!code) return [];
   let block = false;
   return code.lines.map((l, k) => {
+    /* nums 가 있으면 줄 번호가 연속이 아니다 — 스텝 전용 발췌가 멀리 떨어진 두 구간을
+       한 창에 담고 사이에 생략 줄을 넣는 경우다. n === 0 이 그 생략 줄이다. */
+    const n = code.nums ? code.nums[k] : code.from + k;
+    if (n === 0) return { n: 0, gap: true, toks: [{ t: 'x', v: l }] };
     const r = hl(l, block);
     block = r.block;
-    return { n: code.from + k, toks: r.toks };
+    return { n, toks: r.toks };
   });
 }
