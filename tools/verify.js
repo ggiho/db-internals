@@ -267,6 +267,13 @@ for (const sc of SCENES) {
     if (step.note && step.why && overlap(step.note, step.why) >= .62)
       wrn(S + ' note 와 why 가 ' + Math.round(overlap(step.note, step.why) * 100) + '% 겹친다');
     if (step.ref && !step.sym) wrn(S + ' ref 는 있는데 sym 이 없다');
+
+    /* key 만 dangerouslySetInnerHTML 로 그려진다 — 나머지는 평문이다.
+       실측 : why 에 든 <em> 이 캡션에 태그 그대로 노출됐다(ch2 05/1 · locks 02/3). */
+    for (const f of ['note', 'why', 'sub', 'title']) {
+      if (step[f] && /<[a-zA-Z/]/.test(step[f]))
+        err(S + ' ' + f + ' 에 태그가 있다 — 이 필드는 평문으로 그려지므로 글자로 보인다');
+    }
     if (step.ref && step.sym && !LINES[step.ref + '#' + step.sym])
       err(S + ' 심볼을 저장소에서 못 찾았다 : ' + step.ref + ' # ' + step.sym);
 

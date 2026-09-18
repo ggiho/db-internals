@@ -176,7 +176,7 @@ const SCENES = [
 
   { look:{ row:['id=20'], rl:true },
     note:'보이지 않는 버전을 만나면 undo 를 거슬러 옛 버전을 만든다',
-    why:'lock_clust_rec_cons_read_sees 가 이 레코드가 read view 에 보이는지 판정한다. 안 보이면 row_sel_build_prev_vers_for_mysql 이 undo 로그를 따라 그 시점의 버전을 재구성한다. 즉 읽기는 남을 기다리지 않고 <em>과거를 만들어</em> 읽는다.',
+    why:'lock_clust_rec_cons_read_sees 가 이 레코드가 read view 에 보이는지 판정한다. 안 보이면 row_sel_build_prev_vers_for_mysql 이 undo 로그를 따라 그 시점의 버전을 재구성한다. 즉 읽기는 남을 기다리지 않고 과거를 만들어 읽는다.',
     key:'MVCC 가 락 없이 일관성을 주는 방법이 이것이다 — 기다리는 대신 <em>버전을 짓는다</em>. 대가는 undo 를 거슬러야 하는 비용이고, 그래서 오래된 read view 는 purge 를 막는다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_clust_rec_cons_read_sees',
     fact:[['storage/innobase/row/row0sel.cc','lock_clust_rec_cons_read_sees('],

@@ -56,6 +56,13 @@ export default function App() {
   const [deckOf, setDeckOf] = useState(null);
   const [playing, setPlaying] = useState(false);
   const [split, setSplit] = useState(false);
+  /* 나란히 보기를 내줄 만큼 넓은가 — 폭이 바뀌면 따라간다. */
+  const [wide, setWide] = useState(() => window.innerWidth >= 960);
+  useEffect(() => {
+    const f = () => setWide(window.innerWidth >= 960);
+    addEventListener('resize', f);
+    return () => removeEventListener('resize', f);
+  }, []);
   const [srcOpen, setSrcOpen] = useState(false);
   const [srcVisible, setSrcVisible] = useState(false);
   /* 테마 : 'auto' 는 속성을 지우고 시스템 설정에 맡긴다. 명시적 선택만 저장한다 —
@@ -110,7 +117,11 @@ export default function App() {
   /* 짝 장면 : 같은 스텝 수여야 나란히 세울 수 있다. 수가 다르면 한쪽이 없는 스텝을
      그리게 되므로 버튼 자체를 내주지 않는다 (들어가기 전에 확인한다). */
   const alt = deck && scene && scene.pair ? deck.SCENES.find((x) => x.num === scene.pair) : null;
-  const pairOK = !!(alt && alt.steps.length === scene.steps.length);
+  /* 나란히 보기는 한쪽 폭이 값을 한 줄에 담을 수 있을 때만 내준다.
+     768폭에서는 OPERATION 이 'OPERAT/ION' 으로, 1,000,000 이 다섯 줄로 쪼개졌다.
+     잘림이 사라지는 폭을 재서 정했다 — 768:3건 2.7px · 834:2건 1.7px · 900:2건 0.7px · 960:0건.
+     pairOK 에 접어 두면 이미 있는 효과가 켜져 있던 비교 모드를 알아서 끈다. */
+  const pairOK = !!(alt && alt.steps.length === scene.steps.length) && wide;
   const framesB = useMemo(() => (pairOK ? bake(alt) : []), [pairOK, alt]);
 
   const nav = useCallback((num, step, push) => {

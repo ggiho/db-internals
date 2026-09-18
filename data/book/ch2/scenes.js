@@ -354,7 +354,7 @@ const SCENES = [
   steps:[
   { look:{ op:true },
     note:'371 은 소스에 있는 수가 아니다 — 가정에서 나온 수다',
-    why:'페이지는 16,384바이트(UNIV_PAGE_SIZE_DEF = 1 << 14)이고 그중 FIL 헤더 38바이트와 트레일러 8바이트는 데이터가 아니다. 남는 약 16,300바이트를 노드 포인터 레코드 하나당 약 44바이트로 나누면 370 남짓이 된다. 즉 371 은 <em>레코드 크기를 44바이트로 가정했을 때</em>의 수다.',
+    why:'페이지는 16,384바이트(UNIV_PAGE_SIZE_DEF = 1 << 14)이고 그중 FIL 헤더 38바이트와 트레일러 8바이트는 데이터가 아니다. 남는 약 16,300바이트를 노드 포인터 레코드 하나당 약 44바이트로 나누면 370 남짓이 된다. 즉 371 은 레코드 크기를 44바이트로 가정했을 때의 수다.',
     key:'이 장면의 모든 수(371배·3레벨·144KB)가 그 가정 위에 있다. 실제 팬아웃은 <em>키 길이와 행 형식이 정한다</em> — 긴 문자열 키를 쓰면 100 아래로 떨어지고, 그러면 같은 데이터가 4~5레벨이 된다. 소스에 팬아웃 상수는 없다.',
     ref:'storage/innobase/include/univ.i', sym:'UNIV_PAGE_SIZE_DEF',
     fact:[['storage/innobase/include/univ.i','constexpr uint32_t UNIV_PAGE_SIZE_DEF = 1 << UNIV_PAGE_SIZE_SHIFT_DEF;'],

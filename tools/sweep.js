@@ -598,7 +598,11 @@ async function main() {
         }
 
         /* 비교 모드 : 옛 판에서 한 번도 스윕된 적이 없던 모드다 */
-        if (DO_SPLIT && p.pair && !narrow && (s === 1 || s === mid)) {
+        /* 앱은 960 미만에서 나란히 보기를 내주지 않는다(값이 한 줄에 안 들어간다).
+           그 폭에서 v 를 눌러 켜질 것을 기대하면 불일치로 세어진다 — 실측 16건.
+           앱의 규칙과 같은 문턱을 쓴다. */
+        const SPLIT_MIN_W = 960;
+        if (DO_SPLIT && p.pair && !narrow && w >= SPLIT_MIN_W && (s === 1 || s === mid)) {
           await page.keyboard.press('v');
           await page.waitForFunction(() => !!document.querySelector('.stage-wrap.split'), null, { timeout: 5000 }).catch(() => {});
           const rs = await take(hash, 'split');
