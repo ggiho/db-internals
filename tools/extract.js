@@ -139,10 +139,21 @@ for (const [key, ln] of Object.entries(LINES)) {
     if (v.key !== key) continue;
     const ws = [...new Set(v.qs.map((q) => nearest(src, q, ln)).filter((w) => w > 0))].sort((a, b) => a - b);
     if (!ws.length || ws.every((w) => w >= from && w <= to)) continue;
-    /* 인용 주변만 좁게 잡는다. 정의까지 담으려 했더니 창이 최대치(221줄)로 커져
-       code.js 가 38.8 → 89.6 KB 가 됐다. 정의는 머리글이 이름으로 적어 준다. */
-    let f2 = Math.max(1, ws[0] - B), t2 = Math.min(src.length, ws[ws.length - 1] + A);
-    if (t2 - f2 + 1 > MAX_WIN) t2 = Math.min(src.length, f2 + MAX_WIN - 1);
+    /* 스텝 창은 기본 창보다 넉넉해야 한다. MAX_WIN(101줄)을 같이 쓰던 판에서는
+       인용이 131줄·271줄 퍼진 스텝에서 가까운 인용이 잘려 나갔다 —
+       book/ch3 06a/7 은 정의 4줄 옆(311)을 버리고 먼 상수(61·64)만 담았다.
+       그래서 별도 상한을 두고, 그 안에서 가장 많이 담기는 창을 고른다. */
+    const STEP_WIN = 300;
+    let f2 = 0, t2 = 0, cov = -1;
+    for (const a1 of ws) {
+      const lo = Math.max(1, a1 - B);
+      let hi = Math.min(src.length, a1 + A);
+      for (const t of ws) if (t > hi && t + A - lo + 1 <= STEP_WIN) hi = Math.min(src.length, t + A);
+      const c = ws.filter((w) => w >= lo && w <= hi).length;
+      /* 같은 수를 담으면 정의를 담은 창을 택한다 — 맥락이 남는다. */
+      const sc2 = c * 2 + (ln >= lo && ln <= hi ? 1 : 0);
+      if (sc2 > cov) { cov = sc2; f2 = lo; t2 = hi; }
+    }
     /* def : 심볼의 정의 줄. 머리글은 이것을 적고, 창은 인용 쪽을 보여 준다 —
        둘이 다르면 머리글이 '발췌 N–M' 을 함께 적어 어긋남을 밝힌다. */
     stepOut[at] = { from: f2, hit: ws[0], def: ln,
