@@ -35,9 +35,9 @@ export function snapSrc(cd) {
   if (cd.scrollTop % lh > 0.5) cd.scrollTop = Math.floor(cd.scrollTop / lh) * lh;
 }
 
-function Line({ n, toks, hit }) {
+function Line({ n, toks, hit, cite }) {
   return (
-    <span className={'ln' + (n === hit ? ' hit' : '')}>
+    <span className={'ln' + (n === hit ? ' hit' : '') + (cite ? ' cited' : '')}>
       <i>{n}</i>
       {toks.map((t, k) => (t.c ? <span key={k} className={t.c}>{t.v}</span> : t.v))}
     </span>
@@ -73,7 +73,11 @@ export default function Source({ deck, step, off, onVisible }) {
     el.dataset.k = k;
     const l = el.querySelector('.ln');
     const lh = (l && l.offsetHeight) || 16;
-    el.scrollTop = Math.max(0, (code.hit - code.from - 2) * lh);
+    /* 인용한 줄에서 시작한다. 정의를 기준으로 세우면 정의에서 먼 인용이 화면 밖이다 —
+       실측 : book/ch3 06a 는 정의 328 · 인용 376 이라 인용이 안 보였다.
+       심볼과 줄 번호는 위 머리글이 이미 적어 주므로, 창에서 볼 것은 근거 쪽이다. */
+    const top = code.marks && code.marks.length ? code.marks[0] : code.hit;
+    el.scrollTop = Math.max(0, (top - code.from - 2) * lh);
     snapSrc(el);
   });
 
@@ -110,7 +114,7 @@ export default function Source({ deck, step, off, onVisible }) {
         <i>이 스텝의 근거</i>
       </div>
       <div className="srcin-cd" ref={cd}>
-        {lines.map((l) => <Line key={l.n} n={l.n} toks={l.toks} hit={code.hit} />)}
+        {lines.map((l) => <Line key={l.n} n={l.n} toks={l.toks} hit={code.hit} cite={(code.marks||[]).includes(l.n)} />)}
       </div>
     </section>
   );
@@ -145,7 +149,7 @@ export function SourceModal({ deck, step, open, onClose }) {
               <button className="src-x" onClick={onClose}>닫기  ESC</button>
             </div>
             <div className="src-cd" ref={cd}>
-              {lines.map((l) => <Line key={l.n} n={l.n} toks={l.toks} hit={code.hit} />)}
+              {lines.map((l) => <Line key={l.n} n={l.n} toks={l.toks} hit={code.hit} cite={(code.marks||[]).includes(l.n)} />)}
             </div>
           </motion.div>
         </motion.div>
