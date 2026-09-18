@@ -44,13 +44,20 @@ function Line({ n, toks, hit, cite }) {
   );
 }
 
-function key(step) {
-  return step && step.ref && step.sym ? step.ref + '#' + step.sym : null;
+/* 조회 키. 스텝 전용 발췌가 있으면 그것을 먼저 쓴다 —
+   한 심볼을 여러 스텝이 공유하면서 서로 다른 곳을 인용할 때, 창 하나로는 다 담을 수 없다.
+   at 은 '장면/스텝' 이고, 없거나 전용 발췌가 없으면 심볼 키로 떨어진다. */
+function key(step, deck, at) {
+  if (!(step && step.ref && step.sym)) return null;
+  const base = step.ref + '#' + step.sym;
+  if (deck && at && deck.CODE[base + '@' + at]) return base + '@' + at;
+  return base;
 }
+export function srcKeyOf(deck, step, at) { return key(step, deck, at); }
 
 /* ══════════ 인라인 패널 ══════════ */
-export default function Source({ deck, step, off, onVisible }) {
-  const k = key(step);
+export default function Source({ deck, step, at, off, onVisible }) {
+  const k = key(step, deck, at);
   const code = k ? deck.CODE[k] : null;
   const lines = useMemo(() => highlight(code), [code]);
   const box = useRef(null);
@@ -109,8 +116,11 @@ export default function Source({ deck, step, off, onVisible }) {
     <section ref={box} className={'srcin' + (small ? ' small' : '')} aria-label="이 스텝의 소스"
       aria-hidden={small ? 'true' : 'false'}>
       <div className="srcin-hd">
-        <b>{step.ref}:{code.hit}</b>
+        <b>{step.ref}:{code.def ?? code.hit}</b>
         <span>{step.sym}</span>
+        {/* 스텝 전용 발췌는 심볼 정의에서 떨어진 자리를 보여 준다 —
+            어느 구간인지 밝혀야 머리글의 줄 번호와 어긋나지 않는다. */}
+        {code.def ? <u className="srcin-win">발췌 {code.from}–{code.from + code.lines.length - 1}</u> : null}
         <i>이 스텝의 근거</i>
       </div>
       <div className="srcin-cd" ref={cd}>
@@ -123,8 +133,8 @@ export default function Source({ deck, step, off, onVisible }) {
 /* ══════════ 모달 (S 키 · 캡션의 ref 클릭) ══════════
    인라인이 감춰졌거나 발췌를 크게 읽고 싶을 때. 여기서는 늘 맨 위에서 시작하므로
    (옛 판도 scrollTop = 0 이었다) 줄 경계 문제가 없다 — 그래도 줄높이는 정수로 못박는다. */
-export function SourceModal({ deck, step, open, onClose }) {
-  const k = key(step);
+export function SourceModal({ deck, step, at, open, onClose }) {
+  const k = key(step, deck, at);
   const code = k ? deck.CODE[k] : null;
   const lines = useMemo(() => highlight(code), [code]);
   const cd = useRef(null);

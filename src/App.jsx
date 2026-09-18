@@ -4,7 +4,7 @@ import Stage from './Stage.jsx';
 import './stage.css';
 import Rail from './Rail.jsx';
 import Playback, { REDUCED } from './Playback.jsx';
-import Source, { SourceModal } from './Source.jsx';
+import Source, { SourceModal, srcKeyOf } from './Source.jsx';
 import { bake, onStage } from './bake.js';
 
 
@@ -169,9 +169,11 @@ export default function App() {
   const frame = frames[i];
   const step = scene.steps[i];
   const stage = onStage(scene, frames, i, 4);
-  const srcKey = step.ref && step.sym ? step.ref + '#' + step.sym : null;
+  /* 스텝 전용 발췌가 있으면 그 키를 쓴다 — Source 와 같은 규칙을 써야 어긋나지 않는다. */
+  const at = scene.num + '/' + (i + 1);
+  const srcKey = srcKeyOf(deck, step, at);
   const hasSrc = !!(srcKey && deck.CODE[srcKey]);
-  const line = srcKey ? deck.LINES[srcKey] : null;
+  const line = step.ref && step.sym ? deck.LINES[step.ref + '#' + step.sym] : null;
   const on = split && pairOK;
 
   /* 비교 모드에서는 두 장면이 같은 스텝 번호를 각자의 설정으로 보여준다.
@@ -265,7 +267,7 @@ export default function App() {
               </LayoutGroup>
             ))}
           </div>
-          <Source deck={deck} step={step} off={on} onVisible={setSrcVisible} />
+          <Source deck={deck} step={step} at={at} off={on} onVisible={setSrcVisible} />
         </div>
         {/* 비교 모드에서는 두 열이 이미 빽빽하다 — 레일을 접는다 */}
         {!on && (
@@ -314,7 +316,7 @@ export default function App() {
         </span>
       </div>
 
-      <SourceModal deck={deck} step={step} open={srcOpen} onClose={closeSrc} />
+      <SourceModal deck={deck} step={step} at={at} open={srcOpen} onClose={closeSrc} />
     </div>
   );
 }

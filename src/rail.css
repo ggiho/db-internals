@@ -163,6 +163,9 @@
 .srcin-cd .ln.hit{background:rgba(94,134,201,.1);box-shadow:inset 2px 0 0 var(--accent)}
 /* 인용한 줄 — verify.js 가 대조하는 그 문자열이 있는 자리다.
    담기만 하고 표시하지 않으면 독자가 발췌 안에서 근거를 찾을 수 없다. */
+/* 스텝 전용 발췌의 구간 표기 — 심볼 정의 줄과 보여 주는 구간이 다를 때만 나온다. */
+.srcin-win{font:400 9px var(--mono);color:var(--faint);letter-spacing:.06em;
+  text-decoration:none;border:1px dotted var(--line);border-radius:8px;padding:0 6px;margin-left:2px}
 .ln.cited{background:color-mix(in srgb, var(--gold) 9%, transparent);
   box-shadow:inset 2px 0 0 color-mix(in srgb, var(--gold) 55%, transparent)}
 .ln.hit.cited{background:color-mix(in srgb, var(--accent) 12%, transparent)}
