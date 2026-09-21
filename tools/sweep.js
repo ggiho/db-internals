@@ -660,7 +660,7 @@ async function main() {
 
         /* 손잡이 값 : 값마다 스텝 내용이 달라지므로 그 값에서도 재야 한다.
            달라지는 스텝만 돌면 충분하지만 어느 스텝이 달라지는지 페이지가 알려주지 않으므로
-           모든 스텝을 돈다 — 값이 있는 장면은 하나뿐이라 비용이 크지 않다. */
+           모든 스텝을 돈다. 값이 달라지는 스텝만 계획에 담으므로 방문 수는 그만큼만 는다. */
         for (const g of (p.vals || [])) {
           if (!g.steps.includes(s)) continue;      /* 그 값에서 달라지지 않는 스텝은 돌지 않는다 */
           const vh = `${p.deck}/${p.scene}/${s}/v${g.v}`;
@@ -686,7 +686,9 @@ async function main() {
         }
       }
     }
-    const n = acc.visits + acc.splitVisits;
+    /* 변형 값 방문도 take() 를 부르므로 소스보임의 분자에는 들어간다 —
+       분모에서 빼면 400/399 처럼 분자가 분모를 넘는다(실제로 그렇게 찍혔다). */
+    const n = acc.visits + acc.splitVisits + (acc.varyVisits || 0);
     acc.avgEmpty = n ? +(acc.emptySum / n).toFixed(1) : 0;
     byWidth.push(acc);
     console.log(`W${String(w).padStart(4)} h${h} zoom ${zoom}  방문 ${acc.visits}+비교 ${acc.splitVisits}`
