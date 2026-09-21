@@ -898,6 +898,8 @@ const SCENES = [
           ref:'storage/innobase/row/row0sel.cc', sym:'row_compare_row_to_range',
           fact:[['storage/innobase/row/row0sel.cc','if (!set_also_gap_locks || trx->skip_gap_locks() ||']],
           beat:1,
+          /* ops 를 생략하면 "아무것도 안 한다" 가 아니라 기본 스텝의 ops 를 물려받는다 —
+             처음 저작할 때 이 자리에서 갭 락이 그대로 붙었다. 빈 객체가 "안 한다" 다. */
           ops:{} },
 
       6:{ look:{ idx:['r20','r30'] },

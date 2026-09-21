@@ -215,8 +215,12 @@ Object.assign(out, stepOut);
 /* 스텝 전용 발췌가 담아 준 것은 제외하고, 정말 남은 것만 보고한다. */
 for (const [key, missed, src] of pending) {
   for (const t of missed) {
+    /* nums 로 판정한다. from + lines.length - 1 을 마지막 줄로 보면 다구간 발췌에서
+       틀린다 — 생략 줄이 섞여 있어 줄 수와 줄 번호의 폭이 다르다. 그 계산을 쓰던 동안
+       스텝 전용 발췌가 담아 준 인용을 "못 담았다" 고 보고했다. */
     const covered = Object.entries(stepOut).some(([at, v]) =>
-      at.startsWith(key + '@') && t >= v.from && t <= v.from + v.lines.length - 1);
+      at.startsWith(key + '@') && (v.nums ? v.nums.includes(t)
+                                          : t >= v.from && t <= v.from + v.lines.length - 1));
     if (covered) continue;
     let encl = 0, name = '';
     for (let k2 = 0; k2 < t; k2++) {

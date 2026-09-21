@@ -13,6 +13,14 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 
+/* 대조하는 버전. 트리가 사라졌을 때 무엇을 되살려야 하는지 이것 말고는 알 방법이 없다 —
+   실제로 PostgreSQL 트리가 없어졌을 때 버전이 어디에도 없어 짐작으로 클론해야 했다.
+   버전이 바뀌면 fact 대조가 어긋나므로 도구가 알려 준다.
+     MySQL      8.4.8      ~/src/github.com/mysql/mysql-server
+     PostgreSQL 17.11    (REL_17_STABLE) 얕은 클론으로 충분하다 :
+       git clone --depth 1 --filter=blob:none --branch REL_17_STABLE \
+         https://github.com/postgres/postgres.git */
+
 /* 그 트리인지 확인하는 표식 — 빈 디렉터리를 붙잡지 않도록. */
 const MARK = {
   mysql: 'storage/innobase/trx/trx0trx.cc',

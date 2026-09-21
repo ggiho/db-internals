@@ -68,21 +68,41 @@
    디렉터리를 해석하지 못한다(설치 경로를 정확히 줬는데도 "찾을 수 없다" 가 났다).
    그래서 디렉터리면 package.json 의 main 을 붙여 file:// URL 로 바꾼다. */
 const pwSpec = (() => {
-  const p = process.env.PLAYWRIGHT_PATH;
-  if (!p) return 'playwright';
-  let t = path.resolve(p);
+  /* 후보를 순서대로 찾는다. 경로가 계속 움직인다 —
+     빌려 쓰던 node_modules 가 ~/src 아래로 옮겨가면서 한 번에 못 찾게 됐다.
+     디렉터리를 주면 package.json 의 main 을 붙여 file:// URL 로 바꾼다 :
+     ESM 의 import() 는 디렉터리를 해석하지 못한다(설치 경로를 정확히 줬는데도 실패했다). */
+  const home = os.homedir();
+  const cands = [process.env.PLAYWRIGHT_PATH];
+  const npx = path.join(home, '.npm', '_npx');
   try {
-    if (fs.statSync(t).isDirectory()) {
-      let main = 'index.js';
-      const pj = path.join(t, 'package.json');
-      if (fs.existsSync(pj)) main = JSON.parse(fs.readFileSync(pj, 'utf8')).main || main;
-      t = path.join(t, main);
-    }
-  } catch { /* 없는 경로면 그대로 넘겨 아래 catch 가 안내한다 */ }
-  return pathToFileURL(t).href;
+    for (const d of fs.readdirSync(npx)) cands.push(path.join(npx, d, 'node_modules', 'playwright'));
+  } catch { /* npx 캐시가 없으면 넘어간다 */ }
+  for (const base of [path.join(home, 'src'), path.join(home, '30_Projects')]) {
+    try {
+      for (const org of fs.readdirSync(base)) {
+        const p1 = path.join(base, org);
+        for (const repo of (fs.existsSync(p1) && fs.statSync(p1).isDirectory() ? fs.readdirSync(p1) : []))
+          cands.push(path.join(p1, repo, 'node_modules', 'playwright'));
+      }
+    } catch { /* 없으면 넘어간다 */ }
+  }
+  for (const c of cands) {
+    if (!c) continue;
+    let t = path.resolve(c);
+    try {
+      if (!fs.existsSync(t)) continue;
+      if (fs.statSync(t).isDirectory()) {
+        let main = 'index.js';
+        const pj = path.join(t, 'package.json');
+        if (fs.existsSync(pj)) main = JSON.parse(fs.readFileSync(pj, 'utf8')).main || main;
+        t = path.join(t, main);
+      }
+      if (fs.existsSync(t)) return pathToFileURL(t).href;
+    } catch { /* 다음 후보 */ }
+  }
+  return 'playwright';
 })();
-/* playwright 는 CJS 라서 file:// 로 직접 불러오면 named export 가 안 잡힌다
-   (모듈은 로드됐는데 chromium 이 undefined 였다). default 로도 본다. */
 const pwMod = await import(pwSpec)
   .catch(e => { console.error('playwright 를 찾을 수 없다 (' + pwSpec + ') — ' + e.message); process.exit(2); });
 const chromium = pwMod.chromium || (pwMod.default && pwMod.default.chromium);
@@ -90,6 +110,7 @@ if (!chromium) { console.error('playwright 를 불렀지만 chromium 이 없다 
 import { writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
+import os from 'node:os';
 import fs from 'node:fs';
 
 const ARG = Object.fromEntries(
