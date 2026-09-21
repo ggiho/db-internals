@@ -810,6 +810,65 @@ const SCENES = [
     ['P_S.data_locks','자식에 INSERT 했는데 부모 테이블 이름이 보인다'],
     ['SHOW ENGINE INNODB STATUS','FOREIGN KEY 관련 대기가 TRANSACTIONS 절에 찍힌다']],
   links:[['07','INSERT 의 나머지 락'],['04','S 는 X 를 막는다'],['12','P_S 로 확인하는 법']],
+
+  /* 검사를 끄면 이 장면의 전제가 사라진다 — 부모를 찾지 않으므로 잠글 것도 없고,
+     락이 테이블 경계를 넘는 일도 없다. 대신 참조하지 않는 자식이 남는다.
+     기본 줄기의 마지막 스텝이 이 값을 한 줄로 언급하지만, 언급과 재생은 다르다 —
+     여기서는 고아 행이 실제로 만들어지고 부모가 지워지는 것까지 본다. */
+  vary:{ knob:'foreign_key_checks', base:'ON', alt:{
+    'OFF':{
+      1:{ note:'검사가 시작되지도 않는다',
+          why:'row_ins_check_foreign_constraints 가 trx->check_foreigns 를 먼저 본다. false 면 부모 인덱스를 열기 전에 DB_SUCCESS 로 돌아간다.',
+          key:'끄는 것은 검사를 <em>느슨하게</em> 하는 것이 아니라 <em>하지 않는</em> 것이다. 그래서 부모가 있는지도 모른 채 통과한다.',
+          ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_check_foreign_constraints',
+          fact:[['storage/innobase/row/row0ins.cc','if (trx->check_foreigns == false) {'],
+                ['storage/innobase/include/trx0trx.h','bool check_foreigns; /*!< normally true, but if the user']],
+          ops:{ stmt:{ set:{ '검사':'건너뜀|red' } } } },
+
+      2:{ act:{ f:'stmt', t:'sec', lb:'부모 없는 값도 들어간다' },
+          note:'없는 부모를 가리키는 행을 넣어도 받아들인다',
+          why:'DB_NO_REFERENCED_ROW 를 낼 자리까지 가지 않는다. 자식 테이블에 값을 쓰는 평범한 INSERT 와 구별되지 않는다.',
+          key:'이 순간 만들어진 것이 <em>고아 행</em>이다. 제약이 선언돼 있는데 그것을 어긴 행이 테이블에 있다.',
+          ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_check_foreign_constraint',
+          beat:1,
+          ops:{ sec:{ del:['(비었다)'],
+                      add:[{ id:'child pid=99', tag:'x', sub:'부모 없음  ·  고아' }] },
+                stmt:{ set:{ 'SQL':'INSERT INTO child(pid) VALUES(99)', '락 수':'1' } } } },
+
+      3:{ note:'부모 행에는 아무 락도 걸리지 않는다',
+          why:'잠그는 코드는 검사 안에 있다. 검사를 건너뛰었으므로 부모 인덱스를 읽지도 않았다. 자식 행의 암묵적 X 하나만 남는다.',
+          key:'대량 적재에서 끄는 이유가 이것이다 — <em>부모 쪽 락이 통째로 사라진다</em>. 부모 테이블의 동시성이 자식 적재에 영향받지 않는다.',
+          ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_check_foreign_constraint',
+          look:{ rl:true, sec:true },
+          ops:{ sec:{ add:[{ id:'child pid=20', tag:'x', sub:'새 행  ·  암묵적 X' }] },
+                stmt:{ set:{ 'SQL':'INSERT INTO child(pid) VALUES(20)', '검사':'건너뜀', '락 수':'2' } } } },
+
+      4:{ act:{ f:'stmt', t:'row', lb:'다른 세션 : DELETE parent id=20' },
+          note:'막던 것이 없으므로 부모가 지워진다',
+          why:'S 락이 없으니 X 요청이 호환 표에서 걸릴 상대가 없다. DELETE 는 즉시 성공한다.',
+          key:'방금 넣은 자식이 <em>가리키는 부모가 사라진다</em>. 기본값에서 이 DELETE 를 막아 주던 것이 그 S 락이었다.',
+          ref:'storage/innobase/include/lock0priv.h', sym:'lock_mode_compatible',
+          beat:1,
+          ops:{ row:{ set:{ 'parent id=20':{ tag:'free', sub:'삭제됨  ·  참조가 남아 있는데' } } },
+                sec:{ set:{ 'child pid=20':{ tag:'x', sub:'부모가 사라짐  ·  고아' } } } } },
+
+      5:{ note:'반대 방향도 검사하지 않는다 — CASCADE 도 돌지 않는다',
+          why:'같은 플래그를 부모 쪽 경로도 본다. DB_ROW_IS_REFERENCED 로 막지 않고, ON DELETE CASCADE 가 걸려 있어도 자식을 따라가지 않는다.',
+          key:'CASCADE 를 믿고 설계했다면 여기서 <em>조용히 배신당한다</em>. 정리해 줄 것으로 기대한 코드가 아예 실행되지 않는다.',
+          ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_foreign_check_on_constraint',
+          fact:[['storage/innobase/row/row0ins.cc','if (trx->check_foreigns == false) {']],
+          look:{ sec:true, row:true } },
+
+      6:{ look:{ stmt:true, sec:true },
+          note:'다시 켜도 이미 들어간 고아는 검사되지 않는다',
+          why:'이 플래그는 앞으로의 문장에만 걸린다. 적재 중에 만들어진 위반을 서버가 뒤늦게 찾아 주지는 않는다.',
+          key:'그래서 끄고 적재하는 방식은 <em>데이터가 맞다는 것을 사람이 보증한다</em>는 뜻이다. 보증하지 못하면 켜는 순간이 아니라 훨씬 뒤에 이상한 결과로 드러난다.',
+          ref:'storage/innobase/handler/ha_innodb.cc', sym:'innobase_trx_init',
+          fact:[['storage/innobase/handler/ha_innodb.cc','trx->check_foreigns = !thd_test_options(thd, OPTION_NO_FOREIGN_KEY_CHECKS);']],
+          beat:1,
+          ops:{ stmt:{ set:{ '검사':'다시 ON  ·  과거는 확인 안 함|red' } } } },
+    },
+  } },
   init:{
     stmt:{ kv:{ 'SQL':'INSERT INTO child(pid) VALUES(20)', '검사':'—', '락 수':'0' } },
     row:{ items:[
@@ -835,7 +894,7 @@ const SCENES = [
     fact:[['storage/innobase/row/row0ins.cc','DB_NO_REFERENCED_ROW']] },
 
   { act:{ f:'row', t:'rl', lb:'부모 행에 S' },
-    note:'부모 행에 공유 락을 잡는다 — 자식 트랜잭션이 끝날 때까지',    note:'부모 행에 공유 락을 잡는다 — 자식 트랜잭션이 끝날 때까지',
+    note:'부모 행에 공유 락을 잡는다 — 자식 트랜잭션이 끝날 때까지',
     why:'S 를 잡아두면 다른 세션이 이 부모를 DELETE·UPDATE 하려 할 때(X 요청) 막힌다. S 와 X 는 호환되지 않는다.',
     key:'그래서 <em>자식 테이블에만 쓴 트랜잭션이 부모 테이블의 쓰기를 막는다</em>. 락이 테이블 경계를 넘어간다.',
     ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_check_foreign_constraint',
