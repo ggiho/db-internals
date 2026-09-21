@@ -48,6 +48,10 @@ grep 해 확인한다(`tools/claimcheck.js`). 레이아웃은 14폭 × 5,800방�
     npm run dev          # http://localhost:5199
     npm run build
 
+배포는 푸시로 일어나지 않는다 — Pages 프로젝트에 Git 연동이 없다. 빌드한 뒤 올린다.
+
+    npx wrangler pages deploy dist --project-name=db-internals --branch=main
+
 ## 검사
 
 소스 트리는 도구가 스스로 찾는다 — 형제 디렉터리, 그다음 `~/src/github.com/…` 순서로
