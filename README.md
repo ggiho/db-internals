@@ -37,10 +37,22 @@ grep 해 확인한다(`tools/claimcheck.js`). 레이아웃은 14폭 × 5,800방�
 | innodb 03 크래시 복구 | `innodb_doublewrite` | DETECT_ONLY · OFF |
 | innodb 07 갭 락 | `transaction_isolation` | READ-COMMITTED |
 | innodb 08 교착 | `innodb_deadlock_detect` | OFF |
+| innodb 09 온라인 DDL | `lock_wait_timeout` | 5 · 0 |
+| locks 07 INSERT | `innodb_autoinc_lock_mode` | 1 · 0 |
+| locks 08 외래키 | `foreign_key_checks` | OFF |
+| ch3 07a 레코드 헤더 | `innodb_default_row_format` | redundant |
+| ch3 11 체크섬 | `innodb_checksum_algorithm` | none · strict_crc32 |
 
 값마다 `verify.js` 가 스텝을 따로 재생해 검사한다 — 없는 배우를 보거나, 바뀌지 않는
-값을 set 하거나, 기본 스텝의 ops 를 잘못 물려받은 것을 잡는다. 실제로 저작할 때마다
-잡혔다. 나머지 손잡이는 아직 값을 읽는 설명이다.
+값을 set 하거나, 기본 스텝의 `ops`·`look`·`fact` 를 잘못 물려받은 것을 잡는다.
+저작할 때마다 잡혔다.
+
+**나머지 손잡이는 설명으로 둔다.** 73개 패널 중 흐름이 갈리는 것만 배선했다.
+`innodb_io_capacity`·`buffer_pool_size`·`purge_threads` 같은 것은 비율을 바꾸고 사건의
+순서를 바꾸지 않는다. 후보로 꼽았다가 물린 것도 있다 — `select_mode` 는 서버 설정이
+아니라 문장 문법이고 기본 줄기가 이미 세 값을 걸어 보여 준다, `autovacuum_freeze_max_age`
+는 랩어라운드 기제의 분기가 아니라 촉발 시점이다, `innodb_page_size` 는 페이지 수와
+트리 높이를 바꾸지만 분할이 끝에서 일어나는지 가운데서 일어나는지는 그대로다.
 
 ## 실행
 
