@@ -1066,6 +1066,62 @@ const SCENES = [
     ['07','사이클의 재료가 되는 갭 락'],
     ['09','MDL 은 별도의 대기 큐를 쓴다'] ],
 
+  /* 탐지를 끄면 결말이 바뀐다 — 그러나 사람들이 기대하는 방식으로 바뀌지 않는다.
+     스냅샷과 대기 그래프는 그대로 만들어지고(스케줄 가중치에도 쓰이므로), 건너뛰는 것은
+     사이클을 찾아 처리하는 호출 한 줄이다. 그리고 타임아웃은 기본값에서 문장만 되돌리므로
+     교착을 풀어 주지도 않는다 — 한 번의 사고가 두 번의 50초가 된다. */
+  vary:{ knob:'innodb_deadlock_detect', base:'ON', alt:{
+    'OFF':{
+      5:{ look:{ wait:true },
+          note:'InnoDB 는 이 사이클을 요청 시점에 막지 않았다',
+          why:'막으려면 잠금을 요청할 때마다 전체 그래프를 검사해야 한다. 그 비용을 모든 잠금 요청에 물릴 수 없다.',
+          key:'예방하지 않는다 — 그리고 이 값에서는 <em>탐지도 하지 않는다</em>. 사이클은 닫힌 채로 남는다.',
+          beat:1,
+          ref:'storage/innobase/lock/lock0wait.cc', sym:'lock_wait_snapshot_waiting_threads' },
+
+      6:{ note:'별도 스레드는 여전히 대기 슬롯을 훑고 그래프도 만든다',
+          why:'탐지를 껐어도 스냅샷을 뜨고 lock_wait_build_wait_for_graph 로 그래프를 만든다. 그 그래프는 사이클 밖 트랜잭션의 스케줄 가중치를 계산하는 데도 쓰이기 때문이다. 건너뛰는 것은 그 뒤 한 줄, 사이클을 찾아 처리하는 호출뿐이다.',
+          key:'그래서 <em>끄면 탐지 비용이 없어진다는 것은 오해다</em>. 스냅샷과 그래프 작성은 그대로 일어난다.',
+          ref:'storage/innobase/lock/lock0wait.cc', sym:'lock_wait_update_schedule_and_check_for_deadlocks',
+          fact:[['storage/innobase/lock/lock0wait.cc','lock_wait_build_wait_for_graph(infos, outgoing);'],
+                ['storage/innobase/lock/lock0wait.cc','if (innobase_deadlock_detect) {']],
+          ops:{ wait:{ set:{ 'trx 71':{ tag:'wait', sub:'스냅샷에 포함' },
+                             'trx 72':{ tag:'wait', sub:'스냅샷에 포함' } } } } },
+
+      7:{ note:'사이클을 찾는 호출만 건너뛴다. 둘은 계속 기다린다',
+          why:'lock_wait_find_and_handle_deadlocks 가 불리지 않으므로 victim 도 없고 롤백도 없다. 두 트랜잭션은 서로를 기다린 채로 남는다 — 시계가 개입할 때까지.',
+          key:'이 순간 서버는 교착을 알아낼 <em>자료를 손에 들고도</em> 아무것도 하지 않는다. 그렇게 설정했기 때문이다.',
+          ref:'storage/innobase/lock/lock0wait.cc', sym:'lock_wait_update_schedule_and_check_for_deadlocks',
+          beat:1,
+          ops:{ wait:{ set:{ 'trx 71':{ tag:'wait', sub:'계속 대기' },
+                             'trx 72':{ tag:'wait', sub:'계속 대기' } } },
+                ses:{ set:{ '대기 중':'2  (탐지 없음)|red' } } } },
+
+      8:{ act:{ f:'ses', t:'wait', lb:'50초 후 · trx 71 에 1205' },
+          note:'유일한 탈출구는 시계다 — 초당 한 번 타임아웃을 검사한다',
+          why:'lock_wait_timeout_thread 가 1초 간격으로 대기 슬롯의 타임아웃을 검사한다. 먼저 기다리기 시작한 trx 71 이 innodb_lock_wait_timeout(50초)에 먼저 걸린다.',
+          key:'1213 이 즉시 오던 것이 <em>1205 가 50초 뒤에</em> 오는 것으로 바뀐다. 같은 사고인데 응답이 50초가 된다.',
+          ref:'storage/innobase/lock/lock0wait.cc', sym:'lock_wait_check_slots_for_timeouts',
+          fact:[['storage/innobase/lock/lock0wait.cc','trx->error_state = DB_LOCK_WAIT_TIMEOUT;']],
+          beat:1,
+          ops:{ wait:{ edge:{ del:['e1'] },
+                       set:{ 'trx 71':{ tag:'x', sub:'1205 · 문장만 실패' } } },
+                idx:{ span:{ del:['w71'] } },
+                ses:{ set:{ 'trx 71':'문장 실패 (1205)|red', '대기 중':'1' } } } },
+
+      9:{ note:'그런데 trx 71 은 아직 10 을 쥐고 있다 — 교착이 풀리지 않았다',
+          why:'기본값 innodb_rollback_on_timeout = OFF 에서는 타임아웃이 마지막 SQL 문장만 되돌린다. 주석이 이유를 적는다 — 5.0.13 부터 트랜잭션 전체가 아니라 문장만 되돌리기로 했다. 트랜잭션은 살아 있고 10 의 잠금도 그대로다.',
+          key:'그래서 <em>타임아웃은 교착을 풀어 주지 않는다</em>. trx 72 도 자기 50초를 채우고 1205 를 받는다. 탐지를 끄면 한 번의 사고가 두 번의 50초가 된다.',
+          ref:'storage/innobase/handler/ha_innodb.cc', sym:'convert_error_code_to_mysql',
+          fact:[['storage/innobase/handler/ha_innodb.cc','latest SQL statement in a lock wait timeout. Previously, we'],
+                ['storage/innobase/handler/ha_innodb.cc','thd_mark_transaction_to_rollback(thd, (int)row_rollback_on_timeout);']],
+          look:{ wait:true, lock:true },
+          beat:1,
+          ops:{ wait:{ set:{ 'trx 72':{ tag:'wait', sub:'아직 10 을 기다린다' } } },
+                ses:{ set:{ '대기 중':'1  (72 는 계속)|red' } } } },
+    },
+  } },
+
   steps:[
   { act:{ f:'ses', t:'idx', lb:'trx 71 : 10 에 X 락' },
     note:'trx 71 이 10 을 잠근다',
