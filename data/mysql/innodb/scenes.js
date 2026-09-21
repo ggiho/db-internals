@@ -852,6 +852,97 @@ const SCENES = [
     ['01','이 락들은 커밋까지 유지된다'],
     ['02','락 없이 읽는 경로'] ],
 
+  /* transaction_isolation 을 RC 로 내리면 이 장면의 몸통이 달라진다 — 갭이 잠기지 않으므로
+     막히는 INSERT 도, 기다림도, 그 기다림이 재료가 되는 교착도 없다. 대신 팬텀이 돌아온다.
+     기본 줄기는 9~10 스텝에서 RC 로 내려가며 대비를 보여 주므로, 이 값에서는 그 두 스텝이
+     "내려간다" 가 아니라 "대가를 치른다" 가 된다. */
+  vary:{ knob:'transaction_isolation', base:'REPEATABLE-READ', alt:{
+    'READ-COMMITTED':{
+      1:{ note:'인덱스에는 값이 네 개뿐이다. 그 사이는 비어 있다',
+          why:'10 · 20 · 30 · 50 만 존재한다. RC 에서도 이 빈 자리는 그대로다 — 달라지는 것은 그 자리를 잠그느냐다.',
+          key:'RC 는 팬텀을 <em>막지 않기로 정한</em> 수준이다. 그래서 빈 자리는 방치되고, 방치된 자리에 값이 들어온다.',
+          ref:'storage/innobase/include/trx0trx.h', sym:'skip_gap_locks',
+          ops:{ ses:{ set:{ '격리 수준':'READ COMMITTED|green' } } } },
+
+      2:{ note:'SELECT * FROM t WHERE a BETWEEN 15 AND 35 FOR UPDATE',
+          why:'같은 조회다. 그러나 잠금의 단위를 정하기 전에 InnoDB 는 이 트랜잭션이 갭을 건너뛰어도 되는지를 먼저 판정한다.',
+          key:'판정하는 것은 조회가 아니라 <em>트랜잭션의 격리 수준</em>이다. READ UNCOMMITTED 와 READ COMMITTED 는 건너뛰고, REPEATABLE READ 와 SERIALIZABLE 은 건너뛰지 않는다.',
+          ref:'storage/innobase/include/trx0trx.h', sym:'skip_gap_locks',
+          fact:[['storage/innobase/include/trx0trx.h','bool skip_gap_locks() const {']] },
+
+      3:{ act:{ f:'ses', t:'idx', lb:'20 에 레코드 락만' },
+          note:'20 을 잠근다 — 그 앞의 갭은 건드리지 않는다',
+          why:'row_search_mvcc 가 스캔을 시작하기 전에 set_also_gap_locks 를 false 로 내린다. 주석이 조건을 그대로 적는다 — 평범한 잠금 SELECT 이고 격리 수준이 낮다.',
+          key:'같은 함수, 같은 조회인데 <em>잠금의 단위가 달라진다</em>. 넥스트키(레코드 + 그 앞 갭) 대신 레코드만이다.',
+          ref:'storage/innobase/row/row0sel.cc', sym:'row_search_mvcc',
+          fact:[['storage/innobase/row/row0sel.cc','level is low: do not lock gaps */'],
+                ['storage/innobase/row/row0sel.cc','set_also_gap_locks = false;']],
+          ops:{ idx:{ span:{ add:[
+                  { id:'r20', from:20, to:20, kind:'rec', lb:'20', row:0 }] } },
+                lock:{ add:[{ id:'20 · rec only', tag:'hold', sub:'LOCK_REC_NOT_GAP = 1024' }] },
+                ses:{ set:{ '잠근 것':'1' } } } },
+
+      4:{ act:{ f:'ses', t:'idx', lb:'30 에 레코드 락만' },
+          note:'30 도 레코드만 — (20, 30] 의 갭은 열려 있다',
+          why:'REPEATABLE READ 라면 두 넥스트키가 이어지며 10 부터 30 까지 연속으로 덮였다. 여기서는 두 점만 남는다.',
+          key:'잠긴 것이 <em>구간이 아니라 점</em>이 되면서, 그 사이는 누구나 들어올 수 있는 자리가 된다.',
+          ref:'storage/innobase/row/row0sel.cc', sym:'row_search_mvcc',
+          ops:{ idx:{ span:{ add:[
+                  { id:'r30', from:30, to:30, kind:'rec', lb:'30', row:0 }] } },
+                lock:{ add:[{ id:'30 · rec only', tag:'hold', sub:'LOCK_REC_NOT_GAP = 1024' }] },
+                ses:{ set:{ '잠근 것':'2' } } } },
+
+      5:{ note:'스캔은 50 까지 읽지만, 50 에는 아무것도 남기지 않는다',
+          why:'범위가 끝났음을 알려면 조건을 넘어선 첫 레코드를 읽어야 한다. 읽는 것까지는 같다. 다른 것은 그 다음이다 — 갭을 건너뛰는 트랜잭션은 이 자리에서 잠금을 만들지 않는다.',
+          key:'REPEATABLE READ 에서는 이 지점이 (30, 50) 갭 락이 됐다. 여기서는 <em>읽고 지나간다</em>.',
+          ref:'storage/innobase/row/row0sel.cc', sym:'row_compare_row_to_range',
+          fact:[['storage/innobase/row/row0sel.cc','if (!set_also_gap_locks || trx->skip_gap_locks() ||']],
+          beat:1,
+          ops:{} },
+
+      6:{ look:{ idx:['r20','r30'] },
+          note:'결과 — 잠긴 것은 점 두 개다. 읽은 행도 두 개다',
+          why:'조회가 반환한 행은 20 과 30, 잠긴 것도 20 과 30 이다.',
+          key:'REPEATABLE READ 에서 깨졌던 직관이 여기서는 <em>맞는다</em>. 대신 다른 것을 잃는다 — 그것이 뒤에 나온다.',
+          beat:1,
+          ref:'storage/innobase/row/row0sel.cc', sym:'row_search_mvcc' },
+
+      7:{ act:{ f:'ses', t:'idx', lb:'trx 61 : INSERT 25  성공' },
+          note:'다른 세션이 25 를 넣는다 — 막히지 않는다',
+          why:'삽입 의도 잠금(LOCK_INSERT_INTENTION = 2048)은 갭 락과만 충돌한다. 잠긴 갭이 없으니 충돌할 상대가 없다.',
+          key:'같은 두 트랜잭션, 같은 순서인데 <em>기다림이 사라졌다</em>. RC 를 고르는 이유가 여기다.',
+          ref:'storage/innobase/include/lock0lock.h', sym:'lock_rec_insert_check_and_lock',
+          fact:[['storage/innobase/include/lock0lock.h','constexpr uint32_t LOCK_INSERT_INTENTION = 2048;']],
+          ops:{ idx:{ add:[{ id:'25', v:25 }] },
+                lock:{ add:[{ id:'25 · insert', tag:'hold', sub:'대기 없이 삽입' }] } } },
+
+      8:{ note:'trx 61 이 기다린 시간은 0 이다',
+          why:'REPEATABLE READ 에서는 이 자리에서 trx 60 의 갭 락에 막혀 innodb_lock_wait_timeout 까지 기다렸다.',
+          key:'교착의 재료 하나가 <em>없어졌다</em>. 갭을 두고 다투는 일이 없으면 그 갭에서 시작되는 사이클도 생기지 않는다.',
+          ref:'storage/innobase/include/lock0lock.h', sym:'lock_rec_insert_check_and_lock',
+          look:{ idx:['r20','r30'], lock:true },
+          beat:1 },
+
+      9:{ act:{ f:'ses', t:'stmt', lb:'trx 60 : 같은 조회 다시' },
+          note:'trx 60 이 같은 조회를 다시 던진다 — 이번에는 세 행이다',
+          why:'20 · 25 · 30 이 돌아온다. 25 는 첫 조회 때 없던 값이다. 같은 트랜잭션 안에서 같은 조건의 답이 달라졌다.',
+          key:'이것이 팬텀이다. RC 는 이것을 <em>결함이 아니라 계약</em>으로 둔다 — 막지 않겠다고 미리 정해 둔 것이다.',
+          ref:'storage/innobase/include/trx0trx.h', sym:'skip_gap_locks',
+          beat:1,
+          ops:{ idx:{ span:{ add:[
+                  { id:'r25', from:25, to:25, kind:'rec', lb:'25', row:0 }] } },
+                lock:{ add:[{ id:'25 · rec only', tag:'hold', sub:'두 번째 조회가 잡았다' }] },
+                ses:{ set:{ '잠근 것':'3' } } } },
+
+      10:{ look:{ idx:['r20','r25','r30'] },
+           note:'점 세 개. 구간은 여전히 열려 있다',
+           why:'다시 잠근 것도 점이다. 지금 이 순간에도 27 을 넣으려는 세션은 막히지 않는다.',
+           key:'격리 수준은 성능 설정이 아니라 <em>무엇을 보장할지</em>의 선택이다. REPEATABLE READ 는 넓게 잠그고 팬텀을 막는다. READ COMMITTED 는 좁게 잠그고 팬텀을 받아들인다.',
+           beat:1,
+           ops:{ ses:{ set:{ 'trx 60':'—' } } } },
+    },
+  } },
+
   steps:[
   { look:{ idx:true },
     note:'인덱스에는 값이 네 개뿐이다. 그 사이는 비어 있다',
