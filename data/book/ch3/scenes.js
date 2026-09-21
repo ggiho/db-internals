@@ -1103,6 +1103,62 @@ const SCENES = [
   cite:[
     "A slotted page has a fixed-size header",
     "a pointer array holding offsets to the exact positions where the records are stored" ],
+
+  /* 행 형식을 REDUNDANT 로 내리면 이 장면의 바이트가 실제로 달라진다 — extra 가 5 에서
+     6 으로 늘고, status 3비트가 없어지고, 널 비트맵 자체가 없다. NULL 은 별도 비트맵이
+     아니라 필드 오프셋의 최상위 비트로 표시된다. 1·3·5 스텝(원점, info bits 네 비트,
+     숨은 컬럼)은 두 형식에서 같으므로 물려받는다. */
+  vary:{ knob:'innodb_default_row_format', base:'dynamic', alt:{
+    'redundant':{
+      2:{ note:'6바이트다 — 그리고 담는 것이 다르다',
+          why:'REC_N_OLD_EXTRA_BYTES 가 6 이다. COMPACT 계열의 5바이트와 한 바이트 차이인데, 그 한 바이트가 아니라 배치 전체가 다르다 — REDUNDANT 는 필드 개수를 헤더에 적고, 오프셋이 1바이트인지 2바이트인지도 비트 하나로 표시한다.',
+          key:'그래서 REDUNDANT 레코드는 <em>스스로 자기 필드 수를 안다</em>. COMPACT 은 그것을 인덱스 정의에서 가져온다 — 바이트를 아낀 대신 레코드만 보고는 해석할 수 없게 됐다.',
+          ref:'storage/innobase/rem/rec.h', sym:'REC_N_OLD_EXTRA_BYTES',
+          fact:[['storage/innobase/rem/rec.h','constexpr uint32_t REC_N_OLD_EXTRA_BYTES = 6;'],
+                ['storage/innobase/rem/rec.h','constexpr uint32_t REC_OLD_N_FIELDS = 4;'],
+                ['storage/innobase/rem/rec.h','constexpr uint32_t REC_OLD_SHORT = 3; /* This is single byte bit-field */']],
+          beat:1,
+          ops:{ bit5:{ del:['status'],
+                       set:{ 'info bits':{ tag:'hold', sub:'4비트 · 오프셋 −6 에 있다' },
+                             'n_owned':{ tag:'hold', sub:'4비트 · 오프셋 −6' },
+                             'heap_no':{ tag:'hold', sub:'13비트 · 오프셋 −5 −4' } },
+                       add:[{ id:'n_fields', tag:'x', sub:'10비트 · REC_OLD_N_FIELDS_MASK 0x7FE' },
+                            { id:'short', tag:'x', sub:'1비트 · 오프셋이 1B 인지 2B 인지' }] },
+                op:{ set:{ 'extra 바이트':'6 B  (REDUNDANT)|red', '원점 기준':'−6 ‥ −1' } },
+                rhd:{ set:{ 'info':{ id:'info', sz:1, tag:'gold', sub:'−6' },
+                            'heap':{ id:'heap', sz:2, tag:'gold', sub:'−5 −4' },
+                            'next':{ id:'next', sz:2, tag:'gold', sub:'−3 −2' } },
+                      add:[{ id:'n_f', sz:1, tag:'gold', sub:'−1 · 필드 수 + short' }] } } },
+
+      4:{ note:'status 3비트가 없다 — 그 자리에 필드 수가 있다',
+          why:'REC_NEW_STATUS 는 COMPACT 계열에만 있다. REDUNDANT 에서 이 레코드가 무엇인지(ORDINARY·NODE_PTR·INFIMUM·SUPREMUM)는 별도 필드가 아니라 문맥과 info bits 로 판별한다.',
+          key:'같은 정보를 <em>다른 방식으로 담는다</em>. 어느 쪽이 더 낫다기보다, 형식을 바꾸면 해석 코드가 갈라진다는 것이 요점이다 — rec_get_* 함수가 new 와 old 로 쌍을 이루는 이유.',
+          ref:'storage/innobase/rem/rec.h', sym:'REC_OLD_N_FIELDS',
+          fact:[['storage/innobase/rem/rec.h','constexpr uint32_t REC_OLD_N_FIELDS_MASK = 0x7FEUL;'],
+                ['storage/innobase/rem/rec.h','constexpr uint32_t REC_OLD_N_FIELDS_SHIFT = 1;']],
+          ops:{ bit5:{ set:{ 'n_fields':{ tag:'x', sub:'10비트 · 이 레코드의 필드 수' } } },
+                rhd:{ set:{ '◆':{ id:'◆', sz:1, tag:'hdr', sub:'원점 · status 없음' } } } } },
+
+      6:{ note:'널 비트맵이 없다 — NULL 은 오프셋 안의 비트 하나다',
+          why:'REDUNDANT 는 필드마다 시작 오프셋을 적고, 그 오프셋의 최상위 비트를 SQL NULL 표시로 쓴다. 1바이트 오프셋이면 0x80, 2바이트면 0x8000 이다. 주석이 그렇게 적는다.',
+          key:'그래서 nullable 컬럼이 많아도 <em>비트맵이 커지지 않는다</em> — 대신 모든 필드가 오프셋 값을 하나씩 갖는다. COMPACT 은 반대로 거래했다 : 오프셋은 가변 길이 필드만, NULL 은 비트맵으로.',
+          ref:'storage/innobase/rem/rec.h', sym:'REC_1BYTE_SQL_NULL_MASK',
+          fact:[['storage/innobase/rem/rec.h','/** SQL null flag in a 1-byte offset of ROW_FORMAT=REDUNDANT records */'],
+                ['storage/innobase/rem/rec.h','constexpr uint32_t REC_1BYTE_SQL_NULL_MASK = 0x80UL;'],
+                ['storage/innobase/rem/rec.h','constexpr uint32_t REC_2BYTE_SQL_NULL_MASK = 0x8000UL;']],
+          beat:1,
+          ops:{ rhd:{ del:['널'],
+                      set:{ 'varlen':{ id:'varlen', sz:2, tag:'gold', sub:'모든 필드의 오프셋 · NULL 비트 포함' } } },
+                op:{ set:{ '원점 기준':'−6 ‥ −1  ·  널 비트맵 없음' } } } },
+
+      7:{ look:{ rhd:true, op:true },
+          note:'정리 — 같은 행이 형식에 따라 다른 바이트가 된다',
+          why:'컬럼도 값도 같은데 extra 는 5 에서 6 으로, 널 표시는 비트맵에서 오프셋의 비트로, 필드 수는 인덱스 정의에서 레코드 안으로 옮겨갔다.',
+          key:'그래서 행 형식은 <em>한번 정하면 그 테이블에 박힌다</em>. 옛 형식을 계속 읽을 수 있어야 하므로 InnoDB 는 두 해석 경로를 영구히 들고 간다 — 10 장면이 그 이야기다.',
+          ref:'storage/innobase/rem/rec.h', sym:'REC_N_OLD_EXTRA_BYTES',
+          beat:1 },
+    },
+  } },
   steps:[
   { look:{ rhd:true, rdat:true, op:true },
     note:'슬롯이 가리키는 곳은 레코드의 시작이 아니라 "원점" 이다',
