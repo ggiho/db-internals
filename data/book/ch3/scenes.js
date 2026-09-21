@@ -1442,6 +1442,79 @@ const SCENES = [
     ['에러 로그','Database page corruption on disk or a failed file read'],
     ['innochecksum','서버를 끄고 .ibd 를 직접 검사하는 도구']],
   links:[['04','트레일러가 왜 페이지마다 있나'],['10','형식에 따라 알고리즘이 다르다'],['09','손상된 페이지는 버린다']],
+
+  /* 두 값이 서로 다른 것을 드러낸다.
+     none 은 쓰기와 읽기 양쪽을 바꾸지만 보호를 전부 없애지는 않는다 — LSN 머리·꼬리
+     비교가 알고리즘 검사보다 먼저, 알고리즘과 무관하게 돌기 때문이다.
+     strict_crc32 는 쓰기가 기본값과 같고 읽기만 달라진다. 그래서 4·5 스텝만 덮는다 —
+     그리고 그 한 스텝이 이 값의 전부다. 헤더 주석은 "allow crc32 when reading" 이라고
+     적지만 코드는 남의 알고리즘 페이지를 경고만 내고 받아들인다. */
+  vary:{ knob:'innodb_checksum_algorithm', base:'crc32', order:['none','strict_crc32'], alt:{
+    'none':{
+      2:{ act:{ f:'op', t:'pg', lb:'계산하지 않는다' },
+          note:'계산을 건너뛰고 그 자리에 정해진 값을 넣는다',
+          why:'buf_flush_init_for_writing 이 checksum 변수를 BUF_NO_CHECKSUM_MAGIC 으로 초기화하고, 이 값에서는 그것을 덮어쓰지 않는다. 0xDEADBEEF 다.',
+          key:'그 4바이트가 비는 것이 아니라 <em>약속된 값으로 채워진다</em>. 나중에 이 페이지를 읽는 쪽이 "체크섬이 없다" 를 알아볼 수 있어야 하기 때문이다.',
+          ref:'storage/innobase/buf/buf0flu.cc', sym:'buf_flush_init_for_writing',
+          fact:[['storage/innobase/include/buf0types.h','constexpr uint32_t BUF_NO_CHECKSUM_MAGIC = 0xDEADBEEFUL;'],
+                ['storage/innobase/buf/buf0flu.cc','uint32_t checksum = BUF_NO_CHECKSUM_MAGIC;']],
+          ops:{ sum:{ set:{ '머리 (오프셋 0)':'0xDEADBEEF|red' } },
+                op:{ set:{ '알고리즘':'none|red', '결과':'계산 생략' } } } },
+
+      3:{ act:{ f:'pg', t:'sum', lb:'꼬리에도 같은 값' },
+          note:'트레일러 앞 4바이트에도 같은 0xDEADBEEF 가 들어간다',
+          why:'덮어쓰는 코드는 같다 — mach_write_to_4 에 넘기는 checksum 변수의 값만 달라졌다. LSN 을 먼저 쓰고 앞 4바이트를 덮는 순서도 그대로다.',
+          key:'그래서 뒤 4바이트의 <em>LSN 하위 절반은 여전히 남는다</em>. 이것이 다음 스텝에서 중요해진다.',
+          ref:'storage/innobase/buf/buf0flu.cc', sym:'buf_flush_init_for_writing',
+          fact:['mach_write_to_8(page + UNIV_PAGE_SIZE - FIL_PAGE_END_LSN_OLD_CHKSUM, newest_lsn);',
+                'mach_write_to_4(page + UNIV_PAGE_SIZE - FIL_PAGE_END_LSN_OLD_CHKSUM, checksum);'],
+          beat:1,
+          ops:{ sum:{ set:{ '꼬리 (트레일러 앞 4 B)':'0xDEADBEEF|red', 'LSN 하위 (뒤 4 B)':'0x00001330|gold',
+                            '판정':'체크섬으로는 판정하지 않음|red' } },
+                pg:{ set:{ '8B':{ sub:'0xDEADBEEF + LSN 하위' } } } } },
+
+      4:{ act:{ f:'file', t:'sum', lb:'찢어진 쓰기는 여전히 잡힌다' },
+          note:'체크섬 비교는 건너뛰지만, 검사가 하나 먼저 있다',
+          why:'is_corrupted 는 먼저 헤더 LSN 의 하위 절반과 트레일러 뒤 4바이트를 memcmp 로 비교한다 — 이 검사는 알고리즘과 무관하다. 그것을 통과한 뒤에야 알고리즘을 보고, none 이면 곧장 false 로 돌아간다.',
+          key:'그래서 none 이 없애는 것은 <em>찢어진 쓰기 탐지가 아니라 비트 부패 탐지</em>다. 페이지 절반만 기록된 것은 LSN 이 어긋나 잡히고, 본문 한 비트가 뒤집힌 것은 아무도 모른다.',
+          ref:'storage/innobase/buf/checksum.cc', sym:'BlockReporter::is_corrupted',
+          fact:[['storage/innobase/buf/checksum.cc','of page do not match */'],
+                ['storage/innobase/buf/checksum.cc','if (srv_checksum_algorithm == SRV_CHECKSUM_ALGORITHM_NONE ||']],
+          beat:1,
+          ops:{ file:{ set:{ 'page 5':{ id:'page 5', sz:1, tag:'gold', sub:'LSN 일치 → 통과' } } },
+                sum:{ set:{ '판정':'LSN 만 비교 · 통과|gold' } },
+                op:{ set:{ '검사 범위':'LSN 8바이트만', '결과':'통과  (본문은 검사 안 함)|red' } } } },
+
+      5:{ look:{ sum:true, op:true },
+          note:'끄는 것이 지우는 것은 아니다 — 무엇이 남는지 알아야 한다',
+          why:'두 검사가 한 함수에 있어서 하나를 끄면 둘 다 꺼진 것처럼 읽힌다. 실제로는 순서가 정해져 있고 앞의 것은 설정과 무관하다.',
+          key:'설정 하나를 껐을 때 <em>정확히 무엇이 꺼졌는지</em>는 코드의 순서를 봐야 알 수 있다. 문서의 이름만 보면 "무결성 검사를 껐다" 로 읽힌다.',
+          ref:'storage/innobase/buf/checksum.cc', sym:'BlockReporter::is_corrupted',
+          beat:1 },
+    },
+    'strict_crc32':{
+      4:{ act:{ f:'file', t:'sum', lb:'남의 알고리즘 페이지를 만나면' },
+          note:'예전에 innodb 알고리즘으로 쓰인 페이지를 읽는다',
+          why:'crc32 로 검증해 실패하고, 이어서 innodb 로 검증해 성공한다. 그 자리에서 curr_algo 가 STRICT_CRC32 인지 보고 page_warn_strict_checksum 을 부른다 — 그리고 false 를 돌려준다. 즉 손상이 아니라고 판정한다.',
+          key:'strict 는 <em>거부하지 않는다 — 경고한다</em>. ib::warn 한 줄이 에러 로그에 남고 페이지는 그대로 쓰인다.',
+          ref:'storage/innobase/buf/checksum.cc', sym:'BlockReporter::is_corrupted',
+          fact:[['storage/innobase/buf/checksum.cc','if (curr_algo == SRV_CHECKSUM_ALGORITHM_STRICT_CRC32) {'],
+                ['storage/innobase/page/page0page.cc','ib::warn(ER_IB_MSG_914)']],
+          beat:1,
+          ops:{ file:{ set:{ 'page 5':{ id:'page 5', sz:1, tag:'gold', sub:'innodb 체크섬 · 경고 후 사용' } } },
+                sum:{ set:{ '머리 (오프셋 0)':'0x3B71C2E0  (innodb 방식)|gold',
+                            '꼬리 (트레일러 앞 4 B)':'0x3B71C2E0|gold', '판정':'경고 · 손상 아님|gold' } },
+                op:{ set:{ '알고리즘':'strict_crc32', '결과':'에러 로그에 경고 1줄|gold' } } } },
+
+      5:{ look:{ op:true, sum:true },
+          note:'헤더 주석과 코드가 같은 말을 하지 않는다',
+          why:'열거값 주석은 strict_crc32 를 "Write crc32, allow crc32 when reading" 이라고 적는다. 읽을 때 crc32 만 허용한다고 읽히지만, 코드는 innodb 와 none 으로 쓰인 페이지도 경고와 함께 통과시킨다.',
+          key:'그래서 strict 가 주는 것은 거부가 아니라 <em>알림</em>이다. 알고리즘을 옮기는 중인 파일을 찾아내는 도구로는 쓸모가 있고, 옛 페이지를 막아 주기를 기대하면 어긋난다.',
+          ref:'storage/innobase/include/buf0types.h', sym:'srv_checksum_algorithm_t',
+          fact:[['storage/innobase/include/buf0types.h','SRV_CHECKSUM_ALGORITHM_STRICT_CRC32,  /*!< Write crc32, allow crc32']],
+          beat:1 },
+    },
+  } },
   init:{
     op:{ kv:{ '알고리즘':'crc32', '검사 범위':'페이지 16 KB', '결과':'—' } },
     pg:{ items:[
