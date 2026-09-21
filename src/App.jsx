@@ -5,7 +5,7 @@ import './stage.css';
 import Rail from './Rail.jsx';
 import Playback, { REDUCED } from './Playback.jsx';
 import Source, { SourceModal, srcKeyOf } from './Source.jsx';
-import { bake, onStage } from './bake.js';
+import { bake, onStage, valuesOf, stepsOf } from './bake.js';
 
 
 /* 덱 이름은 <묶음>/<덱> 두 단계다 — 엔진을 늘릴 것이므로 처음부터 계층을 둔다.
@@ -40,9 +40,12 @@ function parse(h) {
   for (const id of Object.keys(DECKS)) {
     if ((raw === id || raw.startsWith(id + '/')) && id.length > deck.length) deck = id;
   }
-  if (!deck) return { deck: '', num: '', step: 1 };
-  const [n, s] = raw.slice(deck.length).replace(/^\//, '').split('/');
-  return { deck, num: n || '', step: Math.max(1, parseInt(s, 10) || 1) };
+  if (!deck) return { deck: '', num: '', step: 1, v: null };
+  /* 4번째 칸이 손잡이 값이다 — '#덱/장면/스텝/v2' 처럼 붙는다.
+     링크 하나로 "이 값일 때의 이 스텝" 이 재현돼야 하므로 주소에 싣는다. */
+  const [n, s, v] = raw.slice(deck.length).replace(/^\//, '').split('/');
+  const vv = /^v(.+)$/.exec(v || '');
+  return { deck, num: n || '', step: Math.max(1, parseInt(s, 10) || 1), v: vv ? vv[1] : null };
 }
 
 export default function App() {
@@ -110,7 +113,17 @@ export default function App() {
     return out;
   }, [visible]);
   const scene = deck ? (deck.SCENES.find((s) => s.num === route.num) || visible[0]) : null;
-  const frames = useMemo(() => (scene ? bake(scene) : []), [scene]);
+  /* 주소가 시킨 값이 이 장면에 실제로 있는 값일 때만 받는다 —
+     장면을 옮기면 남의 값이 따라붙어 엉뚱한 스텝을 그리게 된다.
+     기본값은 null 로 둔다(주소에 붙이지 않는다 — 기본 링크가 지금과 같아야 한다). */
+  const vNow = (() => {
+    if (!scene || !route.v || !scene.vary) return null;
+    const v = String(route.v);
+    if (v === String(scene.vary.base)) return null;
+    return valuesOf(scene).includes(v) ? v : null;
+  })();
+  const vals = scene ? valuesOf(scene) : [];
+  const frames = useMemo(() => (scene ? bake(scene, vNow) : []), [scene, vNow]);
   const i = frames.length
     ? Math.max(0, Math.min(frames.length - 1, route.step - 1)) : 0;
 
@@ -124,17 +137,25 @@ export default function App() {
   const pairOK = !!(alt && alt.steps.length === scene.steps.length) && wide;
   const framesB = useMemo(() => (pairOK ? bake(alt) : []), [pairOK, alt]);
 
-  const nav = useCallback((num, step, push) => {
-    const h = '#' + deckName + '/' + num + '/' + (step + 1);
+  const nav = useCallback((num, step, push, v) => {
+    /* v 를 주지 않으면 지금 값을 유지하고, null 을 주면 기본값으로 돌아간다. */
+    const keep = v === undefined ? vNow : v;
+    const h = '#' + deckName + '/' + num + '/' + (step + 1) + (keep ? '/v' + keep : '');
     /* 스텝 이동은 replaceState 다 — 한 장면을 다 보면 히스토리에 항목 열 개가 쌓여서
        뒤로가기가 "이전 장면" 이 아니라 "이전 스텝" 이 된다. 장면 이동만 쌓는다. */
     if (push) location.hash = h;
     else history.replaceState(null, '', h);
     setRoute(parse(h.slice(1)));
-  }, [deckName]);
+  }, [deckName, vNow]);
 
   const seek = useCallback((k) => { if (scene) nav(scene.num, k); }, [scene, nav]);
   const goScene = useCallback((num) => { nav(num, 0, true); }, [nav]);
+  /* 손잡이에서 고른 값으로 바꾼다 — 장면과 스텝은 그대로다.
+     흐름이 그 자리에서 달라지는 것이 요점이므로 이동하지 않는다.
+     히스토리에 쌓는다 : 뒤로가기로 원래 값의 같은 스텝으로 돌아온다. */
+  const onVal = useCallback((v) => {
+    if (scene) nav(scene.num, i, true, v);
+  }, [scene, i, nav]);
   const goSceneIndex = useCallback((k) => {
     const s = visible[k];
     if (s) nav(s.num, 0, true);
@@ -142,7 +163,7 @@ export default function App() {
 
   /* 주소를 정규화한다 — '#innodb' 처럼 장면 없이 들어오거나 스텝이 범위를 넘으면
      실제로 보고 있는 것과 주소가 달라진다. 링크를 복사했을 때 같은 화면이 떠야 한다. */
-  const canon = ready && scene ? deckName + '/' + scene.num + '/' + (i + 1) : null;
+  const canon = ready && scene ? deckName + '/' + scene.num + '/' + (i + 1) + (vNow ? '/v' + vNow : '') : null;
   /* route 도 의존성에 넣는다. canon 만 보면, 범위를 넘는 스텝으로 들어왔을 때
      canon 이 직전과 같아 효과가 다시 돌지 않고 주소만 어긋난 채 남는다
      (실측 : #mysql/innodb/01/99 는 25번을 정확히 보여주는데 주소는 /99 였다). */
@@ -178,7 +199,10 @@ export default function App() {
   if (!deck || !scene || !frames.length) return <div className="boot">불러오는 중…</div>;
 
   const frame = frames[i];
-  const step = scene.steps[i];
+  /* 변형이 적용된 목록에서 꺼낸다 — bake 만 고치고 이걸 놓쳤더니
+     무대는 값에 따라 바뀌는데 캡션·소스·스텝 목록은 기본값 그대로였다. */
+  const vSteps = stepsOf(scene, vNow);
+  const step = vSteps[i];
   const stage = onStage(scene, frames, i, 4);
   /* 스텝 전용 발췌가 있으면 그 키를 쓴다 — Source 와 같은 규칙을 써야 어긋나지 않는다. */
   const at = scene.num + '/' + (i + 1);
@@ -242,7 +266,7 @@ export default function App() {
       </AnimatePresence>
 
       <Playback
-        steps={scene.steps} i={i} onSeek={seek}
+        steps={vSteps} i={i} onSeek={seek}
         playing={playing} setPlaying={setPlaying}
         sceneCount={visible.length} onSceneIndex={goSceneIndex}
         hasPair={pairOK} split={on} onToggleSplit={toggleSplit} vsLabel={scene.vsLabel}
@@ -257,7 +281,11 @@ export default function App() {
 
       <div className={'wrap' + (on ? ' solo' : '')}>
         <div className="mid">
-          <div className={'stage-wrap' + (on ? ' split' : '')}>
+          {/* 이 장면이 값에 따라 달라지는 스텝 번호를 알려 둔다 —
+              스윕이 그 스텝만 값별로 돌 수 있게 하려는 것이다(전부 돌면 방문이 값 수만큼 늘어난다). */}
+          <div className={'stage-wrap' + (on ? ' split' : '')}
+            data-vary={scene.vary ? Object.keys(scene.vary.alt || {}).map(
+              (v) => 'v' + v + ':' + Object.keys(scene.vary.alt[v]).join(',')).join(' ') : undefined}>
             {cols.map((c) => (
               /* 열마다 layoutId 이름공간을 따로 준다. Stage 의 카드는 layoutId='card-<배우>' 를
                  쓰는데 그 이름은 전역이라, 비교 모드에서 두 열이 같은 배우를 그리면 둘이
@@ -284,7 +312,7 @@ export default function App() {
         {!on && (
           <Rail deck={deck} scene={scene} i={i}
             onStep={(k) => { setPlaying(false); seek(k); }}
-            onScene={(num) => { setPlaying(false); goScene(num); }} />
+            onScene={(num) => { setPlaying(false); goScene(num); }} steps={vSteps} vals={vals} vNow={vNow} onVal={onVal} />
         )}
       </div>
 

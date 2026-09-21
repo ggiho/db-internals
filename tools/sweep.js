@@ -497,7 +497,17 @@ async function main() {
       }, [d, s], { timeout: 20000 });
       const steps = await page.$eval('.play .track', (t) => +t.getAttribute('aria-valuemax'));
       const pair = await page.$$eval('.play .vs', (b) => b.length > 0);
-      plan.push({ deck: d, scene: s, steps, pair });
+      /* 손잡이로 값을 바꿀 수 있는 장면이면 그 값들도 방문해야 한다 —
+         값마다 스텝이 달라지므로 기본값만 돌면 변형이 레이아웃 검증 밖에 놓인다.
+         버튼의 글자가 곧 값이고, 켜져 있는 것(기본값)은 제외한다. */
+      /* 값과 '그 값에서 달라지는 스텝' 을 앱이 data-vary 로 알려 준다.
+         전부 돌면 방문이 값 수만큼 늘어난다(113스텝 × 2값 = 226회를 실제로 돌았다). */
+      const vary = await page.$eval('.stage-wrap', (e) => e.getAttribute('data-vary') || '').catch(() => '');
+      const vals = vary ? vary.split(' ').filter(Boolean).map((part) => {
+        const [v, list] = part.split(':');
+        return { v: v.slice(1), steps: list.split(',').map(Number).filter(Boolean) };
+      }) : [];
+      plan.push({ deck: d, scene: s, steps, pair, vals });
     }
   }
   /* 계획이 실행마다 흔들리면 위 경합이 남아 있다는 뜻이다 — 지문을 함께 찍는다. */
@@ -597,6 +607,18 @@ async function main() {
           if (allProblems.length < 600) allProblems.push({ w, at: hash, check: 'step-mismatch', want: s, got: r.metrics.now });
         }
 
+        /* 손잡이 값 : 값마다 스텝 내용이 달라지므로 그 값에서도 재야 한다.
+           달라지는 스텝만 돌면 충분하지만 어느 스텝이 달라지는지 페이지가 알려주지 않으므로
+           모든 스텝을 돈다 — 값이 있는 장면은 하나뿐이라 비용이 크지 않다. */
+        for (const g of (p.vals || [])) {
+          if (!g.steps.includes(s)) continue;      /* 그 값에서 달라지지 않는 스텝은 돌지 않는다 */
+          const vh = `${p.deck}/${p.scene}/${s}/v${g.v}`;
+          await page.evaluate((h) => { location.hash = h; }, vh);
+          await page.waitForFunction((want) => location.hash.slice(1) === want, vh, { timeout: 4000 }).catch(() => {});
+          await take(vh, 'v' + g.v);
+          acc.varyVisits = (acc.varyVisits || 0) + 1;
+        }
+
         /* 비교 모드 : 옛 판에서 한 번도 스윕된 적이 없던 모드다 */
         /* 앱은 960 미만에서 나란히 보기를 내주지 않는다(값이 한 줄에 안 들어간다).
            그 폭에서 v 를 눌러 켜질 것을 기대하면 불일치로 세어진다 — 실측 16건.
@@ -617,7 +639,7 @@ async function main() {
     acc.avgEmpty = n ? +(acc.emptySum / n).toFixed(1) : 0;
     byWidth.push(acc);
     console.log(`W${String(w).padStart(4)} h${h} zoom ${zoom}  방문 ${acc.visits}+비교 ${acc.splitVisits}`
-      + ` (확인 ${acc.confirmed}${acc.mismatch ? ` · 불일치 ${acc.mismatch}` : ''})`
+      + ` (확인 ${acc.confirmed}${acc.mismatch ? ` · 불일치 ${acc.mismatch}` : ''}${acc.varyVisits ? ` · 값 ${acc.varyVisits}` : ''})`
       + `  상자 ${acc.containers} · 요소 ${acc.el} · 칸 ${acc.cells} · 줄조각 ${acc.ranges} · 라벨쌍 ${acc.labelPairs}`
       + `  → 문제 ${acc.problems}${acc.problems ? '  ' + JSON.stringify(acc.byCheck) : ''}`
       + `   [무대초과 ${acc.maxStageOver} · 소스보임 ${acc.srcShown}/${n}`

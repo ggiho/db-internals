@@ -34,7 +34,13 @@ const REPO = srcRoot(DECK, ROOT);
 await loadDeck(DECK);
 
 const want = new Map();
-SCENES.forEach(s => s.steps.forEach(st => {
+/* 변형 스텝도 봐야 한다 — vary.alt 에 저작된 스텝이 자기 ref/sym 을 갖는다.
+   안 보면 그 스텝의 소스 패널이 비고, 검증 밖에 놓인다. */
+const allSteps = (s) => [
+  ...(s.steps || []),
+  ...Object.values((s.vary && s.vary.alt) || {}).flatMap(o => Object.values(o)),
+];
+SCENES.forEach(s => allSteps(s).forEach(st => {
   if (st.ref && st.sym) want.set(st.ref + '#' + st.sym, { f: st.ref, s: st.sym });
 }));
 

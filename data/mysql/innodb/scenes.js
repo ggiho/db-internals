@@ -12,6 +12,51 @@ const SCENES = [
   num:'01', tab:'UPDATE', title:'UPDATE 한 건의 전 생애',
   sub:'커밋 응답을 받은 순간, 데이터 파일에는 아직 옛 값이 있다',
   cast:['ses','stmt','bin','bp','lb','undo','lock','fl','dw','ibd','redo'],
+  /* 이 손잡이를 바꾸면 달라지는 스텝만 적는다 — 나머지는 기본값(1) 그대로 재생된다.
+     세 값의 동작은 소스에서 확인했다 :
+       trx_flush_log_if_needed_low 의 switch 가 case 2 를 flush=false 로 두고 case 1 로 흘려보내고,
+       innobase_flush_logs 는 == 1 일 때만 log_buffer_flush_to_disk(true) 를 부르며,
+       == 0 이면 binlog 그룹 커밋 중에는 아예 부르지 않는다.
+     값을 받아 동작을 계산하지 않는다 — 각 값의 스텝을 여기에 저작해 둔다. */
+  vary:{ knob:'innodb_flush_log_at_trx_commit', base:'1', alt:{
+    '2':{
+      12:{ note:'binlog flush 단계 ① — redo 를 파일에 쓰지만 fsync 하지 않는다',
+           why:'그룹 커밋 경로는 log_buffer_flush_to_disk(!binlog_group_flush || srv_flush_log_at_trx_commit == 1) 을 부른다. 값이 2 면 두 항이 모두 거짓이라 인자가 false 다 — write 만 한다.',
+           key:'redo 는 <em>OS 에게 넘어갔을 뿐</em>이다. MySQL 이 죽어도 남지만, OS 가 죽거나 전원이 끊기면 사라진다.',
+           ref:'storage/innobase/handler/ha_innodb.cc', sym:'innobase_flush_logs',
+           fact:[['storage/innobase/handler/ha_innodb.cc','log_buffer_flush_to_disk(!binlog_group_flush ||'],
+                 ['storage/innobase/handler/ha_innodb.cc','srv_flush_log_at_trx_commit == 1);']],
+           /* lb 는 기본값 스텝이 이미 4,912 로 올려 둔다 — 같은 값을 다시 set 하면
+              "변화 없음" 경고가 난다. 이 값에서 달라지는 것은 redo 쪽뿐이다. */
+           ops:{ redo:{ set:{ 'Log flushed up to':'4,912  (파일에 씀 · fsync 안 함)|gold' } } } },
+      13:{ note:'WAL 이 절반만 성립했다 — 순서는 맞지만 내구성이 다르다',
+           why:'redo 가 페이지보다 먼저 파일에 간 것은 맞다. 그러나 fsync 를 하지 않았으므로 그 기록이 디스크 매체에 있다는 보장은 없다.',
+           key:'WAL 의 두 약속 중 <em>순서는 지키고 내구성은 낮췄다</em>. 크래시 복구는 여전히 이 파일을 읽지만, OS 크래시라면 읽을 것이 없을 수 있다.',
+           ref:'storage/innobase/log/log0write.cc', sym:'log_write_up_to' },
+      16:{ note:'binlog 는 판정 기록이 되었는데, redo 는 아직 OS 손에 있다',
+           why:'커밋 판정은 binlog fsync 로 정해진다(sync_binlog=1). 그 판정은 남았는데 그 트랜잭션의 redo 는 fsync 되지 않았다.',
+           key:'그래서 OS 가 죽으면 <em>"커밋됐다고 판정된 것" 과 "redo 에 남은 것" 이 어긋날 수 있다</em>. 값을 2 로 두는 대가가 여기서 드러난다.',
+           ref:'sql/binlog/recovery.cc', sym:'Binlog_recovery::recover' },
+    },
+    '0':{
+      12:{ note:'binlog flush 단계 ① — 이 값에서는 redo 를 아예 내려쓰지 않는다',
+           why:'innobase_flush_logs 의 첫 분기가 binlog_group_flush && srv_flush_log_at_trx_commit == 0 이면 그대로 돌아간다. 주석이 이유를 적는다 — "(write and sync once per second). Do not flush the redo log during binlog group commit."',
+           key:'커밋과 redo 쓰기가 <em>끊어진다</em>. 내려쓰기는 초당 한 번 따로 일어난다.',
+           ref:'storage/innobase/handler/ha_innodb.cc', sym:'innobase_flush_logs',
+           fact:[['storage/innobase/handler/ha_innodb.cc','if (binlog_group_flush && srv_flush_log_at_trx_commit == 0) {'],
+                 ['storage/innobase/handler/ha_innodb.cc','Do not flush the redo log during binlog group commit. */']],
+           ops:{ redo:{ set:{ 'Log flushed up to':'4,600  (이 트랜잭션은 아직)|red' } },
+                 lb:{ set:{ 'assigned up to':'4,912  (버퍼에 남아 있다)' } } } },
+      13:{ note:'WAL 이 성립하지 않았다 — redo 가 아직 로그 버퍼에 있다',
+           why:'페이지는 이미 더티이고 redo 는 버퍼에 남아 있다. 이 순간의 순서는 WAL 이 요구하는 것과 반대다.',
+           key:'그래서 이 값은 <em>커밋 응답을 받은 변경도 잃을 수 있다</em>. 초당 한 번의 내려쓰기 사이에 죽으면 그 구간이 사라진다.',
+           ref:'storage/innobase/log/log0write.cc', sym:'log_write_up_to' },
+      16:{ note:'binlog 는 판정했는데 redo 는 최대 1초 뒤처져 있다',
+           why:'커밋 판정은 binlog fsync 로 남는다. redo 는 log_flusher 가 초당 한 번 내려쓴다.',
+           key:'복구는 binlog 가 "커밋" 이라 적은 트랜잭션을 redo 에서 <em>찾지 못할 수 있다</em>. 이 값을 쓰는 것은 그 위험을 받아들이는 일이다.',
+           ref:'sql/binlog/recovery.cc', sym:'Binlog_recovery::recover' },
+    },
+  }},
   init:{
     ses:{ kv:{ 'trx id':'—', 'trx_state':'IDLE', 'undo records':'0', 'trx_rows_locked':'0' } },
     stmt:{ kv:{ 'UPDATE':'UPDATE t SET c = 200 WHERE id = 5', '이어서':'COMMIT' } },
@@ -33,7 +78,7 @@ const SCENES = [
     redo:{ kv:{ 'Log flushed up to':'4,800', 'Last checkpoint at':'4,600' } },
   },
   knobs:[
-    ['innodb_flush_log_at_trx_commit','1','1 이면 커밋마다 fsync. 2 는 OS 에 맡긴다 — 빠르지만 OS 크래시에 취약'],
+    ['innodb_flush_log_at_trx_commit','1','눌러서 값을 바꾸면 12·13·16 스텝이 그 값대로 달라진다'],
     ['innodb_doublewrite','ON','끄면 쓰기가 절반. 찢어진 페이지를 복구할 근거가 사라진다'],
     ['sync_binlog','1','binlog 쪽 fsync. 1 이 아니면 복제 판정 기록이 유실될 수 있다'] ],
   watch:[

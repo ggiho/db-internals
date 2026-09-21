@@ -12,7 +12,7 @@ import { motion, AnimatePresence } from 'framer-motion';
        272px 트랙을 320px 로 밀어내고, 밀린 만큼 잘려서 눈에는 안 보인다).
    (2) 긴 이름은 자르지 않고 어디서든 접는다 (overflow-wrap:anywhere). */
 
-function Knobs({ knobs }) {
+function Knobs({ knobs, vary, vals, vNow, onVal }) {
   if (!knobs || !knobs.length) return null;
   return (
     <div className="rl rl-knobs">
@@ -26,8 +26,18 @@ function Knobs({ knobs }) {
             <div className="w">{why}</div>
           </div>
         ) : (
-          <div className="kn" key={n + '/' + k}>
-            <div className="r"><span className="n">{n}</span><span className="sp" /><span className="d">{d}</span></div>
+          <div className={'kn' + (vary && vary.knob === n ? ' live' : '')} key={n + '/' + k}>
+            <div className="r"><span className="n">{n}</span><span className="sp" />
+              {/* 이 장면이 값에 따라 달라진다고 선언한 손잡이면 값을 고를 수 있다.
+                  고르면 *같은 장면 같은 스텝* 에서 값만 바뀐다 — 흐름이 그 자리에서 달라진다.
+                  값을 받아 동작을 계산하지 않는다 : 달라지는 스텝은 vary.alt 에 저작돼 있다. */}
+              {vary && vary.knob === n ? vals.map((v) => (
+                <button type="button" key={v}
+                  className={'opt' + (String(v) === String(vNow || vary.base) ? ' on' : '')}
+                  onClick={() => onVal && onVal(String(v) === String(vary.base) ? null : String(v))}
+                  title={String(v) === String(vary.base) ? '기본값' : '이 값으로 바꿔 본다'}>{v}</button>
+              )) : <span className="d">{d}</span>}
+            </div>
             <div className="w">{why}</div>
           </div>
         )))}
@@ -105,7 +115,7 @@ function Links({ links, scenes, onScene }) {
   );
 }
 
-export default function Rail({ deck, scene, i, onStep, onScene }) {
+export default function Rail({ deck, scene, i, steps, onStep, onScene, vals, vNow, onVal }) {
   return (
     <AnimatePresence mode="wait">
       {/* 들어올 때 x 로 밀지 않는다 — 레일은 폭이 정해진 열의 오른쪽 끝에 붙어 있고
@@ -114,9 +124,9 @@ export default function Rail({ deck, scene, i, onStep, onScene }) {
       <motion.aside className="rail" key={scene.num}
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         transition={{ duration: 0.22 }}>
-        <Knobs knobs={scene.knobs} />
+        <Knobs knobs={scene.knobs} vary={scene.vary} vals={vals} vNow={vNow} onVal={onVal} />
         <Watch watch={scene.watch} />
-        <Steps steps={scene.steps} i={i} onStep={onStep} />
+        <Steps steps={steps || scene.steps} i={i} onStep={onStep} />
         <Links links={scene.links} scenes={deck.SCENES} onScene={onScene} />
       </motion.aside>
     </AnimatePresence>

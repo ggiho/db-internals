@@ -258,9 +258,17 @@ for (const sc of SCENES) {
   }
 
   /* 연산을 재생하며 검사한다 — 없는 항목을 지우거나 고치려는 시도를 잡는다 */
+  /* 값마다 한 번씩 재생한다 — 변형 스텝의 ops 도 그 시점 상태에 대해 유효해야 하고,
+     fact·cite 도 대조돼야 한다. 기본값만 검사하면 변형이 검증 밖에 놓인다
+     (비교 모드가 오래 스윕 밖에 있었던 것과 같은 실수가 된다). */
+  const VALS = sc.vary ? [null, ...Object.keys(sc.vary.alt || {})] : [null];
+  for (const VV of VALS) {
+  const VSTEPS = VV == null ? (sc.steps || [])
+    : (sc.steps || []).map((x, k) => (sc.vary.alt[VV][k + 1] ? { ...x, ...sc.vary.alt[VV][k + 1] } : x));
+  const VT = VV == null ? '' : '(v' + VV + ')';
   let st = JSON.parse(JSON.stringify(sc.init));
-  sc.steps.forEach((step, i) => {
-    const S = T + '.' + String(i + 1).padStart(2, '0');
+  VSTEPS.forEach((step, i) => {
+    const S = T + VT + '.' + String(i + 1).padStart(2, '0');
     if (!step.note) err(S + ' note 없음');
     if (!step.why)  wrn(S + ' why 없음');
     if (!step.key)  wrn(S + ' key 없음');
@@ -487,6 +495,7 @@ for (const sc of SCENES) {
       }
     }
   });
+  }
 
   /* 항목 수가 한 배우 안에서 너무 커지면 무대 높이가 무너진다 */
   let peak = {};

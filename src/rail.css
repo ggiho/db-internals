@@ -121,6 +121,13 @@
   overflow-wrap:anywhere}
 .kn .n{font:400 10px var(--mono);color:var(--accent);letter-spacing:0;
   flex:0 1 auto;min-width:0;white-space:normal;overflow-wrap:anywhere}
+/* 고를 수 있는 손잡이 — 값 버튼. 지금 값은 켜진 상태로 둔다.
+   이 버튼은 값을 '적용' 하지 않는다. 그 값일 때를 설명해 둔 장면으로 데려간다. */
+.kn.live .opt{font:400 10px var(--mono);color:var(--faint);letter-spacing:0;
+  background:none;border:1px solid var(--line);border-radius:7px;
+  padding:0 6px;margin-left:4px;cursor:pointer;transition:color .15s,border-color .15s}
+.kn.live .opt:hover{color:var(--ink);border-color:var(--faint)}
+.kn.live .opt.on{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 55%,transparent)}
 .kn .sp{flex:1 1 12px;min-width:8px;border-bottom:1px dotted var(--hair2);transform:translateY(-3px)}
 .kn .d{font:400 10px var(--mono);color:var(--gold);flex:0 1 auto;min-width:0;
   overflow-wrap:anywhere}

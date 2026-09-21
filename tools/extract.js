@@ -40,11 +40,18 @@ await loadDeck(DECK);
    374줄이라 독자가 근거를 볼 수 없었다. 담을 수 있으면 창을 늘린다. */
 const WANT = {};        /* ref#sym → 그 심볼을 쓰는 모든 스텝의 인용 */
 const STEP = {};        /* ref#sym@장면/스텝 → 그 스텝만의 인용 */
+/* 변형 스텝도 포함한다 — 값마다 다른 곳을 인용하므로 전용 발췌가 필요할 수 있다.
+   자리 이름은 '장면/스텝@값' 으로 구분한다. */
+const withVary = (sc) => [
+  ...(sc.steps || []).map((st, i) => [st, String(i + 1)]),
+  ...Object.entries((sc.vary && sc.vary.alt) || {}).flatMap(([v, o]) =>
+    Object.entries(o).map(([n, st]) => [st, n + 'v' + v])),
+];
 for (const sc of SCENES) {
-  for (const [si, st] of (sc.steps || []).entries()) {
+  for (const [st, tag] of withVary(sc)) {
     if (!st.ref || !st.sym) continue;
     const key = st.ref + '#' + st.sym;
-    const at = key + '@' + sc.num + '/' + (si + 1);
+    const at = key + '@' + sc.num + '/' + tag;
     for (const f of st.fact || []) {
       const [file, q] = Array.isArray(f) ? f : [st.ref, f];
       if (file !== st.ref) continue;          /* 다른 파일의 인용은 이 창과 무관하다 */
