@@ -585,14 +585,27 @@ async function main() {
       maxStageOver: 0, srcShown: 0, acts: 0, settleCap: 0, settleMax: 0, transient: 0,
     };
 
+    /* 해시 이동이 아직 끝나지 않았는데 평가가 들어가면 "Execution context was destroyed"
+       로 스윕 전체가 죽는다 — 1728폭에서 399방문을 마치기 직전에 그렇게 잃었다.
+       레이아웃과 무관한 경쟁 조건이므로 한 번 더 시도한다. 두 번 실패하면 진짜 문제다. */
+    const evalRetry = async (fn, arg) => {
+      for (let i = 0; i < 2; i++) {
+        try { return arg === undefined ? await page.evaluate(fn) : await page.evaluate(fn, arg); }
+        catch (e) {
+          if (i === 1 || !/Execution context was destroyed/.test(String(e.message))) throw e;
+          await page.waitForLoadState('load').catch(() => {});
+        }
+      }
+    };
+
     const take = async (hash, tag) => {
       /* SETTLE 은 정착까지 쓴 프레임 수를 돌려준다. 그 값을 버리면 상한(130프레임)에
          걸렸는지 알 수 없고, 상한에 걸렸다는 것은 "정착 전에 쟀다" 는 뜻이다 —
          교훈 14 의 거짓 양성이 바로 그 상태에서 나왔다. 반드시 집계한다. */
-      const settleFrames = await page.evaluate(SETTLE);
+      const settleFrames = await evalRetry(SETTLE);
       if (settleFrames > 130) acc.settleCap++;
       if (settleFrames > acc.settleMax) acc.settleMax = settleFrames;
-      let r = await page.evaluate(MEASURE, cfg);
+      let r = await evalRetry(MEASURE, cfg);
 
       /* 확인 재측정. 정착 서명이 통과했는데도 진행 중 샘플이 남는 경우가 있다 —
          mysql/innodb/04/8 에서 카드가 338.5px 에서 520px 로 자라는데(FLUSH LIST 퇴장으로
