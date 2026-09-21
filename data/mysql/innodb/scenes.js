@@ -1341,6 +1341,82 @@ const SCENES = [
     ['02','오래 열린 트랜잭션이 원인이 되는 다른 경로'],
     ['10','새로 만든 인덱스는 왜 가장 조밀한가'] ],
 
+  /* 기본값 1년은 "기다린다" 가 아니라 "포기하지 않는다" 다. 값을 낮추면 이 장면의
+     장애가 일어나지 않는다 — 적체가 쌓이기 전에 ALTER 가 먼저 실패하기 때문이다.
+     0 은 가장 짧은 타임아웃이 아니라 다른 분기다 : 기다리지 않고 try_acquire_lock 으로
+     가고, 주석이 이유를 적는다 — 불필요한 교착 탐지와 그로 인한 "가짜" 교착을 피한다.
+     1·2 스텝은 같고 3~5 가 갈린다. 5스텝에서 원인을 정리하고 재실행하므로
+     6~11(온라인 구간·row log·마무리)은 그대로 물려받는다 — 도착하는 길만 달랐다. */
+  vary:{ knob:'lock_wait_timeout', base:'31536000', order:['5','0'], alt:{
+    '5':{
+      3:{ note:'5초가 지난다. 뒤에 쌓이기 전에 ALTER 가 먼저 물러난다',
+          why:'acquire_lock 이 set_timespec 으로 절대 시각을 잡고 그때까지만 기다린다. 대기 결과가 MDL_wait::TIMEOUT 이면 ER_LOCK_WAIT_TIMEOUT 을 낸다.',
+          key:'그래서 <em>3번 이후의 줄이 아예 생기지 않는다</em>. 막히는 세션이 없다는 것은 장애가 없다는 뜻이다 — ALTER 하나만 실패했다.',
+          ref:'sql/mdl.cc', sym:'MDL_context::acquire_lock',
+          fact:[['sql/mdl.cc','set_timespec(&abs_timeout, lock_wait_timeout);'],
+                ['sql/mdl.cc','my_error(ER_LOCK_WAIT_TIMEOUT, MYF(0));']],
+          beat:1,
+          ops:{ mdl:{ set:{ '2  ALTER TABLE':{ tag:'free', sub:'1205 · 5초 후 포기' } } },
+                ses:{ set:{ 'ALTER 상태':'실패 (1205)|red', '막힌 세션':'0|green' } } } },
+
+      4:{ note:'긴 SELECT 는 방해받지 않고 계속 돈다',
+          why:'ALTER 가 큐에서 빠졌으므로 EXCLUSIVE 요청이 없다. 새로 들어오는 읽기·쓰기는 1번과 호환되어 그대로 통과한다. 기본값에서 수백 세션이 막혔던 이유는 ALTER 가 큐에 남아 있었기 때문이다.',
+          key:'값을 낮추는 것이 ALTER 를 <em>성공시키지는 않는다</em>. 바꾸는 것은 실패의 모양이다 — 되돌릴 수 있는 실패와 되돌릴 수 없는 장애 중 하나를 고르는 것.',
+          ref:'sql/mdl.cc', sym:'MDL_lock::can_grant_lock',
+          beat:1,
+          ops:{ mdl:{ del:['2  ALTER TABLE'],
+                      add:[{ id:'3  SELECT · INSERT', tag:'hold', sub:'통과 · 1번과 호환' }] },
+                ses:{ set:{ '실행 중':'긴 SELECT (trx 80) · 계속' } } } },
+
+      5:{ act:{ f:'mdl', t:'ses', lb:'1번 정리 → ALTER 재실행' },
+          note:'해야 할 일은 같다 — 원인 세션을 정리하고 다시 돌린다',
+          why:'실패한 것은 ALTER 이고 원인은 1번이다. 1번을 끝낸 뒤 재실행하면 이번에는 5초 안에 EXCLUSIVE 를 얻는다.',
+          key:'짧은 타임아웃이 준 것은 <em>장애 없이 원인을 찾을 시간</em>이다. 기본값에서는 그 시간 동안 서비스가 멈춰 있었다.',
+          ref:'sql/mdl.cc', sym:'MDL_context::acquire_lock',
+          ops:{ mdl:{ del:['1  긴 SELECT','3  SELECT · INSERT'],
+                      add:[{ id:'2  ALTER TABLE', tag:'hold', sub:'재실행 · EXCLUSIVE 획득' }] },
+                ses:{ set:{ '실행 중':'—', 'ALTER 상태':'준비 완료|green' } } } },
+      /* 6스텝은 물려받되 ops 만 고친다. 기본 스텝은 3·4번 줄을 지우지만 이 값에서는
+         그 줄이 생기지 않았고, 막힌 세션도 이미 0 이다 — 검증이 둘 다 잡았다. */
+      6:{ ops:{ mdl:{ set:{ '2  ALTER TABLE':{ tag:'hold', sub:'SHARED_UPGRADABLE · 통과 허용' } } },
+                ses:{ set:{ 'ALTER 상태':'인덱스 구축 중|gold' } } } },
+    },
+    '0':{
+      3:{ note:'0 은 기다리지 않는다 — 그리고 기다림과 다른 길로 간다',
+          why:'acquire_lock 의 첫 분기가 lock_wait_timeout == 0 을 보고 try_acquire_lock 으로 간다. 주석이 이유를 적는다 — 불필요한 교착 탐지 시도와 그로 인해 생길 수 있는 "가짜" 교착을 피하기 위해서다.',
+          key:'0 은 <em>가장 짧은 타임아웃이 아니라 다른 분기</em>다. 기다리지 않으므로 대기 그래프에 들어갈 일이 없고, 교착으로 오판될 일도 없다.',
+          ref:'sql/mdl.cc', sym:'MDL_context::acquire_lock',
+          fact:[['sql/mdl.cc','if (lock_wait_timeout == 0) {'],
+                ['sql/mdl.cc','if (try_acquire_lock(mdl_request)) return true;'],
+                ['sql/mdl.cc','deadlocks which might result from it.']],
+          beat:1,
+          ops:{ mdl:{ set:{ '2  ALTER TABLE':{ tag:'free', sub:'1205 · 즉시 · 대기 없음' } } },
+                ses:{ set:{ 'ALTER 상태':'즉시 실패 (1205)|red', '막힌 세션':'0|green' } } } },
+
+      4:{ note:'큐에 들어간 흔적조차 남지 않는다',
+          why:'대기 티켓을 만들지 않고 돌아가므로 P_S.metadata_locks 에 PENDING 행이 찍히는 순간도 없다. 5초짜리 타임아웃이라면 그 5초 동안은 보였다.',
+          key:'그래서 <em>사후 추적이 어렵다</em>. 실패는 애플리케이션의 에러 로그에만 남고 서버 쪽 관측 지점을 지나가지 않는다.',
+          ref:'sql/mdl.cc', sym:'MDL_context::try_acquire_lock',
+          beat:1,
+          ops:{ mdl:{ del:['2  ALTER TABLE'],
+                      add:[{ id:'3  SELECT · INSERT', tag:'hold', sub:'통과 · 1번과 호환' }] },
+                ses:{ set:{ '실행 중':'긴 SELECT (trx 80) · 계속' } } } },
+
+      5:{ act:{ f:'mdl', t:'ses', lb:'1번 정리 → ALTER 재실행' },
+          note:'DDL 자동화가 이 값을 쓰는 이유 — 막힌 것을 건너뛰고 나중에 다시 돈다',
+          why:'스크립트가 수십 개 테이블을 순서대로 고칠 때, 막힌 하나가 뒤를 붙잡는 것보다 즉시 실패하고 다음으로 가는 것이 낫다. 실패 목록을 모아 원인을 정리한 뒤 다시 돌린다.',
+          key:'설정의 값어치는 한 문장에서가 아니라 <em>여러 문장을 어떤 순서로 돌릴지</em>에서 나온다. 한 문장만 보면 0 은 언제나 지는 선택처럼 보인다.',
+          ref:'sql/mdl.cc', sym:'MDL_context::acquire_lock',
+          ops:{ mdl:{ del:['1  긴 SELECT','3  SELECT · INSERT'],
+                      add:[{ id:'2  ALTER TABLE', tag:'hold', sub:'재실행 · EXCLUSIVE 획득' }] },
+                ses:{ set:{ '실행 중':'—', 'ALTER 상태':'준비 완료|green' } } } },
+      /* 6스텝은 물려받되 ops 만 고친다. 기본 스텝은 3·4번 줄을 지우지만 이 값에서는
+         그 줄이 생기지 않았고, 막힌 세션도 이미 0 이다 — 검증이 둘 다 잡았다. */
+      6:{ ops:{ mdl:{ set:{ '2  ALTER TABLE':{ tag:'hold', sub:'SHARED_UPGRADABLE · 통과 허용' } } },
+                ses:{ set:{ 'ALTER 상태':'인덱스 구축 중|gold' } } } },
+    },
+  } },
+
   steps:[
   { look:{ mdl:true },
     note:'긴 SELECT 하나가 SHARED_READ 메타데이터 락을 들고 있다',
