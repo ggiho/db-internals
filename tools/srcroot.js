@@ -13,12 +13,14 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 
-/* 대조하는 버전. 트리가 사라졌을 때 무엇을 되살려야 하는지 이것 말고는 알 방법이 없다 —
-   실제로 PostgreSQL 트리가 없어졌을 때 버전이 어디에도 없어 짐작으로 클론해야 했다.
-   버전이 바뀌면 fact 대조가 어긋나므로 도구가 알려 준다.
+/* 대조하는 버전. 트리가 사라졌을 때 무엇을 되살려야 하는지 도구가 알려 주는 자리다 —
+   실제로 PostgreSQL 트리가 없어졌을 때 여기에 아무것도 없어서 짐작으로 17 을 클론했고,
+   덱이 화면에 18.6 을 띄우고 있는 것을 보지 않은 탓에 맞는 인용 하나를 고쳐 버렸다.
+   대조가 통과하는 것은 "버전이 맞다" 가 아니다 — 많은 인용은 여러 버전에서 성립한다.
+   그래서 버전은 짐작하지 않고 이 주석과 각 덱의 deck.js brand 두 곳을 맞춰 둔다.
      MySQL      8.4.8      ~/src/github.com/mysql/mysql-server
-     PostgreSQL 17.11    (REL_17_STABLE) 얕은 클론으로 충분하다 :
-       git clone --depth 1 --filter=blob:none --branch REL_17_STABLE \
+     PostgreSQL 18.6     (REL_18_STABLE) 얕은 클론으로 충분하다 :
+       git clone --depth 1 --filter=blob:none --branch REL_18_STABLE \
          https://github.com/postgres/postgres.git */
 
 /* 그 트리인지 확인하는 표식 — 빈 디렉터리를 붙잡지 않도록. */

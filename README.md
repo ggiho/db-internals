@@ -75,8 +75,8 @@ grep 해 확인한다(`tools/claimcheck.js`). 레이아웃은 14폭 × 5,800방�
 `tools/srcroot.js` 에 적혀 있다.
 
     MySQL       8.4.8
-    PostgreSQL  17.11      git clone --depth 1 --filter=blob:none \
-                             --branch REL_17_STABLE https://github.com/postgres/postgres.git
+    PostgreSQL  18.6       git clone --depth 1 --filter=blob:none \
+                             --branch REL_18_STABLE https://github.com/postgres/postgres.git
 
 소스가 없으면 `verify.js` 는 "파일을 못 읽었다" 만 낸다 — 그것은 통과가 아니라 미검증이다.
 실제로 PostgreSQL 트리가 사라져 있는 동안 인용 오류 한 건이 가려져 있었다.
@@ -108,5 +108,5 @@ grep 해 확인한다(`tools/claimcheck.js`). 레이아웃은 14폭 × 5,800방�
 
 ## 출처
 
-- 소스 발췌 : MySQL 8.4.8 Community (GPLv2) · PostgreSQL 17.11 (PostgreSQL License)
+- 소스 발췌 : MySQL 8.4.8 Community (GPLv2) · PostgreSQL 18.6 (PostgreSQL License)
 - 인용 : *Database Internals* — Alex Petrov (O'Reilly)
