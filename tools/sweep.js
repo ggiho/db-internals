@@ -155,7 +155,9 @@ const BASE = ARG.base || 'http://localhost:5180';
 /* 폭 : 미디어 쿼리 경계 양쪽을 낀다 — 1080/1100 · 1559/1561 · zoom 분기 2000/2560/3400/4600 */
 const WIDTHS = ARG.widths
   ? ARG.widths.split(',').map(Number)
-  : [768, 834, 1024, 1080, 1100, 1366, 1512, 1559, 1561, 1728, 2000, 2560, 3440, 5120];
+  /* 390 은 오래 빠져 있었다 — 767 아래에서 무대를 감추고 안내만 띄웠으므로 잴 것이 없었다.
+     이제 무대가 보이고 소스가 접히므로 검사 대상이다. 높이 표에 390:844 는 이미 있었다. */
+  : [390, 768, 834, 1024, 1080, 1100, 1366, 1512, 1559, 1561, 1728, 2000, 2560, 3440, 5120];
 
 /* 높이는 그 폭의 실제 장치를 따른다 — 100vh 를 쓰므로 높이가 결과를 바꾼다 */
 const HEIGHT = {
@@ -373,15 +375,31 @@ const MEASURE = (CFG) => {
     if (z > 1 && r.height > innerHeight + 1.5) add('zoom-height', { by: +(r.height - innerHeight).toFixed(1), note: 'height:calc(100vh / zoom) 이 안 걸렸다' });
   }
 
-  /* ── 검사 7 : 좁은 폭 안내 ── */
+  /* ── 검사 7 : 휴대폰 폭 ──
+     전에는 반대를 검사했다 — 767 아래에서 무대가 *숨겨졌는지* 와 안내문이 떴는지를 봤다.
+     그 설계를 뒤집었으므로(무대를 보이고 소스를 접는다) 검사도 뒤집는다.
+     낡은 검사를 그대로 두면 390폭에서 2,485건이 나오는데 전부 계측기가 옛 전제를
+     들고 있어서 생긴 것이다 — 그 숫자에 묻혀 진짜 224건을 못 본다. */
   if (CFG.narrow) {
-    const note = document.querySelector('.narrow-note');
-    if (!note) add('narrow-note-missing', { note: '.narrow-note 요소가 DOM 에 없다 → App.jsx' });
-    else if (!visible(note)) add('narrow-note-hidden', { note: '.narrow-note 가 안 보인다 — 기본 규칙이 @media 뒤에 있는지 확인' });
     for (const sel of ['.stage', '.stage-wrap', '.tabs', '.play']) {
       const e = document.querySelector(sel);
-      if (e && visible(e)) add('narrow-shown', { el: sel, note: '767 아래에서 보인다' });
+      if (!e) add('narrow-missing', { el: sel, note: '휴대폰 폭에서 요소가 없다' });
+      else if (!visible(e)) add('narrow-hidden', { el: sel, note: '휴대폰 폭에서 보여야 하는데 숨었다' });
     }
+    /* 인라인 발췌는 접혀 있어야 한다 — 세로 예산의 300px 을 먹는다. 모달로 본다. */
+    const si = document.querySelector('.srcin');
+    if (si && visible(si)) add('narrow-src-shown', { note: '.srcin 이 휴대폰 폭에서 보인다 — 접혀야 한다' });
+    /* 그 대신 근거를 여는 길이 살아 있어야 한다. 다만 ref 가 없는 스텝은 버튼이 없는 것이
+       정상이다 — 스윕은 스텝 데이터를 모르므로 "있으면 보여야 한다" 까지만 검사한다.
+       처음엔 무조건 있어야 한다고 봤다가 ref 없는 스텝 10건을 문제로 셌다. */
+    const ref = document.querySelector('.o-ref');
+    if (ref && !visible(ref)) add('narrow-ref-hidden', { note: '.o-ref 가 있는데 안 보인다' });
+    /* 무대가 첫 화면을 넘는지는 문제로 세지 않는다 — 처음엔 셌는데 그것은 데스크톱의
+       약속("한 화면에 한 순간")을 휴대폰에 그대로 들이댄 것이었다. 배우가 6명인 장면은
+       390 에서 3줄이 되어 무대가 915px 이 되고, 844 뷰포트에서 71px 스크롤한다.
+       그건 휴대폰에서 정상이다. 여기서 지킬 것은 "온전히 그려지고 잘리지 않는다" 이고,
+       그것은 overflow·text-clip·label-overlap·page-hscroll 이 이미 본다.
+       크기는 기록만 한다 — 어느 장면이 큰지는 알아야 하므로. */
   }
 
   /* ── 기록(문제가 아닌 측정값) : 남는 세로 높이 ── */

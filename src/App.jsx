@@ -273,12 +273,6 @@ export default function App() {
         hasPair={pairOK} split={on} onToggleSplit={toggleSplit} vsLabel={scene.vsLabel}
         hasSrc={hasSrc} srcOpen={srcOpen} onOpenSrc={openSrc} onCloseSrc={closeSrc} />
 
-      {/* 767px 아래에서는 무대를 만들지 않는다 — style.css 가 무대·탭·재생막대를 감추고
-          이 안내만 남긴다. CSS 는 A 가 썼고 마크업은 여기(App)에 있어야 해서 함께 둔다. */}
-      <p className="narrow-note"><b>넓은 화면에서 보세요</b>
-        이 페이지는 배우들을 가로로 나란히 놓고 그 줄을 계층으로 읽습니다.
-        768px 아래에서는 카드가 여러 줄로 흩어져 그 문법이 사라집니다 —
-        기기를 가로로 돌리거나 태블릿·데스크톱에서 열어 주세요.</p>
 
       <div className={'wrap' + (on ? ' solo' : '')}>
         <div className="mid">

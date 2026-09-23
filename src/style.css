@@ -292,15 +292,6 @@ html,body{background:var(--bg);color:var(--body);font-family:var(--sans)}
 
 @media (max-height:639px){ .app{height:auto;min-height:100vh} }
 
-/* ── 768px 아래 안내 ──
-   이 기본 규칙은 반드시 @media 보다 *앞*에 있어야 한다.
-   뒤에 두면 같은 특이도로 아래 display:block 을 덮어서 안내가 영원히 안 뜬다. */
-.narrow-note{display:none}
-.narrow-note{border:1px solid var(--line);background:var(--panel);padding:22px 18px;
-  font:400 12.5px/1.75 var(--sans);color:var(--body)}
-.narrow-note b{display:block;font:400 10px var(--mono);letter-spacing:.2em;color:var(--gold);
-  text-transform:uppercase;margin-bottom:10px;font-weight:400}
-
 /* ── 768 ~ 1080px : 뷰포트에 맞추지 않는다 — 페이지가 스크롤된다 ── */
 @media (max-width:1080px){
   .app{height:auto;min-height:100vh;padding:14px 16px}
@@ -320,15 +311,78 @@ html,body{background:var(--bg);color:var(--body);font-family:var(--sans)}
 /* ── 767px 아래 : 만들지 않는다 ──
    카드를 가로로 나란히 놓는다는 전제가 성립하지 않아 "한 줄 = 한 계층" 문법이 사라진다.
    탭·타임라인도 감춘다 — 남겨두면 눌렀을 때 제목만 바뀌고 무대가 없어 고장처럼 보인다. */
+/* ── 휴대폰 : 무대를 보이고 소스를 접는다 ──
+   전에는 반대였다 — 무대·탭·재생막대를 전부 감추고 "넓은 화면에서 보세요" 안내만 남겼다.
+   근거는 "카드가 여러 줄로 흩어져 문법이 사라진다" 였는데 390폭에서 실측해 보니 그렇지 않다 :
+   카드는 레인마다 2×2 로 앉고(가장 좁은 카드 132px) 가로로 넘치는 카드가 하나도 없다.
+   진짜 문제는 세로 예산이었다. 390×844 에서 재면
+     무대 398~588 · 캡션 195~246 · 껍데기 144~185 · 소스 발췌 300(고정)
+   이라 소스만 빼면 들어간다. 그래서 주인공을 감추는 대신 곁가지를 접는다 —
+   인라인 발췌는 감추고, 이미 있는 모달(SourceModal)을 재생막대의 버튼으로 연다.
+   세로는 스크롤을 허용한다. "한 화면에 한 순간" 은 데스크톱의 전제이고,
+   휴대폰에서 지켜야 하는 것은 "무대 한 장이 잘리지 않는다" 다. */
 @media (max-width:767px){
-  .app{padding:14px 14px 20px}
-  .narrow-note{display:block}
-  /* 무대는 .stage-wrap > .scol > .stage 로 감싸여 있다 — 껍데기까지 감춘다.
+  .app{padding:12px 12px 16px;height:auto;min-height:100vh}
+  /* 안내문은 기본이 이미 display:none 이라 다시 끄지 않는다.
      .app 를 앞에 붙여 특이도를 (0,2,0) 으로 올린다 — rail.css 가 style.css 뒤에
-     실리므로 같은 특이도의 `.play{display:flex}` 가 이 규칙을 이겼다(실측 11/11).
-     미디어 쿼리 안이라도 *다른 파일의 뒤 규칙* 은 같은 특이도면 이긴다. */
-  .app .stage-wrap,.app .stage,.app .stage-foot,.app .tabs,.app .bar,.app .play{display:none}
-  .head h1{font-size:22px}
+     실리므로 같은 특이도면 뒤 파일이 이긴다(실측 11/11). */
+  .app .srcin{display:none}
+  .head h1{font-size:19px}
+  .head{gap:4px}
+  .cap{max-height:38vh;overflow-y:auto}   /* 캡션이 길어도 무대를 밀어내지 않는다 */
+  /* 탭 10개가 390 에 안 들어간다. flex-wrap 으로 흘려도 한 탭(111px)이 5px 넘고
+     뒤 탭들이 92px 까지 밀려 나가 페이지가 좌우로 스크롤됐다(08/7 실측 +10px).
+     줄바꿈 대신 한 줄에 두고 그 줄만 가로로 넘긴다 — 페이지는 흔들리지 않는다. */
+  .tabs{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;
+    scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .tabs::-webkit-scrollbar{display:none}
+  .tabs .tab{flex:0 0 auto}
+  .tabs a{padding:5px 9px;white-space:nowrap}
+  .lane{grid-template-columns:54px minmax(0,1fr);gap:9px}
+  .row{gap:9px}
+  .act{min-width:118px}
+
+  /* 캡션이 무대 바로 아래로 와야 읽힌다. DOM 은 .wrap{.mid, .rail} 다음에 .cap 이라
+     세로로 펼치면 레일이 둘 사이에 끼인다. .cap 과 .rail 은 부모가 달라 order 로는
+     섞을 수 없으므로, .wrap 의 상자를 없애(display:contents) 넷을 형제로 만든 뒤 세운다.
+     rail.css:10 이 .wrap{display:grid} 를 선언하고 그 파일이 뒤에 실리므로
+     .wrap{display:contents} 는 같은 특이도로 지고 만다(실측 : order 0 · 높이 700 그대로).
+     바로 위 주석이 이 함정을 이미 적어 뒀는데 그대로 밟았다 — .app 를 붙여 (0,2,0) 으로 올린다. */
+  .app .wrap{display:contents}
+  .app > .top{order:0} .app > .tabs{order:1} .app > .play{order:2}
+  /* .rail 은 이름이 겹친다 — rail.css 의 사이드바이면서 stage.css 의 SVG 흐름 레일
+     (.rail{fill:none;stroke:…})이기도 하다. 자식 선택자로 사이드바만 집는다.
+     처음엔 .app .rail 로 써서 무대 안의 SVG 경로에도 order·padding 이 걸렸다. */
+  .app .mid{order:3} .app > .cap{order:4} .app .wrap > .rail{order:5} .app > .foot{order:6}
+  .app > .head{order:0}   /* 제목은 맨 위 묶음에 둔다 */
+
+  /* 레일(손잡이·지표·스텝목록·링크)이 679px 을 먹는다 — 실측. 1080px 아래에서 .wrap 이
+     display:block 이 되어 사이드바가 무대 아래로 내려오기 때문이다. 무대와 캡션은 지켜야
+     하므로 레일도 소스처럼 접는다. 제목 줄만 남기고 본문을 감춘다 — 스텝목록은 재생막대가
+     이미 같은 일을 하고, 손잡이·지표·링크는 큰 화면에서 보면 된다. */
+  /* 무대 아래 한 줄(스텝 설명 em + 흐름 표시 .fl)이 390 에서 한 줄에 안 들어가
+     10px 겹친다 — 24건 전부 이 한 곳이다. 흘러 내리게 한다. */
+  .stage-foot{display:flex;flex-wrap:wrap;gap:2px 10px;line-height:1.7}
+  .stage-foot em{margin-left:0}
+  .stage-foot .fl{margin-left:0}
+
+  /* 카드를 좁히고 여백을 줄여 폭을 벌어 보았다 — 카드가 더 높아져 무대 넘침이
+     20→31건, 안쪽 넘침이 119→120건으로 늘었다. 폭을 얻고 높이를 잃는 교환이고
+     순손해다. 교훈 21 이 이미 적어 둔 것을 또 밟았다 :
+     "세 방향의 수정이 넘침을 다른 쪽으로 옮기면 내용이 안 들어간다는 뜻" —
+     390 에서 카드 2×2 는 폭도 높이도 빡빡하다. 폭 조정으로는 풀리지 않는다.
+     남기는 것은 stage-foot 흘림 하나다(그것은 겹침 24건을 실제로 없앴다).
+
+  /* 대기 그래프(.gr)가 폭 116 에 내용 151 로 35px 밖에 그려져 문서를 10px 넓혔다
+     (08/7 실측 · 의사요소가 아니라 nowrap 인 노드 글자 때문이다).
+     노드는 줄일 수 없고 간선이 절대 배치라 줄바꿈도 못 한다 — 그 축만 넘긴다. */
+  .gr{overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+  .gr::-webkit-scrollbar{display:none}
+
+  .wrap > .rail{padding-left:0;gap:0;border-left:0}
+  .wrap > .rail .rl-b,.wrap > .rail .steps{display:none}
+  .wrap > .rail .rl{border-top:1px solid var(--line)}
+  .wrap > .rail .rl-t{padding:9px 0;margin:0}
 }
 
 /* ── 초광폭 : 더 많이가 아니라 더 크게 ──
