@@ -386,6 +386,18 @@ const MEASURE = (CFG) => {
       if (!e) add('narrow-missing', { el: sel, note: '휴대폰 폭에서 요소가 없다' });
       else if (!visible(e)) add('narrow-hidden', { el: sel, note: '휴대폰 폭에서 보여야 하는데 숨었다' });
     }
+    /* 일부러 그 축만 넘기는 상자(.tabs · .gr · .mx)는 내용이 넘치는 것이 정상이다.
+       여기서 볼 것은 "넘쳤나" 가 아니라 "칸이 잘렸나" 다 — 표에 overflow-x 만 주면
+       표가 컨테이너 폭으로 쭈그러들어 열 이름이 잘렸다(실측 8칸). width:max-content
+       로 표가 자기 폭을 지켜야 스크롤이 뜻을 갖는다. */
+    for (const box of document.querySelectorAll('.tabs, .gr, .mx')) {
+      for (const cell of box.querySelectorAll('td, th, .gr-n .id, .gr-n .sub, .tabs a')) {
+        if (cell.scrollWidth > cell.clientWidth + 1)
+          add('narrow-cell-clipped', { el: box.className.split(' ')[0],
+            txt: (cell.textContent || '').trim().slice(0, 18), note: '스크롤 상자 안에서 칸 글자가 잘렸다' });
+      }
+    }
+
     /* 인라인 발췌는 접혀 있어야 한다 — 세로 예산의 300px 을 먹는다. 모달로 본다. */
     const si = document.querySelector('.srcin');
     if (si && visible(si)) add('narrow-src-shown', { note: '.srcin 이 휴대폰 폭에서 보인다 — 접혀야 한다' });
