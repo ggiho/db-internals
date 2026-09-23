@@ -398,6 +398,24 @@ html,body{background:var(--bg);color:var(--body);font-family:var(--sans)}
      노드 전체 글자를 담아서 부제 문제로 보였고, .sub 만 고쳐 17건이 그대로 남았다. */
   .app .gr-n .sub,.app .gr-n .id{white-space:normal}
 
+  /* kv 한 줄에 키와 값을 나란히 두면 142px 카드에서 값 칸이 40~60px 밖에 안 된다.
+     그래서 ACTIVE 가 ACTIV/E 로, "victim 선정" 이 선/정 으로 쪼개지고, 키와 값이
+     붙어 UPDATEUPDATE 처럼 읽혔다 — 스윕은 이것을 못 잡는다(잘림도 넘침도 아니다).
+     화면을 눈으로 봐야 보이는 종류다. 세로로 쌓아 값에 카드 폭 전체를 준다.
+     anywhere 대신 break-word 를 쓴다 : 라틴 낱말은 마지막 수단으로만 끊는다. */
+  .app .kv{flex-direction:column;align-items:flex-start;gap:0}
+  /* anywhere 를 break-word 로 바꿨더니 FIL_PAGE_SPACE_OR_CHKSUM 처럼 공백 없는
+     식별자가 끊기지 않고 밖으로 나가 42건이 됐다(9→42). break-word 는 낱말 경계에서만
+     끊는다. 한글은 그것으로 충분하고 이런 토큰은 anywhere 가 필요하다 —
+     word-break:break-word 를 함께 주면 둘 다 된다 : 우선 낱말 경계를 찾고,
+     한 낱말이 줄보다 길면 그 안에서 끊는다. ACTIVE(6자)는 칸에 들어가므로 안 끊긴다. */
+  .app .kv .v{text-align:left;overflow-wrap:anywhere;word-break:normal;hyphens:none}
+  .app .kv .k{font-size:9px}
+
+  /* 행렬은 두 칸 중 한 칸(116px)에 앉아서 라벨이 3열로 쪼개졌다
+     (행 = 새 요 / 청 · 열 = / 이미 허가받). 한 줄을 다 쓰게 한다. */
+  .app .act:has(.mx){flex-basis:100%}
+
   .wrap > .rail{padding-left:0;gap:0;border-left:0}
   .wrap > .rail .rl-b,.wrap > .rail .steps{display:none}
   .wrap > .rail .rl{border-top:1px solid var(--line)}
