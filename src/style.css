@@ -379,6 +379,11 @@ html,body{background:var(--bg);color:var(--body);font-family:var(--sans)}
   .gr{overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
   .gr::-webkit-scrollbar{display:none}
 
+  /* 호환 행렬도 같다 — MDL 9단×10열 표는 390 에 들어갈 수 없고(실측 +58px),
+     칸을 줄이면 어느 행·열인지 못 읽는다. 표 자체를 그 축으로 넘긴다. */
+  .mx{overflow-x:auto;scrollbar-width:none}
+  .mx::-webkit-scrollbar{display:none}
+
   .wrap > .rail{padding-left:0;gap:0;border-left:0}
   .wrap > .rail .rl-b,.wrap > .rail .steps{display:none}
   .wrap > .rail .rl{border-top:1px solid var(--line)}
