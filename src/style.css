@@ -412,6 +412,10 @@ html,body{background:var(--bg);color:var(--body);font-family:var(--sans)}
   .app .kv .v{text-align:left;overflow-wrap:anywhere;word-break:normal;hyphens:none}
   .app .kv .k{font-size:9px}
 
+  /* 바이트 다이어그램의 아래 라벨도 두 개를 116px 에 나란히 밀어넣어 뭉개졌다 —
+     "폭이 곧 바이트 수다" 와 "합 38 B → FIL_PAGE_DATA" 가 섞여 읽혔다. kv 와 같다. */
+  .app .by-l{flex-direction:column;align-items:flex-start;gap:2px}
+
   /* 행렬은 두 칸 중 한 칸(116px)에 앉아서 라벨이 3열로 쪼개졌다
      (행 = 새 요 / 청 · 열 = / 이미 허가받). 한 줄을 다 쓰게 한다. */
   .app .act:has(.mx){flex-basis:100%}
