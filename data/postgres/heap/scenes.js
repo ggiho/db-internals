@@ -254,6 +254,98 @@ const SCENES = [
                       'PG':'2,032 B · 딸림 테이블 + 인덱스 · 2KB 조각|gold' } } } },
   ],
 },
+{
+  num:'05', tab:'빈 공간', title:'넣을 페이지를 매번 훑어 찾지 않는다',
+  sub:'페이지마다 빈 공간을 한 바이트로 줄이고, 그 바이트들로 트리를 만든다',
+  cast:['op','fsm','tree','sp','cmp'],
+  knobs:[
+    ['fillfactor','100','페이지를 이만큼만 채우고 나머지는 HOT 갱신용으로 남긴다'],
+    ['autovacuum_vacuum_scale_factor','0.2','VACUUM 이 돌면 FSM 이 갱신된다 — 그 전까지는 낡은 값이다'] ],
+  watch:[
+    ['pg_freespacemap 확장','SELECT * FROM pg_freespace(\'t\') 로 페이지별 요약 바이트를 본다'],
+    ['pg_stat_user_tables','n_tup_ins 대비 relpages 가 빠르게 늘면 빈 공간을 못 찾고 있다'] ],
+  links:[
+    ['04','TOAST 로 줄인 튜플이 이제 들어갈 자리를 찾는다'],
+    ['02','pd_lower · pd_upper 가 실제 여유를 정한다'] ],
+  init:{
+    op:{ kv:{ '넣을 튜플':'865 B', '찾는 방법':'—', '읽은 페이지':'0' } },
+    fsm:{ items:[
+      { id:'p0', sz:1, tag:'free', sub:'0' },
+      { id:'p1', sz:1, tag:'gold', sub:'92' },
+      { id:'p2', sz:1, tag:'free', sub:'3' },
+      { id:'p3', sz:1, tag:'gold', sub:'201' } ],
+      byl:{ l:'페이지마다 한 바이트', r:'0 ‥ 255 · 32 B 단위' } },
+    tree:{ items:[
+      { id:'FSM root', lvl:0, keys:'| 최댓값 |', fill:.2 },
+      { id:'FSM 중간', lvl:1, keys:'구간별 최댓값', fill:.4 },
+      { id:'FSM 잎', lvl:2, keys:'힙 페이지별 요약', fill:.6 } ] },
+    sp:{ kv:{ '요약 단위':'—', '트리 깊이':'—', '탐색 비용':'—' } },
+    cmp:{ kv:{ 'InnoDB':'—', 'PG':'—' } },
+  },
+
+  steps:[
+  { look:{ op:true, fsm:true },
+    note:'865 바이트가 들어갈 페이지를 찾아야 한다 — 전부 읽으면 안 된다',
+    why:'힙이 10만 페이지면 순서대로 읽어 보는 것은 800MB 를 읽는 일이다. 삽입 한 건에 그 비용을 물릴 수 없다.',
+    key:'그래서 <em>빈 공간을 따로 색인</em>한다. 문제는 그 색인이 너무 크지 않아야 한다는 것이다.',
+    ref:'src/backend/storage/freespace/freespace.c', sym:'GetPageWithFreeSpace',
+    beat:1 },
+
+  { act:{ f:'fsm', t:'sp', lb:'한 바이트로 줄인다' },
+    note:'페이지당 한 바이트다 — 정확한 바이트 수가 아니라 256단계 중 하나',
+    why:'FSM_CATEGORIES 가 256 이고 FSM_CAT_STEP 은 BLCKSZ 를 그것으로 나눈 값이다 — 8,192 / 256 = 32 바이트. 여유 공간을 32 로 나눠 0 ‥ 255 사이의 값 하나로 만든다.',
+    key:'정확도를 버려 크기를 얻었다. 10만 페이지의 요약이 <em>100KB 로 줄어든다</em> — 그러면 색인 자체가 메모리에 머문다.',
+    ref:'src/backend/storage/freespace/freespace.c', sym:'fsm_space_avail_to_cat',
+    fact:[['src/backend/storage/freespace/freespace.c','#define FSM_CATEGORIES	256'],
+          ['src/backend/storage/freespace/freespace.c','#define FSM_CAT_STEP	(BLCKSZ / FSM_CATEGORIES)']],
+    ops:{ sp:{ set:{ '요약 단위':'32 B  (8,192 / 256)|gold' } } } },
+
+  { look:{ fsm:true },
+    note:'32바이트 단위로 버림한다 — 그래서 요약은 항상 실제보다 작거나 같다',
+    why:'버림이므로 "요약이 N 이면 실제 여유는 최소 N×32" 가 성립한다. 거짓으로 크게 말하지 않으므로, 트리가 찾아 준 페이지에 실제로 들어가지 않는 일은 생기지 않는다.',
+    key:'어느 쪽으로 버림하는지가 <em>정확성의 방향</em>을 정한다. 반대로 올림했다면 찾은 페이지를 읽고 나서 안 들어간다는 것을 알게 된다.',
+    ref:'src/backend/storage/freespace/freespace.c', sym:'fsm_space_cat_to_avail',
+    ops:{ op:{ set:{ '찾는 방법':'요약 ≥ 28 인 페이지  (865 / 32)' } } } },
+
+  { act:{ f:'fsm', t:'tree', lb:'페이지 안에 이진 트리' },
+    note:'FSM 페이지 하나가 그 안에서 또 이진 트리다',
+    why:'fp_nodes 배열의 앞쪽이 상위 노드, 뒤쪽이 잎이다. 각 상위 노드는 자식들의 최댓값을 담는다 — 배열로 저장한 최대 힙이다. 루트만 보면 이 페이지가 담당하는 구간에 충분한 여유가 있는지 한 번에 안다.',
+    key:'그래서 <em>없는 것을 확인하는 비용도 한 번</em>이다. 구간 전체를 훑지 않고 루트 한 바이트로 건너뛴다.',
+    ref:'src/include/storage/fsm_internals.h', sym:'FSMPageData',
+    fact:[['src/include/storage/fsm_internals.h','fp_nodes contains the binary tree, stored in array. The first'],
+          ['src/include/storage/fsm_internals.h','#define NonLeafNodesPerPage (BLCKSZ / 2 - 1)']],
+    beat:1,
+    ops:{ tree:{ set:{ 'FSM 잎':{ id:'FSM 잎', lvl:2, keys:'힙 페이지별 요약  ·  최대 힙', fill:.6 } } } } },
+
+  { act:{ f:'tree', t:'op', lb:'3단을 내려간다' },
+    note:'FSM 페이지들이 다시 3단 트리를 이룬다',
+    why:'FSM_TREE_DEPTH 는 한 FSM 페이지가 담는 슬롯 수에 따라 3 또는 4 다. 8KB 블록에서는 3 이다. 루트 FSM 페이지 → 중간 → 잎 순으로 내려가며 각 단에서 충분한 값을 가진 자식을 고른다.',
+    key:'힙이 아무리 커도 <em>FSM 페이지 세 장만 읽는다</em>. 색인을 다시 색인해서 얻은 결과다.',
+    ref:'src/backend/storage/freespace/freespace.c', sym:'fsm_search',
+    fact:[['src/backend/storage/freespace/freespace.c','#define FSM_TREE_DEPTH	((SlotsPerFSMPage >= 1626) ? 3 : 4)'],
+          ['src/backend/storage/freespace/freespace.c','#define FSM_ROOT_LEVEL	(FSM_TREE_DEPTH - 1)']],
+    beat:1,
+    ops:{ sp:{ set:{ '트리 깊이':'3단  (8KB 블록)|gold', '탐색 비용':'FSM 페이지 3장 읽기|green' } },
+          op:{ set:{ '읽은 페이지':'3  →  그다음 힙 1장' } } } },
+
+  { look:{ fsm:true, op:true },
+    note:'요약은 실시간이 아니다 — VACUUM 이 지나가야 갱신된다',
+    why:'삽입하는 쪽은 자기가 쓴 페이지의 요약만 고친다. 삭제로 생긴 여유는 VACUUM 이 그 페이지를 훑을 때 반영된다. 그래서 대량 삭제 직후의 FSM 은 그 공간을 모른다.',
+    key:'그래서 <em>DELETE 뒤에 테이블이 줄지 않는 것</em>과 <em>그 공간이 재사용되지 않는 것</em>이 다른 문제다. 후자는 FSM 이 아직 모르는 동안만이다.',
+    ref:'src/backend/storage/freespace/freespace.c', sym:'FreeSpaceMapVacuum',
+    beat:1,
+    ops:{ fsm:{ set:{ 'p0':{ id:'p0', sz:1, tag:'red', sub:'0  ·  실제로는 비었는데' } } } } },
+
+  { look:{ cmp:true, sp:true },
+    note:'InnoDB 는 같은 일을 다른 자리에서 한다',
+    why:'InnoDB 는 익스텐트 단위로 세그먼트 인벤토리 페이지(FSP_HDR · XDES)를 두고, 페이지 단위 여유는 인덱스 구조 자체가 관리한다. 별도의 3단 트리를 두지 않는다.',
+    key:'PG 는 <em>힙이 정렬돼 있지 않기 때문에</em> 빈 공간 색인이 따로 필요하다. InnoDB 의 힙은 클러스터 인덱스 자체라서 넣을 자리가 키로 정해진다 — 찾을 필요가 없다.',
+    ref:'src/backend/storage/freespace/freespace.c', sym:'GetPageWithFreeSpace',
+    beat:1,
+    ops:{ cmp:{ set:{ 'InnoDB':'클러스터 인덱스가 자리를 정한다 · 찾지 않는다',
+                      'PG':'힙은 순서가 없다 · 3단 FSM 으로 찾는다|gold' } } } },
+  ],
+},
 ];
 
 export { SCENES };
