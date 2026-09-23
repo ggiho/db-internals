@@ -290,7 +290,7 @@ const SCENES = [
   ],
 },
 {
-  num:'03', tab:'테이블 락', title:'테이블에 걸리는 것은 보통 "의도" 다',
+  num:'03', tab:'테이블 락', title:'테이블 락은 대개 의도를 표시할 뿐이다',
   sub:'IS · IX 는 자리를 잡는 표시이고, S · X 는 LOCK TABLES 에서만 나온다',
   cast:['ses','stmt','tl','rl','row'],
   knobs:[
@@ -974,7 +974,7 @@ const SCENES = [
   { look:{ rl:true, row:true },
     note:'이 순간 다른 세션의 DELETE FROM parent WHERE id=20 은 막힌다',
     why:'DELETE 는 X 를 요청하고, 이미 S 가 걸려 있으므로 호환 표에서 막힌다.',
-    key:'대량 자식 INSERT 가 부모 갱신을 마비시키는 경로가 이것이다. 원인이 <em>다른 테이블</em>에 있어서 찾기 어렵다.',
+    key:'대량 자식 INSERT 가 부모 갱신을 멈춰 세우는 경로가 이것이다. 원인이 <em>다른 테이블</em>에 있어서 찾기 어렵다.',
     ref:'storage/innobase/include/lock0priv.h', sym:'lock_mode_compatible',
     beat:1 },
 
@@ -995,7 +995,7 @@ const SCENES = [
   ],
 },
 {
-  num:'09', tab:'S 와 X 요청', title:'읽기가 스스로 잠그겠다고 말하는 방법',
+  num:'09', tab:'S 와 X 요청', title:'읽기가 락을 요청하는 네 가지 방법',
   sub:'FOR SHARE · FOR UPDATE · 그리고 기다리지 않는 두 가지 선택',
   cast:['stmt','rl','row','wait'],
   knobs:[
@@ -1134,7 +1134,7 @@ const SCENES = [
   ],
 },
 {
-  num:'11', tab:'ALTER 가 막히는 길', title:'커밋 안 한 SELECT 하나가 테이블을 마비시킨다',
+  num:'11', tab:'ALTER 가 막히는 길', title:'커밋하지 않은 SELECT 하나가 뒤의 전부를 막는다',
   sub:'MDL 큐가 FIFO 라서, 막힌 것 뒤에 있는 것까지 막힌다',
   cast:['ses','mdl','stmt','ps'],
   knobs:[

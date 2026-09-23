@@ -9,7 +9,7 @@
    beat : 이 스텝이 장면의 요점 (타임라인에 금색 눈금) */
 const SCENES = [
 {
-  num:'01', tab:'UPDATE', title:'UPDATE 한 건의 전 생애',
+  num:'01', tab:'UPDATE', title:'UPDATE 한 건이 디스크에 닿기까지',
   sub:'커밋 응답을 받은 순간, 데이터 파일에는 아직 옛 값이 있다',
   cast:['ses','stmt','bin','bp','lb','undo','lock','fl','dw','ibd','redo'],
   /* 이 손잡이를 바꾸면 달라지는 스텝만 적는다 — 나머지는 기본값(1) 그대로 재생된다.
@@ -830,7 +830,7 @@ const SCENES = [
   ],
 },
 {
-  num:'06', tab:'축출', title:'바꿔 넣을 frame 이 없으면',
+  num:'06', tab:'축출', title:'빈 frame 이 없을 때 무엇을 내보내는가',
   sub:'04 와 다른 원인, 같은 증상 — 사용자 스레드가 선다',
   cast:['ses','stmt','bp','fr','fl','dw','ibd'],
   init:{
@@ -1147,7 +1147,7 @@ const SCENES = [
   ],
 },
 {
-  num:'08', tab:'교착', title:'서로를 기다리면 누군가 죽는다',
+  num:'08', tab:'교착', title:'서로를 기다리면 하나가 롤백된다',
   sub:'탐지는 하지만 예방은 하지 않는다 — 그것이 설계다',
   cast:['ses','stmt','idx','lock','wait'],
   init:{
@@ -1636,7 +1636,7 @@ const SCENES = [
 {
   num:'05v', tab:'—', hidden:true, pair:null,
   vsLabel:'B  ·  old_blocks_time = 0  (시간 창 끔)',
-  title:'시간 창을 끄면', sub:'삽입 지점만으로는 막지 못한다',
+  title:'시간 창이 없을 때의 같은 스캔', sub:'삽입 지점만으로는 막지 못한다',
   cast:['ses','stmt','bp','fr','fl','ibd'],
   init:{
     ses:{ kv:{ '지금 하는 일':'—', '읽은 페이지':'0', 'young 승격':'0' } },

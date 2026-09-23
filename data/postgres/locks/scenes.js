@@ -2,7 +2,7 @@
    충돌 표는 소스의 LOCKMASK 배열에서 유도해 옮겼고 tools/pgmx.js 가 칸 단위로 대조한다. */
 const SCENES = [
 {
-  num:'01', tab:'어디에 사는가', title:'행 락은 튜플에, 테이블 락은 표에 산다',
+  num:'01', tab:'어디에 사는가', title:'행 락은 튜플에, 테이블 락은 공유 표에 있다',
   sub:'그래서 행 락은 메모리를 안 먹고, 테이블 락은 넘칠 수 있다',
   cast:['stmt','tbl','tup','cmp'],
   knobs:[

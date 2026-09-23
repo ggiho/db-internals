@@ -37,7 +37,7 @@ const SCENES = [
   ],
 },
 {
-  num:'02', tab:'페이지 헤더', title:'24바이트 헤더를 한 칸씩',
+  num:'02', tab:'페이지 헤더', title:'24바이트 헤더를 한 필드씩',
   sub:'InnoDB 의 38바이트 FIL 헤더와 같은 자리를 다르게 쓴다',
   cast:['hdr','cmp'],
   knobs:[

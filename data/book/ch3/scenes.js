@@ -300,7 +300,7 @@ const SCENES = [
   watch:[
     ['I_S.INNODB_TABLESPACES','FILE_SIZE · ALLOCATED_SIZE · SPACE'],
     ['hexdump -C  *.ibd | head','파일 첫 페이지가 FSP_HDR — 테이블스페이스 헤더다']],
-  links:[['04a','38바이트를 한 칸씩'],['04b','같은 자리가 다른 뜻이 되는 경우'],['11','trailer 에 무엇이 있나']],
+  links:[['04a','38바이트 헤더를 한 필드씩'],['04b','같은 자리가 다른 뜻이 되는 경우'],['11','trailer 에 무엇이 있나']],
   init:{
     op:{ kv:{ '파일':'t.ibd', '페이지 크기':'16 KB', '페이지 수':'—' } },
     file:{ items:[
@@ -361,7 +361,7 @@ const SCENES = [
   ],
 },
 {
-  num:'04a', tab:'FIL 헤더', title:'38바이트를 한 칸씩',
+  num:'04a', tab:'FIL 헤더', title:'38바이트 헤더를 한 필드씩',
   sub:'모든 페이지가 같은 자리에 같은 것을 둔다 — 그래서 계산이 필요 없다',
   cast:['op','fil','fld','hdr'],
   knobs:[
@@ -625,7 +625,7 @@ const SCENES = [
   ],
 },
 {
-  num:'05', tab:'고정 배치', title:'키·값·포인터를 그냥 이어 붙이면',
+  num:'05', tab:'고정 배치', title:'키·값·포인터를 그냥 이어 붙였을 때의 문제',
   sub:'Bayer 원논문의 배치와 그 한계',
   cast:['op','pg','cells','dir'],
   vsLabel:'A  ·  고정 크기 삼중항  (원논문)', pair:'05v',
@@ -697,7 +697,7 @@ const SCENES = [
 {
   num:'05v', tab:'—', hidden:true,
   vsLabel:'B  ·  슬롯 페이지  (InnoDB)',
-  title:'키·값·포인터를 그냥 이어 붙이면', sub:'슬롯 배치는 셀을 움직이지 않는다',
+  title:'키·값·포인터를 그냥 이어 붙였을 때의 문제', sub:'슬롯 배치는 셀을 움직이지 않는다',
   cast:['op','pg','cells','dir'],
   knobs:[
     ['innodb_page_size','16 KB','어느 배치든 담아야 하는 용량']],
@@ -856,7 +856,7 @@ const SCENES = [
 },
 {
   num:'06a', tab:'페이지 헤더', title:'FIL 헤더가 끝난 자리에서 이어진다',
-  sub:'12필드 36바이트 · 그리고 디렉터리는 반대쪽 끝에서 거꾸로 자란다',
+  sub:'12필드 36바이트 · 그리고 디렉터리는 반대쪽 끝에서 거꾸로 쌓인다',
   cast:['op','phd','fsp','fins','addr','dir'],
   knobs:[
     ['innodb_page_size','16 KB','디렉터리 시작 주소가 이 값에서 역산된다'],
@@ -1064,7 +1064,7 @@ const SCENES = [
   ],
 },
 {
-  num:'07a', tab:'레코드 헤더', title:'레코드는 원점에서 왼쪽으로 자란다',
+  num:'07a', tab:'레코드 헤더', title:'레코드 헤더는 원점보다 앞에 있다',
   sub:'5바이트에 다섯 값이 비트로 겹쳐 든다 — 그리고 오프셋이 음수 방향이다',
   cast:['op','rhd','rdat','bit5'],
   knobs:[
