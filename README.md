@@ -5,7 +5,7 @@
 
 **https://db-internals.pages.dev**
 
-지금은 MySQL(InnoDB·락), PostgreSQL(MVCC·힙·락), Aurora, 그리고
+지금은 MySQL(InnoDB·락), PostgreSQL(MVCC·힙·락·WAL), Aurora, 그리고
 *Database Internals* 2·3장 대조를 담고 있다. 주소와 디렉터리가 엔진 계층을 가지므로
 엔진을 늘려도 도구와 검사가 그대로 붙는다.
 
@@ -13,7 +13,7 @@
 찾아볼 수 있어야 하는 것은 영어로 두고, 조사는 띄어 붙인다(`buffer pool 에`).
 한국어에 자리 잡은 말(페이지·튜플·오프셋·슬롯·스냅샷)은 그대로 쓴다.
 
-    #mysql/innodb/01/1        #mysql/locks/04/3        #book/ch3/04a/5
+    #mysql/innodb/01/1        #postgres/wal/01/3       #book/ch3/04a/5
     #<엔진>/<덱>/<장면>/<스텝>  ← 주소가 곧 상태다
 
 ## 왜 이런 구조인가

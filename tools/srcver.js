@@ -9,7 +9,7 @@ import { srcRoot } from './srcroot.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const DECKS = ['mysql/innodb', 'mysql/locks', 'postgres/mvcc', 'postgres/heap',
-  'postgres/locks', 'aurora/mysql', 'book/ch2', 'book/ch3'];
+  'postgres/locks', 'postgres/wal', 'aurora/mysql', 'book/ch2', 'book/ch3'];
 
 /* 트리에서 버전을 읽는다 — 엔진마다 적어 두는 자리가 다르다. */
 function treeVer(kind, root) {

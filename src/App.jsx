@@ -18,6 +18,7 @@ const DECKS = {
   'postgres/mvcc':{ g: 'POSTGRES', lb: 'mvcc', load: () => import('../data/postgres/mvcc/index.js') },
   'postgres/heap':{ g: 'POSTGRES', lb: 'heap', load: () => import('../data/postgres/heap/index.js') },
   'postgres/locks':{ g: 'POSTGRES', lb: 'locks', load: () => import('../data/postgres/locks/index.js') },
+  'postgres/wal': { g: 'POSTGRES', lb: 'wal',   load: () => import('../data/postgres/wal/index.js') },
   'aurora/mysql': { g: 'AURORA', lb: 'mysql', load: () => import('../data/aurora/mysql/index.js') },
   'book/ch2':     { g: 'BOOK',  lb: 'ch2',    load: () => import('../data/book/ch2/index.js') },
   'book/ch3':     { g: 'BOOK',  lb: 'ch3',    load: () => import('../data/book/ch3/index.js') },
