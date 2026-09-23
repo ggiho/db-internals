@@ -291,8 +291,8 @@ const SCENES = [
   ],
 },
 {
-  num:'04', tab:'파일', title:'파일은 헤더와 페이지와 트레일러다',
-  sub:'InnoDB 는 트레일러를 페이지마다 둔다',
+  num:'04', tab:'파일', title:'파일은 헤더와 페이지와 trailer 다',
+  sub:'InnoDB 는 trailer 를 페이지마다 둔다',
   cast:['op','file','pg','hdr'],
   knobs:[
     ['innodb_page_size','16 KB','파일을 나누는 단위'],
@@ -300,7 +300,7 @@ const SCENES = [
   watch:[
     ['I_S.INNODB_TABLESPACES','FILE_SIZE · ALLOCATED_SIZE · SPACE'],
     ['hexdump -C  *.ibd | head','파일 첫 페이지가 FSP_HDR — 테이블스페이스 헤더다']],
-  links:[['04a','38바이트를 한 칸씩'],['04b','같은 자리가 다른 뜻이 되는 경우'],['11','트레일러에 무엇이 있나']],
+  links:[['04a','38바이트를 한 칸씩'],['04b','같은 자리가 다른 뜻이 되는 경우'],['11','trailer 에 무엇이 있나']],
   init:{
     op:{ kv:{ '파일':'t.ibd', '페이지 크기':'16 KB', '페이지 수':'—' } },
     file:{ items:[
@@ -318,7 +318,7 @@ const SCENES = [
   steps:[
   { look:{ file:true },
     note:'파일 앞 세 페이지는 역할이 고정돼 있다',
-    why:'책은 "고정 크기 헤더로 시작하고 고정 크기 트레일러로 끝날 수 있다" 고 말한다. InnoDB 는 그 헤더를 페이지 단위로 둔다.',
+    why:'책은 "고정 크기 헤더로 시작하고 고정 크기 trailer 로 끝날 수 있다" 고 말한다. InnoDB 는 그 헤더를 페이지 단위로 둔다.',
     key:'헤더가 <em>파일 앞 몇 바이트가 아니라 페이지 몇 개</em>다. 나머지와 크기가 같아서 페이지 번호 계산이 단순해진다.',
     ref:'storage/innobase/include/fsp0fsp.h', sym:'fsp_is_system_tablespace',
     beat:1 },
@@ -331,7 +331,7 @@ const SCENES = [
     ops:{ pg:{ del:['—'], add:[
             { id:'FIL 헤더', sz:2, tag:'hdr', sub:'38 B' },
             { id:'데이터', sz:10, tag:'', sub:'16338 B' },
-            { id:'8B', sz:1, tag:'hdr', sub:'트레일러' }] },
+            { id:'8B', sz:1, tag:'hdr', sub:'trailer' }] },
           op:{ set:{ '페이지 수':'파일 크기 ÷ 16 KB' } } } },
 
   { act:{ f:'pg', t:'hdr', lb:'헤더 38바이트를 읽는다' },
@@ -345,9 +345,9 @@ const SCENES = [
                       'FIL_PAGE_LSN':'4,912  (오프셋 16)' } } } },
 
   { look:{ pg:['8B'] },
-    note:'그리고 페이지마다 트레일러 8바이트가 붙는다',
+    note:'그리고 페이지마다 trailer 8바이트가 붙는다',
     why:'FIL_PAGE_DATA_END = 8. 앞 4바이트가 체크섬, 뒤 4바이트가 FIL_PAGE_LSN 의 하위 절반이다.',
-    key:'책은 트레일러를 <em>파일 끝</em>의 것으로 말한다. InnoDB 는 <em>페이지 끝마다</em> 둔다 — 그 이유는 11 장면에서 나온다.',
+    key:'책은 trailer 를 <em>파일 끝</em>의 것으로 말한다. InnoDB 는 <em>페이지 끝마다</em> 둔다 — 그 이유는 11 장면에서 나온다.',
     ref:'storage/innobase/include/fil0fil.h', sym:'fil_page_get_type',
     fact:[['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_DATA_END = 8;'],
            ['storage/innobase/include/fil0types.h','the low 4 bytes of this are used to store the page checksum, the last 4 bytes should be identical to the last 4 bytes of FIL_PAGE_LSN']],
@@ -365,13 +365,13 @@ const SCENES = [
   sub:'모든 페이지가 같은 자리에 같은 것을 둔다 — 그래서 계산이 필요 없다',
   cast:['op','fil','fld','hdr'],
   knobs:[
-    ['innodb_page_size','16 KB','헤더 38B + 트레일러 8B 를 뺀 나머지가 데이터다'],
+    ['innodb_page_size','16 KB','헤더 38B + trailer 8B 를 뺀 나머지가 데이터다'],
     ['innodb_checksum_algorithm','crc32','오프셋 0 의 4바이트를 무엇으로 채우는지']],
   watch:[
     ['hexdump -C  *.ibd | head -3','첫 38바이트가 이 헤더다 — 오프셋 4 의 4바이트가 페이지 번호'],
     ['I_S.INNODB_BUFFER_PAGE','PAGE_TYPE · PAGE_NUMBER · SPACE — 이 헤더에서 읽은 값들'],
     ['SHOW ENGINE INNODB STATUS','손상 보고에 이 필드들이 그대로 찍힌다']],
-  links:[['04b','같은 자리가 다른 뜻이 되는 경우'],['11','오프셋 0 과 트레일러'],['10','FIL_PAGE_TYPE 값들']],
+  links:[['04b','같은 자리가 다른 뜻이 되는 경우'],['11','오프셋 0 과 trailer'],['10','FIL_PAGE_TYPE 값들']],
   init:{
     op:{ kv:{ '페이지':'p:5  INDEX', '헤더':'38 B  고정', '데이터 시작':'—' } },
     fil:{ items:[
@@ -492,7 +492,7 @@ const SCENES = [
   watch:[
     ['hexdump -C  *.ibd | head -3','파일 첫 페이지의 오프셋 8·12 는 형제 포인터가 아니다'],
     ['I_S.INNODB_TABLESPACES','SERVER_VERSION · SPACE_VERSION — 페이지 0 의 그 자리에서 읽은 값']],
-  links:[['04a','필드 하나씩 보기'],['10','페이지 타입이 해석을 정한다'],['11','트레일러도 같은 이야기다']],
+  links:[['04a','필드 하나씩 보기'],['10','페이지 타입이 해석을 정한다'],['11','trailer 도 같은 이야기다']],
   init:{
     op:{ kv:{ '페이지':'p:5  INDEX', '오프셋 8·12':'—', '오프셋 26':'—' } },
     fil:{ items:[
@@ -568,7 +568,7 @@ const SCENES = [
   watch:[
     ['I_S.INNODB_TABLESPACES','SERVER_VERSION · SPACE_VERSION 이 이 두 자리에서 온다'],
     ['hexdump -C  *.ibd | head -3','파일 첫 38바이트 — 8·12 를 형제로 읽으면 엉뚱한 값이다']],
-  links:[['04a','필드 하나씩 보기'],['10','페이지 타입이 해석을 정한다'],['11','트레일러도 같은 이야기다']],
+  links:[['04a','필드 하나씩 보기'],['10','페이지 타입이 해석을 정한다'],['11','trailer 도 같은 이야기다']],
   init:{
     op:{ kv:{ '페이지':'p:0  FSP_HDR', '오프셋 8·12':'—', '오프셋 26':'—' } },
     fil:{ items:[
@@ -712,7 +712,7 @@ const SCENES = [
       { id:'셀 →', sz:4, tag:'', sub:'앞에서 뒤로 자란다' },
       { id:'빈 곳', sz:4, tag:'free', sub:'' },
       { id:'←슬롯', sz:2, tag:'gold', sub:'뒤에서 앞으로' },
-      { id:'8B', sz:1, tag:'hdr', sub:'트레일러' } ],
+      { id:'8B', sz:1, tag:'hdr', sub:'trailer' } ],
       byl:{ l:'양쪽에서 가운데로 자란다', r:'만나면 꽉 찬 것' } },
     cells:{ items:[
       { id:'셀 0  k=10', tag:'clean', sub:'삽입 순서 0' },
@@ -762,7 +762,7 @@ const SCENES = [
 
   { look:{ dir:true },
     note:'슬롯 배열은 페이지 끝에서 거꾸로 자란다',
-    why:'PAGE_DIR 은 FIL_PAGE_DATA_END 와 같은 값으로 정의된다 — 즉 슬롯 배열의 기준점은 페이지 끝(트레일러 앞)이다. 셀은 앞에서 뒤로, 슬롯은 뒤에서 앞으로 자라 가운데서 만난다. 둘이 만나면 그 페이지가 꽉 찬 것이다.',
+    why:'PAGE_DIR 은 FIL_PAGE_DATA_END 와 같은 값으로 정의된다 — 즉 슬롯 배열의 기준점은 페이지 끝(trailer 앞)이다. 셀은 앞에서 뒤로, 슬롯은 뒤에서 앞으로 자라 가운데서 만난다. 둘이 만나면 그 페이지가 꽉 찬 것이다.',
     key:'같은 페이지 안에서 <em>두 방향으로 자라는 두 영역</em>이 공간을 나눠 쓴다. "얼마나 남았나" 를 한 뺄셈으로 알 수 있고, 09 장면의 조각화(fragmentation)도 이 구조 위에서 이야기된다.',
     ref:'storage/innobase/include/page0page.h', sym:'PAGE_DIR',
     fact:[['storage/innobase/include/page0page.h','constexpr uint32_t PAGE_DIR = FIL_PAGE_DATA_END;'],
@@ -798,7 +798,7 @@ const SCENES = [
       { id:'레코드 16개 →', sz:5, tag:'', sub:'삽입 순서' },
       { id:'빈 곳', sz:2, tag:'free', sub:'PAGE_HEAP_TOP 부터' },
       { id:'←슬롯', sz:2, tag:'gold', sub:'2B 씩' },
-      { id:'8B', sz:1, tag:'hdr', sub:'트레일러' } ],
+      { id:'8B', sz:1, tag:'hdr', sub:'trailer' } ],
       byl:{ l:'양쪽에서 자란다', r:'슬롯은 2B 단위' } },
     dir:{ items:[] },
     cells:{ items:[
@@ -965,8 +965,8 @@ const SCENES = [
             { id:'슬롯 n', tag:'ok', sub:'→ supremum (112)' }] } } },
 
   { act:{ f:'dir', t:'addr', lb:'반대쪽 끝에서' },
-    note:'디렉터리는 페이지 끝에서 트레일러 8바이트를 뺀 자리부터 거꾸로 자란다',
-    why:'슬롯 n 의 주소가 page + (UNIV_PAGE_SIZE − PAGE_DIR − (n+1) × PAGE_DIR_SLOT_SIZE) 다. PAGE_DIR = FIL_PAGE_DATA_END = 8 이므로 트레일러 바로 앞이다.',
+    note:'디렉터리는 페이지 끝에서 trailer 8바이트를 뺀 자리부터 거꾸로 자란다',
+    why:'슬롯 n 의 주소가 page + (UNIV_PAGE_SIZE − PAGE_DIR − (n+1) × PAGE_DIR_SLOT_SIZE) 다. PAGE_DIR = FIL_PAGE_DATA_END = 8 이므로 trailer 바로 앞이다.',
     key:'그래서 슬롯 번호가 커질수록 <em>주소는 작아진다</em>. 헤더는 앞에서, 디렉터리는 뒤에서 — 둘이 만나면 그 페이지는 꽉 찬 것이다.',
     ref:'storage/innobase/include/page0page.h', sym:'page_dir_get_nth_slot',
     fact:[['storage/innobase/include/page0page.h','((page) + (UNIV_PAGE_SIZE - PAGE_DIR - (n + 1) * PAGE_DIR_SLOT_SIZE))'],
@@ -985,7 +985,7 @@ const SCENES = [
 
   { look:{ phd:true, addr:true },
     note:'정리 — 한 페이지의 주소 지도가 완성됐다',
-    why:'0 FIL 헤더 38 · 38 페이지 헤더 36 · 74 FSEG 20 · 94 데이터 · 99 infimum · 112 supremum · 끝−8 부터 디렉터리 역방향 · 끝 8바이트 트레일러.',
+    why:'0 FIL 헤더 38 · 38 페이지 헤더 36 · 74 FSEG 20 · 94 데이터 · 99 infimum · 112 supremum · 끝−8 부터 디렉터리 역방향 · 끝 8바이트 trailer.',
     key:'전부 <em>상수 덧셈</em>이다. 어떤 페이지를 열어도 계산 없이 자리를 안다 — 그것이 고정 오프셋 설계가 사는 이유다.',
     ref:'storage/innobase/page/page.ic', sym:'page_header_get_field',
     beat:1,
@@ -1017,7 +1017,7 @@ const SCENES = [
   { act:{ f:'op', t:'rec', lb:'키 셀 (internal 노드)' },
     note:'키 셀은 분리 키(separator key)와 자식 페이지 번호만 담는다',
     why:'책의 목록: 셀 종류(페이지 메타데이터에서 추론) · 키 크기 · 자식 페이지 ID · 키 바이트.',
-    key:'값이 없다 — 이것이 B+-Tree 다. internal 노드가 값을 안 담으므로 <em>더 많은 키가 들어가고 팬아웃이 커진다</em>.',
+    key:'값이 없다 — 이것이 B+-Tree 다. internal 노드가 값을 안 담으므로 <em>더 많은 키가 들어가고 fan-out 이 커진다</em>.',
     ref:'storage/innobase/rem/rec.cc', sym:'rec_get_offsets',
     ops:{ rec:{ del:['—'], add:[
             { id:'키 크기', sz:1, tag:'hdr', sub:'가변이면 필요' },
@@ -1480,7 +1480,7 @@ const SCENES = [
 
   { look:{ op:true },
     note:'여러 형식을 동시에 지원해야 한다',
-    why:'책: 어느 스토리지 엔진 버전이든 하나 이상의 직렬화 형식을 지원해야 한다 — 현재 것과 하위 호환용 옛 것들.',
+    why:'책: 어느 storage 엔진 버전이든 하나 이상의 직렬화 형식을 지원해야 한다 — 현재 것과 하위 호환용 옛 것들.',
     key:'InnoDB 는 <em>Redundant · Compact · Dynamic · Compressed</em> 네 가지를 읽는다. 새로 만드는 것만 Dynamic 이다.',
     ref:'storage/innobase/rem/rec.cc', sym:'rec_get_offsets',
     beat:1 },
@@ -1497,7 +1497,7 @@ const SCENES = [
     ['SHOW GLOBAL STATUS','Innodb_pages_read 대 에러 로그의 체크섬 불일치 메시지'],
     ['에러 로그','Database page corruption on disk or a failed file read'],
     ['innochecksum','서버를 끄고 .ibd 를 직접 검사하는 도구']],
-  links:[['04','트레일러가 왜 페이지마다 있나'],['10','형식에 따라 알고리즘이 다르다'],['09','손상된 페이지는 버린다']],
+  links:[['04','trailer 가 왜 페이지마다 있나'],['10','형식에 따라 알고리즘이 다르다'],['09','손상된 페이지는 버린다']],
 
   /* 두 값이 서로 다른 것을 드러낸다.
      none 은 쓰기와 읽기 양쪽을 바꾸지만 보호를 전부 없애지는 않는다 — LSN 머리·꼬리
@@ -1518,20 +1518,20 @@ const SCENES = [
                 op:{ set:{ '알고리즘':'none|red', '결과':'계산 생략' } } } },
 
       3:{ act:{ f:'pg', t:'sum', lb:'꼬리에도 같은 값' },
-          note:'트레일러 앞 4바이트에도 같은 0xDEADBEEF 가 들어간다',
+          note:'trailer 앞 4바이트에도 같은 0xDEADBEEF 가 들어간다',
           why:'덮어쓰는 코드는 같다 — mach_write_to_4 에 넘기는 checksum 변수의 값만 달라졌다. LSN 을 먼저 쓰고 앞 4바이트를 덮는 순서도 그대로다.',
           key:'그래서 뒤 4바이트의 <em>LSN 하위 절반은 여전히 남는다</em>. 이것이 다음 스텝에서 중요해진다.',
           ref:'storage/innobase/buf/buf0flu.cc', sym:'buf_flush_init_for_writing',
           fact:['mach_write_to_8(page + UNIV_PAGE_SIZE - FIL_PAGE_END_LSN_OLD_CHKSUM, newest_lsn);',
                 'mach_write_to_4(page + UNIV_PAGE_SIZE - FIL_PAGE_END_LSN_OLD_CHKSUM, checksum);'],
           beat:1,
-          ops:{ sum:{ set:{ '꼬리 (트레일러 앞 4 B)':'0xDEADBEEF|red', 'LSN 하위 (뒤 4 B)':'0x00001330|gold',
+          ops:{ sum:{ set:{ '꼬리 (trailer 앞 4 B)':'0xDEADBEEF|red', 'LSN 하위 (뒤 4 B)':'0x00001330|gold',
                             '판정':'체크섬으로는 판정하지 않음|red' } },
                 pg:{ set:{ '8B':{ sub:'0xDEADBEEF + LSN 하위' } } } } },
 
       4:{ act:{ f:'file', t:'sum', lb:'찢어진 쓰기는 여전히 잡힌다' },
           note:'체크섬 비교는 건너뛰지만, 검사가 하나 먼저 있다',
-          why:'is_corrupted 는 먼저 헤더 LSN 의 하위 절반과 트레일러 뒤 4바이트를 memcmp 로 비교한다 — 이 검사는 알고리즘과 무관하다. 그것을 통과한 뒤에야 알고리즘을 보고, none 이면 곧장 false 로 돌아간다.',
+          why:'is_corrupted 는 먼저 헤더 LSN 의 하위 절반과 trailer 뒤 4바이트를 memcmp 로 비교한다 — 이 검사는 알고리즘과 무관하다. 그것을 통과한 뒤에야 알고리즘을 보고, none 이면 곧장 false 로 돌아간다.',
           key:'그래서 none 이 없애는 것은 <em>찢어진 쓰기 탐지가 아니라 비트 부패 탐지</em>다. 페이지 절반만 기록된 것은 LSN 이 어긋나 잡히고, 본문 한 비트가 뒤집힌 것은 아무도 모른다.',
           ref:'storage/innobase/buf/checksum.cc', sym:'BlockReporter::is_corrupted',
           fact:[['storage/innobase/buf/checksum.cc','of page do not match */'],
@@ -1559,7 +1559,7 @@ const SCENES = [
           beat:1,
           ops:{ file:{ set:{ 'page 5':{ id:'page 5', sz:1, tag:'gold', sub:'innodb 체크섬 · 경고 후 사용' } } },
                 sum:{ set:{ '머리 (오프셋 0)':'0x3B71C2E0  (innodb 방식)|gold',
-                            '꼬리 (트레일러 앞 4 B)':'0x3B71C2E0|gold', '판정':'경고 · 손상 아님|gold' } },
+                            '꼬리 (trailer 앞 4 B)':'0x3B71C2E0|gold', '판정':'경고 · 손상 아님|gold' } },
                 op:{ set:{ '알고리즘':'strict_crc32', '결과':'에러 로그에 경고 1줄|gold' } } } },
 
       5:{ look:{ op:true, sum:true },
@@ -1576,9 +1576,9 @@ const SCENES = [
     pg:{ items:[
       { id:'체크섬', sz:1, tag:'gold', sub:'오프셋 0 · 4 B' },
       { id:'페이지 본문', sz:10, tag:'', sub:'16,338 B' },
-      { id:'8B', sz:1, tag:'gold', sub:'트레일러 8 B' } ],
-      byl:{ l:'같은 값이 두 곳에', r:'오프셋 0 · 트레일러 앞 4 B' } },
-    sum:{ kv:{ '머리 (오프셋 0)':'—', '꼬리 (트레일러 앞 4 B)':'—', 'LSN 하위 (뒤 4 B)':'—', '판정':'—' } },
+      { id:'8B', sz:1, tag:'gold', sub:'trailer 8 B' } ],
+      byl:{ l:'같은 값이 두 곳에', r:'오프셋 0 · trailer 앞 4 B' } },
+    sum:{ kv:{ '머리 (오프셋 0)':'—', '꼬리 (trailer 앞 4 B)':'—', 'LSN 하위 (뒤 4 B)':'—', '판정':'—' } },
     file:{ items:[{ id:'page 5', sz:1, tag:'', sub:'검사 대상' }] },
   },
   cite:[
@@ -1602,26 +1602,26 @@ const SCENES = [
           op:{ set:{ '결과':'계산 완료' } } } },
 
   { act:{ f:'pg', t:'sum', lb:'꼬리에도 같은 값을' },
-    note:'트레일러 8바이트에 LSN 을 먼저 쓰고, 그 앞 4바이트를 체크섬으로 덮어쓴다',
-    why:'mach_write_to_8 로 트레일러 전체에 LSN 을 넣은 뒤 mach_write_to_4 로 앞 4바이트를 체크섬으로 덮는다. 그래서 뒤 4바이트에 LSN 의 하위 절반이 남는다.',
+    note:'trailer 8바이트에 LSN 을 먼저 쓰고, 그 앞 4바이트를 체크섬으로 덮어쓴다',
+    why:'mach_write_to_8 로 trailer 전체에 LSN 을 넣은 뒤 mach_write_to_4 로 앞 4바이트를 체크섬으로 덮는다. 그래서 뒤 4바이트에 LSN 의 하위 절반이 남는다.',
     key:'왜 두 번 쓰나 — <em>찢어진 쓰기를 잡기 위해서다</em>. 머리만 기록되고 꼬리가 안 갔으면 두 값이 다르다.',
     ref:'storage/innobase/buf/buf0flu.cc', sym:'buf_flush_init_for_writing',
     fact:['mach_write_to_8(page + UNIV_PAGE_SIZE - FIL_PAGE_END_LSN_OLD_CHKSUM, newest_lsn);',
            'mach_write_to_4(page + UNIV_PAGE_SIZE - FIL_PAGE_END_LSN_OLD_CHKSUM, checksum);'],
     beat:1,
-    ops:{ sum:{ set:{ '꼬리 (트레일러 앞 4 B)':'0x9F2C41AB|gold', 'LSN 하위 (뒤 4 B)':'0x00001330|gold', '판정':'머리 = 꼬리|green' } },
+    ops:{ sum:{ set:{ '꼬리 (trailer 앞 4 B)':'0x9F2C41AB|gold', 'LSN 하위 (뒤 4 B)':'0x00001330|gold', '판정':'머리 = 꼬리|green' } },
           pg:{ set:{ '8B':{ sub:'체크섬 + LSN 하위' } } } } },
 
   { act:{ f:'file', t:'sum', lb:'읽을 때 다시 계산해 비교' },
     note:'읽을 때 계산해 저장된 값과 비교한다 — 다르면 그 페이지를 쓰지 않는다',
-    why:'검사가 둘이다 — 헤더 LSN 의 하위 절반과 트레일러 뒤 4바이트를 memcmp 로 비교하고, 오프셋 0 의 체크섬과 트레일러 앞 4바이트를 비교한다.',
+    why:'검사가 둘이다 — 헤더 LSN 의 하위 절반과 trailer 뒤 4바이트를 memcmp 로 비교하고, 오프셋 0 의 체크섬과 trailer 앞 4바이트를 비교한다.',
     key:'그리고 <em>파일 전체가 아니라 페이지 하나만 버린다</em>. 그것이 체크섬을 페이지 단위로 두는 이유다.',
     ref:'storage/innobase/buf/checksum.cc', sym:'BlockReporter::is_corrupted',
     fact:['Stored log sequence numbers at the start and the end of page do not match',
            'const auto checksum_field2 = mach_read_from_4( m_read_buf + m_page_size.logical() - FIL_PAGE_END_LSN_OLD_CHKSUM);'],
     beat:1,
     ops:{ file:{ set:{ 'page 5':{ id:'page 5', sz:1, tag:'red', sub:'불일치 → 폐기' } } },
-          sum:{ set:{ '꼬리 (트레일러 앞 4 B)':'0x11FF0000|red', '판정':'불일치 · 손상|red' } },
+          sum:{ set:{ '꼬리 (trailer 앞 4 B)':'0x11FF0000|red', '판정':'불일치 · 손상|red' } },
           op:{ set:{ '결과':'페이지 폐기 · 에러 로그|red' } } } },
 
   { look:{ pg:true, sum:true },

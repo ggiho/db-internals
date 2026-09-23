@@ -14,7 +14,7 @@ const ACTORS = {
   freeL:{ nm:'FREE LIST',        lane:'page', kind:'list', w:'w15' },
   hdr:  { nm:'PAGE HEADER',      lane:'page', kind:'kv', w:'w15' },
 
-  /* ── 파일 : 헤더 · 페이지 · 트레일러 ── */
+  /* ── 파일 : 헤더 · 페이지 · trailer ── */
   fil:  { nm:'FIL 헤더 (38B)',      lane:'page', kind:'bytes', w:'wide' },
   fld:  { nm:'이 필드',             lane:'page', kind:'kv', w:'w15' },
   phd:  { nm:'PAGE 헤더 (36B)',     lane:'page', kind:'bytes', w:'wide' },
@@ -34,7 +34,7 @@ const ACTORS = {
 const LANES = [
   { id:'val',  lb:'값 · 셀',  note:'바이트로 직렬화' },
   { id:'page', lb:'페이지',   note:'슬롯 배치' },
-  { id:'file', lb:'파일',     note:'헤더 · 페이지 · 트레일러' },
+  { id:'file', lb:'파일',     note:'헤더 · 페이지 · trailer' },
 ];
 const EDGES = [
   { after:'val',  lb:'셀 → 페이지', hot:'cell' },

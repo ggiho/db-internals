@@ -86,7 +86,7 @@ const SCENES = [
     ['SHOW BINARY LOG STATUS','File · Position 이 커밋마다 전진한다'],
     ['I_S.INNODB_TRX','trx_state 가 RUNNING → COMMITTED 로 바뀌는 순간'] ],
   links:[
-    ['04','여기서 만든 더티 페이지가 체크포인트를 붙잡는다'],
+    ['04','여기서 만든 더티 페이지가 checkpoint 를 붙잡는다'],
     ['03','여기서 쌓은 것으로 복구한다'],
     ['10','페이지가 꽉 차면 분할이 일어난다'] ],
 
@@ -100,11 +100,11 @@ const SCENES = [
   { act:{ f:'ses', t:'bp', lb:'ha_update_row()', gold:1 },
     note:'SQL 계층이 handler 를 호출한다 — 유일한 경계를 넘는 순간',
     why:'여기까지 SQL 계층은 행을 바이트로 어떻게 저장하는지 전혀 모른다. 넘겨주는 것은 "이 행을 이 값으로 바꿔라" 뿐이다.',
-    key:'이 한 번의 호출이 <em>스토리지 엔진 교체 가능성</em>의 전부다. 위쪽은 아래가 InnoDB 인지 모른다.',
+    key:'이 한 번의 호출이 <em>storage 엔진 교체 가능성</em>의 전부다. 위쪽은 아래가 InnoDB 인지 모른다.',
     ref:'sql/handler.cc', sym:'handler::ha_update_row', hot:'boundary' },
 
   { act:{ f:'ibd', t:'bp', lb:'p:5  16KB 읽기' },
-    note:'페이지 5 가 버퍼풀에 없다 → 디스크에서 읽어 빈 프레임에 담는다',
+    note:'페이지 5 가 buffer pool 에 없다 → 디스크에서 읽어 빈 frame 에 담는다',
     why:'InnoDB 는 행 단위로 읽지 않는다. 한 행을 고치려 해도 그 행이 든 16KB 페이지 전체를 메모리로 가져온다.',
     key:'그래서 랜덤 액세스가 많은 워크로드는 <em>읽는 양이 쓰는 양보다 훨씬 크다</em>.',
     ref:'storage/innobase/buf/buf0buf.cc', sym:'buf_page_get_gen',
@@ -112,7 +112,7 @@ const SCENES = [
 
   { note:'LRU 목록의 정확히 중간에 삽입된다 — 앞이 아니다',
     why:'새로 읽은 페이지를 목록 맨 앞에 넣으면, 한 번 훑고 버릴 스캔이 재사용 중인 페이지를 전부 밀어낸다.',
-    key:'중간(<em>midpoint</em>) 삽입은 풀 스캔이 버퍼풀을 오염시키는 것을 막는 장치다. 이 페이지가 한 번 더 읽히면 그때 앞으로 승격된다.',
+    key:'중간(<em>midpoint</em>) 삽입은 풀 스캔이 buffer pool 을 오염시키는 것을 막는 장치다. 이 페이지가 한 번 더 읽히면 그때 앞으로 승격된다.',
     ref:'storage/innobase/buf/buf0lru.cc', sym:'buf_LRU_add_block',
     beat:1,
     ops:{ bp:{ set:{ 'p:5':{ tag:'pin', sub:'LRU midpoint · old' } }, move:[['p:5',1]] } } },
@@ -143,7 +143,7 @@ const SCENES = [
   { act:{ f:'bp', t:'fl', lb:'oldest_modification 4,912' },
     note:'더티가 된 페이지가 flush list 에 등록된다',
     why:'정렬 기준은 oldest-modification LSN 이다. 이 값은 이후 같은 페이지를 몇 번 더 고쳐도 바뀌지 않는다 — 처음 손댄 시점으로 고정된다.',
-    key:'체크포인트를 어디까지 전진시킬 수 있는지는 <em>flush list 의 맨 앞</em>이 결정한다. 가장 오래된 미기록 변경보다 앞으로 갈 수 없다.',
+    key:'checkpoint 를 어디까지 전진시킬 수 있는지는 <em>flush list 의 맨 앞</em>이 결정한다. 가장 오래된 미기록 변경보다 앞으로 갈 수 없다.',
     ref:'storage/innobase/include/buf0flu.ic', sym:'buf_flush_note_modification',
     ops:{ fl:{ add:[{ id:'p:5', tag:'dirty', sub:'oldest_modification 4,912' }] } } },
 
@@ -223,14 +223,14 @@ const SCENES = [
     beat:1,
     ref:'sql/protocol_classic.cc', sym:'net_send_ok' },
 
-  { note:'… 시간이 흐른다.  페이지 클리너가 flush list 를 살핀다',
+  { note:'… 시간이 흐른다.  페이지 cleaner 가 flush list 를 살핀다',
     why:'전용 백그라운드 스레드다. 사용자 스레드는 원칙적으로 페이지를 내려쓰지 않는다.',
     key:'내려쓰기를 사용자 경로에서 <em>떼어낸 것</em>이 InnoDB 설계의 핵심이다. 다만 더티가 한계를 넘으면 사용자 스레드도 끌려 들어간다.',
     ref:'storage/innobase/buf/buf0flu.cc', sym:'buf_flush_page_cleaner_thread',
-    ops:{ fl:{ set:{ 'p:5':{ tag:'pin', sub:'클리너가 선택' } } } } },
+    ops:{ fl:{ set:{ 'p:5':{ tag:'pin', sub:'cleaner 가 선택' } } } } },
 
   { act:{ f:'bp', t:'dw', lb:'p:5 사본 먼저' },
-    note:'제자리에 쓰기 전에, 더블라이트 버퍼에 사본을 먼저 쓴다',
+    note:'제자리에 쓰기 전에, doublewrite 버퍼에 사본을 먼저 쓴다',
     why:'16KB 페이지는 4KB 섹터 4개에 걸친다. 쓰는 도중 전원이 끊기면 앞 절반만 기록된 페이지가 남는다.',
     key:'찢어진 페이지는 <em>redo 로 못 고친다</em> — redo 는 온전한 페이지를 전제로 한 델타이기 때문이다. 그래서 온전한 사본이 따로 필요하다.',
     ref:'storage/innobase/buf/buf0dblwr.cc', sym:'buf_dblwr_t::write',
@@ -238,21 +238,21 @@ const SCENES = [
 
   { act:{ f:'dw', t:'ibd', lb:'제자리 쓰기', hot:'io' },
     note:'이제 .ibd 의 제자리에 쓴다. 여기서 찢어져도 사본이 있다',
-    why:'복구는 각 페이지의 체크섬을 검사해, 깨진 페이지를 더블라이트의 사본으로 되살린 뒤 redo 를 적용한다.',
+    why:'복구는 각 페이지의 체크섬을 검사해, 깨진 페이지를 doublewrite 의 사본으로 되살린 뒤 redo 를 적용한다.',
     key:'쓰기가 두 배가 되지만 순차 쓰기라 비용이 예상보다 작다. <em>원자적 쓰기를 지원하는 파일시스템</em>에서는 끌 수 있다.',
     ref:'storage/innobase/buf/buf0flu.cc', sym:'buf_flush_write_block_low',
     ops:{ ibd:{ set:{ 'p:5':{ tag:'clean', sub:'c = 200  ·  LSN 4,912' } } } } },
 
   { note:'페이지가 clean 이 되고 flush list 에서 빠진다',
-    why:'메모리와 디스크의 내용이 같아졌다. 프레임은 버퍼풀에 그대로 남아 다음 읽기에 쓰인다.',
-    key:'clean 이 되었다고 버퍼풀에서 나가는 것이 아니다. <em>더티 여부와 체류 여부는 별개</em>다 — 전자는 flush list, 후자는 LRU 가 관리한다.',
+    why:'메모리와 디스크의 내용이 같아졌다. frame 은 buffer pool 에 그대로 남아 다음 읽기에 쓰인다.',
+    key:'clean 이 되었다고 buffer pool 에서 나가는 것이 아니다. <em>더티 여부와 체류 여부는 별개</em>다 — 전자는 flush list, 후자는 LRU 가 관리한다.',
     ref:'storage/innobase/buf/buf0flu.cc', sym:'buf_flush_write_complete',
     ops:{ bp:{ set:{ 'p:5':{ tag:'clean', sub:'c = 200  ·  LSN 4,912' } } },
           fl:{ del:['p:5'] } } },
 
-  { note:'체크포인트가 전진한다 — 그만큼의 redo 는 이제 필요 없다',
+  { note:'checkpoint 가 전진한다 — 그만큼의 redo 는 이제 필요 없다',
     why:'flush list 가 비었으므로 4,912 까지의 모든 변경이 디스크에 있다. 그 앞의 redo 는 복구에 쓸 일이 없다.',
-    key:'체크포인트가 밀리면 redo 파일이 재사용되지 못해 <em>쓰기가 강제로 멈춘다</em>(sync flush). 체크포인트 나이를 보는 이유.',
+    key:'checkpoint 가 밀리면 redo 파일이 재사용되지 못해 <em>쓰기가 강제로 멈춘다</em>(sync flush). checkpoint 나이를 보는 이유.',
     ref:'storage/innobase/log/log0chkp.cc', sym:'log_checkpoint',
     ops:{ redo:{ set:{ 'Last checkpoint at':'4,912|green' } }, dw:{ del:['p:5'] } } },
 
@@ -264,7 +264,7 @@ const SCENES = [
     ops:{ undo:{ del:['rec 1'] }, ses:{ set:{ 'undo records':'0' } } } },
 
   { note:'모든 배우가 제자리로 돌아왔다. 디스크에 새 값이 있다',
-    why:'trx 는 사라지고 락과 undo 는 회수됐다. 남은 것은 .ibd 의 새 값, 전진한 체크포인트, 그리고 binlog 의 이벤트다.',
+    why:'trx 는 사라지고 락과 undo 는 회수됐다. 남은 것은 .ibd 의 새 값, 전진한 checkpoint, 그리고 binlog 의 이벤트다.',
     key:'커밋 응답과 디스크 반영 사이에 <em>18 스텝이 있었다</em>. 그 사이의 어느 지점에서 죽어도 결과가 같도록 만든 것이 이 설계의 전부다.',
     beat:1,
     ops:{ ses:{ set:{ 'trx id':'—', 'trx_state':'IDLE' } } } },
@@ -414,17 +414,17 @@ const SCENES = [
     ['I_S.INNODB_TRX','PREPARED 로 남은 트랜잭션이 있는지'] ],
   links:[
     ['01','여기서 쌓은 redo 와 undo 를 쓴다'],
-    ['04','체크포인트 나이가 곧 복구 시간이다'],
+    ['04','checkpoint 나이가 곧 복구 시간이다'],
     ['02','되돌리기에 쓰는 undo 는 MVCC 와 같은 자료구조다'] ],
 
-  /* 더블라이트를 내리면 복구가 3스텝에서 끝난다 — 찢어진 페이지를 되살릴 근거가 없으므로
+  /* doublewrite 를 내리면 복구가 3스텝에서 끝난다 — 찢어진 페이지를 되살릴 근거가 없으므로
      redo 를 얹을 대상이 없다. 그 뒤 스텝들은 "정상 복구" 가 아니라 "기동 실패와 그 다음"
      이 된다. 4·5 스텝(redo 스캔, LSN 비교로 건너뛰기)은 값과 무관하므로 물려받는다.
      DETECT_ONLY 는 OFF 와 결말이 같지만 시작이 다르다 — 무엇이 찢어졌는지는 정확히 안다. */
   vary:{ knob:'innodb_doublewrite', base:'ON', order:['DETECT_ONLY','OFF'], alt:{
     'DETECT_ONLY':{
       3:{ act:{ f:'dw', t:'ses', lb:'p:5 가 찢어졌음을 알아낸다' },
-          note:'더블라이트 파일에 페이지 내용이 없다 — 어느 페이지였는지만 있다',
+          note:'doublewrite 파일에 페이지 내용이 없다 — 어느 페이지였는지만 있다',
           why:'이 모드에서는 페이지 전체를 쓰지 않고 Reduced_entry 만 남긴다 — space_id · page_no · lsn 세 개, 16 바이트다. 그래서 "p:5 가 기록 중이었다" 는 알 수 있다.',
           key:'탐지와 복구가 <em>분리된다</em>. 무엇이 깨졌는지는 정확히 말해 주지만, 그것으로 되살릴 수는 없다 — 사본이 없으니까.',
           ref:'storage/innobase/include/buf0dblwr.h', sym:'Reduced_entry',
@@ -437,7 +437,7 @@ const SCENES = [
       6:{ act:{ f:'ibd', t:'bp', lb:'p:5 읽기 실패' },
           note:'redo 를 얹으려면 페이지를 읽어야 한다 — 체크섬이 맞지 않는다',
           why:'redo 는 온전한 페이지에 얹는 델타다. 읽기 자체가 실패하면 적용할 대상이 없다. InnoDB 는 몇 번 다시 읽어 본 뒤 포기한다.',
-          key:'더블라이트가 막아 주던 것이 바로 이 지점이다 — <em>redo 가 있어도 소용이 없는 상태</em>. redo 는 델타이지 페이지가 아니다.',
+          key:'doublewrite 가 막아 주던 것이 바로 이 지점이다 — <em>redo 가 있어도 소용이 없는 상태</em>. redo 는 델타이지 페이지가 아니다.',
           ref:'storage/innobase/buf/buf0buf.cc', sym:'Buf_fetch::read_page',
           beat:1,
           ops:{ bp:{ set:{ 'p:5':{ tag:'x', sub:'체크섬 불일치 · 읽을 수 없다' } } } } },
@@ -475,7 +475,7 @@ const SCENES = [
     },
     'OFF':{
       3:{ act:{ f:'ibd', t:'ses', lb:'되살릴 근거가 없다' },
-          note:'더블라이트 파일에 아무것도 쓰이지 않았다',
+          note:'doublewrite 파일에 아무것도 쓰이지 않았다',
           why:'이 모드에서는 페이지를 이중으로 쓰지 않는다. 그래서 찢어진 p:5 에 대응하는 사본도, 그것이 기록 중이었다는 기록조차 없다.',
           key:'디스크에 남은 것은 <em>절반만 쓰인 페이지 하나</em>다. 그것이 절반만 쓰인 것인지, 원래 그런 것인지 구별할 근거도 없다.',
           ref:'storage/innobase/include/buf0dblwr.h', sym:'is_enabled',
@@ -487,7 +487,7 @@ const SCENES = [
       6:{ act:{ f:'ibd', t:'bp', lb:'p:5 읽기 실패' },
           note:'redo 를 얹으려면 페이지를 읽어야 한다 — 체크섬이 맞지 않는다',
           why:'redo 는 온전한 페이지에 얹는 델타다. 읽기가 실패하면 적용할 대상이 없다. InnoDB 는 몇 번 다시 읽어 본 뒤 포기한다.',
-          key:'redo 가 온전히 남아 있어도 <em>소용이 없다</em>. 체크포인트도, 재생 구간도 정확한데 얹을 페이지가 없다.',
+          key:'redo 가 온전히 남아 있어도 <em>소용이 없다</em>. checkpoint 도, 재생 구간도 정확한데 얹을 페이지가 없다.',
           ref:'storage/innobase/buf/buf0buf.cc', sym:'Buf_fetch::read_page',
           beat:1,
           ops:{ bp:{ set:{ 'p:5':{ tag:'x', sub:'체크섬 불일치 · 읽을 수 없다' } } } } },
@@ -515,7 +515,7 @@ const SCENES = [
           ops:{ ses:{ set:{ '서버 상태':'force_recovery 로 기동|gold' } },
                 ibd:{ set:{ 'p:5':{ tag:'x', sub:'깨진 채로 열림' } } } } },
 
-      10:{ note:'더블라이트가 사는 이유가 이 장면 전체다',
+      10:{ note:'doublewrite 가 사는 이유가 이 장면 전체다',
            why:'ON 이었다면 3스텝에서 사본으로 되살리고 나머지 복구가 정상으로 흘렀다. 그 차이를 만든 것은 페이지를 두 번 쓰는 비용뿐이다.',
            key:'두 번 쓰기는 <em>보험이지 성능 설정이 아니다</em>. 끄면 빨라지는 것은 맞지만, 빨라지는 대가로 이 장면을 산다.',
            ref:'storage/innobase/buf/buf0dblwr.cc', sym:'dblwr::recv::Pages::dblwr_recover_page',
@@ -527,23 +527,23 @@ const SCENES = [
 
   steps:[
   { note:'재시작. 디스크에 있는 것만이 사실이다',
-    why:'메모리는 전부 사라졌다. 버퍼풀도, 로그 버퍼도, 어떤 트랜잭션이 진행 중이었는지도 없다.',
+    why:'메모리는 전부 사라졌다. buffer pool 도, 로그 버퍼도, 어떤 트랜잭션이 진행 중이었는지도 없다.',
     key:'복구는 <em>기억 없이</em> 시작한다. 남은 단서는 데이터 파일, redo, undo, binlog 네 개뿐이다.',
     ref:'storage/innobase/srv/srv0start.cc', sym:'srv_start',
     look:{ ibd:true, dw:true, redo:true, undo:true },   /* 살아남은 단서 네 개 */
     beat:1 },
 
   { act:{ f:'redo', t:'ses', lb:'checkpoint 5,000 읽기' },
-    note:'redo 파일의 체크포인트를 읽는다 — 여기서부터 재생하면 된다',
-    why:'체크포인트는 "이 LSN 까지의 모든 변경이 데이터 파일에 있다"는 약속이다. 그 앞은 볼 필요가 없다.',
-    key:'체크포인트가 밀려 있으면 재생 구간이 길어져 <em>재시작이 느려진다</em>. 복구 시간은 체크포인트 나이에 비례한다.',
+    note:'redo 파일의 checkpoint 를 읽는다 — 여기서부터 재생하면 된다',
+    why:'checkpoint 는 "이 LSN 까지의 모든 변경이 데이터 파일에 있다"는 약속이다. 그 앞은 볼 필요가 없다.',
+    key:'checkpoint 가 밀려 있으면 재생 구간이 길어져 <em>재시작이 느려진다</em>. 복구 시간은 checkpoint 나이에 비례한다.',
     ref:'storage/innobase/log/log0recv.cc', sym:'recv_find_max_checkpoint',
     ops:{ redo:{ set:{ '재생 구간':'5,000 → 5,900|gold' } } } },
 
   { act:{ f:'dw', t:'ibd', lb:'p:5 사본으로 복원', hot:'io' },
-    note:'먼저 찢어진 페이지를 고친다 — 체크섬이 깨진 p:5 를 더블라이트 사본으로 되살린다',
+    note:'먼저 찢어진 페이지를 고친다 — 체크섬이 깨진 p:5 를 doublewrite 사본으로 되살린다',
     why:'redo 를 적용하기 전에 해야 한다. redo 는 온전한 페이지에 얹는 델타이므로, 깨진 페이지에는 적용할 수 없다.',
-    key:'순서가 강제된다 — <em>더블라이트 복원이 redo 재생보다 먼저</em>다. 반대로 하면 깨진 바이트 위에 델타를 얹는 셈이 된다.',
+    key:'순서가 강제된다 — <em>doublewrite 복원이 redo 재생보다 먼저</em>다. 반대로 하면 깨진 바이트 위에 델타를 얹는 셈이 된다.',
     ref:'storage/innobase/buf/buf0dblwr.cc', sym:'dblwr::recv::Pages::dblwr_recover_page',
     beat:1,
     ops:{ ibd:{ set:{ 'p:5':{ tag:'clean', sub:'사본으로 복원 · LSN 4,900' } } },
@@ -600,7 +600,7 @@ const SCENES = [
           ses:{ set:{ '롤백 대상':'trx 77 완료|green', 'PREPARED trx':'—' } } } },
 
   { note:'복구 끝. 연결을 받기 시작한다',
-    why:'p:5 는 더티로 남아 있지만 문제없다 — redo 에 근거가 있으므로 페이지 클리너가 천천히 내려쓰면 된다.',
+    why:'p:5 는 더티로 남아 있지만 문제없다 — redo 에 근거가 있으므로 페이지 cleaner 가 천천히 내려쓰면 된다.',
     key:'복구가 끝난 시점에 <em>디스크가 깨끗할 필요는 없다</em>. 필요한 것은 "redo 와 데이터 파일이 정합한 상태"뿐이다.',
     ref:'storage/innobase/srv/srv0start.cc', sym:'srv_start',
     beat:1,
@@ -609,8 +609,8 @@ const SCENES = [
   ],
 },
 {
-  num:'04', tab:'체크포인트', title:'더티 페이지가 쌓이면 무엇이 멈추는가',
-  sub:'체크포인트 나이가 쓰기 속도의 상한을 정한다',
+  num:'04', tab:'checkpoint', title:'더티 페이지가 쌓이면 무엇이 멈추는가',
+  sub:'checkpoint 나이가 쓰기 속도의 상한을 정한다',
   cast:['ses','stmt','bp','fl','dw','ibd','redo'],
   init:{
     ses:{ kv:{ '쓰기 부하':'가벼움', '사용자 스레드':'대기 없음|green' } },
@@ -626,17 +626,17 @@ const SCENES = [
            gg:{ v:.0, l:'checkpoint age', r:'0%' } },
   },
   knobs:[
-    ['innodb_redo_log_capacity','100 MB','redo 용량. 작으면 체크포인트 나이가 금방 한계에 닿는다'],
-    ['innodb_io_capacity','10000','클리너가 한 라운드에 내려쓸 페이지 수의 기준'],
+    ['innodb_redo_log_capacity','100 MB','redo 용량. 작으면 checkpoint 나이가 금방 한계에 닿는다'],
+    ['innodb_io_capacity','10000','cleaner 가 한 라운드에 내려쓸 페이지 수의 기준'],
     ['innodb_max_dirty_pages_pct','90.0','더티 비율 목표. 낮추면 미리 내려써 급정지를 피한다'],
-    ['innodb_page_cleaners','1','클리너 스레드 수'] ],
+    ['innodb_page_cleaners','1','cleaner 스레드 수'] ],
   watch:[
-    ['SHOW ENGINE INNODB STATUS','LOG 절 : Log sequence number − Last checkpoint at = 체크포인트 나이'],
+    ['SHOW ENGINE INNODB STATUS','LOG 절 : Log sequence number − Last checkpoint at = checkpoint 나이'],
     ['Innodb_buffer_pool_pages_dirty','더티 페이지 수의 추이'],
     ['SHOW ENGINE INNODB STATUS','BUFFER POOL 절의 Pending writes'] ],
   links:[
     ['06','같은 원인, 다른 증상 — 이번엔 읽기가 선다'],
-    ['03','체크포인트 나이가 곧 재시작 시간이다'] ],
+    ['03','checkpoint 나이가 곧 재시작 시간이다'] ],
 
   steps:[
   { note:'쓰기가 몰려온다. 페이지들이 차례로 더티가 된다',
@@ -650,15 +650,15 @@ const SCENES = [
           redo:{ set:{ 'Log sequence number':'6,700', 'checkpoint age':'700' },
                  gg:{ v:.18, l:'checkpoint age', r:'18%' } } } },
 
-  { note:'체크포인트는 flush list 의 맨 앞을 넘어 전진할 수 없다',
-    why:'p:20 의 oldest LSN 이 6,400 이다. 그 페이지가 디스크에 가기 전에는 체크포인트를 6,400 이상으로 올릴 수 없다.',
-    key:'체크포인트를 붙잡는 것은 <em>가장 오래된 더티 페이지 하나</em>다. 나머지 999개가 깨끗해도 그 하나가 전체를 막는다.',
+  { note:'checkpoint 는 flush list 의 맨 앞을 넘어 전진할 수 없다',
+    why:'p:20 의 oldest LSN 이 6,400 이다. 그 페이지가 디스크에 가기 전에는 checkpoint 를 6,400 이상으로 올릴 수 없다.',
+    key:'checkpoint 를 붙잡는 것은 <em>가장 오래된 더티 페이지 하나</em>다. 나머지 999개가 깨끗해도 그 하나가 전체를 막는다.',
     ref:'storage/innobase/log/log0chkp.cc', sym:'log_checkpoint',
     beat:1,
     ops:{ fl:{ set:{ 'p:20':{ tag:'hold', sub:'oldest_modification 6,400 · 붙잡는다' } } } } },
 
   { note:'부하가 계속된다. 나이가 async flush 한계에 닿는다',
-    why:'여기서 페이지 클리너가 공격적으로 바뀐다. 매 라운드에 내려쓰는 페이지 수를 늘린다.',
+    why:'여기서 페이지 cleaner 가 공격적으로 바뀐다. 매 라운드에 내려쓰는 페이지 수를 늘린다.',
     key:'아직 사용자는 아무것도 못 느낀다 — 백그라운드가 <em>혼자 더 열심히</em> 하는 구간이다.',
     ref:'storage/innobase/buf/buf0flu.cc', sym:'buf_flush_page_cleaner_thread',
     ops:{ bp:{ set:{ 'p:22':{ tag:'dirty', sub:'LSN 7,900' } } },
@@ -667,8 +667,8 @@ const SCENES = [
                  gg:{ v:.72, l:'checkpoint age · async 구간', r:'72%' } } } },
 
   { act:{ f:'bp', t:'dw', lb:'묶어서 내려쓴다' },
-    note:'클리너가 여러 페이지를 한 번에 더블라이트로 보낸다',
-    why:'배치로 묶어 순차 쓰기로 만든다. 더블라이트 버퍼 자체가 연속 영역이라 이 단계는 빠르다.',
+    note:'cleaner 가 여러 페이지를 한 번에 doublewrite 로 보낸다',
+    why:'배치로 묶어 순차 쓰기로 만든다. doublewrite 버퍼 자체가 연속 영역이라 이 단계는 빠르다.',
     key:'비싼 것은 <em>.ibd 의 제자리 쓰기</em>다 — 페이지 번호가 흩어져 있으면 랜덤 I/O 가 된다.',
     ref:'storage/innobase/buf/buf0flu.cc', sym:'buf_flush_do_batch',
     ops:{ dw:{ add:[{ id:'p:20', tag:'ok', sub:'사본' }, { id:'p:21', tag:'ok', sub:'사본' }] } } },
@@ -683,8 +683,8 @@ const SCENES = [
           ses:{ set:{ '쓰기 부하':'매우 높음|red', '사용자 스레드':'강제 대기|red' } } } },
 
   { act:{ f:'dw', t:'ibd', lb:'제자리 쓰기', hot:'io' },
-    note:'사용자 스레드가 멈춘 사이 클리너가 밀린 페이지를 내려쓴다',
-    why:'쓰기를 막았으므로 나이가 더 자라지 않는다. 클리너가 따라잡을 시간을 번 것이다.',
+    note:'사용자 스레드가 멈춘 사이 cleaner 가 밀린 페이지를 내려쓴다',
+    why:'쓰기를 막았으므로 나이가 더 자라지 않는다. cleaner 가 따라잡을 시간을 번 것이다.',
     key:'이 멈춤은 <em>설계된 안전장치</em>다. 다만 애플리케이션에는 원인 없는 지연으로 보인다 — 그래서 나이를 지표로 봐야 한다.',
     ref:'storage/innobase/buf/buf0flu.cc', sym:'buf_flush_write_block_low',
     ops:{ ibd:{ set:{ '…':{ tag:'clean', sub:'p:20 · p:21 반영' } } },
@@ -692,9 +692,9 @@ const SCENES = [
                      'p:21':{ tag:'clean', sub:'LSN 6,700 · 디스크 반영' } } },
           fl:{ del:['p:20','p:21'] }, dw:{ del:['p:20','p:21'] } } },
 
-  { note:'flush list 의 맨 앞이 p:22 로 바뀌었다 → 체크포인트가 7,900 까지 뛴다',
+  { note:'flush list 의 맨 앞이 p:22 로 바뀌었다 → checkpoint 가 7,900 까지 뛴다',
     why:'6,400 과 6,700 이 사라졌으므로 이제 가장 오래된 미반영 변경은 7,900 이다.',
-    key:'체크포인트는 <em>조금씩 오르지 않는다</em>. 맨 앞이 빠질 때 다음 항목까지 한꺼번에 뛴다.',
+    key:'checkpoint 는 <em>조금씩 오르지 않는다</em>. 맨 앞이 빠질 때 다음 항목까지 한꺼번에 뛴다.',
     ref:'storage/innobase/log/log0chkp.cc', sym:'log_checkpoint',
     beat:1,
     ops:{ redo:{ set:{ 'Last checkpoint at':'7,900|green', 'checkpoint age':'1,800|green' },
@@ -702,8 +702,8 @@ const SCENES = [
           ses:{ set:{ '사용자 스레드':'대기 해제|green' } } } },
 
   { note:'쓰기가 재개된다. 이 순환이 계속 돈다',
-    why:'더티가 쌓이고 → 클리너가 따라가고 → 못 따라가면 멈추고 → 체크포인트가 뛰고 → 다시 쓴다.',
-    key:'튜닝의 목표는 이 순환을 없애는 것이 아니라 <em>sync 구간에 안 들어가게</em> 하는 것이다. 버퍼풀·redo 크기·클리너 스레드 수가 그 손잡이다.',
+    why:'더티가 쌓이고 → cleaner 가 따라가고 → 못 따라가면 멈추고 → checkpoint 가 뛰고 → 다시 쓴다.',
+    key:'튜닝의 목표는 이 순환을 없애는 것이 아니라 <em>sync 구간에 안 들어가게</em> 하는 것이다. buffer pool·redo 크기·cleaner 스레드 수가 그 손잡이다.',
     beat:1,
     ops:{ ses:{ set:{ '쓰기 부하':'가벼움|green' } },
           bp:{ set:{ 'p:22':{ tag:'dirty', sub:'LSN 7,900 · 아직 더티' } } } } },
@@ -713,7 +713,7 @@ const SCENES = [
   num:'05', tab:'LRU 관리', pair:'05v',
   vsLabel:'A  ·  old_blocks_time = 1000  (기본값)',
   title:'LRU 는 한 줄이 아니다',
-  sub:'풀 스캔이 버퍼풀을 밀어내지 못하게 막는 두 개의 장치',
+  sub:'풀 스캔이 buffer pool 을 밀어내지 못하게 막는 두 개의 장치',
   cast:['ses','stmt','bp','fr','fl','ibd'],
   init:{
     ses:{ kv:{ '지금 하는 일':'—', '읽은 페이지':'0', 'young 승격':'0' } },
@@ -725,9 +725,9 @@ const SCENES = [
       { id:'midpoint  5/8 | 3/8', tag:'sep', sub:'innodb_old_blocks_pct = 37' },
       { id:'p:17', tag:'clean', sub:'old · 한 번만 읽혔다' },
       { id:'p:9',  tag:'clean', sub:'old · 축출 후보 (꼬리)' } ] },
-    fr:{ items:[{ id:'free 1', tag:'free', sub:'빈 프레임' },
-               { id:'free 2', tag:'free', sub:'빈 프레임' },
-               { id:'free 3', tag:'free', sub:'빈 프레임' }] },
+    fr:{ items:[{ id:'free 1', tag:'free', sub:'빈 frame' },
+               { id:'free 2', tag:'free', sub:'빈 frame' },
+               { id:'free 3', tag:'free', sub:'빈 frame' }] },
     fl:{ items:[] },
     ibd:{ items:[{ id:'p:41 …', tag:'clean', sub:'아직 안 읽은 큰 테이블' }] },
   },
@@ -741,7 +741,7 @@ const SCENES = [
     ['Innodb_buffer_pool_read_ahead','앞질러 읽기가 실제로 쓰였는지'] ],
   links:[
     ['06','여기서 정렬해 둔 꼬리에서 축출이 일어난다'],
-    ['10','페이지가 헐거우면 버퍼풀에 들어갈 페이지 수도 늘어난다'] ],
+    ['10','페이지가 헐거우면 buffer pool 에 들어갈 페이지 수도 늘어난다'] ],
 
   steps:[
   { look:{ bp:['midpoint  5/8 | 3/8'] },
@@ -786,7 +786,7 @@ const SCENES = [
     ops:{ bp:{ add:[{ id:'p:42', tag:'clean', sub:'read-ahead · old' },
                     { id:'p:43', tag:'clean', sub:'read-ahead · old' }],
                move:[['p:42',5],['p:43',6]] },
-          fr:{ del:['free 2','free 3'] },   /* 앞질러 읽기도 프레임을 쓴다 */
+          fr:{ del:['free 2','free 3'] },   /* 앞질러 읽기도 frame 을 쓴다 */
           ses:{ set:{ '읽은 페이지':'58' } } } },
 
   { look:{ bp:['p:31','p:28','p:24'] },
@@ -815,7 +815,7 @@ const SCENES = [
 
   { note:'조회는 이 목록을 훑지 않는다 — 해시로 곧장 찾는다',
     why:'buf_page_hash_get_low 가 (space_id, page_no) 를 해시해 블록을 바로 얻는다. LRU 는 순서를 관리할 뿐 검색 구조가 아니다.',
-    key:'그래서 버퍼풀을 키워도 <em>조회가 느려지지 않는다</em>. LRU 목록 길이는 검색 비용과 무관하다.',
+    key:'그래서 buffer pool 을 키워도 <em>조회가 느려지지 않는다</em>. LRU 목록 길이는 검색 비용과 무관하다.',
     ref:'storage/innobase/include/buf0buf.ic', sym:'buf_page_hash_get_low',
     fact:['Returns the control block of a file page, NULL if not found.'],
     look:{ bp:true },
@@ -823,14 +823,14 @@ const SCENES = [
 
   { note:'정리하면 — 삽입 지점과 시간 창, 두 장치가 각각 다른 것을 막는다',
     why:'삽입 지점은 "새 페이지가 오래된 페이지를 밀어내는 것"을, 시간 창은 "스캔이 자기 페이지를 승격시키는 것"을 막는다.',
-    key:'둘 중 하나만 있으면 뚫린다. <em>innodb_old_blocks_time 을 0 으로 두면</em> 두 번째 장치가 꺼지고, 스캔이 다시 버퍼풀을 오염시킨다.',
+    key:'둘 중 하나만 있으면 뚫린다. <em>innodb_old_blocks_time 을 0 으로 두면</em> 두 번째 장치가 꺼지고, 스캔이 다시 buffer pool 을 오염시킨다.',
     look:{ bp:['midpoint  5/8 | 3/8'], ses:true },
     beat:1,
     ops:{ ses:{ set:{ '지금 하는 일':'—' } } } },
   ],
 },
 {
-  num:'06', tab:'축출', title:'바꿔 넣을 프레임이 없으면',
+  num:'06', tab:'축출', title:'바꿔 넣을 frame 이 없으면',
   sub:'04 와 다른 원인, 같은 증상 — 사용자 스레드가 선다',
   cast:['ses','stmt','bp','fr','fl','dw','ibd'],
   init:{
@@ -848,28 +848,28 @@ const SCENES = [
   },
   knobs:[
     ['innodb_buffer_pool_size','128 MB','가장 큰 손잡이. 작으면 축출이 상시로 일어난다'],
-    ['innodb_lru_scan_depth','1024','클리너가 LRU 꼬리를 훑는 깊이. 깊게 보면 clean 을 더 확보한다'],
+    ['innodb_lru_scan_depth','1024','cleaner 가 LRU 꼬리를 훑는 깊이. 깊게 보면 clean 을 더 확보한다'],
     ['innodb_max_dirty_pages_pct_lwm','10.0','미리 내려쓰기를 시작하는 하한'] ],
   watch:[
-    ['Innodb_buffer_pool_wait_free','0 이 아니면 사용자 스레드가 프레임을 기다렸다는 뜻'],
+    ['Innodb_buffer_pool_wait_free','0 이 아니면 사용자 스레드가 frame 을 기다렸다는 뜻'],
     ['SHOW ENGINE INNODB STATUS','BUFFER POOL 절의 Free buffers'],
-    ['Innodb_buffer_pool_reads','버퍼풀에 없어 디스크로 간 횟수'] ],
+    ['Innodb_buffer_pool_reads','buffer pool 에 없어 디스크로 간 횟수'] ],
   links:[
     ['04','같은 원인, 다른 증상 — 그쪽은 쓰기가 선다'],
     ['05','축출 후보를 꼬리에 모아 두는 장치'] ],
 
   steps:[
   { look:{ fr:true },
-    note:'free list 가 비었다. 담을 프레임이 없다',
-    why:'버퍼풀이 꽉 찬 정상 상태다. 오래 돌린 서버의 free buffers 는 거의 항상 0 에 가깝다.',
+    note:'free list 가 비었다. 담을 frame 이 없다',
+    why:'buffer pool 이 꽉 찬 정상 상태다. 오래 돌린 서버의 free buffers 는 거의 항상 0 에 가깝다.',
     key:'free 가 0 인 것은 <em>이상이 아니다</em> — 메모리를 다 쓰고 있다는 뜻이다. 문제는 그다음에 무엇이 일어나는가다.',
     ref:'storage/innobase/buf/buf0lru.cc', sym:'buf_LRU_get_free_block',
     beat:1 },
 
-  { act:{ f:'ses', t:'fr', lb:'free 프레임 요청' },
-    note:'읽기를 하려면 프레임이 필요하다 → 사용자 스레드가 직접 확보에 나선다',
+  { act:{ f:'ses', t:'fr', lb:'free frame 요청' },
+    note:'읽기를 하려면 frame 이 필요하다 → 사용자 스레드가 직접 확보에 나선다',
     why:'buf_LRU_get_free_block 이 free list 를 보고 비었으면, 그 자리에서 LRU 꼬리를 훑어 축출을 시도한다. 백그라운드에 맡기고 기다리지 않는다.',
-    key:'여기가 04 와 갈리는 지점이다. 체크포인트 압박은 <em>쓰기</em>를 막았고, 프레임 고갈은 <em>읽기</em>를 막는다.',
+    key:'여기가 04 와 갈리는 지점이다. checkpoint 압박은 <em>쓰기</em>를 막았고, frame 고갈은 <em>읽기</em>를 막는다.',
     ref:'storage/innobase/buf/buf0lru.cc', sym:'buf_LRU_get_free_block',
     ops:{ ses:{ set:{ 'free 요청':'실패 → 직접 축출|red' } } } },
 
@@ -881,15 +881,15 @@ const SCENES = [
     ops:{ bp:{ set:{ 'p:9':{ tag:'pin', sub:'축출 검사 중' } } } } },
 
   { act:{ f:'bp', t:'fr', lb:'p:9 는 clean → 즉시 축출' },
-    note:'p:9 는 깨끗하다. 내용을 버리고 프레임을 free list 로 돌린다',
-    why:'clean 페이지는 디스크와 같으므로 그냥 버려도 된다. buf_LRU_free_page 가 해시에서 떼고 프레임을 반납한다.',
-    key:'clean 페이지 축출은 <em>디스크 I/O 가 없다</em>. 그래서 버퍼풀에 clean 이 많으면 프레임 확보가 싸다.',
+    note:'p:9 는 깨끗하다. 내용을 버리고 frame 을 free list 로 돌린다',
+    why:'clean 페이지는 디스크와 같으므로 그냥 버려도 된다. buf_LRU_free_page 가 해시에서 떼고 frame 을 반납한다.',
+    key:'clean 페이지 축출은 <em>디스크 I/O 가 없다</em>. 그래서 buffer pool 에 clean 이 많으면 frame 확보가 싸다.',
     ref:'storage/innobase/buf/buf0lru.cc', sym:'buf_LRU_free_page',
     ops:{ bp:{ del:['p:9'] },
           fr:{ add:[{ id:'free', tag:'free', sub:'p:9 자리' }] } } },
 
   { act:{ f:'ibd', t:'bp', lb:'p:77 읽기' },
-    note:'확보한 프레임에 p:77 을 담는다. 이번 읽기는 넘어갔다',
+    note:'확보한 frame 에 p:77 을 담는다. 이번 읽기는 넘어갔다',
     why:'경계에 삽입되고 free list 는 다시 비었다. 다음 읽기는 또 축출부터 해야 한다.',
     key:'정상 운영 중에는 이 순환이 계속 돈다 — <em>읽기 한 번마다 축출 한 번</em>. 문제는 축출이 비싸질 때다.',
     ref:'storage/innobase/buf/buf0lru.cc', sym:'buf_LRU_add_block',
@@ -908,7 +908,7 @@ const SCENES = [
 
   { act:{ f:'bp', t:'dw', lb:'단일 페이지 내려쓰기', hot:'io' },
     note:'사용자 스레드가 그 페이지를 직접 내려쓴다 — 여기서 선다',
-    why:'buf_flush_single_page_from_LRU 가 한 페이지만 더블라이트를 거쳐 내려쓴다. 배치가 아니라 한 장이라 I/O 효율이 나쁘다.',
+    why:'buf_flush_single_page_from_LRU 가 한 페이지만 doublewrite 를 거쳐 내려쓴다. 배치가 아니라 한 장이라 I/O 효율이 나쁘다.',
     key:'이것이 <em>사용자 스레드가 디스크를 기다리는</em> 순간이다. 쿼리 응답 시간에 그대로 나타나지만, 원인은 그 쿼리와 무관하다.',
     ref:'storage/innobase/buf/buf0flu.cc', sym:'buf_flush_single_page_from_LRU',
     fact:['list and puts it on the free list. It is called from user threads when'],
@@ -918,8 +918,8 @@ const SCENES = [
 
   { act:{ f:'dw', t:'ibd', lb:'제자리 쓰기 → 축출', hot:'io' },
     note:'내려쓰기가 끝나면 clean 이 되고, 그제야 축출된다',
-    why:'flush list 에서 빠지고 프레임이 free list 로 간다. 사용자 스레드는 이제야 자기 읽기를 계속할 수 있다.',
-    key:'한 번의 읽기가 <em>쓰기 두 번(더블라이트 + 제자리)</em>을 기다렸다. 더티 비율이 높을수록 이 일이 자주 일어난다.',
+    why:'flush list 에서 빠지고 frame 이 free list 로 간다. 사용자 스레드는 이제야 자기 읽기를 계속할 수 있다.',
+    key:'한 번의 읽기가 <em>쓰기 두 번(doublewrite + 제자리)</em>을 기다렸다. 더티 비율이 높을수록 이 일이 자주 일어난다.',
     ref:'storage/innobase/buf/buf0lru.cc', sym:'buf_LRU_free_page',
     ops:{ ibd:{ add:[{ id:'p:17', tag:'clean', sub:'반영 완료' }] },
           bp:{ del:['p:17'] }, fl:{ del:['p:17'] }, dw:{ del:['p:17'] },
@@ -928,8 +928,8 @@ const SCENES = [
 
   { look:{ ses:true, bp:true, fl:true },
     note:'04 와 06 은 원인이 다르고 증상이 같다',
-    why:'04 는 redo 를 재사용할 수 없어서 쓰기를 막았다. 06 은 담을 프레임이 없어서 읽기를 막았다. 둘 다 페이지 클리너가 못 따라간 결과다.',
-    key:'그래서 손잡이가 겹친다 — 클리너를 빠르게 하거나 더티를 줄이면 둘 다 완화된다. 다만 <em>어느 쪽이 걸렸는지는 지표가 다르다</em> : 체크포인트 나이냐, Free buffers 냐.',
+    why:'04 는 redo 를 재사용할 수 없어서 쓰기를 막았다. 06 은 담을 frame 이 없어서 읽기를 막았다. 둘 다 페이지 cleaner 가 못 따라간 결과다.',
+    key:'그래서 손잡이가 겹친다 — cleaner 를 빠르게 하거나 더티를 줄이면 둘 다 완화된다. 다만 <em>어느 쪽이 걸렸는지는 지표가 다르다</em> : checkpoint 나이냐, Free buffers 냐.',
     beat:1,
     ops:{ ses:{ set:{ '하려는 일':'—' } } } },
   ],
@@ -981,7 +981,7 @@ const SCENES = [
       3:{ act:{ f:'ses', t:'idx', lb:'20 에 레코드 락만' },
           note:'20 을 잠근다 — 그 앞의 갭은 건드리지 않는다',
           why:'row_search_mvcc 가 스캔을 시작하기 전에 set_also_gap_locks 를 false 로 내린다. 주석이 조건을 그대로 적는다 — 평범한 잠금 SELECT 이고 격리 수준이 낮다.',
-          key:'같은 함수, 같은 조회인데 <em>잠금의 단위가 달라진다</em>. 넥스트키(레코드 + 그 앞 갭) 대신 레코드만이다.',
+          key:'같은 함수, 같은 조회인데 <em>잠금의 단위가 달라진다</em>. next-key(레코드 + 그 앞 갭) 대신 레코드만이다.',
           ref:'storage/innobase/row/row0sel.cc', sym:'row_search_mvcc',
           fact:[['storage/innobase/row/row0sel.cc','level is low: do not lock gaps */'],
                 ['storage/innobase/row/row0sel.cc','set_also_gap_locks = false;']],
@@ -992,7 +992,7 @@ const SCENES = [
 
       4:{ act:{ f:'ses', t:'idx', lb:'30 에 레코드 락만' },
           note:'30 도 레코드만 — (20, 30] 의 갭은 열려 있다',
-          why:'REPEATABLE READ 라면 두 넥스트키가 이어지며 10 부터 30 까지 연속으로 덮였다. 여기서는 두 점만 남는다.',
+          why:'REPEATABLE READ 라면 두 next-key 가 이어지며 10 부터 30 까지 연속으로 덮였다. 여기서는 두 점만 남는다.',
           key:'잠긴 것이 <em>구간이 아니라 점</em>이 되면서, 그 사이는 누구나 들어올 수 있는 자리가 된다.',
           ref:'storage/innobase/row/row0sel.cc', sym:'row_search_mvcc',
           ops:{ idx:{ span:{ add:[
@@ -1067,10 +1067,10 @@ const SCENES = [
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_lock',
     ops:{ ses:{ set:{ 'trx 60':'ACTIVE|gold' } } } },
 
-  { act:{ f:'ses', t:'idx', lb:'20 에 넥스트키 락' },
+  { act:{ f:'ses', t:'idx', lb:'20 에 next-key 락' },
     note:'20 을 잠글 때, 레코드 하나가 아니라 그 앞 갭까지 함께 잠근다',
-    why:'LOCK_ORDINARY(= 0)가 기본이다. 넥스트키 락은 "레코드 + 그 앞의 갭"이라는 하나의 단위다.',
-    key:'기본값이 넥스트키인 것이 핵심이다. <em>따로 요청하지 않아도</em> 갭이 잠긴다 — 그래서 예상보다 넓게 잠긴다.',
+    why:'LOCK_ORDINARY(= 0)가 기본이다. next-key 락은 "레코드 + 그 앞의 갭"이라는 하나의 단위다.',
+    key:'기본값이 next-key 인 것이 핵심이다. <em>따로 요청하지 않아도</em> 갭이 잠긴다 — 그래서 예상보다 넓게 잠긴다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_lock',
     fact:[['storage/innobase/include/lock0lock.h','constexpr uint32_t LOCK_ORDINARY = 0;']],
     ops:{ idx:{ span:{ add:[
@@ -1078,10 +1078,10 @@ const SCENES = [
           lock:{ add:[{ id:'20 · next-key', tag:'hold', sub:'LOCK_ORDINARY = 0' }] },
           ses:{ set:{ '잠근 것':'1' } } } },
 
-  { act:{ f:'ses', t:'idx', lb:'30 에 넥스트키 락' },
+  { act:{ f:'ses', t:'idx', lb:'30 에 next-key 락' },
     note:'30 도 같은 방식으로 — (20, 30] 이 잠긴다',
-    why:'두 넥스트키 락이 이어지면서 10 부터 30 까지가 연속으로 덮인다.',
-    key:'범위 조회의 잠금은 <em>레코드 수만큼의 넥스트키</em>로 만들어진다. 별도의 "범위 락" 같은 것은 없다.',
+    why:'두 next-key 락이 이어지면서 10 부터 30 까지가 연속으로 덮인다.',
+    key:'범위 조회의 잠금은 <em>레코드 수만큼의 next-key</em>로 만들어진다. 별도의 "범위 락" 같은 것은 없다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_lock',
     ops:{ idx:{ span:{ add:[
             { id:'nk30', from:20, to:30, kind:'next', lb:'next-key  (20,30]', row:0 }] } },
@@ -1125,7 +1125,7 @@ const SCENES = [
     beat:1 },
 
   { note:'격리 수준을 READ COMMITTED 로 낮추면 갭 락이 사라진다',
-    why:'RC 에서는 팬텀을 막지 않기로 한 것이므로 갭을 잠글 이유가 없다. 넥스트키 대신 LOCK_REC_NOT_GAP(1024)만 쓴다.',
+    why:'RC 에서는 팬텀을 막지 않기로 한 것이므로 갭을 잠글 이유가 없다. next-key 대신 LOCK_REC_NOT_GAP(1024)만 쓴다.',
     key:'그래서 RC 는 <em>동시성이 좋고 교착이 적다</em>. 대가는 같은 트랜잭션 안에서 범위 조회의 결과가 달라질 수 있다는 것.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_lock',
     fact:[['storage/innobase/include/lock0lock.h','constexpr uint32_t LOCK_REC_NOT_GAP = 1024;']],
@@ -1427,7 +1427,7 @@ const SCENES = [
 
   { act:{ f:'ses', t:'mdl', lb:'ALTER : EXCLUSIVE 요청' },
     note:'ALTER TABLE 이 들어온다. 시작하려면 잠깐 EXCLUSIVE 가 필요하다',
-    why:'ALGORITHM=INPLACE 라도 시작과 끝에 짧게 EXCLUSIVE 를 잡는다. 딕셔너리를 바꾸는 순간이 있기 때문이다.',
+    why:'ALGORITHM=INPLACE 라도 시작과 끝에 짧게 EXCLUSIVE 를 잡는다. dictionary 를 바꾸는 순간이 있기 때문이다.',
     key:'"온라인"은 <em>중간이 온라인</em>이라는 뜻이다. 양 끝에는 배타 구간이 있고, 그 구간이 못 들어가면 시작조차 못 한다.',
     ref:'storage/innobase/handler/handler0alter.cc', sym:'ha_innobase::inplace_alter_table',
     ops:{ mdl:{ add:[{ id:'2  ALTER TABLE', tag:'x', sub:'EXCLUSIVE 대기' }] },
@@ -1492,7 +1492,7 @@ const SCENES = [
           bp:{ set:{ '새 인덱스':{ tag:'clean', sub:'로그 반영 완료' } } } } },
 
   { act:{ f:'ses', t:'mdl', lb:'다시 EXCLUSIVE' },
-    note:'마지막에 또 한 번 EXCLUSIVE — 딕셔너리를 바꾸고 끝낸다',
+    note:'마지막에 또 한 번 EXCLUSIVE — dictionary 를 바꾸고 끝낸다',
     why:'이 순간은 짧지만, 그 사이에 또 긴 트랜잭션이 있으면 여기서도 막힌다. ALTER 가 99% 에서 멈춘 것처럼 보인다.',
     key:'배타 구간이 <em>두 번</em> 있다는 것이 실무의 함정이다. 시작만 통과했다고 안심할 수 없다.',
     ref:'sql/mdl.cc', sym:'MDL_context::acquire_lock',
@@ -1500,8 +1500,8 @@ const SCENES = [
     ops:{ mdl:{ set:{ '2  ALTER TABLE':{ tag:'x', sub:'EXCLUSIVE 다시 · 짧게' } } },
           ses:{ set:{ 'ALTER 상태':'마무리 배타 구간|red' } } } },
 
-  { note:'끝났다. 딕셔너리와 엔진이 한 트랜잭션에서 함께 바뀐다',
-    why:'메타데이터가 InnoDB 테이블이므로 새 인덱스 등록과 딕셔너리 갱신이 같은 트랜잭션에 들어간다. 중간에 죽어도 반쯤 바뀐 상태가 남지 않는다.',
+  { note:'끝났다. dictionary 와 엔진이 한 트랜잭션에서 함께 바뀐다',
+    why:'메타데이터가 InnoDB 테이블이므로 새 인덱스 등록과 dictionary 갱신이 같은 트랜잭션에 들어간다. 중간에 죽어도 반쯤 바뀐 상태가 남지 않는다.',
     key:'8.0 의 DDL 이 원자적인 근거다. 5.7 의 <em>.frm 은 트랜잭션 밖에</em> 있었으므로 이것이 원리적으로 불가능했다.',
     ref:'storage/innobase/handler/handler0alter.cc', sym:'ha_innobase::inplace_alter_table',
     beat:1,
@@ -1534,7 +1534,7 @@ const SCENES = [
     ['SHOW TABLE STATUS','Data_length · Index_length · Data_free'] ],
   links:[
     ['09','ALTER 로 인덱스를 재구축하면 밀도가 회복된다'],
-    ['05','페이지가 늘면 버퍼풀 적중률도 떨어진다'] ],
+    ['05','페이지가 늘면 buffer pool 적중률도 떨어진다'] ],
 
   steps:[
   { look:{ tree:['p:5'] },
@@ -1604,7 +1604,7 @@ const SCENES = [
 
   { note:'100만 행 뒤 — 리프 페이지가 대략 4,300개',
     why:'평균 밀도가 60% 대에 머문다. 같은 데이터인데 페이지가 1.6배다.',
-    key:'디스크만의 문제가 아니다. <em>버퍼풀에 들어가는 페이지 수도 1.6배</em>여서 캐시 적중률이 함께 떨어진다.',
+    key:'디스크만의 문제가 아니다. <em>buffer pool 에 들어가는 페이지 수도 1.6배</em>여서 캐시 적중률이 함께 떨어진다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_page_split_and_insert',
     beat:1,
     ops:{ ses:{ set:{ '삽입':'1,000,000', '페이지 수':'≈ 4,300|red' } },
@@ -1616,7 +1616,7 @@ const SCENES = [
   { act:{ f:'tree', t:'tree', lb:'루트도 꽉 차면 높이가 자란다' },
     note:'루트가 넘치면 새 루트를 만들고 트리가 한 단 깊어진다',
     why:'btr_root_raise_and_insert 가 기존 루트 내용을 자식으로 내리고 새 루트를 만든다. 루트의 페이지 번호는 바뀌지 않는다.',
-    key:'루트 번호가 고정이라 <em>딕셔너리를 갱신할 필요가 없다</em>. 트리가 자라도 인덱스를 가리키는 곳은 그대로다.',
+    key:'루트 번호가 고정이라 <em>dictionary 를 갱신할 필요가 없다</em>. 트리가 자라도 인덱스를 가리키는 곳은 그대로다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_root_raise_and_insert',
     fact:['Makes tree one level higher by splitting the root, and inserts',
            'ut_a(dict_index_get_page(index) == page_get_page_no(root));'],
@@ -1648,9 +1648,9 @@ const SCENES = [
       { id:'midpoint  5/8 | 3/8', tag:'sep', sub:'old_blocks_time = 0' },
       { id:'p:17', tag:'clean', sub:'old · 한 번만 읽혔다' },
       { id:'p:9',  tag:'clean', sub:'old · 축출 후보 (꼬리)' } ] },
-    fr:{ items:[{ id:'free 1', tag:'free', sub:'빈 프레임' },
-               { id:'free 2', tag:'free', sub:'빈 프레임' },
-               { id:'free 3', tag:'free', sub:'빈 프레임' }] },
+    fr:{ items:[{ id:'free 1', tag:'free', sub:'빈 frame' },
+               { id:'free 2', tag:'free', sub:'빈 frame' },
+               { id:'free 3', tag:'free', sub:'빈 frame' }] },
     fl:{ items:[] },
     ibd:{ items:[{ id:'p:41 …', tag:'clean', sub:'아직 안 읽은 큰 테이블' }] },
   },
@@ -1664,7 +1664,7 @@ const SCENES = [
     ['Innodb_buffer_pool_read_ahead','앞질러 읽기가 실제로 쓰였는지'] ],
   links:[
     ['06','여기서 정렬해 둔 꼬리에서 축출이 일어난다'],
-    ['10','페이지가 헐거우면 버퍼풀에 들어갈 페이지 수도 늘어난다'] ],
+    ['10','페이지가 헐거우면 buffer pool 에 들어갈 페이지 수도 늘어난다'] ],
 
   steps:[
   { look:{ bp:['midpoint  5/8 | 3/8'] },
@@ -1722,7 +1722,7 @@ const SCENES = [
                      'p:28':{ tag:'clean', sub:'밀리는 중' } },
                move:[['p:24',5]] } } },
 
-  { note:'스캔이 끝난다. 그런데 버퍼풀은 스캔 페이지로 오염됐다',
+  { note:'스캔이 끝난다. 그런데 buffer pool 은 스캔 페이지로 오염됐다',
     why:'스캔 페이지는 다시 읽히지 않을 것이지만 young 에 앉아 있다. 반면 작업 집합은 축출 후보가 되었다.',
     key:'스캔이 끝난 뒤에도 <em>영향이 남는다</em>. 이후의 정상 쿼리가 디스크를 다시 읽어야 한다.',
     ref:'storage/innobase/buf/buf0lru.cc', sym:'buf_LRU_scan_and_free_block',
@@ -1744,7 +1744,7 @@ const SCENES = [
     beat:1 },
 
   { note:'결론 — 삽입 지점만으로는 부족하다',
-    why:'A 와 B 는 삽입 지점이 같고 시간 창만 다르다. 그런데 스캔이 끝난 뒤의 버퍼풀 내용이 완전히 다르다.',
+    why:'A 와 B 는 삽입 지점이 같고 시간 창만 다르다. 그런데 스캔이 끝난 뒤의 buffer pool 내용이 완전히 다르다.',
     key:'그래서 두 장치가 <em>둘 다 필요하다</em>. old_blocks_time 을 0 으로 두는 것은 방어의 절반을 끄는 것이다.',
     look:{ bp:['midpoint  5/8 | 3/8'], ses:true },
     beat:1,

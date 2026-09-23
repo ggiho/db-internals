@@ -295,7 +295,7 @@ const SCENES = [
   cast:['ses','stmt','tl','rl','row'],
   knobs:[
     ['innodb_table_locks','ON','LOCK TABLES 가 InnoDB 테이블 락까지 요청하게 한다'],
-    ['innodb_autoinc_lock_mode','2','기본값 2 는 테이블 AI 락을 아예 안 잡는다 (뮤텍스만)']],
+    ['innodb_autoinc_lock_mode','2','기본값 2 는 테이블 AI 락을 아예 안 잡는다 (mutex 만)']],
   watch:[
     ['P_S.data_locks','LOCK_TYPE=TABLE 행의 LOCK_MODE — IS · IX · S · X · AUTO_INC'],
     ['SHOW ENGINE INNODB STATUS','TABLE LOCK table … trx id … lock mode IX 형태로 찍힌다']],
@@ -439,7 +439,7 @@ const SCENES = [
   { act:{ f:'cmx', t:'stmt', lb:'AI / AI  →  막힘' },
     note:'AUTO_INC 끼리는 호환되지 않는다 — 두 INSERT 가 카운터에서 줄을 선다',
     why:'AI 행은 IS·IX 와만 호환되고 S·X·AI 셋을 막는다. 카운터는 하나뿐이므로 번호를 받는 순간은 직렬화된다.',
-    key:'다만 기본값이 <em>innodb_autoinc_lock_mode=2</em> 이고, 그 모드는 이름 그대로 AUTOINC_NO_LOCKING 이다 — 테이블 락을 잡지 않고 뮤텍스만 쓴다. 이 행이 실제로 문제가 되는 것은 모드 0·1 에서다.',
+    key:'다만 기본값이 <em>innodb_autoinc_lock_mode=2</em> 이고, 그 모드는 이름 그대로 AUTOINC_NO_LOCKING 이다 — 테이블 락을 잡지 않고 mutex 만 쓴다. 이 행이 실제로 문제가 되는 것은 모드 0·1 에서다.',
     ref:'storage/innobase/handler/ha_innodb.cc', sym:'ha_innobase::innobase_lock_autoinc',
     fact:['static const long AUTOINC_NO_LOCKING = 2;',
           'Acquire only the AUTOINC mutex.'],
@@ -469,7 +469,7 @@ const SCENES = [
   ],
 },
 {
-  num:'05', tab:'UPDATE', title:'세컨더리로 찾아도 락은 클러스터에 걸린다',
+  num:'05', tab:'UPDATE', title:'secondary 로 찾아도 락은 클러스터에 걸린다',
   sub:'인덱스를 경유하면 락이 두 곳에 생긴다',
   cast:['stmt','rl','sec','row'],
   knobs:[
@@ -500,9 +500,9 @@ const SCENES = [
           ['storage/innobase/include/lock0types.h','LOCK_NONE']],
     ops:{ stmt:{ set:{ '경로':'select_lock_type = LOCK_X' } } } },
 
-  { act:{ f:'stmt', t:'sec', lb:'먼저 세컨더리에서 찾는다' },
+  { act:{ f:'stmt', t:'sec', lb:'먼저 secondary 에서 찾는다' },
     note:'idx_c 에서 c=200 레코드를 찾고, 거기에도 락을 잡는다',
-    why:'세컨더리 레코드 자체가 잠금 대상이다. 다른 세션이 같은 인덱스 항목을 지나가려 할 때 여기서 만난다.',
+    why:'secondary 레코드 자체가 잠금 대상이다. 다른 세션이 같은 인덱스 항목을 지나가려 할 때 여기서 만난다.',
     key:'인덱스 항목은 <em>행의 사본이 아니라 별도의 잠금 단위</em>다. 그래서 같은 UPDATE 가 락을 두 개 남긴다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_sec_rec_read_check_and_lock',
     ops:{ stmt:{ set:{ '경로':'idx_c → PRIMARY', '락 수':'1' } },
@@ -510,26 +510,26 @@ const SCENES = [
           rl:{ del:['(비었다)'], add:[{ id:'idx_c  c=200', tag:'x', sub:'SECONDARY  ·  X' }] } } },
 
   { look:{ sec:true },
-    note:'세컨더리 레코드만 보고는 이 행이 보이는지 알 수 없다',
-    why:'세컨더리 인덱스 레코드에는 DB_TRX_ID 가 없다. 그래서 가시성(visibility)을 판정하려면 클러스터 인덱스를 봐야 하고, 값이 정말 맞는지도 row_sel_sec_rec_is_for_clust_rec 로 다시 확인한다.',
-    key:'세컨더리 조회가 클러스터를 반드시 한 번 더 방문하는 이유는 <em>값을 가져오기 위해서만이 아니다</em> — 그 레코드가 이 트랜잭션에 보이는지를 거기서만 알 수 있다.',
+    note:'secondary 레코드만 보고는 이 행이 보이는지 알 수 없다',
+    why:'secondary 인덱스 레코드에는 DB_TRX_ID 가 없다. 그래서 가시성(visibility)을 판정하려면 클러스터 인덱스를 봐야 하고, 값이 정말 맞는지도 row_sel_sec_rec_is_for_clust_rec 로 다시 확인한다.',
+    key:'secondary 조회가 클러스터를 반드시 한 번 더 방문하는 이유는 <em>값을 가져오기 위해서만이 아니다</em> — 그 레코드가 이 트랜잭션에 보이는지를 거기서만 알 수 있다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'row_sel_sec_rec_is_for_clust_rec',
     fact:[['storage/innobase/row/row0sel.cc','row_sel_sec_rec_is_for_clust_rec(']],
     ops:{ stmt:{ set:{ '경로':'idx_c → PRIMARY  (가시성 확인)' } } } },
 
   { look:{ sec:true, rl:true },
     note:'읽기로 지나갈 때와 고칠 때가 서로 다른 함수를 탄다',
-    why:'세컨더리 레코드를 잠글 때는 lock_sec_rec_read_check_and_lock 이고, 클러스터를 고칠 때는 lock_clust_rec_modify_check_and_lock 이다. 세컨더리 쪽에는 modify 짝이 없다 — 세컨더리는 갱신이 아니라 삭제 표시 후 재삽입으로 바뀌기 때문이다.',
-    key:'함수 이름이 구조를 말한다 — <em>세컨더리는 읽고 잠그기만</em> 하고, 값이 바뀌면 <em>지우고 다시 넣는다</em>. 그래서 인덱스 갱신은 락이 두 배로 붙는다.',
+    why:'secondary 레코드를 잠글 때는 lock_sec_rec_read_check_and_lock 이고, 클러스터를 고칠 때는 lock_clust_rec_modify_check_and_lock 이다. secondary 쪽에는 modify 짝이 없다 — secondary 는 갱신이 아니라 삭제 표시 후 재삽입으로 바뀌기 때문이다.',
+    key:'함수 이름이 구조를 말한다 — <em>secondary 는 읽고 잠그기만</em> 하고, 값이 바뀌면 <em>지우고 다시 넣는다</em>. 그래서 인덱스 갱신은 락이 두 배로 붙는다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_sec_rec_read_check_and_lock',
     fact:[['storage/innobase/lock/lock0lock.cc','lock_sec_rec_read_check_and_lock('],
           ['storage/innobase/lock/lock0lock.cc','lock_clust_rec_modify_check_and_lock']],
-    ops:{ stmt:{ set:{ '락 수':'1  (세컨더리 읽기 락)' } } } },
+    ops:{ stmt:{ set:{ '락 수':'1  (secondary 읽기 락)' } } } },
 
   { act:{ f:'sec', t:'row', lb:'포인터를 따라 클러스터로' },
-    note:'세컨더리가 가리키는 PK 로 클러스터 인덱스를 다시 찾아 X 를 잡는다',
+    note:'secondary 가 가리키는 PK 로 클러스터 인덱스를 다시 찾아 X 를 잡는다',
     why:'실제 값(v)은 클러스터 인덱스에만 있다. 고치려면 그 레코드에 X 가 필요하다.',
-    key:'이것이 <em>세컨더리 조회가 두 번 찾는</em> 이유이고, 락이 두 곳에 생기는 이유다. 커버링 인덱스면 두 번째 방문이 없다 — 읽기일 때만.',
+    key:'이것이 <em>secondary 조회가 두 번 찾는</em> 이유이고, 락이 두 곳에 생기는 이유다. 커버링 인덱스면 두 번째 방문이 없다 — 읽기일 때만.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_clust_rec_modify_check_and_lock',
     ops:{ row:{ set:{ 'id=20':{ tag:'x', sub:'c=200 · v=9  ·  LOCK_X' } } },
           rl:{ add:[{ id:'PRIMARY  id=20', tag:'x', sub:'CLUSTERED  ·  X' }] },
@@ -570,7 +570,7 @@ const SCENES = [
   watch:[
     ['I_S.INNODB_TRX','trx_rows_locked — 조건에 맞는 행 수가 아니라 스캔한 행 수에 가깝다'],
     ['EXPLAIN','type=ref 인가 type=ALL 인가가 그대로 락 범위다']],
-  links:[['05','세컨더리 경유'],['04','X 는 무엇도 허용하지 않는다'],['12','P_S 로 확인하는 법']],
+  links:[['05','secondary 경유'],['04','X 는 무엇도 허용하지 않는다'],['12','P_S 로 확인하는 법']],
   init:{
     stmt:{ kv:{ 'SQL':'UPDATE t SET v=9 WHERE c=200', '접근 경로':'ref  (idx_c)', '스캔한 행':'0', '잠긴 행':'0' } },
     idx:{ axis:{ min:0, max:400 }, items:[
@@ -640,7 +640,7 @@ const SCENES = [
   watch:[
     ['I_S.INNODB_TRX','trx_rows_locked 가 조건에 맞는 행 수보다 훨씬 크다'],
     ['EXPLAIN','type=ALL 이면 이 그림이 된다']],
-  links:[['05','세컨더리 경유'],['04','X 는 무엇도 허용하지 않는다'],['12','P_S 로 확인하는 법']],
+  links:[['05','secondary 경유'],['04','X 는 무엇도 허용하지 않는다'],['12','P_S 로 확인하는 법']],
   init:{
     stmt:{ kv:{ 'SQL':'UPDATE t SET v=9 WHERE c=200', '접근 경로':'ALL  (인덱스 없음)|red', '스캔한 행':'0', '잠긴 행':'0' } },
     idx:{ axis:{ min:0, max:400 }, items:[
@@ -728,7 +728,7 @@ const SCENES = [
   vary:{ knob:'innodb_autoinc_lock_mode', base:'2', order:['1','0'], alt:{
     '1':{
       1:{ note:'모드 1 은 평온할 때 2 와 같다 — 그런데 지금은 평온하지 않다',
-          why:'단순 INSERT·REPLACE 면 뮤텍스만 잡고 끝내려 한다. 그러나 그 전에 ib_table->count_by_mode[LOCK_AUTO_INC] 를 확인한다 — 다른 트랜잭션이 이미 테이블 AI 락을 쥐고 있는지다. 지금 다른 세션이 INSERT … SELECT 를 돌리는 중이라 그 값이 0 이 아니다.',
+          why:'단순 INSERT·REPLACE 면 mutex 만 잡고 끝내려 한다. 그러나 그 전에 ib_table->count_by_mode[LOCK_AUTO_INC] 를 확인한다 — 다른 트랜잭션이 이미 테이블 AI 락을 쥐고 있는지다. 지금 다른 세션이 INSERT … SELECT 를 돌리는 중이라 그 값이 0 이 아니다.',
           key:'그래서 모드 1 은 <em>조건부로 모드 0 이 된다</em>. 같은 설정, 같은 문장인데 옆 세션이 무엇을 하는지에 따라 락이 달라진다.',
           ref:'storage/innobase/handler/ha_innodb.cc', sym:'ha_innobase::innobase_lock_autoinc',
           fact:[['storage/innobase/handler/ha_innodb.cc','if (ib_table->count_by_mode[LOCK_AUTO_INC]) {'],
@@ -799,7 +799,7 @@ const SCENES = [
   steps:[
   { look:{ stmt:true },
     note:'AUTO_INCREMENT 가 있으면 값을 먼저 받아 온다 — 그 방식이 모드로 갈린다',
-    why:'innobase_lock_autoinc 가 innodb_autoinc_lock_mode 를 본다. 기본값 2(interleaved)는 AUTOINC_NO_LOCKING 이라 테이블 AI 락을 잡지 않고 뮤텍스만 쓴다. 모드 0·1 은 LOCK_AUTO_INC 를 테이블에 잡고 그것이 문장 끝까지 유지된다.',
+    why:'innobase_lock_autoinc 가 innodb_autoinc_lock_mode 를 본다. 기본값 2(interleaved)는 AUTOINC_NO_LOCKING 이라 테이블 AI 락을 잡지 않고 mutex 만 쓴다. 모드 0·1 은 LOCK_AUTO_INC 를 테이블에 잡고 그것이 문장 끝까지 유지된다.',
     key:'AI 락은 다섯 모드 중 유일하게 <em>트랜잭션이 아니라 문장</em> 단위로 풀린다. 기본 모드에서는 아예 잡히지 않으므로 04 장면의 호환 표에서 AI 행을 볼 일은 모드를 낮췄을 때뿐이다.',
     ref:'storage/innobase/handler/ha_innodb.cc', sym:'ha_innobase::innobase_lock_autoinc',
     fact:[['storage/innobase/handler/ha_innodb.cc','AUTOINC_NO_LOCKING'],

@@ -150,7 +150,7 @@ const SCENES = [
   watch:[
     ['pg_stat_progress_vacuum','phase 열이 지금 어느 단계인지 알려준다'],
     ['VACUUM VERBOSE','스캔한 페이지 수와 지운 튜플 수를 그대로 찍는다']],
-  links:[['03','죽은 튜플'],['05','VISIBILITY MAP'],['06','XID 랩어라운드']],
+  links:[['03','죽은 튜플'],['05','VISIBILITY MAP'],['06','XID wraparound']],
   init:{
     vac:{ kv:{ '단계':'대기', '죽은 튜플':'3', '지운 것':'0' } },
     tup:{ items:[
@@ -197,7 +197,7 @@ const SCENES = [
   watch:[
     ['pg_visibility','pg_visibility_map() 으로 페이지별 두 비트를 직접 볼 수 있다'],
     ['EXPLAIN','Index Only Scan 의 Heap Fetches 가 0 이면 맵이 일한 것이다']],
-  links:[['04','VACUUM'],['06','XID 랩어라운드']],
+  links:[['04','VACUUM'],['06','XID wraparound']],
   init:{
     op:{ kv:{ 'SQL':'—', '힙 접근':'—' } },
     vm:{ items:[
@@ -218,7 +218,7 @@ const SCENES = [
   { act:{ f:'op', t:'vm', lb:'인덱스만 읽는 조회' },
     note:'ALL_VISIBLE 이 켜져 있으면 힙을 아예 읽지 않는다',
     why:'인덱스에는 가시성(visibility) 정보가 없다. 그래서 보통은 인덱스에서 TID 를 얻은 뒤 힙 튜플을 읽어 xmin·xmax 를 봐야 한다. 그 페이지가 ALL_VISIBLE 이면 그 확인이 필요 없으므로 힙 접근을 건너뛴다.',
-    key:'PG 의 인덱스만 읽는 조회는 <em>맵이 있어야 성립한다</em>. InnoDB 는 클러스터 인덱스에 행이 함께 있어 이 문제가 없다 — 대신 세컨더리 조회가 항상 클러스터를 한 번 더 방문한다(mysql/locks 05 장면).',
+    key:'PG 의 인덱스만 읽는 조회는 <em>맵이 있어야 성립한다</em>. InnoDB 는 클러스터 인덱스에 행이 함께 있어 이 문제가 없다 — 대신 secondary 조회가 항상 클러스터를 한 번 더 방문한다(mysql/locks 05 장면).',
     ref:'src/backend/access/heap/visibilitymap.c', sym:'visibilitymap_get_status',
     fact:[['src/include/access/visibilitymapdefs.h','#define VISIBILITYMAP_ALL_VISIBLE']],
     ops:{ op:{ set:{ 'SQL':'SELECT id FROM t WHERE id=1', '힙 접근':'없음  ·  Heap Fetches 0' } } } },
@@ -234,7 +234,7 @@ const SCENES = [
   ],
 },
 {
-  num:'06', tab:'랩어라운드', title:'XID 는 32비트라서 돌아온다',
+  num:'06', tab:'wraparound', title:'XID 는 32비트라서 돌아온다',
   sub:'그래서 나이를 세고, 늙은 튜플의 xmin 을 특별한 값으로 바꿔 둔다',
   cast:['xid','hdr','vac'],
   knobs:[
@@ -269,7 +269,7 @@ const SCENES = [
   { act:{ f:'vac', t:'hdr', lb:'동결' },
     note:'해법은 늙은 xmin 을 "동결" 표식으로 바꿔 두는 것이다',
     why:'충분히 오래된 튜플은 어차피 모두에게 보이므로 xmin 을 더 비교할 필요가 없다. heap_prepare_freeze_tuple 이 그 표식을 남기고, 표식은 HEAP_XMIN_FROZEN 이다.',
-    key:'동결된 튜플은 <em>나이 계산에서 빠진다</em>. 그래서 랩어라운드를 막는 일은 곧 "동결을 제때 하는 일" 이고, 그것을 강제하는 문턱이 autovacuum_freeze_max_age = 2억이다.',
+    key:'동결된 튜플은 <em>나이 계산에서 빠진다</em>. 그래서 wraparound 를 막는 일은 곧 "동결을 제때 하는 일" 이고, 그것을 강제하는 문턱이 autovacuum_freeze_max_age = 2억이다.',
     ref:'src/backend/access/heap/heapam.c', sym:'heap_prepare_freeze_tuple',
     fact:[['src/include/access/htup_details.h','#define HEAP_XMIN_FROZEN']],
     ops:{ vac:{ set:{ '동결':'진행  ·  xmin → FROZEN' } },

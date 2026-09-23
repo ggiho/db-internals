@@ -1,5 +1,5 @@
 /* 배우 명부 — 위치(lane)는 실제 아키텍처를 따른다.
-   sql : 스토리지 포맷을 모르는 층 / mem : InnoDB 메모리 / disk : 영속 저장소
+   sql : storage 포맷을 모르는 층 / mem : InnoDB 메모리 / disk : 영속 저장소
    경계선 두 개(SQL|InnoDB, 메모리|디스크)가 이 무대의 주제다. */
 const ACTORS = {
   ses:  { nm:'SESSION · TRX',    lane:'sql',  kind:'kv'     },

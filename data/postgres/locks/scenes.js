@@ -44,7 +44,7 @@ const SCENES = [
 
   { look:{ cmp:true },
     note:'그래서 두 엔진의 한계가 다른 자리에 있다',
-    why:'InnoDB 는 행 락도 메모리에 두므로 대량 갱신이 락 메모리를 먹는다. PG 는 그 부담이 없지만 객체 락 표가 좁고, 행 락을 잡는 것만으로 페이지가 더러워져 WAL 과 체크포인트에 실린다.',
+    why:'InnoDB 는 행 락도 메모리에 두므로 대량 갱신이 락 메모리를 먹는다. PG 는 그 부담이 없지만 객체 락 표가 좁고, 행 락을 잡는 것만으로 페이지가 더러워져 WAL 과 checkpoint 에 실린다.',
     key:'"어디에 두는가" 하나가 <em>어디서 터지는가</em>를 정한다. mysql/locks 01 에서 InnoDB 가 락을 두 층에서 잡는 것을 봤고, 여기서는 그 두 층이 <em>서로 다른 매체</em>에 있다.',
     ref:'src/backend/storage/lmgr/lock.c', sym:'LockConflicts',
     beat:1 },

@@ -9,8 +9,8 @@ const SCENES = [
     ['—','—','이 장면은 읽는 법에 관한 것이다']],
   watch:[
     ['AWS 문서','docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/ — 2026-09-17 기준'],
-    ['SIGMOD 2017·2018','쿼럼·세그먼트 수치는 논문 소관이고 이 덱은 다루지 않는다']],
-  links:[['02','컴퓨트와 스토리지'],['04','복구와 캐시'],['03','리플리카']],
+    ['SIGMOD 2017·2018','quorum·세그먼트 수치는 논문 소관이고 이 덱은 다루지 않는다']],
+  links:[['02','compute 와 storage'],['04','복구와 캐시'],['03','replica']],
   init:{
     grade:{ kv:{ 'Aurora 주장':'AWS 문서 인용', 'InnoDB 주장':'MySQL 8.4.8 소스', '다루지 않는 것':'—' } },
     chk:{ kv:{ 'cite (문서)':'—', 'fact (소스)':'—', '이 덱의 개수':'—' } },
@@ -31,7 +31,7 @@ const SCENES = [
 
   { look:{ chk:true, grade:true },
     note:'fact 가 보증하는 것 — 이 덱의 InnoDB 쪽은 여전히 소스 등급이다',
-    why:'같은 스텝 안에서도 두 등급이 섞인다. 예를 들어 04 장면은 "버퍼풀이 DB 프로세스 안에 있다" 를 소스로 못박는다 — buf_pool_init 이 buf_pool_ptr 을 서버 프로세스 힙에 할당한다.',
+    why:'같은 스텝 안에서도 두 등급이 섞인다. 예를 들어 04 장면은 "buffer pool 이 DB 프로세스 안에 있다" 를 소스로 못박는다 — buf_pool_init 이 buf_pool_ptr 을 서버 프로세스 힙에 할당한다.',
     key:'구분하는 방법이 있다. <em>소스 패널이 열리면 fact 등급</em>이고, 인용만 있으면 cite 등급이다. 이 스텝은 소스가 열린다 — 아래에서 확인할 수 있다.',
     fact:[['storage/innobase/buf/buf0buf.cc','buf_pool_ptr = (buf_pool_t *)ut::zalloc_withkey(']],
     ref:'storage/innobase/buf/buf0buf.cc', sym:'buf_pool_init',
@@ -41,21 +41,21 @@ const SCENES = [
 
   { look:{ grade:true },
     note:'그래서 이 덱이 말하지 않는 것도 적어 둔다',
-    why:'6중 복제, 4/6 쓰기 쿼럼, 10GB 보호 세그먼트 같은 수치는 SIGMOD 논문에 있고 AWS 문서에서 확인하지 못했다. 확인하지 못한 값은 적지 않는다 — 기억으로 쓰면 이 프로젝트의 나머지와 성질이 달라진다.',
+    why:'6중 복제, 4/6 쓰기 quorum, 10GB 보호 세그먼트 같은 수치는 SIGMOD 논문에 있고 AWS 문서에서 확인하지 못했다. 확인하지 못한 값은 적지 않는다 — 기억으로 쓰면 이 프로젝트의 나머지와 성질이 달라진다.',
     key:'문서가 말하는 것은 <em>"세 개 가용 영역에 걸친 복사본"</em>까지다. 04 장면의 세그먼트 스텝도 "세그먼트라는 단위가 있다" 까지만 적는다 — 크기는 적지 않는다.',
     cite:["A cluster volume consists of copies of the data across three Availability Zones in a single AWS Region."],
-    ops:{ grade:{ set:{ '다루지 않는 것':'쿼럼 수 · 세그먼트 크기' } } } },
+    ops:{ grade:{ set:{ '다루지 않는 것':'quorum 수 · 세그먼트 크기' } } } },
 
   { look:{ chk:true },
     note:'등급을 올리는 방법은 있다 — 원문을 넣으면 같은 파이프라인이 검증한다',
-    why:'책 덱(ch2·ch3)이 그렇게 동작한다. 원문을 로컬에 두고 말뭉치를 만들면 verify.js 가 인용을 대조한다. 논문을 그렇게 넣으면 쿼럼 수치도 지금의 cite 와 같은 등급으로 적을 수 있다.',
+    why:'책 덱(ch2·ch3)이 그렇게 동작한다. 원문을 로컬에 두고 말뭉치를 만들면 verify.js 가 인용을 대조한다. 논문을 그렇게 넣으면 quorum 수치도 지금의 cite 와 같은 등급으로 적을 수 있다.',
     key:'지금 적지 않는 이유는 <em>내용이 틀렸다고 보기 때문이 아니라 이 프로젝트의 규칙을 지키기 때문</em>이다. 확인한 것과 들은 것을 같은 글자로 쓰지 않는다.',
     ops:{ chk:{ set:{ '이 덱의 개수':{ tag:'chg', sub:'논문을 넣으면 늘어난다' } } } },
     beat:1 },
   ],
 },
 {
-  num:'02', tab:'컴퓨트·스토리지', title:'컴퓨트와 스토리지를 갈라 놓았다',
+  num:'02', tab:'compute·storage', title:'compute 와 storage 를 갈라 놓았다',
   sub:'인스턴스가 하나여도 클러스터다 — 볼륨이 여러 노드에 흩어져 있으므로',
   cast:['op','wr','vol','cmp'],
   knobs:[
@@ -63,10 +63,10 @@ const SCENES = [
   watch:[
     ['SHOW ENGINE INNODB STATUS','Aurora 에서도 InnoDB 계층은 그대로 보인다'],
     ['CloudWatch VolumeBytesUsed','볼륨은 인스턴스와 별개로 자란다']],
-  links:[['01','근거 등급'],['03','리플리카']],
+  links:[['01','근거 등급'],['03','replica']],
   init:{
     op:{ kv:{ 'SQL':'UPDATE t SET c=200 WHERE id=5', '단계':'—' } },
-    wr:{ kv:{ '역할':'쓰기 전담', '버퍼풀':'로컬', '데이터 파일':'—' } },
+    wr:{ kv:{ '역할':'쓰기 전담', 'buffer pool':'로컬', '데이터 파일':'—' } },
     vol:{ items:[
       { id:'AZ-a 복사본', tag:'clean', sub:'클러스터 볼륨' },
       { id:'AZ-b 복사본', tag:'clean', sub:'클러스터 볼륨' },
@@ -76,7 +76,7 @@ const SCENES = [
   steps:[
   { look:{ wr:true, vol:true },
     note:'데이터는 인스턴스가 아니라 클러스터 볼륨에 있다',
-    why:'문서는 볼륨을 "세 개 가용 영역에 걸친 복사본으로 이뤄진 하나의 가상 볼륨" 이라 하고, 인스턴스가 하나여도 클러스터인 이유를 "저장 볼륨이 여러 가용 영역의 여러 스토리지 노드에 흩어져 있기 때문" 이라 적는다.',
+    why:'문서는 볼륨을 "세 개 가용 영역에 걸친 복사본으로 이뤄진 하나의 가상 볼륨" 이라 하고, 인스턴스가 하나여도 클러스터인 이유를 "저장 볼륨이 여러 가용 영역의 여러 storage 노드에 흩어져 있기 때문" 이라 적는다.',
     key:'InnoDB 에서 <em>.ibd 파일이 인스턴스에 붙어 있던 것</em>이 여기서 떨어져 나갔다. mysql/innodb 01 의 마지막 스텝이 "커밋이 보장하는 것은 redo 에 있다이지 데이터 파일에 있다가 아니다" 였는데, Aurora 는 그 데이터 파일 자체를 인스턴스 밖으로 옮겼다.',
     cite:["the underlying storage volume involves multiple storage nodes distributed across multiple Availability Zones",
           "A cluster volume consists of copies of the data across three Availability Zones in a single AWS Region."],
@@ -96,24 +96,24 @@ const SCENES = [
   { look:{ vol:true },
     note:'인스턴스를 늘려도 데이터를 복사하지 않는다',
     why:'문서가 "Aurora 는 테이블 데이터의 새 복사본을 만들지 않는다. 대신 그 DB 인스턴스가 이미 모든 데이터를 담고 있는 공유 볼륨에 연결한다" 고 적는다. 복제 정도는 인스턴스 수와 무관하다고도 못박는다.',
-    key:'읽기 노드를 늘리는 비용이 <em>데이터 크기와 무관</em>해진다. MySQL 복제에서 리플리카 하나를 추가하려면 전체 데이터를 복사해야 했던 것과 갈리는 지점이다.',
+    key:'읽기 노드를 늘리는 비용이 <em>데이터 크기와 무관</em>해진다. MySQL 복제에서 replica 하나를 추가하려면 전체 데이터를 복사해야 했던 것과 갈리는 지점이다.',
     cite:["you can add a DB instance quickly because Aurora doesn't make a new copy of the table data. Instead, the DB instance connects to the shared volume that already contains all your data.",
           "The amount of replication is independent of the number of DB instances in your cluster."],
     ref:'storage/innobase/fil/fil0fil.cc', sym:'fil_space_create',
-    ops:{ cmp:{ set:{ 'Aurora':'노드 추가 = 볼륨 연결', 'InnoDB':'리플리카 추가 = 전체 복사' } } },
+    ops:{ cmp:{ set:{ 'Aurora':'노드 추가 = 볼륨 연결', 'InnoDB':'replica 추가 = 전체 복사' } } },
     beat:1 },
   ],
 },
 {
-  num:'03', tab:'리플리카', title:'클러스터 안에서는 binlog 를 쓰지 않는다',
+  num:'03', tab:'replica', title:'클러스터 안에서는 binlog 를 쓰지 않는다',
   sub:'그런데 리전을 넘으면 다시 binlog 다 — 같은 제품 안에 두 방식이 있다',
   cast:['wr','rd','vol','cmp'],
   knobs:[
-    ['—','—','리플리카 수 상한은 15 다']],
+    ['—','—','replica 수 상한은 15 다']],
   watch:[
     ['AuroraReplicaLag','문서 기준 보통 100ms 미만'],
     ['SHOW REPLICA STATUS','리전 간 복제에서는 이것이 의미를 갖는다']],
-  links:[['02','컴퓨트·스토리지'],['01','근거 등급']],
+  links:[['02','compute·storage'],['01','근거 등급']],
   init:{
     wr:{ kv:{ '역할':'쓰기 전담', '변경 전달':'—' } },
     rd:{ items:[
@@ -125,7 +125,7 @@ const SCENES = [
   steps:[
   { look:{ rd:true, vol:true },
     note:'리더는 쓰기 노드의 로그를 재생하지 않는다 — 같은 볼륨을 본다',
-    why:'문서가 "프라이머리와 Aurora 리플리카는 클러스터 볼륨의 데이터를 하나의 논리 볼륨으로 본다" 고 적는다. 그래서 "클러스터 볼륨이 모든 인스턴스에 공유되므로 각 리플리카를 위해 데이터 복사본을 복제하는 추가 작업이 거의 필요 없다" 고 이어진다.',
+    why:'문서가 "프라이머리와 Aurora replica 는 클러스터 볼륨의 데이터를 하나의 논리 볼륨으로 본다" 고 적는다. 그래서 "클러스터 볼륨이 모든 인스턴스에 공유되므로 각 replica 를 위해 데이터 복사본을 복제하는 추가 작업이 거의 필요 없다" 고 이어진다.',
     key:'MySQL 복제의 <em>relay log 재생이 없다</em>. mysql/innodb 01 에서 본 binlog 는 그 재생을 위한 것이었는데, 클러스터 안에서는 그 경로가 쓰이지 않는다.',
     cite:["The DB cluster volume is physically made up of multiple copies of the data for the DB cluster. The primary instance and the Aurora Replicas in the DB cluster all see the data in the cluster volume as a single logical volume.",
           "Because the cluster volume is shared among all DB instances in your DB cluster, minimal additional work is required to replicate a copy of the data for each Aurora Replica."],
@@ -135,11 +135,11 @@ const SCENES = [
 
   { look:{ rd:true },
     note:'그래도 지연이 0 은 아니다 — 문서는 보통 100ms 미만이라 적는다',
-    why:'"모든 Aurora 리플리카가 최소한의 리플리카 지연으로 같은 데이터를 돌려준다. 이 지연은 보통 프라이머리가 갱신을 쓴 뒤 100밀리초보다 훨씬 작다" 고 적고, 쓰기가 많은 구간에서는 지연이 늘 수 있다고 덧붙인다.',
-    key:'볼륨을 공유해도 <em>리더의 버퍼풀은 각자</em>다. 문서가 지연을 0 이라 하지 않는 이유가 거기 있다 — 캐시에 남은 옛 페이지를 무효화하는 일이 남는다.',
+    why:'"모든 Aurora replica 가 최소한의 replica 지연으로 같은 데이터를 돌려준다. 이 지연은 보통 프라이머리가 갱신을 쓴 뒤 100밀리초보다 훨씬 작다" 고 적고, 쓰기가 많은 구간에서는 지연이 늘 수 있다고 덧붙인다.',
+    key:'볼륨을 공유해도 <em>리더의 buffer pool 은 각자</em>다. 문서가 지연을 0 이라 하지 않는 이유가 거기 있다 — 캐시에 남은 옛 페이지를 무효화하는 일이 남는다.',
     cite:["As a result, all Aurora Replicas return the same data for query results with minimal replica lag. This lag is usually much less than 100 milliseconds after the primary instance has written an update."],
     ref:'storage/innobase/buf/buf0buf.cc', sym:'buf_page_get_gen',
-    ops:{ rd:{ set:{ '리더 1':{ tag:'chg', sub:'지연 < 100ms  ·  버퍼풀은 각자' } } } } },
+    ops:{ rd:{ set:{ '리더 1':{ tag:'chg', sub:'지연 < 100ms  ·  buffer pool 은 각자' } } } } },
 
   { look:{ cmp:true },
     note:'그런데 리전을 넘으면 binlog 가 다시 등장한다',
@@ -152,8 +152,8 @@ const SCENES = [
 
   { look:{ rd:true, wr:true },
     note:'그리고 페일오버는 볼륨을 옮기는 일이 아니라 역할을 바꾸는 일이다',
-    why:'문서가 "쓰기 인스턴스가 사용 불가가 되면 Aurora 가 리더 인스턴스 하나를 새 쓰기 인스턴스로 자동 승격한다" 고 적고, "페일오버로 리플리카를 승격하는 것이 프라이머리를 다시 만드는 것보다 훨씬 빠르다" 고 적는다.',
-    key:'데이터가 이미 공유돼 있으니 <em>옮길 것이 없다</em>. 승격이 빠른 이유가 그것이고, 리플리카가 없으면 그 이점도 없다고 문서가 함께 적는다.',
+    why:'문서가 "쓰기 인스턴스가 사용 불가가 되면 Aurora 가 리더 인스턴스 하나를 새 쓰기 인스턴스로 자동 승격한다" 고 적고, "페일오버로 replica 를 승격하는 것이 프라이머리를 다시 만드는 것보다 훨씬 빠르다" 고 적는다.',
+    key:'데이터가 이미 공유돼 있으니 <em>옮길 것이 없다</em>. 승격이 빠른 이유가 그것이고, replica 가 없으면 그 이점도 없다고 문서가 함께 적는다.',
     cite:["If the writer instance in a cluster becomes unavailable, Aurora automatically promotes one of the reader instances to take its place as the new writer.",
           "Promoting an Aurora Replica by failover is much faster than recreating the primary instance."],
     ref:'sql/binlog/recovery.cc', sym:'Binlog_recovery::recover',
@@ -163,7 +163,7 @@ const SCENES = [
   ],
 },
 {
-  num:'04', tab:'복구·캐시', title:'복구에서 binlog 를 빼고, 버퍼풀을 프로세스 밖으로 냈다',
+  num:'04', tab:'복구·캐시', title:'복구에서 binlog 를 빼고, buffer pool 을 프로세스 밖으로 냈다',
   sub:'01 에서 고친 2PC 순서가 왜 Aurora 에서 비용으로만 남는지',
   cast:['op','pc','vol','cmp','grade'],
   knobs:[
@@ -171,8 +171,8 @@ const SCENES = [
     ['innodb_buffer_pool_size','128 MB (MySQL 기본)','Aurora 에서는 이 메모리가 DB 프로세스 소유가 아니다']],
   watch:[
     ['재시작 소요','binlog 를 켜면 늘어난다고 문서가 명시한다'],
-    ['버퍼풀 적중률','재시작 직후에도 떨어지지 않는다']],
-  links:[['01','2PC 순서'],['02','컴퓨트·스토리지'],['03','리플리카']],
+    ['buffer pool 적중률','재시작 직후에도 떨어지지 않는다']],
+  links:[['01','2PC 순서'],['02','compute·storage'],['03','replica']],
   init:{
     op:{ kv:{ '상황':'예기치 않은 재시작', '재생 대상':'—' } },
     pc:{ kv:{ '사는 곳':'DB 프로세스 안', '재시작 후':'—' } },
@@ -182,13 +182,13 @@ const SCENES = [
   },
   steps:[
   { look:{ op:true },
-    note:'InnoDB 라면 여기서 redo 를 재생한다 — 체크포인트를 찾고 그 뒤를 따라간다',
-    why:'재시작 경로가 recv_recovery_from_checkpoint_start 로 들어가 recv_recovery_on 을 켜고 "가장 최근 체크포인트를 찾는다". 재생할 양이 곧 재시작 시간이다.',
-    key:'이 재생은 <em>인스턴스 안에서 일어난다</em>. 그래서 버퍼풀이 비어 있고, 재생이 끝날 때까지 열리지 않는다.',
+    note:'InnoDB 라면 여기서 redo 를 재생한다 — checkpoint 를 찾고 그 뒤를 따라간다',
+    why:'재시작 경로가 recv_recovery_from_checkpoint_start 로 들어가 recv_recovery_on 을 켜고 "가장 최근 checkpoint 를 찾는다". 재생할 양이 곧 재시작 시간이다.',
+    key:'이 재생은 <em>인스턴스 안에서 일어난다</em>. 그래서 buffer pool 이 비어 있고, 재생이 끝날 때까지 열리지 않는다.',
     fact:[['storage/innobase/log/log0recv.cc','recv_recovery_on = true;'],
           ['storage/innobase/log/log0recv.cc','/* Look for the latest checkpoint */']],
     ref:'storage/innobase/log/log0recv.cc', sym:'recv_recovery_from_checkpoint_start',
-    ops:{ op:{ set:{ '재생 대상':'redo (체크포인트 이후)' } },
+    ops:{ op:{ set:{ '재생 대상':'redo (checkpoint 이후)' } },
           cmp:{ set:{ 'InnoDB 복구':'재생 끝날 때까지 닫힘' } } } },
 
   { look:{ op:true, cmp:true },
@@ -213,7 +213,7 @@ const SCENES = [
     beat:1 },
 
   { look:{ pc:true },
-    note:'버퍼풀이 DB 프로세스 안에 있다 — InnoDB 에서는 서버가 직접 할당한다',
+    note:'buffer pool 이 DB 프로세스 안에 있다 — InnoDB 에서는 서버가 직접 할당한다',
     why:'buf_pool_init 이 buf_pool_ptr 을 서버 프로세스 힙에 할당한다. 그러니 프로세스가 죽으면 이 메모리도 같이 사라진다.',
     key:'재시작 직후 <em>모든 읽기가 디스크로 간다</em>. 워밍업이 필요한 이유이고, 그 동안 응답이 느린 이유다.',
     fact:[['storage/innobase/buf/buf0buf.cc','buf_pool_ptr = (buf_pool_t *)ut::zalloc_withkey(']],
@@ -233,15 +233,15 @@ const SCENES = [
     beat:1 },
 
   { look:{ vol:true },
-    note:'스토리지 쪽은 세그먼트가 깨지면 즉시 고친다 — 다른 복사본을 써서',
+    note:'storage 쪽은 세그먼트가 깨지면 즉시 고친다 — 다른 복사본을 써서',
     why:'"디스크 볼륨의 세그먼트가 실패하면 Aurora 가 즉시 그 세그먼트를 복구한다. 세그먼트를 복구할 때, 클러스터 볼륨을 구성하는 다른 볼륨의 데이터를 사용해 복구된 세그먼트의 데이터가 최신임을 보장한다" 고 적는다.',
-    key:'문서는 <em>세그먼트라는 단위가 있다</em>는 것까지만 말한다. 크기(10GB)나 쿼럼 수(6중 복제·4/6 쓰기)는 SIGMOD 논문 소관이고 문서에서 확인하지 못했다 — 그래서 이 덱은 적지 않는다.',
+    key:'문서는 <em>세그먼트라는 단위가 있다</em>는 것까지만 말한다. 크기(10GB)나 quorum 수(6중 복제·4/6 쓰기)는 SIGMOD 논문 소관이고 문서에서 확인하지 못했다 — 그래서 이 덱은 적지 않는다.',
     cite:["When a segment of a disk volume fails, Aurora immediately repairs the segment. When Aurora repairs the disk segment, it uses the data in the other volumes that make up the cluster volume to ensure that the data in the repaired segment is current.",
           "Because Aurora maintains multiple copies of your data in three Availability Zones, the chance of losing data as a result of a disk failure is greatly minimized."],
     ref:'storage/innobase/buf/buf0dblwr.cc', sym:'recv::Pages::recover',
     ops:{ vol:{ set:{ '클러스터 볼륨':{ tag:'chg', sub:'세그먼트 자동 복구  ·  세 AZ' } } },
           grade:{ set:{ '문서가 말한 것':'세그먼트 단위 · 세 AZ · 자동 복구',
-                        '문서가 말하지 않은 것':'세그먼트 크기 · 쿼럼 수' } } },
+                        '문서가 말하지 않은 것':'세그먼트 크기 · quorum 수' } } },
     beat:1 },
   ],
 },

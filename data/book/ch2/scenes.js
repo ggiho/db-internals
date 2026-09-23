@@ -11,7 +11,7 @@ const SCENES = [
     ['—','—','2장 이 절은 특정 구현이 아니라 자료구조 일반을 다룬다']],
   watch:[
     ['—','이 절에는 대응하는 서버 지표가 없다 — 자료구조 자체의 성질이다']],
-  links:[['05','팬아웃을 올리면 이 문제가 사라진다'],['02','디스크에서는 더 나빠진다']],
+  links:[['05','fan-out 을 올리면 이 문제가 사라진다'],['02','디스크에서는 더 나빠진다']],
   init:{
     op:{ kv:{ '넣는 순서':'—', '트리 높이':'—', '최악 탐색':'—' } },
     bst:{ items:[{ id:'—', lvl:0, keys:'빈 트리', fill:0 }] },
@@ -62,22 +62,22 @@ const SCENES = [
   { look:{ cost:true, op:true },
     note:'메모리에서는 이것으로 끝난다. 디스크에서는 여기서 문제가 시작된다',
     why:'회전이 자주 일어나고, 매번 포인터를 고쳐야 한다. 그 포인터들이 서로 다른 디스크 페이지에 있으면 쓰기가 여러 번 발생한다.',
-    key:'다음 장면의 주제다 — <em>팬아웃 2 라는 것 자체가</em> 디스크에서 치명적이다.',
+    key:'다음 장면의 주제다 — <em>fan-out 2 라는 것 자체가</em> 디스크에서 치명적이다.',
     beat:1 },
   ],
 },
 {
-  num:'02', tab:'디스크', title:'팬아웃 2 가 디스크에서 치명적인 이유',
+  num:'02', tab:'디스크', title:'fan-out 2 가 디스크에서 치명적인 이유',
   sub:'높이가 곧 시크 횟수다',
   cast:['op','bst','cost','io','blk'],
   knobs:[
-    ['innodb_page_size','16 KB','한 노드가 담을 수 있는 키 수를 결정한다 — 곧 팬아웃']],
+    ['innodb_page_size','16 KB','한 노드가 담을 수 있는 키 수를 결정한다 — 곧 fan-out']],
   watch:[
     ['SHOW ENGINE INNODB STATUS','BUFFER POOL 절의 Buffer pool hit rate — 시크가 실제로 일어나는 비율'],
-    ['Innodb_buffer_pool_reads','버퍼풀에 없어 디스크로 간 횟수']],
+    ['Innodb_buffer_pool_reads','buffer pool 에 없어 디스크로 간 횟수']],
   links:[['03','매체에 따라 시크 비용이 다르다'],['05','B-Tree 가 이 문제를 어떻게 푸는가'],['04','블록이 최소 단위라는 사실']],
   init:{
-    op:{ kv:{ '항목 수':'1,000,000', '팬아웃':'2', '트리 높이':'20' } },
+    op:{ kv:{ '항목 수':'1,000,000', 'fan-out':'2', '트리 높이':'20' } },
     bst:{ items:[
       { id:'root', lvl:0, keys:'키 1개', fill:.5 },
       { id:'…', lvl:1, keys:'키 1개', fill:.5 },
@@ -116,15 +116,15 @@ const SCENES = [
 
   { note:'그리고 균형 유지 비용이 여기에 겹친다',
     why:'회전이 일어나면 포인터 세 개를 고치는데, 그 노드들이 서로 다른 블록에 있으면 블록 세 개를 읽고 세 개를 쓴다.',
-    key:'팬아웃이 낮으면 <em>회전이 자주</em> 일어난다. 노드가 작아서 금방 차기 때문이다. 비용이 곱해진다.',
+    key:'fan-out 이 낮으면 <em>회전이 자주</em> 일어난다. 노드가 작아서 금방 차기 때문이다. 비용이 곱해진다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_page_reorganize',
-    ops:{ op:{ set:{ '팬아웃':'2  ← 근본 원인|red' } },
+    ops:{ op:{ set:{ 'fan-out':'2  ← 근본 원인|red' } },
           io:{ set:{ '시크':'26|red' } } } },
 
   { look:{ op:true, blk:true },
-    note:'필요한 성질 두 개 — 높은 팬아웃, 낮은 높이',
+    note:'필요한 성질 두 개 — 높은 fan-out, 낮은 높이',
     why:'둘은 반비례한다. 한 노드가 자식을 많이 가지면 같은 항목 수를 담는 데 필요한 레벨이 줄어든다.',
-    key:'그리고 <em>블록 크기가 팬아웃의 상한</em>이다. 16KB 에 들어가는 만큼만 자식을 가질 수 있다. 자료구조가 매체에 맞춰진다.',
+    key:'그리고 <em>블록 크기가 fan-out 의 상한</em>이다. 16KB 에 들어가는 만큼만 자식을 가질 수 있다. 자료구조가 매체에 맞춰진다.',
     beat:1 },
   ],
 },
@@ -163,7 +163,7 @@ const SCENES = [
   { act:{ f:'io', t:'hdd', lb:'순차로 바꾸면' },
     note:'같은 20블록을 연속으로 읽으면 시크는 한 번이다',
     why:'헤드를 한 번 위치시킨 뒤 그대로 읽어 나간다.',
-    key:'B-Tree 가 노드를 <em>연속된 블록에</em> 두려 하는 이유다. 팬아웃을 올리는 것과 같은 목적이다.',
+    key:'B-Tree 가 노드를 <em>연속된 블록에</em> 두려 하는 이유다. fan-out 을 올리는 것과 같은 목적이다.',
     ref:'storage/innobase/os/os0file.cc', sym:'os_file_read_func',
     ops:{ io:{ set:{ '작업':'순차 읽기 20블록', '비용':'시크 1회|green' } } } },
 
@@ -200,7 +200,7 @@ const SCENES = [
   watch:[
     ['SHOW ENGINE INNODB STATUS','FILE I/O 절 : 초당 읽기·쓰기와 대기 중인 I/O'],
     ['Innodb_data_written','쓴 바이트 — 쓰기 증폭을 짐작하는 출발점'],
-    ['Innodb_dblwr_writes','더블라이트 쓰기 — SSD 에서는 이 증폭이 더 아프다']],
+    ['Innodb_dblwr_writes','doublewrite 쓰기 — SSD 에서는 이 증폭이 더 아프다']],
   links:[['02','왜 시크 횟수를 줄여야 하는가'],['04','두 매체가 공유하는 제약']],
   init:{
     op:{ kv:{ '매체':'SSD', '최소 전송 단위':'페이지 2 ~ 16KB', '비싼 것':'지우기 · 쓰기 증폭' } },
@@ -261,12 +261,12 @@ const SCENES = [
   sub:'두 매체가 공유하는 유일한 제약',
   cast:['op','blk','node','io'],
   knobs:[
-    ['innodb_page_size','16 KB','노드 하나의 크기. 팬아웃과 낭비율을 동시에 결정한다'],
+    ['innodb_page_size','16 KB','노드 하나의 크기. fan-out 과 낭비율을 동시에 결정한다'],
     ['innodb_fill_factor','100','인덱스를 구축할 때 페이지를 얼마나 채울지']],
   watch:[
     ['SHOW ENGINE INNODB STATUS','BUFFER POOL 절의 Database pages — 몇 블록을 메모리에 들고 있는가'],
     ['I_S.INNODB_TABLESTATS','CLUST_INDEX_SIZE · OTHER_INDEX_SIZE — 페이지 단위 크기']],
-  links:[['02','팬아웃이 낮으면 이 낭비가 커진다'],['05','B-Tree 는 이 블록을 꽉 채운다'],['06','블록 안의 배치']],
+  links:[['02','fan-out 이 낮으면 이 낭비가 커진다'],['05','B-Tree 는 이 블록을 꽉 채운다'],['06','블록 안의 배치']],
   init:{
     op:{ kv:{ '찾는 키':'42', '읽은 블록':'0', '쓴 바이트 비율':'—' } },
     blk:{ items:[
@@ -292,12 +292,12 @@ const SCENES = [
   { act:{ f:'op', t:'blk', lb:'키 42 를 담는다' },
     note:'키를 채워 넣는다. 블록 하나에 수백 개가 들어간다',
     why:'키와 레코드가 헤더 뒤부터 쌓인다. 16KB 에서 헤더와 여유를 빼면 대부분이 데이터다.',
-    key:'이것이 팬아웃이다. 노드 하나가 자식 <em>수백 개</em>를 가리킬 수 있다 — BST 의 2 와 비교된다.',
+    key:'이것이 fan-out 이다. 노드 하나가 자식 <em>수백 개</em>를 가리킬 수 있다 — BST 의 2 와 비교된다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_insert_rec_low',
     ops:{ blk:{ del:['빈 곳'], add:[
             { id:'키 · 레코드 ×370', sz:10, tag:'', sub:'헤더 뒤부터 쌓인다' },
             { id:'여유', sz:1, tag:'free', sub:'미래의 삽입용' } ] },
-          node:{ add:[{ id:'p:9', tag:'clean', sub:'키 370개 · 팬아웃 371' }] },
+          node:{ add:[{ id:'p:9', tag:'clean', sub:'키 370개 · fan-out 371' }] },
           op:{ set:{ '쓴 바이트 비율':'약 94%|green' } } } },
 
   { act:{ f:'blk', t:'io', lb:'42 를 찾으려 블록을 읽는다' },
@@ -326,19 +326,19 @@ const SCENES = [
   ],
 },
 {
-  num:'05', tab:'팬아웃', title:'팬아웃을 올리면 높이가 내려간다',
+  num:'05', tab:'fan-out', title:'fan-out 을 올리면 높이가 내려간다',
   sub:'같은 백만 개, 20단계에서 3단계로',
   cast:['op','bst','bt','cost','io'],
-  vsLabel:'A  ·  B-TREE  (팬아웃 371)', pair:'05v',
+  vsLabel:'A  ·  B-TREE  (fan-out 371)', pair:'05v',
   knobs:[
-    ['innodb_page_size','16 KB','팬아웃의 상한을 정한다 — 한 페이지에 들어가는 키 수'],
-    ['innodb_fill_factor','100','구축 시 채움률. 높을수록 팬아웃이 실효적으로 커진다']],
+    ['innodb_page_size','16 KB','fan-out 의 상한을 정한다 — 한 페이지에 들어가는 키 수'],
+    ['innodb_fill_factor','100','구축 시 채움률. 높을수록 fan-out 이 실효적으로 커진다']],
   watch:[
     ['I_S.INNODB_TABLESTATS','CLUST_INDEX_SIZE — 페이지 수로 트리 규모를 짐작한다'],
     ['SHOW ENGINE INNODB STATUS','BUFFER POOL 절 : 상위 레벨은 거의 항상 메모리에 있다']],
-  links:[['02','팬아웃 2 가 만든 문제'],['06','노드 안은 어떻게 생겼는가'],['07','조회에서 이 차이가 드러난다']],
+  links:[['02','fan-out 2 가 만든 문제'],['06','노드 안은 어떻게 생겼는가'],['07','조회에서 이 차이가 드러난다']],
   init:{
-    op:{ kv:{ '항목 수':'1,000,000', '팬아웃':'371', '트리 높이':'3' } },
+    op:{ kv:{ '항목 수':'1,000,000', 'fan-out':'371', '트리 높이':'3' } },
     bst:{ items:[{ id:'—', lvl:0, keys:'비교용', fill:0 }] },
     bt:{ items:[
       { id:'root', lvl:0, keys:'키 370 · 자식 371', fill:.94 },
@@ -354,8 +354,8 @@ const SCENES = [
   steps:[
   { look:{ op:true },
     note:'371 은 소스에 있는 수가 아니다 — 가정에서 나온 수다',
-    why:'페이지는 16,384바이트(UNIV_PAGE_SIZE_DEF = 1 << 14)이고 그중 FIL 헤더 38바이트와 트레일러 8바이트는 데이터가 아니다. 남는 약 16,300바이트를 노드 포인터 레코드 하나당 약 44바이트로 나누면 370 남짓이 된다. 즉 371 은 레코드 크기를 44바이트로 가정했을 때의 수다.',
-    key:'이 장면의 모든 수(371배·3레벨·144KB)가 그 가정 위에 있다. 실제 팬아웃은 <em>키 길이와 행 형식이 정한다</em> — 긴 문자열 키를 쓰면 100 아래로 떨어지고, 그러면 같은 데이터가 4~5레벨이 된다. 소스에 팬아웃 상수는 없다.',
+    why:'페이지는 16,384바이트(UNIV_PAGE_SIZE_DEF = 1 << 14)이고 그중 FIL 헤더 38바이트와 trailer 8바이트는 데이터가 아니다. 남는 약 16,300바이트를 노드 포인터 레코드 하나당 약 44바이트로 나누면 370 남짓이 된다. 즉 371 은 레코드 크기를 44바이트로 가정했을 때의 수다.',
+    key:'이 장면의 모든 수(371배·3레벨·144KB)가 그 가정 위에 있다. 실제 fan-out 은 <em>키 길이와 행 형식이 정한다</em> — 긴 문자열 키를 쓰면 100 아래로 떨어지고, 그러면 같은 데이터가 4~5레벨이 된다. 소스에 fan-out 상수는 없다.',
     ref:'storage/innobase/include/univ.i', sym:'UNIV_PAGE_SIZE_DEF',
     fact:[['storage/innobase/include/univ.i','constexpr uint32_t UNIV_PAGE_SIZE_DEF = 1 << UNIV_PAGE_SIZE_SHIFT_DEF;'],
           ['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_DATA = 38;'],
@@ -384,31 +384,31 @@ const SCENES = [
 
   { note:'그리고 균형 유지가 드물어진다',
     why:'노드가 커서 잘 안 찬다. 370개가 차야 분할이 일어나므로 BST 처럼 삽입마다 회전할 일이 없다.',
-    key:'팬아웃이 <em>두 가지를 동시에</em> 해결한다 — 높이도 낮추고 구조 변경 빈도도 낮춘다. 책이 B-Tree 를 두 문제의 답으로 제시하는 이유.',
+    key:'fan-out 이 <em>두 가지를 동시에</em> 해결한다 — 높이도 낮추고 구조 변경 빈도도 낮춘다. 책이 B-Tree 를 두 문제의 답으로 제시하는 이유.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_page_split_and_insert',
-    ops:{ op:{ set:{ '팬아웃':'371  ← 두 문제를 한 번에|green' } } } },
+    ops:{ op:{ set:{ 'fan-out':'371  ← 두 문제를 한 번에|green' } } } },
 
   { look:{ bt:['root'] },
     note:'상위 레벨은 작다 — 루트와 internal 을 합쳐 9블록, 144KB 남짓',
-    why:'리프 2,700블록을 팬아웃 371 로 덮는 데 internal 은 8개면 된다. 그 위에 루트 하나다. 상위 전체가 144KB 라 항상 버퍼풀에 남는다.',
+    why:'리프 2,700블록을 fan-out 371 로 덮는 데 internal 은 8개면 된다. 그 위에 루트 하나다. 상위 전체가 144KB 라 항상 buffer pool 에 남는다.',
     key:'그래서 실제 조회는 <em>디스크를 한 번만</em> 만지는 일이 많다. 3단계 중 앞 2단계가 메모리 히트다.',
     beat:1 },
   ],
 },
 {
   num:'05v', tab:'—', hidden:true,
-  vsLabel:'B  ·  BINARY TREE  (팬아웃 2)',
-  title:'팬아웃을 올리면 높이가 내려간다', sub:'같은 백만 개를 팬아웃 2 로',
+  vsLabel:'B  ·  BINARY TREE  (fan-out 2)',
+  title:'fan-out 을 올리면 높이가 내려간다', sub:'같은 백만 개를 fan-out 2 로',
   cast:['op','bst','bt','cost','io'],
   knobs:[
-    ['innodb_page_size','16 KB','팬아웃 2 에서는 이 16KB 중 거의 전부가 낭비된다'],
+    ['innodb_page_size','16 KB','fan-out 2 에서는 이 16KB 중 거의 전부가 낭비된다'],
     ['innodb_fill_factor','100','노드가 키 하나뿐이면 채움률이라는 개념이 무의미하다']],
   watch:[
     ['I_S.INNODB_TABLESTATS','CLUST_INDEX_SIZE — 같은 데이터에 페이지 수가 폭증한다'],
     ['SHOW ENGINE INNODB STATUS','BUFFER POOL 절 : 상위 레벨만도 메모리에 안 들어간다']],
-  links:[['02','팬아웃 2 가 만든 문제'],['06','노드 안은 어떻게 생겼는가'],['07','조회에서 이 차이가 드러난다']],
+  links:[['02','fan-out 2 가 만든 문제'],['06','노드 안은 어떻게 생겼는가'],['07','조회에서 이 차이가 드러난다']],
   init:{
-    op:{ kv:{ '항목 수':'1,000,000', '팬아웃':'2', '트리 높이':'20' } },
+    op:{ kv:{ '항목 수':'1,000,000', 'fan-out':'2', '트리 높이':'20' } },
     bst:{ items:[
       { id:'root', lvl:0, keys:'키 1 · 자식 2', fill:.08 },
       { id:'…  18 레벨', lvl:1, keys:'각 키 1', fill:.08 },
@@ -422,9 +422,9 @@ const SCENES = [
     "as many disk seeks as comparisons" ],
   steps:[
   { look:{ op:true },
-    note:'이쪽 수는 가정이 필요 없다 — 팬아웃 2 는 정의다',
+    note:'이쪽 수는 가정이 필요 없다 — fan-out 2 는 정의다',
     why:'이진 탐색 트리는 자식이 둘이라는 것이 구조의 정의다. 레코드 크기나 페이지 크기와 무관하다. 그래서 log₂(백만) ≈ 20 이라는 수는 가정 없이 나온다.',
-    key:'왼쪽(A)의 371 은 <em>레코드 크기를 가정해야 나오는 수</em>이고, 오른쪽의 2 는 <em>가정이 필요 없는 수</em>다. 그런데도 결론이 3레벨 대 20레벨로 갈린다 — 가정을 넉넉히 잡아 팬아웃을 100 으로 낮춰도 여전히 3~4레벨이다.',
+    key:'왼쪽(A)의 371 은 <em>레코드 크기를 가정해야 나오는 수</em>이고, 오른쪽의 2 는 <em>가정이 필요 없는 수</em>다. 그런데도 결론이 3레벨 대 20레벨로 갈린다 — 가정을 넉넉히 잡아 fan-out 을 100 으로 낮춰도 여전히 3~4레벨이다.',
     ref:'storage/innobase/include/univ.i', sym:'UNIV_PAGE_SIZE_DEF',
     fact:[['storage/innobase/include/univ.i','constexpr uint32_t UNIV_PAGE_SIZE_DEF = 1 << UNIV_PAGE_SIZE_SHIFT_DEF;']] },
 
@@ -451,9 +451,9 @@ const SCENES = [
 
   { note:'그리고 균형 유지가 삽입마다 일어난다',
     why:'노드가 키 하나로 즉시 차므로 삽입마다 새 노드를 만들고, 회전이 자주 필요하다.',
-    key:'회전 한 번이 포인터 세 개, 곧 <em>블록 세 개의 읽기와 쓰기</em>다. 팬아웃이 낮으면 이 일이 자주 일어난다.',
+    key:'회전 한 번이 포인터 세 개, 곧 <em>블록 세 개의 읽기와 쓰기</em>다. fan-out 이 낮으면 이 일이 자주 일어난다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_page_reorganize',
-    ops:{ op:{ set:{ '팬아웃':'2  ← 두 문제의 근원|red' } } } },
+    ops:{ op:{ set:{ 'fan-out':'2  ← 두 문제의 근원|red' } } } },
 
   { look:{ bst:['root'] },
     note:'상위 레벨만도 크다 — 리프 직전까지 약 50만 블록',
@@ -527,7 +527,7 @@ const SCENES = [
     beat:1 },
 
   { note:'그리고 B-Tree 가 아니라 B+-Tree 다',
-    why:'값이 리프에만 있다. internal 노드는 분리 키만 갖는다. 그래서 internal 이 더 많은 키를 담고 팬아웃이 커진다.',
+    why:'값이 리프에만 있다. internal 노드는 분리 키만 갖는다. 그래서 internal 이 더 많은 키를 담고 fan-out 이 커진다.',
     key:'책도 짚는다 — MySQL InnoDB 는 자기 B+-Tree 구현을 <em>그냥 B-tree 라고 부른다</em>. 이 문서의 이름도 그래서 B-TREE 다.',
     ref:'storage/innobase/include/btr0btr.ic', sym:'btr_page_get_level',
     beat:1,
@@ -545,7 +545,7 @@ const SCENES = [
     ['SHOW ENGINE INNODB STATUS','BUFFER POOL 절의 Buffer pool hit rate'],
     ['Innodb_buffer_pool_read_requests','논리 읽기 — 레벨 수만큼 발생한다'],
     ['Innodb_buffer_pool_reads','그중 디스크로 내려간 것']],
-  links:[['05','팬아웃이 이 단계 수를 정한다'],['06','하강의 판정 규칙'],['08','삽입도 같은 하강으로 시작한다']],
+  links:[['05','fan-out 이 이 단계 수를 정한다'],['06','하강의 판정 규칙'],['08','삽입도 같은 하강으로 시작한다']],
   init:{
     op:{ kv:{ '찾는 키':'45', '현재 레벨':'—', '결과':'—' } },
     bt:{ items:[
@@ -561,7 +561,7 @@ const SCENES = [
     "iteration starts from the closest found key-value pair" ],
   steps:[
   { act:{ f:'op', t:'bt', lb:'루트를 읽는다' },
-    note:'루트 블록을 읽는다 — 거의 항상 버퍼풀에 있다',
+    note:'루트 블록을 읽는다 — 거의 항상 buffer pool 에 있다',
     why:'모든 조회가 루트를 지나므로 LRU 의 young 구간에 상주한다. 논리 읽기는 발생하지만 물리 읽기는 아니다.',
     key:'그래서 <em>논리 읽기와 물리 읽기를 따로 세는</em> 지표가 있다. 둘의 비율이 곧 적중률이다.',
     ref:'storage/innobase/buf/buf0buf.cc', sym:'buf_page_get_gen',
@@ -761,7 +761,7 @@ const SCENES = [
   { act:{ f:'bt', t:'bt', lb:'새 루트를 만들고 옛 루트를 내린다' },
     note:'새 루트를 만든다 — 옛 루트는 자식으로 강등되고 높이가 1 늘어난다',
     why:'옛 루트의 내용을 새 노드로 옮기고, 새 루트에는 분할점 키 하나만 남긴다. 옛 루트와 그 형제가 새 루트의 자식이 된다.',
-    key:'InnoDB 에서 <em>루트의 페이지 번호는 바뀌지 않는다</em>. 내용을 자식으로 옮기고 껍데기를 재사용한다 — 딕셔너리를 고칠 필요가 없다.',
+    key:'InnoDB 에서 <em>루트의 페이지 번호는 바뀌지 않는다</em>. 내용을 자식으로 옮기고 껍데기를 재사용한다 — dictionary 를 고칠 필요가 없다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_root_raise_and_insert',
     beat:1,
     ops:{ bt:{ set:{ 'root':{ keys:'| 40 |', fill:.2 },
@@ -773,7 +773,7 @@ const SCENES = [
   { look:{ cost:true, op:true },
     note:'삽입 하나가 블록 네 개를 썼고 트리가 한 단 깊어졌다',
     why:'리프 두 개, internal 두 개, 루트. 최악의 경우다.',
-    key:'그리고 이제 <em>모든 조회가 한 단계 더</em> 내려간다. 백만 개에서 3레벨이면 팬아웃이 커서 이 일이 드물다 — 그것이 팬아웃의 값이다.',
+    key:'그리고 이제 <em>모든 조회가 한 단계 더</em> 내려간다. 백만 개에서 3레벨이면 fan-out 이 커서 이 일이 드물다 — 그것이 fan-out 의 값이다.',
     beat:1 },
   ],
 },
@@ -940,7 +940,7 @@ const SCENES = [
   { act:{ f:'bt', t:'bt', lb:'자식을 루트로 끌어올린다' },
     note:'합쳐진 노드가 루트가 되고 트리가 한 단 얕아진다',
     why:'옛 루트의 껍데기에 자식 내용을 옮긴다. 여기서도 루트의 페이지 번호는 그대로다.',
-    key:'분할과 병합이 <em>같은 껍데기를 재사용</em>한다. 루트 번호가 고정이라 딕셔너리는 어느 쪽에도 관여하지 않는다.',
+    key:'분할과 병합이 <em>같은 껍데기를 재사용</em>한다. 루트 번호가 고정이라 dictionary 는 어느 쪽에도 관여하지 않는다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_lift_page_up',
     beat:1,
     ops:{ bt:{ set:{ 'root':{ keys:'| 10 | 40 | 60 |', fill:.75 } },
