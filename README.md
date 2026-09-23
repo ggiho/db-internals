@@ -81,7 +81,8 @@ grep 해 확인한다(`tools/claimcheck.js`). 레이아웃은 14폭 × 5,800방�
 소스가 없으면 `verify.js` 는 "파일을 못 읽었다" 만 낸다 — 그것은 통과가 아니라 미검증이다.
 실제로 PostgreSQL 트리가 사라져 있는 동안 인용 오류 한 건이 가려져 있었다.
 
-    bash tools/check.sh                      # verify + 행렬 대조 + 상수 주장 대조
+    bash tools/check.sh                      # 버전 일치 + verify + 행렬 대조 + 상수 주장 대조
+    node tools/srcver.js                     # 덱이 띄우는 버전 = 대조하는 트리의 버전
     node tools/lines.js  mysql/locks         # 심볼 → 줄 번호 (linemap.js 생성)
     node tools/extract.js mysql/locks        # 줄 번호 → 소스 발췌 (code.js 생성)
 
