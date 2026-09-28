@@ -35,8 +35,14 @@
 .ax-sp.new{box-shadow:0 0 0 1px rgba(232,237,236,.28)}
 .ax-sp.new span{color:var(--ink)}
 .ax-sp.mod{box-shadow:0 0 0 1px rgba(94,134,201,.3)}
-.ax-lb{position:absolute;left:12px;bottom:6px;font:400 8px var(--mono);letter-spacing:.14em;
-  color:var(--faint)}
+/* 범위는 선의 양 끝 바깥에 min · max 로 단다. 예전엔 "0 ‥ 60" 한 줄을 .ax 바닥에
+   붙였는데, 좁은 화면에서 첫 눈금 글자와 겹쳤다. 아래로 내리면 카드가 높아져
+   큰 화면에서 '이 스텝이 바꾼 것' 이 들어갈 자리를 먹는다. 선 끝 바깥은
+   padding 12 + margin 22 가 비어 있어 높이를 늘리지 않고 넣을 수 있다(최대 '400'). */
+.ax-lb{position:absolute;top:-5px;font:400 8px var(--mono);letter-spacing:.06em;
+  line-height:10px;color:var(--faint);white-space:nowrap}
+.ax-lb.lo{right:100%;margin-right:6px}
+.ax-lb.hi{left:100%;margin-left:6px}
 
 /* ── graph : 대기 사이클. 노드를 한 줄로 놓고 간선을 위(정방향) 아래(되돌아오는 것) ──
    간선의 left/width 는 Graph.jsx 가 실측한 노드 중심(px)이다. */

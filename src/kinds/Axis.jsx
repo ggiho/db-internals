@@ -119,9 +119,9 @@ export default function Axis({ a, chg }) {
               <i /><b>{it.id}</b>
             </motion.div>
           ))}
+          <div className="ax-lb lo">{min}</div>
+          <div className="ax-lb hi">{max}</div>
         </div>
-
-        <div className="ax-lb">{min}  ‥  {max}</div>
       </div>
       <Gauge a={a} />
     </>

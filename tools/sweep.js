@@ -346,6 +346,26 @@ const MEASURE = (CFG) => {
     }
   }
 
+  /* ── 검사 3b : 글자끼리 겹침 ──
+     검사 3 은 라벨 상자의 직계 자식 상자끼리 비교한다. 그런데 축은 눈금줄 상자(.ax-line)의
+     높이가 0 이고 눈금 글자가 그 밖으로 아래에 그려진다 — 상자끼리는 겹치지 않는데 글자는
+     겹쳤다(390 에서 범위 "0 ‥ 60" 과 첫 눈금 "10" 이 8×8px, 768 에서도 4×8px).
+     그래서 실제로 글자가 그려지는 잎 요소끼리 비교하는 목록을 따로 둔다. */
+  for (const [boxSel, leafSel] of CFG.labelLeaves) {
+    for (const box of document.querySelectorAll(boxSel)) {
+      if (!visible(box)) continue;
+      const leaves = [...box.querySelectorAll(leafSel)].filter(visible);
+      for (let i = 0; i < leaves.length; i++) for (let j = i + 1; j < leaves.length; j++) {
+        if (leaves[i].contains(leaves[j]) || leaves[j].contains(leaves[i])) continue;
+        out.counts.labelPairs++;
+        const a = rc(leaves[i]), b = rc(leaves[j]);
+        const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        const oy = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+        if (ox > 1 && oy > 1) add('label-overlap', { box: boxSel + ' 글자', by: +Math.min(ox, oy).toFixed(1), a: desc(leaves[i]), b: desc(leaves[j]) });
+      }
+    }
+  }
+
   /* ── 검사 4 : 페이지 가로 스크롤 ──
      html{overflow:hidden} 이어도 scrollWidth 는 넘친 양을 그대로 알려준다. */
   const de = document.documentElement;
@@ -453,7 +473,13 @@ const CFG_BASE = {
   cells: ['.by-c', '.mx td', '.mx th', '.lane-lb', '.kv', '.it', '.a-hd', '.by-l', '.mx-lb',
     '.scol-hd', '.dl-row li', '.foot span'],
   labelBoxes: ['.by-l', '.mx-lb', '.a-hd', '.kv', '.it', '.top', '.decks', '.stage-foot', '.cap',
-    '.foot', '.dl-row', '.ax', '.ax-row', '.tr-lv', '.gr-row'],
+    '.foot', '.dl-row', '.ax', '.ax-row', '.tr-lv', '.gr-row',
+    /* 축의 눈금 숫자는 .ax-line > .ax-rec 에 있다. 이 검사는 직계 자식끼리만 비교하므로
+       .ax 만 넣어서는 눈금끼리 겹치는 것이 안 보였다 — 390 에서 "10 20" 이 "1020" 으로
+       뭉개진 채 배포됐다. */
+    '.ax-line'],
+  /* [상자, 그 안에서 글자가 그려지는 잎] — 검사 3b. 상자 밖으로 그려지는 글자를 위한 것 */
+  labelLeaves: [['.ax', '.ax-rec b, .ax-lb, .ax-sp > span']],
   /* 컨테이너 질의로 줄여서 자르는 것이 설계인 칸 — 글자 잘림 검사가 따로 본다 */
   clipOk: ['.by-c'],
 };

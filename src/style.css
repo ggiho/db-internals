@@ -420,6 +420,13 @@ html,body{background:var(--bg);color:var(--body);font-family:var(--sans)}
   /* 행렬은 두 칸 중 한 칸(116px)에 앉아서 라벨이 3열로 쪼개졌다
      (행 = 새 요 / 청 · 열 = / 이미 허가받). 한 줄을 다 쓰게 한다. */
   .app .act:has(.mx){flex-basis:100%}
+  /* 축(.ax)도 같다. 두 장이 한 줄에 앉으면 좌우 여백 22px(띠 라벨이 삐져나올 자리)을 빼고
+     축이 48px 밖에 안 남아 0‥60 을 거기에 그렸다 — 10·20·30 이 3.6px 씩 겹쳐 "1020" 으로
+     읽혔다(스윕 44건). 숫자를 줄이거나 숨기면 어느 눈금인지 모르게 되므로 폭을 준다. */
+  .app .act:has(.ax){flex-basis:100%}
+  /* 대기 그래프도 — 축 카드를 한 줄로 올리자 교착 장면에서 그래프 카드가 다른 카드와
+     한 줄을 나누게 되어 노드 글자 "롤백됨 (1213)" 이 잘렸다. 칸이 정해진 것은 전부 폭을 준다. */
+  .app .act:has(.gr){flex-basis:100%}
 
   .wrap > .rail{padding-left:0;gap:0;border-left:0}
   .wrap > .rail .rl-b,.wrap > .rail .steps{display:none}
