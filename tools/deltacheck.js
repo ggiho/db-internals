@@ -5,10 +5,10 @@ import path from 'path';
 import { pathToFileURL } from 'url';
 import { bake, stepsOf, valuesOf } from '../src/bake.js';
 import { delta, looks } from '../src/delta.js';
+import { DECKS as ALL } from '../src/decks.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-const DECKS = ['mysql/innodb', 'mysql/locks', 'postgres/mvcc', 'postgres/heap', 'postgres/locks',
-  'postgres/wal', 'aurora/mysql', 'book/ch2', 'book/ch3'];
+const DECKS = Object.keys(ALL);          /* src/decks.js 가 유일한 목록이다 */
 let steps = 0, withOps = 0, empty = [], leak = [], lines = 0, lookOnly = 0;
 for (const deck of DECKS) {
   const u = (f) => pathToFileURL(path.join(ROOT, 'data', deck, f)).href;

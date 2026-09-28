@@ -11,10 +11,10 @@ import fs from 'fs';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import { buildQuiz, dedupe, WATCH_ALL, WATCH_GROUPS } from '../src/play/quiz.js';
+import { DECKS as ALL_DECKS } from '../src/decks.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-const EVERY = ['mysql/innodb', 'mysql/locks', 'postgres/mvcc', 'postgres/heap', 'postgres/locks',
-  'postgres/wal', 'aurora/mysql', 'book/ch2', 'book/ch3'];
+const EVERY = Object.keys(ALL_DECKS);    /* src/decks.js 가 유일한 목록이다 */
 const DECKS = process.argv[2] ? [process.argv[2]] : EVERY;
 
 let bad = 0, total = 0;

@@ -166,7 +166,9 @@ const HEIGHT = {
 };
 const hOf = (w) => HEIGHT[w] || Math.round(w * 0.58);
 
-const DECKS = ARG.decks ? ARG.decks.split(',') : ['mysql/innodb', 'mysql/locks', 'postgres/mvcc', 'postgres/heap', 'postgres/locks', 'aurora/mysql', 'book/ch2', 'book/ch3'];
+/* 기본 목록은 src/decks.js 에서 읽는다. 여기에 목록을 따로 적어 두었을 때 postgres/wal 이
+   빠져 있었다 — 그 덱은 레이아웃 스윕을 한 번도 받지 않았다. */
+const DECKS = ARG.decks ? ARG.decks.split(',') : Object.keys((await import('../src/decks.js')).DECKS);
 const EVERY = Math.max(1, parseInt(ARG.every || '1', 10)); /* 1 = 모든 스텝 */
 const DO_SPLIT = ARG.split !== '0';
 const BREAK = ARG.break || '';
