@@ -94,8 +94,11 @@ function mask(text, values) {
 
 /* 1) 관계 : 이 장면과 이어지는 것은 무엇인가 (links) */
 function fromLinks(deck, SCENES, poolLinks) {
-  const out = [];
+  const out = [], asked = new Set();
   for (const sc of SCENES) for (const [num, desc] of (sc.links || [])) {
+    /* 비교 장면은 제목과 links 를 물려받는다 — 같은 문제가 두 번 나온다 */
+    if (asked.has(sc.title + '\n' + desc)) continue;
+    asked.add(sc.title + '\n' + desc);
     const id = `link:${deck}/${sc.num}→${num}`;
     const wrong = pick(poolLinks.filter((x) => x.from !== sc.num), { desc }, 3, id, (x) => x.desc)
       .map((x) => x.desc);
@@ -110,18 +113,53 @@ function fromLinks(deck, SCENES, poolLinks) {
   return out;
 }
 
-/* 2) 지표 : 이것을 서버에서 어떻게 보는가 (watch) */
+/* 2) 지표 : 이것을 서버에서 어떻게 보는가 (watch)
+
+   다른 장면의 지표가 늘 틀린 답은 아니다. 처음엔 187문항 중 94개에서 오답이 정답이기도
+   했다 — "더티 페이지 수의 추이" 의 오답에 SHOW ENGINE INNODB STATUS 가 있었는데 그 출력의
+   BUFFER POOL 절이 Modified db pages 를 보여 준다. 그래서 세 가지를 오답에서 뺀다.
+     · 무엇이든 보여 주는 도구 (ALL) — 정답일 수 있으므로 오답이 될 수 없다
+     · 같은 것을 다른 창으로 보는 지표끼리 (GROUPS) — INNODB_TRX 와 events_transactions_current
+     · 같은 장면이 다른 행에 적은 지표 — 같은 현상을 보는 창이다 */
+const ALL = new Set(['SHOW ENGINE INNODB STATUS', 'SHOW GLOBAL STATUS', '에러 로그', '서버 로그',
+  'AWS 문서', 'SIGMOD 2017·2018']);
+const GROUPS = [
+  ['I_S.INNODB_TRX', 'P_S.events_transactions_current', 'SHOW PROCESSLIST'],
+  ['P_S.data_locks', 'P_S.data_lock_waits', 'I_S.INNODB_TRX'],
+  ['P_S.metadata_locks', 'SHOW PROCESSLIST'],
+  ['I_S.INNODB_TABLESTATS', 'SHOW TABLE STATUS', 'I_S.INNODB_TABLESPACES', 'I_S.INNODB_TABLES'],
+  ['I_S.INNODB_INDEXES', 'I_S.INNODB_BUFFER_PAGE'],
+  ['hexdump -C  *.ibd', 'hexdump -C  *.ibd | head -3', 'hexdump -C  *.ibd | head', 'innochecksum'],
+  ['Innodb_buffer_pool_reads', 'Innodb_buffer_pool_read_requests', 'Innodb_data_reads', 'buffer pool 적중률'],
+  ['pg_locks', 'pg_blocking_pids()', 'pg_stat_activity', 'LOCK TABLE t IN … MODE'],
+  ['pageinspect', 'SELECT xmin, xmax, ctid FROM t', 'SELECT xmax FROM t', 'pg_visibility', 'pgstattuple',
+    'pg_freespacemap 확장'],
+  ['pg_stat_user_tables', 'pg_stat_progress_vacuum', 'VACUUM VERBOSE', 'pgstattuple'],
+  ['pg_database', 'SELECT age(relfrozenxid)', 'pg_class.reltoastrelid'],
+  ['pg_total_relation_size', 'pg_column_size(컬럼)', 'pg_class.reltoastrelid'],
+  ['SHOW block_size', 'pg_settings', 'pg_controldata'],
+  ['pg_stat_wal', 'pg_stat_bgwriter', 'SELECT * FROM pg_stat_bgwriter', 'pg_control_checkpoint()',
+    'pg_controldata', 'pg_waldump'],
+  ['AuroraReplicaLag', 'SHOW REPLICA STATUS'],
+];
+const overlaps = (a, b) => GROUPS.some((g) => g.includes(a) && g.includes(b));
+
 function fromWatch(deck, SCENES, poolWatch) {
-  const out = [];
+  const out = [], asked = new Set();
   for (const sc of SCENES) for (const [wi, [where, what]] of (sc.watch || []).entries()) {
     if (where === '—' || what === '—') continue;
+    /* 비교 장면(01 과 01v)은 지표 행을 그대로 물려받는다 — 같은 문제를 두 번 내지 않는다 */
+    if (asked.has(where + '\n' + what)) continue;
+    asked.add(where + '\n' + what);
     /* 설명이 지표 이름을 이미 말하면(pg_visibility_map() 으로 … → pg_visibility) 문서로는
        옳지만 문제로는 정답을 알려 준다. 데이터를 고치지 않고 문항에서만 뺀다. */
     if (what.includes(where)) continue;
     /* 한 장면이 같은 지표를 두 번 적는 것은 정당하다 — SHOW ENGINE INNODB STATUS 의
        다른 절을 보라는 뜻이다. 그래서 id 에 행 번호를 넣는다. 이름만으로는 겹친다. */
     const id = `watch:${deck}/${sc.num}#${wi}`;
-    const wrong = pick(poolWatch.filter((x) => x.from !== sc.num), { where }, 3, id, (x) => x.where)
+    const mine = new Set((sc.watch || []).map((w) => w[0]));
+    const ok = (x) => x.from !== sc.num && !mine.has(x.where) && !ALL.has(x.where) && !overlaps(x.where, where);
+    const wrong = pick(poolWatch.filter(ok), { where }, 3, id, (x) => x.where)
       .map((x) => x.where);
     if (wrong.length < 3) continue;
     out.push({ id, kind: 'watch', deck, at: `${deck}/${sc.num}/1`,
@@ -245,4 +283,15 @@ export function buildQuiz(deck, SCENES, CORE) {
   ];
 }
 
-export { hash, shuffle };
+/* 덱 사이의 중복 — 같은 상수가 mysql/innodb 와 book/ch3 에 둘 다 나오면 ALL 판에서 같은
+   문제를 두 번 만난다. 먼저 나온 것을 남긴다(덱 순서가 결정적이므로 결과도 결정적이다). */
+export function dedupe(qs) {
+  const seen = new Set();
+  return qs.filter((q) => {
+    const k = q.kind + '|' + q.q + '|' + JSON.stringify(q.answer) + '|' + (q.stem || '');
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  });
+}
+
+export { hash, shuffle, ALL as WATCH_ALL, GROUPS as WATCH_GROUPS };

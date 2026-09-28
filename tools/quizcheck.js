@@ -10,7 +10,7 @@
 import fs from 'fs';
 import path from 'path';
 import { pathToFileURL } from 'url';
-import { buildQuiz } from '../src/play/quiz.js';
+import { buildQuiz, dedupe, WATCH_ALL, WATCH_GROUPS } from '../src/play/quiz.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const DECKS = process.argv[2] ? [process.argv[2]]
@@ -75,6 +75,17 @@ for (const deck of DECKS) {
         err(q, `정답이 질문에 그대로 들어 있다 : "${qa.slice(0, 30)}"`);
     }
 
+    /* 지표 문항의 오답이 정답일 수도 있는가 — 같은 장면의 지표, 무엇이든 보는 도구,
+       같은 것을 보는 다른 창. 처음엔 187문항 중 94개가 여기에 걸렸다. */
+    if (q.kind === 'watch') {
+      const mine = new Set((scByNum.get(q.scene).watch || []).map((w) => w[0]));
+      for (const o of q.opts) if (o !== q.answer) {
+        if (mine.has(o)) err(q, `오답 "${o}" 을 같은 장면도 지표로 쓴다`);
+        if (WATCH_ALL.has(o)) err(q, `오답 "${o}" 은 무엇이든 보여 주는 도구다`);
+        if (WATCH_GROUPS.some((g) => g.includes(o) && g.includes(q.answer))) err(q, `오답 "${o}" 은 정답과 같은 것을 본다`);
+      }
+    }
+
     /* 핵심 문항은 오답을 사람이 쓴다 — 사람이 쓴 오답은 정답보다 짧고 뭉뚱그려지기
        쉽다. 정답만 유난히 길거나 짧으면 읽지 않고도 고를 수 있다. */
     if (q.kind === 'core') {
@@ -112,6 +123,35 @@ for (const [n, cnt] of Object.entries(posCount)) {
   });
   console.log(`── ${n}지선다 정답 위치 : ${cnt.join(' / ')}  (기대 ${exp.toFixed(0)})`);
 }
+/* 같은 문제가 두 번 나오는가 — 덱 안에서는 생성기가 막아야 하고(오류), 덱 사이는
+   Play 가 dedupe 로 거른다(개수만 보고한다). 비교 장면이 links 를 물려받아 같은 문제가
+   두 번 나오는 것을 처음엔 id 가 달라서 놓쳤다. */
+{
+  const pool = [], per = new Map();
+  for (const deck of DECKS) {
+    const { SCENES } = await import(pathToFileURL(path.join(ROOT, 'data', deck, 'scenes.js')).href);
+    const qf = path.join(ROOT, 'data', deck, 'quiz.js');
+    const { CORE } = fs.existsSync(qf) ? await import(pathToFileURL(qf).href) : {};
+    const qs = buildQuiz(deck, SCENES, CORE);
+    const d = qs.length - dedupe(qs).length;
+    if (d) { bad++; console.log(`  ! ${deck} 안에서 같은 문제가 ${d}개 겹친다`); }
+    pool.push(...qs);
+  }
+  const kept = dedupe(pool).length;
+  console.log(`── 덱 사이 중복 ${pool.length - kept} 거름 → 판에 나오는 문항 ${kept}`);
+}
+
+/* 규칙에 적은 지표 이름이 실제로 있는가 — 한 글자만 틀려도 규칙이 조용히 헛돈다 */
+{
+  const seen = new Set();
+  for (const deck of DECKS) {
+    const { SCENES } = await import(pathToFileURL(path.join(ROOT, 'data', deck, 'scenes.js')).href);
+    for (const sc of SCENES) for (const [w] of (sc.watch || [])) seen.add(w);
+  }
+  for (const n of [...WATCH_ALL, ...WATCH_GROUPS.flat()])
+    if (!seen.has(n)) { bad++; console.log(`  ! 지표 규칙의 "${n}" 이 어느 장면에도 없다`); }
+}
+
 /* 정답이 가장 긴 선택지인 비율 — 넷 중 하나이니 25% 근처여야 한다. 40% 를 넘으면
    "제일 긴 것" 이 전략이 된다. */
 if (coreN >= 20) {

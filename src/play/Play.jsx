@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DECKS } from '../decks.js';
-import { buildQuiz } from './quiz.js';
+import { buildQuiz, dedupe } from './quiz.js';
 import { load, save, record, pickRound, mastery } from './progress.js';
 import './play.css';
 
@@ -45,7 +45,7 @@ export default function Play() {
       const cf = CORE_FILES[file.replace(/scenes\.js$/, 'quiz.js')];
       const [m, c] = await Promise.all([loadFn(), cf ? cf() : {}]);
       return buildQuiz(deck, m.SCENES, c.CORE).map((q) => ({ ...q, g: DECKS[deck].g }));
-    })).then((all) => { if (live) setPool(all.flat()); });
+    })).then((all) => { if (live) setPool(dedupe(all.flat())); });
     return () => { live = false; };
   }, []);
 
