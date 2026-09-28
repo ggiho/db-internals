@@ -118,7 +118,7 @@ grep 해 확인한다(`tools/claimcheck.js`). 레이아웃은 14폭 × 5,800방�
 `data/*/*/booktext.js` 는 *Database Internals* 의 장 전문이다. 검증 도구가
 "덱의 인용이 실제 책에 있는지" 대조하는 데만 쓰고 앱과 배포물은 쓰지 않는다.
 공개 저장소에 두면 저작물 재배포가 되므로 제외했다. 만들려면 PDF 를 준비해
-`data/<덱>/booksrc.js` 에 위치를 적고 `node tools/book.js <덱>` 을 돌린다.
+`data/<덱>/booksrc.js` 에 위치를 적고 `node tools/book.js <묶음>/<덱>` 을 돌린다.
 
 `data/aurora/mysql/papertext.js` 는 같은 이유로 뺀 논문 원문이다(Verbitski et al.,
 SIGMOD 2017). quorum 수와 세그먼트 크기는 AWS 문서에 없어서 논문을 인용한다. PDF 는

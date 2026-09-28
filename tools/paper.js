@@ -1,7 +1,7 @@
 /* 논문 원문을 인용 대조용 말뭉치로 뽑는다 — tools/book.js 의 논문판이다.
    aurora 덱은 AWS 문서 문장(booktext.js)만으로는 quorum 수치를 적을 수 없었다. 그 값은
    SIGMOD 2017 논문에 있다. PDF 는 저장소 밖에 두고(재배포가 되므로) 위치는 papersrc.js 에
-   적는다 — deck.js 에 두면 로컬 경로가 번들에 실린다. 없으면 조용히 건너뛴다.
+   적는다 — deck.js 에 두면 로컬 경로가 번들에 실린다. 없으면 있던 것을 그대로 둔다.
 
      node tools/paper.js aurora/mysql
 
@@ -20,11 +20,8 @@ const dir = path.join(ROOT, 'data', deck);
 const out = path.join(dir, 'papertext.js');
 const src = path.join(dir, 'papersrc.js');
 
-const none = (why) => {
-  fs.writeFileSync(out, 'const PAPERTEXT = null;\n\nexport { PAPERTEXT };\n');
-  console.log('논문 원문: 없음 — ' + why);
-  process.exit(0);
-};
+/* 원문을 만들 수 없으면 있던 파일을 건드리지 않는다 — book.js 와 같은 규칙이다 */
+const none = (why) => { console.log('논문 원문: 만들지 않는다 — ' + why); process.exit(0); };
 if (!fs.existsSync(src)) none('papersrc.js 가 없다');
 const { PAPERS } = await import('file://' + src);
 
