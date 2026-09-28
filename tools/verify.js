@@ -295,6 +295,11 @@ for (const sc of SCENES) {
     if (step.note && step.why && overlap(step.note, step.why) >= .62)
       wrn(S + ' note 와 why 가 ' + Math.round(overlap(step.note, step.why) * 100) + '% 겹친다');
     if (step.ref && !step.sym) wrn(S + ' ref 는 있는데 sym 이 없다');
+    /* MongoDB 덱이 화면에 띄우는 발췌는 WiredTiger(GPLv2/v3) 코드만이다. 서버 코드
+       (src/mongo)는 SSPL 이라 성격이 달라서, 그쪽은 fact 로 대조만 하고 띄우지 않는다 —
+       extract.js 는 ref 와 다른 파일의 fact 를 발췌에 넣지 않는다. */
+    if (String(DECK).startsWith('mongodb/') && step.ref && !step.ref.startsWith('src/third_party/wiredtiger/'))
+      err(S + ' MongoDB 덱의 ref 는 WiredTiger 코드여야 한다(SSPL 코드는 fact 로만) — ' + step.ref);
 
     /* key 만 dangerouslySetInnerHTML 로 그려진다 — 나머지는 평문이다.
        실측 : why 에 든 <em> 이 캡션에 태그 그대로 노출됐다(ch2 05/1 · locks 02/3). */

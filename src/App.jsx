@@ -337,6 +337,8 @@ export default function App() {
         <span className="cred">
           {deckName.startsWith('postgres/')
             ? <>소스 발췌 <b>PostgreSQL 18.6</b> (PostgreSQL License)</>
+            : deckName.startsWith('mongodb/')
+            ? <>소스 발췌 <b>WiredTiger 11.3</b> (GPLv2/v3) — MongoDB 8.0.32 에 들어 있는 판 · 대조 <b>MongoDB Server</b> (SSPL)</>
             : <>소스 발췌 <b>MySQL 8.4.8 Community</b> (GPLv2)</>}
           {deckName.startsWith('aurora/') && <> · 인용 <b>AWS Aurora User Guide</b> (docs.aws.amazon.com) · <b>Verbitski et al.</b> (SIGMOD 2017)</>}
           {deckName.startsWith('book/') && <> · 인용 <b>Database Internals</b> — Alex Petrov (O&apos;Reilly)</>}

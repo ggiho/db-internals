@@ -41,11 +41,13 @@ const cache = new Map();
 /* PG 덱은 InnoDB 상수를 대조로 인용한다(예 : "InnoDB 의 FIL_PAGE_DATA = 38 은
    리터럴이다"). 그래서 자기 트리만 뒤지면 그 주장이 "정의 못 찾음" 으로 빠진다 —
    두 트리를 모두 본다. 상대 엔진 트리가 없으면 그 경로는 조용히 빠진다. */
-const OTHER = srcRoot(String(DECK).split('/')[0] === 'postgres' ? 'mysql/x' : 'postgres/x', ROOT);
-const SELF = (String(DECK).split('/')[0] === 'postgres'
-  ? [REPO + '/src']
+/* MongoDB 덱도 InnoDB 와 대조한다 — 상대 트리는 MySQL 이다. */
+const G = String(DECK).split('/')[0];
+const OTHER = srcRoot(G === 'mysql' || G === 'book' || G === 'aurora' ? 'postgres/x' : 'mysql/x', ROOT);
+const SELF = (G === 'postgres' ? [REPO + '/src']
+  : G === 'mongodb' ? [REPO + '/src/third_party/wiredtiger/src', REPO + '/src/mongo/db/storage', REPO + '/src/mongo/db/repl']
   : [REPO + '/storage/innobase', REPO + '/sql', REPO + '/include']).filter((d) => fs.existsSync(d));
-const CROSS = (String(DECK).split('/')[0] === 'postgres'
+const CROSS = (G === 'postgres' || G === 'mongodb'
   ? [OTHER + '/storage/innobase', OTHER + '/include']
   : [OTHER + '/src']).filter((d) => fs.existsSync(d));
 /* 자기 트리를 먼저 보고, 못 찾을 때만 상대 트리를 본다 — 둘을 항상 뒤지면

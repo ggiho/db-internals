@@ -5,7 +5,7 @@
 
 **https://db-internals.pages.dev**
 
-지금은 MySQL(InnoDB·락), PostgreSQL(MVCC·힙·락·WAL), Aurora, 그리고
+지금은 MySQL(InnoDB·락), PostgreSQL(MVCC·힙·락·WAL), Aurora, MongoDB(WiredTiger), 그리고
 *Database Internals* 2·3장 대조를 담고 있다. 주소와 디렉터리가 엔진 계층을 가지므로
 엔진을 늘려도 도구와 검사가 그대로 붙는다.
 
@@ -84,12 +84,23 @@ grep 해 확인한다(`tools/claimcheck.js`). 레이아웃은 14폭 × 5,800방�
 ## 검사
 
 소스 트리는 도구가 스스로 찾는다 — 형제 디렉터리, 그다음 `~/src/github.com/…` 순서로
-표식 파일을 확인한다. `MYSQL_SRC` · `PG_SRC` 로 덮어쓸 수 있다. 대조하는 버전은
-`tools/srcroot.js` 에 적혀 있다.
+표식 파일을 확인한다. `MYSQL_SRC` · `PG_SRC` · `MONGO_SRC` 로 덮어쓸 수 있다. 대조하는
+버전은 `tools/srcroot.js` 에 적혀 있다.
 
     MySQL       8.4.8
     PostgreSQL  18.6       git clone --depth 1 --filter=blob:none \
                              --branch REL_18_STABLE https://github.com/postgres/postgres.git
+    MongoDB     8.0.32     git clone --depth 1 --filter=blob:none --sparse \
+                             --branch r8.0.32 https://github.com/mongodb/mongo.git
+                           git sparse-checkout set src/third_party/wiredtiger/src \
+                             src/mongo/db/storage src/mongo/db/repl
+
+MongoDB 덱이 화면에 띄우는 발췌는 WiredTiger(GPLv2/v3) 코드뿐이다. 그 위의 MongoDB
+서버 코드는 SSPL 이라 성격이 달라서 `fact` 로 대조만 하고 띄우지 않는다 — verify 가
+`src/third_party/wiredtiger/` 밖을 가리키는 ref 를 오류로 막는다.
+
+덱 목록은 `src/decks.js` 한 곳에 있고 도구는 모두 거기서 읽는다. 도구마다 목록을 따로
+적었을 때 레이아웃 스윕의 기본 목록에서만 `postgres/wal` 이 빠져 있었다.
 
 소스가 없으면 `verify.js` 는 "파일을 못 읽었다" 만 낸다 — 그것은 통과가 아니라 미검증이다.
 실제로 PostgreSQL 트리가 사라져 있는 동안 인용 오류 한 건이 가려져 있었다.
@@ -129,5 +140,7 @@ verify 는 논문에만 있는 구절을 인용한 스텝이 글에서 논문을
 
 ## 출처
 
-- 소스 발췌 : MySQL 8.4.8 Community (GPLv2) · PostgreSQL 18.6 (PostgreSQL License)
+- 소스 발췌 : MySQL 8.4.8 Community (GPLv2) · PostgreSQL 18.6 (PostgreSQL License) ·
+  WiredTiger 11.3 (GPLv2/v3, MongoDB 8.0.32 에 들어 있는 판)
+- 대조만 하는 소스 : MongoDB Server 8.0.32 (SSPL)
 - 인용 : *Database Internals* — Alex Petrov (O'Reilly)

@@ -21,12 +21,17 @@ import fs from 'fs';
      MySQL      8.4.8      ~/src/github.com/mysql/mysql-server
      PostgreSQL 18.6     (REL_18_STABLE) 얕은 클론으로 충분하다 :
        git clone --depth 1 --filter=blob:none --branch REL_18_STABLE \
-         https://github.com/postgres/postgres.git */
+         https://github.com/postgres/postgres.git
+     MongoDB    8.0.32   (WiredTiger 11.3.0) 저장소가 커서 필요한 디렉터리만 푼다 :
+       git clone --depth 1 --filter=blob:none --sparse --branch r8.0.32 \
+         https://github.com/mongodb/mongo.git
+       git sparse-checkout set src/third_party/wiredtiger/src src/mongo/db/storage src/mongo/db/repl */
 
 /* 그 트리인지 확인하는 표식 — 빈 디렉터리를 붙잡지 않도록. */
 const MARK = {
   mysql: 'storage/innobase/trx/trx0trx.cc',
   postgres: 'src/include/access/htup_details.h',
+  mongodb: 'src/third_party/wiredtiger/src/include/txn.h',
 };
 
 function pick(kind, env, cands) {
@@ -44,6 +49,12 @@ export function srcRoot(deck, ROOT) {
     return pick('postgres', process.env.PG_SRC, [
       path.resolve(ROOT, '..', '..', 'PostgreSQL', 'postgres'),
       path.join(home, 'src', 'github.com', 'postgres', 'postgres'),
+    ]);
+  }
+  if (g === 'mongodb') {
+    return pick('mongodb', process.env.MONGO_SRC, [
+      path.resolve(ROOT, '..', '..', 'mongodb', 'mongo'),
+      path.join(home, 'src', 'github.com', 'mongodb', 'mongo'),
     ]);
   }
   /* mysql/* · book/* · aurora/* · 그 밖 — aurora 는 닫힌 소스라 대조할 코드가 없다.

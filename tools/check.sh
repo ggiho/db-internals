@@ -7,11 +7,13 @@ FAIL=0
 # 덱이 화면에 띄우는 버전과 실제 대조 트리의 버전이 같은지 먼저 본다 —
 # 이것이 없어서 18.6 이라고 적는 덱을 17.11 로 대조한 적이 있다.
 node tools/srcver.js || FAIL=1
-for d in mysql/innodb mysql/locks postgres/mvcc postgres/heap postgres/locks postgres/wal aurora/mysql book/ch2 book/ch3; do
+# 덱 목록은 src/decks.js 에서 읽는다 — 도구마다 목록을 적었더니 서로 어긋났다
+DECKS=$(node -e "import('./src/decks.js').then(m => console.log(Object.keys(m.DECKS).join(' ')))")
+for d in $DECKS; do
   printf '── %s\n' "$d"
   node tools/verify.js     "$d" || FAIL=1
-  # mxcheck 는 InnoDB 주석의 ASCII 표를 읽는다 — PG 덱에는 그 파일이 없다
-  case "$d" in postgres/*) : ;; *) node tools/mxcheck.js "$d" || FAIL=1 ;; esac
+  # mxcheck 는 InnoDB 주석의 ASCII 표를 읽는다 — PG · MongoDB 덱에는 그 파일이 없다
+  case "$d" in postgres/*|mongodb/*) : ;; *) node tools/mxcheck.js "$d" || FAIL=1 ;; esac
   # PG 는 충돌 표가 비트마스크 배열이라 형식이 달라 별도 도구다
   case "$d" in postgres/*) node tools/pgmx.js "$d" || FAIL=1 ;; esac
   node tools/claimcheck.js "$d" || FAIL=1

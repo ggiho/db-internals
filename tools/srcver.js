@@ -5,11 +5,14 @@
    대조가 통과하는 것은 "버전이 맞다" 가 아니다. 버전은 따로 확인해야 한다. */
 import fs from 'fs';
 import path from 'path';
+import { execFileSync } from 'child_process';
 import { srcRoot } from './srcroot.js';
+import { DECKS as ALL } from '../src/decks.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-const DECKS = ['mysql/innodb', 'mysql/locks', 'postgres/mvcc', 'postgres/heap',
-  'postgres/locks', 'postgres/wal', 'aurora/mysql', 'book/ch2', 'book/ch3'];
+/* 덱 목록은 src/decks.js 한 곳에서 읽는다 — 도구마다 목록을 적었더니 sweep 의 기본
+   목록에서만 postgres/wal 이 빠져 있었고, 레이아웃 스윕이 그 덱을 한 번도 안 봤다. */
+const DECKS = Object.keys(ALL);
 
 /* 트리에서 버전을 읽는다 — 엔진마다 적어 두는 자리가 다르다. */
 function treeVer(kind, root) {
@@ -18,6 +21,13 @@ function treeVer(kind, root) {
       const v = fs.readFileSync(path.join(root, 'MYSQL_VERSION'), 'utf8');
       const g = (k) => (v.match(new RegExp(k + '=(\\d+)')) || [])[1];
       return g('MYSQL_VERSION_MAJOR') + '.' + g('MYSQL_VERSION_MINOR') + '.' + g('MYSQL_VERSION_PATCH');
+    }
+    /* MongoDB 트리에는 버전을 적은 파일이 없다 — 빌드가 git 태그(r8.0.32)에서 읽는다.
+       그래서 태그를 본다. 태그가 없는 커밋이면 null(읽지 못함)이 된다. */
+    if (kind === 'mongodb') {
+      const t = execFileSync('git', ['-C', root, 'describe', '--tags', '--exact-match'],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      return t.replace(/^r/, '');
     }
     const c = fs.readFileSync(path.join(root, 'configure.ac'), 'utf8');
     return (c.match(/AC_INIT\(\[PostgreSQL\],\s*\[([\d.]+)\]/) || [])[1] || '?';
@@ -31,7 +41,7 @@ for (const deck of DECKS) {
   /* brand 에 버전이 없는 덱(책·Aurora)은 대조할 대상이 없다 — 건너뛴다. */
   const want = (brand.match(/(\d+\.\d+(?:\.\d+)?)/) || [])[1];
   if (!want) { console.log('  ' + deck.padEnd(15) + ' brand "' + brand + '" — 버전 없음 · 건너뜀'); continue; }
-  const kind = deck.startsWith('postgres') ? 'postgres' : 'mysql';
+  const kind = deck.startsWith('postgres') ? 'postgres' : deck.startsWith('mongodb') ? 'mongodb' : 'mysql';
   const root = srcRoot(deck, ROOT);
   const got = treeVer(kind, root);
   n++;
