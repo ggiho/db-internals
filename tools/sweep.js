@@ -451,6 +451,8 @@ const MEASURE = (CFG) => {
     stageOver: sw ? Math.max(0, sw.scrollHeight - sw.clientHeight) : 0,
     emptyBelowCap: appCb && cap ? +(appCb.b - cap.getBoundingClientRect().bottom).toFixed(1) : 0,
     dlH: dl && visible(dl) ? +dl.getBoundingClientRect().height.toFixed(1) : 0,
+    /* 무대 아래 발췌 — 남는 자리가 있을 때만 뜬다. 뜬 스텝 수를 센다 */
+    srcH: (() => { const e = document.querySelector('.srci'); return e && visible(e) ? +e.getBoundingClientRect().height.toFixed(1) : 0; })(),
     /* 무대의 문서 기준 위치 — 한 장면 안에서 달라지면 스텝을 넘길 때 무대가 튄다 */
     stageTop: sw ? +(sw.getBoundingClientRect().top + scrollY).toFixed(1) : 0,
     acts: document.querySelectorAll('.act').length,
@@ -466,7 +468,8 @@ const CFG_BASE = {
      .play .track 은 넣지 않는다 : 손잡이(.knob)가 margin-left:-6.5px 로 일부러 걸쳐 있다. */
   containers: ['.app', '.wrap', '.mid', '.stage-wrap', '.scol', '.scol-hd', '.stage', '.lane', '.row',
     '.act', '.a-bd', '.by', '.by-c', '.mx', '.mx table', '.cap', '.cap-l', '.cap-r', '.list',
-    '.kv-wrap', '.head', '.top', '.tabs', '.play', '.foot', '.rail', '.rl', '.delta', '.dl-bd', '.dl-row'],
+    '.kv-wrap', '.head', '.top', '.tabs', '.play', '.foot', '.rail', '.rl', '.delta', '.dl-bd', '.dl-row',
+    '.band', '.srci', '.srci-hd'],
   /* 축·그래프·트리(.ax/.gr/.tr)는 컨테이너로 재지 않는다 — 라벨을 자르면 어느 구간인지
      알 수 없으므로 삐져나올 자리를 스스로 margin/padding 으로 남긴다(Axis.jsx 의 주석).
      실측 : 1512px 에서 .ax-sp 가 패딩 상자를 좌 11px · 우 13px 넘지만 .ax{margin:0 22px}
@@ -639,7 +642,7 @@ async function main() {
     const acc = {
       w, h, zoom, visits: 0, splitVisits: 0, confirmed: 0, mismatch: 0, el: 0, cells: 0, ranges: 0,
       labelPairs: 0, containers: 0, problems: 0, byCheck: {}, worstEmpty: 0, emptySum: 0,
-      maxStageOver: 0, dlShown: 0, acts: 0, settleCap: 0, settleMax: 0, transient: 0,
+      maxStageOver: 0, dlShown: 0, srcShown: 0, acts: 0, settleCap: 0, settleMax: 0, transient: 0,
     };
 
     /* 해시 이동이 아직 끝나지 않았는데 평가가 들어가면 "Execution context was destroyed"
@@ -693,6 +696,7 @@ async function main() {
       acc.worstEmpty = Math.max(acc.worstEmpty, r.metrics.emptyBelowCap);
       acc.maxStageOver = Math.max(acc.maxStageOver, r.metrics.stageOver);
       if (r.metrics.dlH > 0) acc.dlShown++;
+      if (r.metrics.srcH > 0) acc.srcShown++;
       for (const pr of r.problems) {
         acc.problems++;
         acc.byCheck[pr.check] = (acc.byCheck[pr.check] || 0) + 1;
@@ -776,7 +780,7 @@ async function main() {
       + ` (확인 ${acc.confirmed}${acc.mismatch ? ` · 불일치 ${acc.mismatch}` : ''}${acc.varyVisits ? ` · 값 ${acc.varyVisits}` : ''})`
       + `  상자 ${acc.containers} · 요소 ${acc.el} · 칸 ${acc.cells} · 줄조각 ${acc.ranges} · 라벨쌍 ${acc.labelPairs}`
       + `  → 문제 ${acc.problems}${acc.problems ? '  ' + JSON.stringify(acc.byCheck) : ''}`
-      + `   [무대초과 ${acc.maxStageOver} · 바꾼것보임 ${acc.dlShown}/${n}`
+      + `   [무대초과 ${acc.maxStageOver} · 바꾼것보임 ${acc.dlShown}/${n} · 발췌보임 ${acc.srcShown}/${n}`
       + ` · 캡션아래 평균 ${acc.avgEmpty} 최대 ${acc.worstEmpty}`
       + ` · 정착 최대 ${acc.settleMax}프레임${acc.settleCap ? " · 상한초과 " + acc.settleCap + "회 ⚠" : ""}`
       + (acc.transient ? ` · 재측정에서 사라진 것 ${acc.transient}건` : '') + `]`);

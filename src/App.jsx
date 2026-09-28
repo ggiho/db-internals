@@ -294,7 +294,8 @@ export default function App() {
             ))}
           </div>
           {!on && <Delta scene={scene} frames={frames} i={i} ACTORS={deck.ACTORS} steps={vSteps}
-            onSeek={(k) => { setPlaying(false); seek(k); }} />}
+            onSeek={(k) => { setPlaying(false); seek(k); }}
+            deck={deck} at={at} hasSrc={hasSrc} onOpenSrc={() => { setPlaying(false); openSrc(); }} />}
         </div>
         {/* 비교 모드에서는 두 열이 이미 빽빽하다 — 레일을 접는다 */}
         {!on && (

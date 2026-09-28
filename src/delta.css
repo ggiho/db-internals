@@ -27,3 +27,23 @@
 .dl-nb button:hover span{color:var(--ink)}
 
 @media (max-width:1080px){ .dl-bd{overflow:visible} }
+
+/* 바꾼 것 + 발췌 — 높이는 Delta.jsx 가 남는 높이로 준다. 바꾼 것은 내용만큼, 발췌는 나머지 */
+.band{flex:none;min-height:0;display:flex;flex-direction:column;gap:12px}
+.band > .delta{flex:none}
+.band > .srci{flex:1 1 0}
+.srci{min-width:0;min-height:0;display:flex;flex-direction:column;border-top:1px solid var(--line)}
+.srci-hd{flex:none;display:flex;align-items:baseline;gap:10px;min-width:0;padding:9px 0 6px;
+  background:none;border:0;cursor:pointer;text-align:left}
+.srci-hd .f{font:400 9.5px var(--mono);color:var(--accent);min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.srci-hd .s{font:500 10px var(--mono);color:var(--ink);flex:none}
+.srci-hd i{margin-left:auto;flex:none;font:400 8.5px var(--mono);letter-spacing:.14em;font-style:normal;color:var(--faint)}
+.srci-hd:hover i{color:var(--ink)}
+.srci-cd{flex:1 1 auto;min-height:0;overflow:auto;font:400 11px/18px var(--mono);white-space:pre;
+  tab-size:2;scrollbar-width:thin;background:color-mix(in srgb, var(--line) 18%, transparent)}
+.srci-cd .ln{display:block;padding-right:14px}
+.srci-cd .ln i{display:inline-block;width:48px;padding-right:12px;text-align:right;
+  color:var(--dim2);font-style:normal;user-select:none}
+.srci-cd .ln.hit{box-shadow:inset 2px 0 0 var(--accent)}
+.srci-cd .ln.hit i{color:var(--accent)}
