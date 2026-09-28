@@ -17,13 +17,25 @@ function hash(s) {
   return h >>> 0;
 }
 
-/* id 를 씨앗으로 쓰는 결정적 섞기 (Fisher-Yates) */
+/* id 를 씨앗으로 쓰는 결정적 섞기 (Fisher-Yates).
+   처음엔 선형 합동 생성기의 값을 % (i+1) 로 썼다 — 2^32 모듈러 LCG 의 하위 비트는 주기가
+   짧아서(최하위 2비트는 주기 4) 4지선다 정답이 첫 칸에 36% 몰렸다. "항상 1번" 으로
+   36% 를 맞히는 게임이 될 뻔했다. mulberry32 를 쓰고 [0,1) 로 바꿔 상위 비트로 고른다. */
+function rng(seed) {
+  let a = hash(seed);
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 function shuffle(arr, seed) {
   const a = arr.slice();
-  let s = hash(seed);
+  const r = rng(seed);
   for (let i = a.length - 1; i > 0; i--) {
-    s = (Math.imul(s, 1103515245) + 12345) >>> 0;
-    const j = s % (i + 1);
+    const j = Math.floor(r() * (i + 1));
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
@@ -44,6 +56,32 @@ function pick(pool, correct, n, seed, key = (x) => x) {
   return out;
 }
 const norm = (s) => String(s).replace(/\s+/g, ' ').trim();
+/* key 는 <em> 이 섞인 HTML 이다. 문항은 글자로만 보여 준다(dangerouslySetInnerHTML 을
+   게임 화면까지 넓히지 않는다). */
+const plain = (s) => String(s).replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+
+/* stem 에서 선택지 값을 가린다. 결과(key)를 보여 주고 값을 묻는데, key 가 그 값을
+   말하는 경우가 14개 중 5개였다 — 그대로("0 은 가장 짧은…"), 대소문자만 다르게
+   ("REDUNDANT 레코드는"), 앞부분만("strict 는 거부하지"), 약자로("RC 는 팬텀을").
+   정답만 가리면 남은 오답 값으로 소거가 되므로 선택지 전부를 가린다. */
+const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function mask(text, values) {
+  let t = text;
+  for (const v of values) {
+    const forms = new Set([v]);
+    const parts = v.split(/[-_]/).filter(Boolean);
+    if (parts.length > 1) {
+      if (parts[0].length >= 4) forms.add(parts[0]);                       // strict · READ · DETECT
+      forms.add(parts.map((p) => p[0]).join('').toUpperCase());             // RC · RR
+    }
+    for (const f of [...forms].sort((a, b) => b.length - a.length)) {
+      /* 영숫자·밑줄에 붙어 있으면 다른 낱말의 일부다 — 10 안의 0 을 가리지 않는다 */
+      const rx = new RegExp('(^|[^A-Za-z0-9_])' + esc(f) + '(?![A-Za-z0-9_])', f.length <= 2 ? 'g' : 'gi');
+      t = t.replace(rx, '$1□');
+    }
+  }
+  return t;
+}
 
 /* ── 문항 만들기 ───────────────────────────────────────────────────────────
    각 문항은 { id, kind, deck, at, q, opts[], answer, why, ref, sym } 다.
@@ -60,7 +98,9 @@ function fromLinks(deck, SCENES, poolLinks) {
     out.push({ id, kind: 'link', deck, at: `${deck}/${sc.num}/1`,
       q: `「${sc.title}」 장면이 다른 장면과 이어지는 이유로 맞는 것은?`,
       opts: shuffle([desc, ...wrong], id + '#o'), answer: desc,
-      why: `${sc.num} 장면은 ${num} 장면과 이 관계로 이어진다.`, scene: sc.num });
+      /* 상대 장면의 제목을 적는다 — 번호만으로는 무엇과 이어지는지 알 수 없다 */
+      why: `${sc.num} 「${sc.title}」 → ${num} 「${(SCENES.find((x) => x.num === num) || {}).title || '?'}」`,
+      at2: `${deck}/${num}/1`, scene: sc.num });
   }
   return out;
 }
@@ -70,6 +110,9 @@ function fromWatch(deck, SCENES, poolWatch) {
   const out = [];
   for (const sc of SCENES) for (const [wi, [where, what]] of (sc.watch || []).entries()) {
     if (where === '—' || what === '—') continue;
+    /* 설명이 지표 이름을 이미 말하면(pg_visibility_map() 으로 … → pg_visibility) 문서로는
+       옳지만 문제로는 정답을 알려 준다. 데이터를 고치지 않고 문항에서만 뺀다. */
+    if (what.includes(where)) continue;
     /* 한 장면이 같은 지표를 두 번 적는 것은 정당하다 — SHOW ENGINE INNODB STATUS 의
        다른 절을 보라는 뜻이다. 그래서 id 에 행 번호를 넣는다. 이름만으로는 겹친다. */
     const id = `watch:${deck}/${sc.num}#${wi}`;
@@ -148,10 +191,14 @@ function fromVary(deck, SCENES) {
       const id = `vary:${deck}/${sc.num}/${v}`;
       const others = Object.keys(alt).filter((x) => x !== v).concat([base]);
       if (others.length < 1) continue;
+      /* 처음엔 "knob 를 v 로 두면?" 이라고 묻고 정답이 v 였다 — 질문이 답을 말한다.
+         방향을 뒤집는다 : 그 값에서 일어나는 일(key)을 보여 주고, 어느 값인지 묻는다.
+         기본값도 선택지에 넣는다 — "아무것도 안 바꿨다" 는 답이 있어야 헷갈린다. */
       out.push({ id, kind: 'vary', deck, at: `${deck}/${sc.num}/${Object.keys(steps)[0]}/v${v}`,
-        q: `「${sc.title}」 에서 ${knob} 를 ${v} 로 두면?`,
+        q: `「${sc.title}」 — 이렇게 되는 ${knob} 값은?`,
+        stem: mask(plain(first.key), [v, ...others]),
         opts: shuffle([v, ...others], id + '#o'), answer: v,
-        _keyText: first.key, why: String(first.why || ''), scene: sc.num, knob });
+        why: plain(first.why || ''), scene: sc.num, knob });
     }
   }
   return out;

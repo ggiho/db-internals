@@ -16,4 +16,9 @@ for d in mysql/innodb mysql/locks postgres/mvcc postgres/heap postgres/locks pos
   case "$d" in postgres/*) node tools/pgmx.js "$d" || FAIL=1 ;; esac
   node tools/claimcheck.js "$d" || FAIL=1
 done
+# 게임 문항과 복습 상태 — 덱 데이터에서 만들어지므로 덱이 바뀌면 함께 깨질 수 있다
+printf '── play\n'
+# | tail 로 줄이면 종료 코드가 tail 의 것이 되어 실패가 사라진다 — 먼저 받고 나서 줄인다
+out=$(node tools/quizcheck.js) || FAIL=1; printf '%s\n' "$out" | tail -3
+out=$(node tools/progcheck.js) || FAIL=1; printf '%s\n' "$out" | tail -1
 [ "$FAIL" = 0 ] && echo "── 전부 통과" || { echo "── 실패 있음"; exit 1; }

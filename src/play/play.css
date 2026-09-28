@@ -1,0 +1,80 @@
+/* 게임 화면 — 무대와 같은 토큰을 쓴다. 휴대폰 한 손 조작이 기준이다 :
+   선택지는 세로로 쌓고 터치 영역을 44px 이상으로 둔다. 폭은 읽기 좋은 720px 에서 멈춘다. */
+.pl{max-width:720px;margin:0 auto;padding:16px 16px 48px;min-height:100vh;
+  display:flex;flex-direction:column;gap:14px;box-sizing:border-box}
+.pl-top{display:flex;align-items:baseline;gap:10px}
+.pl-top b{font:500 11px var(--mono);letter-spacing:.22em;color:var(--ink)}
+.pl-top span{font:400 10px var(--mono);letter-spacing:.22em;color:var(--gold)}
+.pl-top a{margin-left:auto;font:400 10px var(--mono);letter-spacing:.14em;color:var(--mid);text-decoration:none}
+.pl-top a:hover{color:var(--ink)}
+
+.pl-bar{display:flex;gap:3px}
+.pl-bar i{flex:1;height:3px;background:var(--line);border-radius:1px}
+.pl-bar i.now{background:var(--accent)}
+.pl-bar i.ok{background:var(--green)}
+.pl-bar i.no{background:var(--red)}
+
+.pl-meta{margin:0;display:flex;flex-wrap:wrap;gap:4px 12px;
+  font:400 9.5px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
+.pl-q{margin:0;font:500 19px/1.5 var(--sans);color:var(--ink);overflow-wrap:anywhere}
+.pl-lead{margin:0;font:400 13.5px/1.75 var(--sans);color:var(--body)}
+.pl-stem{margin:0;padding:10px 13px;border-left:2px solid var(--gold);background:var(--panel);
+  font:400 14px/1.75 var(--sans);color:var(--body)}
+
+/* 선택지 */
+.pl-opts,.pl-seq,.pl-right,.pl-miss{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.pl-opts button,.pl-seq button{width:100%;min-height:46px;box-sizing:border-box;text-align:left;
+  display:flex;gap:11px;align-items:baseline;padding:12px 14px;
+  border:1px solid var(--line);background:var(--panel);color:var(--body);
+  font:400 14px/1.6 var(--sans);cursor:pointer;overflow-wrap:anywhere;
+  transition:border-color .15s,background .15s,opacity .15s}
+.pl-opts.mono button span{font-family:var(--mono);font-size:13px}
+.pl-opts button i,.pl-seq button i,.pl-slot i,.pl-right i{font:400 10px var(--mono);color:var(--faint);
+  font-style:normal;flex:none;min-width:12px}
+.pl-opts button:hover:not(:disabled),.pl-seq button:hover:not(:disabled){border-color:var(--accent)}
+.pl-opts button:disabled,.pl-seq button:disabled{cursor:default}
+.pl-opts button.ok,.pl-seq button.ok{border-color:var(--green);
+  background:color-mix(in srgb, var(--green) 12%, var(--panel));color:var(--ink)}
+.pl-opts button.no,.pl-seq button.no{border-color:var(--red);
+  background:color-mix(in srgb, var(--red) 12%, var(--panel))}
+.pl-opts button.dim{opacity:.45}
+
+/* 순서 : 빈 자리는 점선으로 — 몇 개 남았는지 보인다 */
+.pl-slot{min-height:46px;box-sizing:border-box;display:flex;align-items:center;padding:0 14px;
+  border:1px dashed var(--line)}
+.pl-right{padding:10px 13px;border-left:2px solid var(--green);gap:6px}
+.pl-right li{display:flex;gap:11px;font:400 13px/1.6 var(--sans);color:var(--body)}
+
+/* 결과 */
+.pl-fb{display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid var(--line);background:var(--panel)}
+.pl-fb b{font:500 11px var(--mono);letter-spacing:.2em}
+.pl-fb.ok b{color:var(--green)} .pl-fb.no b{color:var(--red)}
+.pl-fb p{margin:0;font:400 13.5px/1.75 var(--sans);color:var(--body)}
+.pl-fb code{font:400 11px/1.6 var(--mono);color:var(--mid);overflow-wrap:anywhere}
+.pl-fb a,.pl-miss a{font:400 12px var(--mono);letter-spacing:.06em;color:var(--accent);text-decoration:none}
+.pl-fb a:hover,.pl-miss a:hover{text-decoration:underline}
+
+.pl-next{min-height:48px;border:1px solid var(--accent);background:var(--accent);color:var(--bg);
+  font:500 12px var(--mono);letter-spacing:.18em;cursor:pointer}
+.pl-next:hover{filter:brightness(1.08)}
+
+/* 로비 · 결과 */
+.pl-grp{display:flex;flex-wrap:wrap;gap:6px}
+.pl-grp button{min-height:36px;padding:0 12px;border:1px solid var(--line);background:none;color:var(--mid);
+  font:400 10px var(--mono);letter-spacing:.16em;cursor:pointer}
+.pl-grp button.on{border-color:var(--accent);color:var(--ink)}
+.pl-stat{margin:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.pl-stat div{padding:10px 12px;border:1px solid var(--line);background:var(--panel)}
+.pl-stat dt{font:400 9px var(--mono);letter-spacing:.16em;color:var(--faint)}
+.pl-stat dd{margin:4px 0 0;font:500 20px var(--mono);color:var(--ink)}
+.pl-miss a{display:flex;gap:10px;line-height:1.55;color:var(--body);font-family:var(--sans);font-size:13px}
+.pl-miss a i{font:400 9.5px var(--mono);letter-spacing:.12em;color:var(--red);font-style:normal;flex:none}
+
+/* 무대 머리글의 입구 — 테마 버튼과 한 쌍(.top-r)으로 오른쪽에 붙는다 */
+.top-r{margin-left:auto;display:flex;align-items:center;gap:8px;flex:none}
+.top-r .thm{margin-left:0}
+/* 테마 버튼(.thm)과 같은 상자로 맞춘다 — 처음엔 조금 커서 머리글이 모든 폭에서 3px 자랐다.
+   1100 이상은 한 화면 예산이라 3px 도 무대를 민다. */
+.go-play{font:400 8.5px var(--mono);letter-spacing:.18em;color:var(--gold);text-decoration:none;
+  border:1px solid var(--gold);padding:2px 7px}
+.go-play:hover{background:color-mix(in srgb, var(--gold) 14%, transparent)}
