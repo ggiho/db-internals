@@ -4,6 +4,7 @@
 import fs from 'fs';
 import path from 'path';
 import { srcRoot } from './srcroot.js';
+import { valuesOf } from '../src/bake.js';
 
 /* 데이터 로딩 — eval 이 아니라 import() 다. 데이터 파일이 export 를 갖게 되면서
    기존 eval 로더(^const → globalThis)는 export 문에서 깨진다. */
@@ -261,6 +262,16 @@ for (const sc of SCENES) {
   /* 값마다 한 번씩 재생한다 — 변형 스텝의 ops 도 그 시점 상태에 대해 유효해야 하고,
      fact·cite 도 대조돼야 한다. 기본값만 검사하면 변형이 검증 밖에 놓인다
      (비교 모드가 오래 스윕 밖에 있었던 것과 같은 실수가 된다). */
+  /* 손잡이 패널이 그리는 값 목록(valuesOf)에 기본값과 모든 대체값이 있어야 한다.
+     order 를 쓴 손잡이 넷에서 기본값 버튼이 사라진 채로 배포된 적이 있다 — 레이아웃은
+     스윕했지만 버튼 목록이 맞는지는 아무것도 보지 않았다. */
+  if (sc.vary) {
+    const shown = valuesOf(sc);
+    const want = [String(sc.vary.base), ...Object.keys(sc.vary.alt || {})];
+    for (const w of want) if (!shown.includes(w)) err(`SCENE ${sc.num} 손잡이 ${sc.vary.knob} 의 값 ${w} 가 패널에 없다`);
+    if (sc.vary.order) for (const o of sc.vary.order)
+      if (!(String(o) in (sc.vary.alt || {}))) err(`SCENE ${sc.num} vary.order 의 ${o} 가 alt 에 없다`);
+  }
   const VALS = sc.vary ? [null, ...Object.keys(sc.vary.alt || {})] : [null];
   for (const VV of VALS) {
   const VSTEPS = VV == null ? (sc.steps || [])

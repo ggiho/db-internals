@@ -26,7 +26,14 @@ export function valuesOf(scene) {
      '1' 다음에 '0','2' 가 와서 1·0·2 로 보였다.
      내림차순으로 두면 이 손잡이에서는 곧 내구성이 낮아지는 순서가 된다(1 → 2 → 0).
      vary.order 를 적어 두면 그것을 그대로 쓴다. */
-  if (scene.vary.order) return scene.vary.order.map(String);
+  /* order 는 대체값의 순서만 적는다 — 기본값을 앞에 붙인다. 처음엔 order 를 그대로 돌려줘서
+     order 를 쓴 손잡이 넷(doublewrite · lock_wait_timeout · autoinc · checksum)에서
+     기본값 버튼이 사라졌다 : 들어오면 아무 값도 켜져 있지 않고, 대체값을 누르면 손잡이로는
+     기본값에 돌아올 수 없었다. */
+  if (scene.vary.order) {
+    const base = String(scene.vary.base);
+    return [base, ...scene.vary.order.map(String).filter((x) => x !== base)];
+  }
   const num = alt.every((k) => /^-?\d+$/.test(k));
   const rest = num ? alt.sort((a, b) => Number(b) - Number(a)) : alt;
   return [String(scene.vary.base), ...rest];
