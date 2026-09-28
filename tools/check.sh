@@ -21,4 +21,6 @@ printf '── play\n'
 # | tail 로 줄이면 종료 코드가 tail 의 것이 되어 실패가 사라진다 — 먼저 받고 나서 줄인다
 out=$(node tools/quizcheck.js) || FAIL=1; printf '%s\n' "$out" | tail -3
 out=$(node tools/progcheck.js) || FAIL=1; printf '%s\n' "$out" | tail -1
+# "이 스텝이 바꾼 것" — 모든 스텝(손잡이 값별 변형 포함)에서 던지지 않고 빈 줄이 없는지
+out=$(node tools/deltacheck.js) || FAIL=1; printf '%s\n' "$out" | tail -2
 [ "$FAIL" = 0 ] && echo "── 전부 통과" || { echo "── 실패 있음"; exit 1; }

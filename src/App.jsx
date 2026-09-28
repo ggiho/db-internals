@@ -4,7 +4,8 @@ import Stage from './Stage.jsx';
 import './stage.css';
 import Rail from './Rail.jsx';
 import Playback, { REDUCED } from './Playback.jsx';
-import Source, { SourceModal, srcKeyOf } from './Source.jsx';
+import { SourceModal, srcKeyOf } from './Source.jsx';
+import Delta from './Delta.jsx';
 import { bake, onStage, valuesOf, stepsOf } from './bake.js';
 /* 덱 목록은 게임 화면(play/)도 쓰므로 따로 둔다 */
 import { DECKS } from './decks.js';
@@ -54,7 +55,6 @@ export default function App() {
     return () => removeEventListener('resize', f);
   }, []);
   const [srcOpen, setSrcOpen] = useState(false);
-  const [srcVisible, setSrcVisible] = useState(false);
   /* 테마 : 'auto' 는 속성을 지우고 시스템 설정에 맡긴다. 명시적 선택만 저장한다 —
      그래야 시스템 설정을 바꿨을 때 따라간다. */
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'auto');
@@ -293,7 +293,8 @@ export default function App() {
               </LayoutGroup>
             ))}
           </div>
-          <Source deck={deck} step={step} at={at} off={on} onVisible={setSrcVisible} />
+          {!on && <Delta scene={scene} frames={frames} i={i} ACTORS={deck.ACTORS} steps={vSteps}
+            onSeek={(k) => { setPlaying(false); seek(k); }} />}
         </div>
         {/* 비교 모드에서는 두 열이 이미 빽빽하다 — 레일을 접는다 */}
         {!on && (
@@ -312,7 +313,7 @@ export default function App() {
             {step.why && <p>{step.why}</p>}
             {step.ref && (
               hasSrc
-                ? <button type="button" className={'o-ref has' + (srcVisible ? ' dim' : '')}
+                ? <button type="button" className="o-ref has"
                     onClick={() => { setPlaying(false); openSrc(); }}>
                     {step.ref}{line ? ':' + line : ''}{step.sym ? '   ' + step.sym : ''}
                   </button>

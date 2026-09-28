@@ -398,9 +398,7 @@ const MEASURE = (CFG) => {
       }
     }
 
-    /* 인라인 발췌는 접혀 있어야 한다 — 세로 예산의 300px 을 먹는다. 모달로 본다. */
-    const si = document.querySelector('.srcin');
-    if (si && visible(si)) add('narrow-src-shown', { note: '.srcin 이 휴대폰 폭에서 보인다 — 접혀야 한다' });
+    /* 인라인 발췌(.srcin)는 걷어냈다 — 모든 폭에서 발췌는 창으로 본다. 접혔는지 볼 대상이 없다. */
     /* 그 대신 근거를 여는 길이 살아 있어야 한다. 다만 ref 가 없는 스텝은 버튼이 없는 것이
        정상이다 — 스윕은 스텝 데이터를 모르므로 "있으면 보여야 한다" 까지만 검사한다.
        처음엔 무조건 있어야 한다고 봤다가 ref 없는 스텝 10건을 문제로 셌다. */
@@ -418,7 +416,7 @@ const MEASURE = (CFG) => {
   const st = document.querySelector('.stage');
   const sw = document.querySelector('.stage-wrap');
   const cap = document.querySelector('.cap');
-  const srcin = document.querySelector('.srcin');
+  const dl = document.querySelector('.delta');
   const appCb = app ? contentBox(app) : null;
   const inner = st ? [...st.children].filter(visible).reduce((a, e) => {
     const r = rc(e);
@@ -430,7 +428,9 @@ const MEASURE = (CFG) => {
     contentH: inner && inner.b > -1e9 ? +(inner.b - inner.t).toFixed(1) : 0,
     stageOver: sw ? Math.max(0, sw.scrollHeight - sw.clientHeight) : 0,
     emptyBelowCap: appCb && cap ? +(appCb.b - cap.getBoundingClientRect().bottom).toFixed(1) : 0,
-    srcH: srcin && visible(srcin) ? +srcin.getBoundingClientRect().height.toFixed(1) : 0,
+    dlH: dl && visible(dl) ? +dl.getBoundingClientRect().height.toFixed(1) : 0,
+    /* 무대의 문서 기준 위치 — 한 장면 안에서 달라지면 스텝을 넘길 때 무대가 튄다 */
+    stageTop: sw ? +(sw.getBoundingClientRect().top + scrollY).toFixed(1) : 0,
     acts: document.querySelectorAll('.act').length,
     lanes: document.querySelectorAll('.lane').length,
     now: trk ? +trk.getAttribute('aria-valuenow') : 0,
@@ -444,17 +444,16 @@ const CFG_BASE = {
      .play .track 은 넣지 않는다 : 손잡이(.knob)가 margin-left:-6.5px 로 일부러 걸쳐 있다. */
   containers: ['.app', '.wrap', '.mid', '.stage-wrap', '.scol', '.scol-hd', '.stage', '.lane', '.row',
     '.act', '.a-bd', '.by', '.by-c', '.mx', '.mx table', '.cap', '.cap-l', '.cap-r', '.list',
-    '.kv-wrap', '.head', '.top', '.tabs', '.play', '.foot', '.rail', '.rl', '.srcin', '.srcin-hd',
-    '.narrow-note'],
+    '.kv-wrap', '.head', '.top', '.tabs', '.play', '.foot', '.rail', '.rl', '.delta', '.dl-bd', '.dl-row'],
   /* 축·그래프·트리(.ax/.gr/.tr)는 컨테이너로 재지 않는다 — 라벨을 자르면 어느 구간인지
      알 수 없으므로 삐져나올 자리를 스스로 margin/padding 으로 남긴다(Axis.jsx 의 주석).
      실측 : 1512px 에서 .ax-sp 가 패딩 상자를 좌 11px · 우 13px 넘지만 .ax{margin:0 22px}
      안이고 .act 는 37px 여유가 있다. 진짜 경계는 카드이고 .act·.a-bd 로 이미 잰다.
      라벨끼리 겹치는지는 labelBoxes 로 따로 본다 (넘침 검사로는 영원히 안 잡히는 종류). */
   cells: ['.by-c', '.mx td', '.mx th', '.lane-lb', '.kv', '.it', '.a-hd', '.by-l', '.mx-lb',
-    '.scol-hd', '.srcin-hd', '.foot span'],
+    '.scol-hd', '.dl-row li', '.foot span'],
   labelBoxes: ['.by-l', '.mx-lb', '.a-hd', '.kv', '.it', '.top', '.decks', '.stage-foot', '.cap',
-    '.foot', '.srcin-hd', '.ax', '.ax-row', '.tr-lv', '.gr-row'],
+    '.foot', '.dl-row', '.ax', '.ax-row', '.tr-lv', '.gr-row'],
   /* 컨테이너 질의로 줄여서 자르는 것이 설계인 칸 — 글자 잘림 검사가 따로 본다 */
   clipOk: ['.by-c'],
 };
@@ -473,7 +472,7 @@ const SETTLE = () => new Promise((res) => {
      (페이지를 새로 열어 잰 520px/518px 은 근거가 못 된다. 스윕은 스텝 전환을 거쳐
       그 상태에 도달하므로, 재현도 전환을 거쳐야 한다.) */
   const q = (v) => Math.round(v * 10);
-  const sig = () => [...document.querySelectorAll('.act,.lane,.row,.cap,.head,.a-bd,.srcin,.scol,.by,.by-c,.mx,.tr')].map((e) => {
+  const sig = () => [...document.querySelectorAll('.act,.lane,.row,.cap,.head,.a-bd,.delta,.scol,.by,.by-c,.mx,.tr')].map((e) => {
     const r = e.getBoundingClientRect(), s = getComputedStyle(e);
     return [q(r.x), q(r.y), q(r.width), q(r.height), Math.round(parseFloat(s.opacity) * 100), s.transform].join(',');
   }).join('|');
@@ -612,7 +611,7 @@ async function main() {
     const acc = {
       w, h, zoom, visits: 0, splitVisits: 0, confirmed: 0, mismatch: 0, el: 0, cells: 0, ranges: 0,
       labelPairs: 0, containers: 0, problems: 0, byCheck: {}, worstEmpty: 0, emptySum: 0,
-      maxStageOver: 0, srcShown: 0, acts: 0, settleCap: 0, settleMax: 0, transient: 0,
+      maxStageOver: 0, dlShown: 0, acts: 0, settleCap: 0, settleMax: 0, transient: 0,
     };
 
     /* 해시 이동이 아직 끝나지 않았는데 평가가 들어가면 "Execution context was destroyed"
@@ -665,7 +664,7 @@ async function main() {
       acc.emptySum += r.metrics.emptyBelowCap;
       acc.worstEmpty = Math.max(acc.worstEmpty, r.metrics.emptyBelowCap);
       acc.maxStageOver = Math.max(acc.maxStageOver, r.metrics.stageOver);
-      if (r.metrics.srcH > 0) acc.srcShown++;
+      if (r.metrics.dlH > 0) acc.dlShown++;
       for (const pr of r.problems) {
         acc.problems++;
         acc.byCheck[pr.check] = (acc.byCheck[pr.check] || 0) + 1;
@@ -677,6 +676,7 @@ async function main() {
     for (const p of plan) {
       const mid = Math.max(1, Math.ceil(p.steps / 2));
       if (p.deck !== curDeck) await openDeck(p.deck);   /* 덱이 바뀌면 문서를 새로 싣는다 */
+      let firstTop = null;           /* 이 장면 첫 스텝의 무대 위치 */
       for (let s = 1; s <= p.steps; s += EVERY) {
         const hash = `${p.deck}/${p.scene}/${s}`;
         await page.evaluate((x) => { location.hash = x; }, hash);
@@ -692,6 +692,16 @@ async function main() {
         ).catch(() => {});
         const r = await take(hash, '');
         acc.visits++;
+        /* 무대가 튀는가 — 한 장면 안에서 무대 위치는 같아야 한다. 발췌가 없는 스텝만 세로
+           가운데에 두던 규칙이 1512 에서 한 스텝만 156px 튀게 했는데, 어떤 검사도 보지 않았다
+           (각 스텝은 따로 보면 멀쩡하다). 1px 넘게 다르면 문제로 센다. */
+        if (firstTop === null) firstTop = r.metrics.stageTop;
+        else if (Math.abs(r.metrics.stageTop - firstTop) > 1) {
+          acc.problems++;
+          acc.byCheck['stage-jump'] = (acc.byCheck['stage-jump'] || 0) + 1;
+          if (allProblems.length < 600) allProblems.push({ w, at: hash, check: 'stage-jump',
+            by: +(r.metrics.stageTop - firstTop).toFixed(1), note: '같은 장면인데 무대 위치가 다르다' });
+        }
         /* 요청한 스텝이 정말 렌더됐는지 — "0 스텝 돌고 문제 0" 을 막는 보루 */
         if (r.metrics.now === s) acc.confirmed++;
         else {
@@ -738,7 +748,7 @@ async function main() {
       + ` (확인 ${acc.confirmed}${acc.mismatch ? ` · 불일치 ${acc.mismatch}` : ''}${acc.varyVisits ? ` · 값 ${acc.varyVisits}` : ''})`
       + `  상자 ${acc.containers} · 요소 ${acc.el} · 칸 ${acc.cells} · 줄조각 ${acc.ranges} · 라벨쌍 ${acc.labelPairs}`
       + `  → 문제 ${acc.problems}${acc.problems ? '  ' + JSON.stringify(acc.byCheck) : ''}`
-      + `   [무대초과 ${acc.maxStageOver} · 소스보임 ${acc.srcShown}/${n}`
+      + `   [무대초과 ${acc.maxStageOver} · 바꾼것보임 ${acc.dlShown}/${n}`
       + ` · 캡션아래 평균 ${acc.avgEmpty} 최대 ${acc.worstEmpty}`
       + ` · 정착 최대 ${acc.settleMax}프레임${acc.settleCap ? " · 상한초과 " + acc.settleCap + "회 ⚠" : ""}`
       + (acc.transient ? ` · 재측정에서 사라진 것 ${acc.transient}건` : '') + `]`);
