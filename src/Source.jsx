@@ -38,19 +38,33 @@ export function SourceInline({ deck, step, at, onOpen }) {
   const lines = useMemo(() => highlight(code), [code]);
   const cd = useRef(null);
 
+  /* 인용한 줄에서 정수 줄 수만큼 위를 맨 위로 둔다. retarget 이 거짓이면 지금 위치에서
+     가장 가까운 줄 경계로만 옮긴다 — 크기가 바뀔 때 읽던 자리를 빼앗지 않기 위해서다. */
   useLayoutEffect(() => {
     const el = cd.current;
-    if (!el || !code) return;
-    const target = el.querySelector('.ln.cited') || el.querySelector('.ln.hit');
-    const first = el.firstElementChild;
-    if (!target || !first) { el.scrollTop = 0; return; }
-    /* 줄 높이 단위로 맞춘다 — 반쯤 잘린 줄이 맨 위에 걸리면 읽는 자리를 놓친다.
-       offsetTop 은 가장 가까운 위치 지정 조상 기준이라 발췌 영역 기준이 아니다 — 첫 줄과의
-       차이로 잰다. 처음엔 offsetTop 을 그대로 써서 맨 윗줄이 반쯤 잘렸다. */
-    const lh = target.offsetHeight || 18;
-    const rel = target.offsetTop - first.offsetTop;
-    const want = rel - Math.round(el.clientHeight / 4);
-    el.scrollTop = Math.max(0, Math.round(want / lh) * lh);
+    if (!el || !code) return undefined;
+    const align = (retarget) => {
+      const target = el.querySelector('.ln.cited') || el.querySelector('.ln.hit');
+      const first = el.firstElementChild;
+      if (!target || !first) { if (retarget) el.scrollTop = 0; return; }
+      /* 절대값을 줄 높이로 반올림하면 안 된다 — 구간 사이 줄(···)은 높이가 달라서 그 아래
+         줄들은 18 의 배수에 있지 않다(배포본 1512 에서 맨 윗줄이 또 반쯤 잘렸다). */
+      const lh = target.offsetHeight || 18;
+      const rel = target.offsetTop - first.offsetTop;
+      let k = retarget ? Math.round(el.clientHeight / 4 / lh) : Math.round((rel - el.scrollTop) / lh);
+      /* 인용한 줄이 끝 가까이면 원하는 값이 최댓값을 넘고, 브라우저가 최댓값으로 자른다 —
+         그 값은 줄 경계가 아니다(mongodb 01/4 에서 10.5px 잘림). 넘지 않는 줄 수로 줄인다. */
+      const max = el.scrollHeight - el.clientHeight;
+      if (rel - k * lh > max) k = Math.ceil((rel - max) / lh);
+      el.scrollTop = Math.max(0, rel - k * lh);
+    };
+    align(true);
+    /* 같은 발췌를 쓰는 스텝으로 넘어가면 위 효과는 다시 돌지 않는데, 무대 높이가 바뀌어
+       발췌 칸이 커지거나 줄면 브라우저가 스크롤을 새 최댓값으로 잘라 줄 경계가 어긋난다
+       (스윕 : innodb 01/10 → 01/11 에서 5px). 크기가 바뀔 때마다 경계를 다시 맞춘다. */
+    const ro = new ResizeObserver(() => align(false));
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [code]);
 
   if (!code) return null;

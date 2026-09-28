@@ -434,6 +434,17 @@ const MEASURE = (CFG) => {
        크기는 기록만 한다 — 어느 장면이 큰지는 알아야 하므로. */
   }
 
+  /* 무대 아래 발췌는 인용한 줄로 스크롤해 연다 — 맨 윗줄이 반쯤 잘려 있으면 읽는 자리를 놓친다.
+     구간 사이 줄(···)의 높이가 달라서 스크롤 값을 줄 높이 배수로 반올림하는 것으로는 안 됐고,
+     인용한 줄이 끝 가까이면 최댓값에서 잘렸다(배포본에서 10.5px). */
+  const sc = document.querySelector('.srci-cd');
+  if (sc && visible(sc)) {
+    const top = sc.getBoundingClientRect().top;
+    const first = [...sc.querySelectorAll('.ln')].find((l) => l.getBoundingClientRect().bottom > top + 0.5);
+    const cut = first ? top - first.getBoundingClientRect().top : 0;
+    if (cut > 1) add('src-top-cut', { by: +cut.toFixed(1), note: '발췌 맨 윗줄이 잘렸다' });
+  }
+
   /* ── 기록(문제가 아닌 측정값) : 남는 세로 높이 ── */
   const st = document.querySelector('.stage');
   const sw = document.querySelector('.stage-wrap');
