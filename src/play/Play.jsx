@@ -11,7 +11,8 @@ import './play.css';
    scenes.js 만 읽는다. index.js 를 부르면 소스 발췌(code.js)까지 딸려 와 덱 9개에
    수백 KB 가 된다 — 문항에는 발췌가 필요 없다. */
 const SCENE_FILES = import.meta.glob('../../data/*/*/scenes.js');
-const KIND = { link: '관계', watch: '지표', fact: '상수', order: '순서', vary: '손잡이' };
+const CORE_FILES = import.meta.glob('../../data/*/*/quiz.js');
+const KIND = { link: '관계', watch: '지표', fact: '상수', order: '순서', vary: '손잡이', core: '핵심' };
 const MONO = new Set(['watch', 'fact', 'vary']);   /* 선택지가 식별자·값이면 고정폭 */
 const GROUPS = ['ALL', ...new Set(Object.values(DECKS).map((d) => d.g))];
 const N = 10;
@@ -41,8 +42,9 @@ export default function Play() {
     Promise.all(Object.entries(SCENE_FILES).map(async ([file, loadFn]) => {
       const deck = /data\/(.+)\/scenes\.js$/.exec(file)[1];
       if (!DECKS[deck]) return [];
-      const m = await loadFn();
-      return buildQuiz(deck, m.SCENES).map((q) => ({ ...q, g: DECKS[deck].g }));
+      const cf = CORE_FILES[file.replace(/scenes\.js$/, 'quiz.js')];
+      const [m, c] = await Promise.all([loadFn(), cf ? cf() : {}]);
+      return buildQuiz(deck, m.SCENES, c.CORE).map((q) => ({ ...q, g: DECKS[deck].g }));
     })).then((all) => { if (live) setPool(all.flat()); });
     return () => { live = false; };
   }, []);
@@ -124,8 +126,8 @@ function Lobby({ pool, st, onStart, last }) {
       <Top />
       <h1 className="pl-q">덱에서 만든 문제를 푼다</h1>
       <p className="pl-lead">
-        정답은 전부 무대의 데이터에 있고, 틀린 답도 다른 장면에서 가져온 진짜 항목이다.
-        틀린 문항은 다음 판에 먼저 나온다.
+        정답은 전부 무대의 데이터에 있다. 틀린 답은 다른 장면에서 가져온 진짜 항목이고,
+        핵심 문항만 흔히 하는 오해를 골라 따로 썼다. 틀린 문항은 다음 판에 먼저 나온다.
       </p>
       <div className="pl-grp" role="group" aria-label="엔진">
         {GROUPS.map((g) => (

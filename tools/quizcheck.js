@@ -7,6 +7,7 @@
      · 같은 id 가 두 번 나오지 않는가 (복습 상태가 어긋난다)
      · 순서 문항의 정답이 선택지의 순열인가
      · 문항이 가리키는 주소가 실재하는 장면·스텝인가 */
+import fs from 'fs';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import { buildQuiz } from '../src/play/quiz.js';
@@ -20,11 +21,28 @@ let bad = 0, total = 0;
 const byKind = {};
 const posCount = {};          /* 선택지 수 → 정답 위치별 개수 */
 const ids = new Set();
+let coreBeat = 0, coreDone = 0, coreSkip = 0, coreLongest = 0, coreN = 0;
 
 for (const deck of DECKS) {
   const { SCENES } = await import(pathToFileURL(path.join(ROOT, 'data', deck, 'scenes.js')).href);
+  const qf = path.join(ROOT, 'data', deck, 'quiz.js');
+  const { CORE, SKIP } = fs.existsSync(qf) ? await import(pathToFileURL(qf).href) : {};
   const scByNum = new Map(SCENES.map((s) => [s.num, s]));
-  const qs = buildQuiz(deck, SCENES);
+  const qs = buildQuiz(deck, SCENES, CORE);
+  const beats = SCENES.reduce((a, sc) => a + (sc.steps || []).filter((s) => s.beat).length, 0);
+  coreBeat += beats; coreDone += Object.keys(CORE || {}).length; coreSkip += Object.keys(SKIP || {}).length;
+  for (const k of Object.keys(SKIP || {})) if (CORE && CORE[k]) { bad++; console.log(`  ! ${deck} ${k} 가 CORE 와 SKIP 에 둘 다 있다`); }
+  /* beat 스텝은 전부 문항이 되거나, 뺀 이유가 적혀 있어야 한다 — 새 장면을 더하고
+     문항을 잊으면 여기서 걸린다. 뺀 것도 실재하는 beat 여야 한다. */
+  for (const sc of SCENES) (sc.steps || []).forEach((st, i) => {
+    const k = `${sc.num}/${i + 1}`;
+    if (st.beat && !(CORE && CORE[k]) && !(SKIP && SKIP[k])) { bad++; console.log(`  ! ${deck} ${k} beat 인데 핵심 문항도 뺀 이유도 없다`); }
+    if (!st.beat && SKIP && SKIP[k]) { bad++; console.log(`  ! ${deck} ${k} beat 가 아닌데 SKIP 에 있다`); }
+  });
+  for (const k of Object.keys(SKIP || {})) {
+    const [n, j] = k.split('/'); const sc = scByNum.get(n);
+    if (!sc || !(sc.steps || [])[+j - 1]) { bad++; console.log(`  ! ${deck} SKIP ${k} 가 없는 스텝이다`); }
+  }
   const err = (q, m) => { bad++; console.log(`  ! ${q.kind} ${q.id}\n      ${m}`); };
 
   for (const q of qs) {
@@ -57,6 +75,19 @@ for (const deck of DECKS) {
         err(q, `정답이 질문에 그대로 들어 있다 : "${qa.slice(0, 30)}"`);
     }
 
+    /* 핵심 문항은 오답을 사람이 쓴다 — 사람이 쓴 오답은 정답보다 짧고 뭉뚱그려지기
+       쉽다. 정답만 유난히 길거나 짧으면 읽지 않고도 고를 수 있다. */
+    if (q.kind === 'core') {
+      coreN++;
+      if (!q._beat) err(q, 'beat 스텝이 아닌 곳을 가리킨다');
+      if (q._x.length !== 3) err(q, `오답이 ${q._x.length}개다 (3이어야 한다)`);
+      const la = [...q.answer].length, lx = q._x.map((x) => [...x].length);
+      if (la > Math.max(...lx) * 1.4) err(q, `정답만 길다 : ${la} vs 오답 최대 ${Math.max(...lx)}`);
+      if (la < Math.min(...lx) * 0.6) err(q, `정답만 짧다 : ${la} vs 오답 최소 ${Math.min(...lx)}`);
+      if (la > Math.max(...lx)) coreLongest++;
+      if (!q.why) err(q, '해설(스텝의 key)이 없다');
+    }
+
     /* 주소가 실재하는가 — #덱/장면/스텝. 관계 문항은 이어지는 장면(at2)도 본다. */
     for (const addr of [q.at, q.at2].filter(Boolean)) {
       const m = /^(.+)\/([^/]+)\/(\d+)(\/v.+)?$/.exec(addr);
@@ -81,6 +112,14 @@ for (const [n, cnt] of Object.entries(posCount)) {
   });
   console.log(`── ${n}지선다 정답 위치 : ${cnt.join(' / ')}  (기대 ${exp.toFixed(0)})`);
 }
+/* 정답이 가장 긴 선택지인 비율 — 넷 중 하나이니 25% 근처여야 한다. 40% 를 넘으면
+   "제일 긴 것" 이 전략이 된다. */
+if (coreN >= 20) {
+  const r = coreLongest / coreN;
+  if (r > 0.4) { bad++; console.log(`  ! 핵심 문항 정답이 가장 긴 선택지인 비율 ${(r * 100).toFixed(0)}% (≤40%)`); }
+  console.log(`── 핵심 : 정답이 가장 긴 것 ${(r * 100).toFixed(0)}%`);
+}
+console.log(`── 핵심 문항 ${coreDone} · 뺀 것 ${coreSkip} / beat 스텝 ${coreBeat}`);
 console.log('── 종류별 :', Object.entries(byKind).map(([k, v]) => `${k} ${v}`).join(' · '));
 console.log(bad ? `── 문제 ${bad}건 / 문항 ${total}` : `── 문항 ${total} 전부 통과`);
 process.exit(bad ? 1 : 0);

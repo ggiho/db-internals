@@ -5,6 +5,11 @@
    다른 장면의 watch 다. 그래서 오답이 "그럴듯하지만 틀린" 성질을 자동으로 갖는다 —
    종류가 같으니 형태가 같고, 출처가 다르니 답이 아니다.
 
+   예외가 하나 있다 — 핵심(core). 장면의 요점(beat 스텝)을 묻는 문제는 다른 장면의 문장을
+   오답으로 쓰면 주제가 달라 한눈에 걸러진다. 요점 문제의 오답은 "그렇게 믿기 쉬운 틀린
+   설명" 이어야 하므로 data/<덱>/quiz.js 에 사람이 쓴다. 정답도 같이 쓴다 — 스텝의 note 를
+   그대로 쓰면 오답과 길이·말투가 달라 정답이 드러난다.
+
    난수를 쓰지 않는다. 문항 순서와 오답 선택이 매번 달라지면
      · 같은 문항을 두 번 만났는지 알 수 없고(복습이 성립하지 않는다)
      · 검증 도구가 "이 문항이 옳은가" 를 되풀이해 물을 수 없다.
@@ -204,8 +209,26 @@ function fromVary(deck, SCENES) {
   return out;
 }
 
-/* 덱 하나에서 문항을 전부 만든다 */
-export function buildQuiz(deck, SCENES) {
+/* 6) 핵심 : beat 스텝의 요점 (저작한 오답) — CORE['장면/스텝'] = { q, a, x:[오답 3], stem? } */
+function fromCore(deck, SCENES, CORE) {
+  const out = [];
+  for (const [addr, c] of Object.entries(CORE || {})) {
+    const [num, n] = addr.split('/');
+    const sc = SCENES.find((x) => x.num === num);
+    const st = sc && (sc.steps || [])[+n - 1];
+    const id = `core:${deck}/${addr}`;
+    out.push({ id, kind: 'core', deck, at: `${deck}/${num}/${n}`,
+      q: `「${sc ? sc.title : '?'}」 — ${c.q}`, stem: c.stem,
+      opts: shuffle([c.a, ...(c.x || [])], id + '#o'), answer: c.a,
+      /* 해설은 스텝의 key — 그 스텝이 무대에서 말하는 요점이다 */
+      why: st ? plain(st.key) : '', ref: st && st.ref, sym: st && st.sym, scene: num,
+      _beat: !!(st && st.beat), _x: c.x || [] });
+  }
+  return out;
+}
+
+/* 덱 하나에서 문항을 전부 만든다. CORE 는 덱의 quiz.js — 없으면 핵심 문항이 없다. */
+export function buildQuiz(deck, SCENES, CORE) {
   const poolLinks = [];
   const poolWatch = [];
   for (const sc of SCENES) {
@@ -218,6 +241,7 @@ export function buildQuiz(deck, SCENES) {
     ...fromFacts(deck, SCENES),
     ...fromOrder(deck, SCENES),
     ...fromVary(deck, SCENES),
+    ...fromCore(deck, SCENES, CORE),
   ];
 }
 
