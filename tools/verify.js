@@ -12,7 +12,7 @@ const __here = path.dirname(new URL(import.meta.url).pathname);
 const ROOT = path.resolve(__here, '..');
 async function loadDeck(deck) {
   const g = {};
-  for (const f of ['deck', 'actors', 'scenes', 'linemap', 'code', 'booktext', 'booksrc']) {
+  for (const f of ['deck', 'actors', 'scenes', 'linemap', 'code', 'booktext', 'booksrc', 'papertext']) {
     const p = path.join(ROOT, 'data', deck, f + '.js');
     if (!fs.existsSync(p)) continue;
     Object.assign(g, await import('file://' + p));
@@ -28,6 +28,7 @@ const DECK = process.argv[2];
 if (!DECK) { console.error('사용법: node verify.js <덱경로>'); process.exit(2); }
 await loadDeck(DECK);
 if (typeof BOOKTEXT === 'undefined') globalThis.BOOKTEXT = null;
+if (typeof PAPERTEXT === 'undefined') globalThis.PAPERTEXT = null;
 
 let E = 0, W = 0; const es = [], ws = [];
 /* 덱이 LANES·EDGES 를 빠뜨리면 무대 만들기가 예외로 죽고 화면이 통째로 빈다.
@@ -86,14 +87,19 @@ for (const sc of SCENES) {
   /* 책 원문 대조 — cite 에 적은 영어 구절이 그 장 원문에 실제로 있어야 한다.
      정규화가 핵심이다 : PDF 추출은 문장 중간에 줄바꿈을 넣고, 대소문자와
      둥근 따옴표가 다르다. 이번 점검에서 그 셋 때문에 검사가 두 번 틀렸다. */
-  if (typeof BOOKTEXT === 'string' && BOOKTEXT) {
+  if ((typeof BOOKTEXT === 'string' && BOOKTEXT) || (typeof PAPERTEXT === 'string' && PAPERTEXT)) {
     /* 하이픈도 지운다 — PDF 추출은 줄 끝 하이픈을 삼켜서
        "key-value" 가 "keyvalue" 로 붙는다. 구별할 방법이 없으므로 양쪽에서 없앤다. */
     const norm = x => x.replace(/\s+/g, ' ')
       .replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
       .replace(/[-\u2010-\u2015]/g, '').toLowerCase();
+    /* 말뭉치는 둘이다 — 책·문서(BOOKTEXT)와 논문(PAPERTEXT). 어느 쪽에서 찾았는지가
+       근거 등급이다. 논문에만 있는 구절을 인용한 스텝이 "문서가 적는다" 고 쓰면 등급을
+       속이는 셈이므로, 그 스텝의 글이 논문을 밝히는지 본다. */
+    const inBook = q => typeof BOOKTEXT === 'string' && !!BOOKTEXT && norm(BOOKTEXT).includes(norm(q));
+    const inPaper = q => typeof PAPERTEXT === 'string' && !!PAPERTEXT && norm(PAPERTEXT).includes(norm(q));
     (sc.cite || []).forEach(q => {
-      if (!norm(BOOKTEXT).includes(norm(q)))
+      if (!inBook(q) && !inPaper(q))
         err(T + ' cite 구절이 책 원문에 없다 — "' + q.slice(0, 56) + '"');
     });
     /* 스텝 수준 cite 도 대조한다 — 장면 하나에 인용을 몰아 두면 어느 문장의 근거인지
@@ -103,8 +109,11 @@ for (const sc of SCENES) {
     (sc.steps || []).forEach((st, i) => {
       (st.cite || []).forEach(q => {
         stepCites++;
-        if (!norm(BOOKTEXT).includes(norm(q)))
-          err(T + '.' + String(i + 1).padStart(2, '0') + ' cite 구절이 원문에 없다 — "' + q.slice(0, 56) + '"');
+        const S = T + '.' + String(i + 1).padStart(2, '0');
+        if (!inBook(q) && !inPaper(q))
+          err(S + ' cite 구절이 원문에 없다 — "' + q.slice(0, 56) + '"');
+        else if (!inBook(q) && !/논문/.test((st.why || '') + (st.key || '')))
+          err(S + ' 논문에만 있는 구절인데 스텝 글이 출처를 논문으로 밝히지 않는다 — "' + q.slice(0, 40) + '"');
       });
     });
     if ((!sc.cite || !sc.cite.length) && !stepCites)

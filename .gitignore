@@ -9,3 +9,7 @@ data/*/*/booktext.js
 
 # 책 PDF 위치 — 각자 로컬 경로다
 data/*/*/booksrc.js
+
+# 논문 본문과 PDF 위치 — booktext.js 와 같은 이유로 뺀다 (node tools/paper.js <덱>)
+data/*/*/papertext.js
+data/*/*/papersrc.js

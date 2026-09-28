@@ -120,6 +120,13 @@ grep 해 확인한다(`tools/claimcheck.js`). 레이아웃은 14폭 × 5,800방�
 공개 저장소에 두면 저작물 재배포가 되므로 제외했다. 만들려면 PDF 를 준비해
 `data/<덱>/booksrc.js` 에 위치를 적고 `node tools/book.js <덱>` 을 돌린다.
 
+`data/aurora/mysql/papertext.js` 는 같은 이유로 뺀 논문 원문이다(Verbitski et al.,
+SIGMOD 2017). quorum 수와 세그먼트 크기는 AWS 문서에 없어서 논문을 인용한다. PDF 는
+Amazon Science 의 논문 페이지가 거는 것을 쓰고, 판이 바뀌면 문장이 달라지므로
+`papersrc.js` 에 sha256 을 적어 고정한다. `node tools/paper.js aurora/mysql` 이 만든다.
+verify 는 논문에만 있는 구절을 인용한 스텝이 글에서 논문을 밝히는지도 본다 — 문서
+인용과 논문 인용을 같은 말로 쓰지 않기 위해서다.
+
 ## 출처
 
 - 소스 발췌 : MySQL 8.4.8 Community (GPLv2) · PostgreSQL 18.6 (PostgreSQL License)

@@ -338,7 +338,7 @@ export default function App() {
           {deckName.startsWith('postgres/')
             ? <>소스 발췌 <b>PostgreSQL 18.6</b> (PostgreSQL License)</>
             : <>소스 발췌 <b>MySQL 8.4.8 Community</b> (GPLv2)</>}
-          {deckName.startsWith('aurora/') && <> · 인용 <b>AWS Aurora User Guide</b> (docs.aws.amazon.com)</>}
+          {deckName.startsWith('aurora/') && <> · 인용 <b>AWS Aurora User Guide</b> (docs.aws.amazon.com) · <b>Verbitski et al.</b> (SIGMOD 2017)</>}
           {deckName.startsWith('book/') && <> · 인용 <b>Database Internals</b> — Alex Petrov (O&apos;Reilly)</>}
         </span>
       </div>

@@ -13,9 +13,9 @@ import { pathToFileURL } from 'url';
 import { buildQuiz, dedupe, WATCH_ALL, WATCH_GROUPS } from '../src/play/quiz.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-const DECKS = process.argv[2] ? [process.argv[2]]
-  : ['mysql/innodb', 'mysql/locks', 'postgres/mvcc', 'postgres/heap', 'postgres/locks',
-     'postgres/wal', 'aurora/mysql', 'book/ch2', 'book/ch3'];
+const EVERY = ['mysql/innodb', 'mysql/locks', 'postgres/mvcc', 'postgres/heap', 'postgres/locks',
+  'postgres/wal', 'aurora/mysql', 'book/ch2', 'book/ch3'];
+const DECKS = process.argv[2] ? [process.argv[2]] : EVERY;
 
 let bad = 0, total = 0;
 const byKind = {};
@@ -144,7 +144,7 @@ for (const [n, cnt] of Object.entries(posCount)) {
 /* 규칙에 적은 지표 이름이 실제로 있는가 — 한 글자만 틀려도 규칙이 조용히 헛돈다 */
 {
   const seen = new Set();
-  for (const deck of DECKS) {
+  for (const deck of EVERY) {
     const { SCENES } = await import(pathToFileURL(path.join(ROOT, 'data', deck, 'scenes.js')).href);
     for (const sc of SCENES) for (const [w] of (sc.watch || [])) seen.add(w);
   }

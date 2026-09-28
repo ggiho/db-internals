@@ -122,7 +122,7 @@ function fromLinks(deck, SCENES, poolLinks) {
      · 같은 것을 다른 창으로 보는 지표끼리 (GROUPS) — INNODB_TRX 와 events_transactions_current
      · 같은 장면이 다른 행에 적은 지표 — 같은 현상을 보는 창이다 */
 const ALL = new Set(['SHOW ENGINE INNODB STATUS', 'SHOW GLOBAL STATUS', '에러 로그', '서버 로그',
-  'AWS 문서', 'SIGMOD 2017·2018']);
+  'AWS 문서', 'SIGMOD 2017']);
 const GROUPS = [
   ['I_S.INNODB_TRX', 'P_S.events_transactions_current', 'SHOW PROCESSLIST'],
   ['P_S.data_locks', 'P_S.data_lock_waits', 'I_S.INNODB_TRX'],
