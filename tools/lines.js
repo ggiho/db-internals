@@ -83,6 +83,11 @@ for (const [key, { f, s }] of want) {
   /* 정의를 찾는다. 마지막 패턴은 [[nodiscard]] 같은 속성이 붙은 클래스 내부 메서드용으로
      느슨하게 열어 두고, 호출부(-> 나 . 뒤에 오는 것)는 코드로 걸러낸다. */
   const pats = [
+    /* 0열에서 시작하는 '이름(' 을 먼저 본다 — C 는 반환형을 윗줄에 두고 이름을 0열에
+       쓰는 일이 많다(WiredTiger · PostgreSQL). 아래 패턴은 앞 공백을 허용해서, 파일 위쪽의
+       들여쓴 호출이 먼저 걸렸다. 실측 : WiredTiger txn_inline.h 에서 정의(894) 대신
+       "return (" 다음 줄의 호출(715)이 나왔다. 문장은 들여쓰므로 0열의 '이름(' 은 정의다. */
+    new RegExp('^' + esc(s) + '\\s*\\('),
     new RegExp('^[\\w:<>,\\s\\*&~]*\\b' + esc(s) + '\\s*\\('),
     cls ? new RegExp('^[\\w:<>,\\s\\*&~]*\\b' + esc(cls) + '::' + esc(bare) + '\\s*\\(') : null,
     new RegExp('^\\s*\\w[\\w:<>,\\s\\*&]*\\b' + esc(bare) + '\\s*\\('),
