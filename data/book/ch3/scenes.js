@@ -924,8 +924,8 @@ const SCENES = [
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_search_with_match',
     fact:[['storage/innobase/page/page0cur.cc','(page_header_get_field(page, PAGE_N_DIRECTION) > 3) &&'],
           ['storage/innobase/page/page0cur.cc','(page_header_get_field(page, PAGE_DIRECTION) == PAGE_RIGHT)) {']],
-    ops:{ fins:{ set:{ '+12 DIRECTION':{ tag:'chg', sub:'PAGE_RIGHT 이면 지름길 후보' },
-                       '+14 N_DIRECTION':{ tag:'chg', sub:'> 3 이어야 한다' } } } },
+    ops:{ fins:{ set:{ '+12 DIRECTION':{ sub:'PAGE_RIGHT 이면 지름길 후보' },
+                       '+14 N_DIRECTION':{ sub:'> 3 이어야 한다' } } } },
     beat:1 },
 
   { act:{ f:'phd', t:'addr', lb:'+4 의 비트 15' },

@@ -90,7 +90,7 @@ const SCENES = [
     ref:'storage/innobase/row/row0sel.cc', sym:'row_search_mvcc',
     fact:[['storage/innobase/row/row0sel.cc','row_search_mvcc(']],
     ops:{ stmt:{ set:{ '단계':'인덱스 탐색' } },
-          row:{ set:{ 'id=20':{ tag:'chg', sub:'c=200  ·  찾음' } } } } },
+          row:{ set:{ 'id=20':{ sub:'c=200  ·  찾음' } } } } },
 
   { act:{ f:'tl', t:'rl', lb:'행을 찾아서 X' },
     note:'그리고 고칠 행 하나에 배타 락',

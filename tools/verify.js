@@ -392,6 +392,10 @@ for (const sc of SCENES) {
       if (op.set && kind === 'kv') {
         for (const k of Object.keys(op.set)) {
           if (!(k in a.kv)) err(S + ' ' + who + ' : init 에 없는 키를 set 한다 — ' + k);
+          /* kv 값은 글자다 — Kv.jsx 가 String() 으로 그린다. 목록 항목처럼 { tag, sub } 를
+             넣으면 화면에 "[object Object]" 가 찍힌다. aurora 01 이 그렇게 배포됐다. */
+          if (op.set[k] !== null && typeof op.set[k] === 'object')
+            err(S + ' ' + who + '.' + k + ' kv 값이 객체다 — 글자로 써야 한다("값|gold" 꼴)');
           const cls = String(op.set[k]).split('|')[1];
           if (cls && !['gold','red','green'].includes(cls))
             err(S + ' ' + who + '.' + k + ' 색 이름이 없다 : ' + cls);
@@ -403,6 +407,10 @@ for (const sc of SCENES) {
         for (const [id, patch] of Object.entries(op.set)) {
           const it = a.items.find(x => x.id === id);
           if (!it) err(S + ' ' + who + ' : 없는 항목을 set 한다 — ' + id);
+          /* add 만 태그를 봤다 — set 으로 바꾼 태그는 검사 밖이라 'chg' 같은 없는 태그가
+             글자 그대로 화면에 나갔다 */
+          if (patch && patch.tag !== undefined && !(kind === 'bytes' ? BYTAGS : TAGS).includes(patch.tag))
+            err(S + ' ' + who + ' : ' + kind + ' 에 없는 태그로 set 한다 — ' + id + ' → ' + patch.tag);
           else { Object.assign(it, patch); moved++; }
         }
       }
