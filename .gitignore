@@ -13,3 +13,7 @@ data/*/*/booksrc.js
 # 논문 본문과 PDF 위치 — booktext.js 와 같은 이유로 뺀다 (node tools/paper.js <덱>)
 data/*/*/papertext.js
 data/*/*/papersrc.js
+
+# 작업 도구(oh-my-claudecode)가 세션마다 쓰는 실행 상태 — 저장소의 내용이 아니다.
+# 예전 커밋 두 개에 섞여 들어가, 세션이 돌 때마다 변경으로 떴다.
+.omc/
