@@ -47,3 +47,23 @@
   color:var(--dim2);font-style:normal;user-select:none}
 .srci-cd .ln.hit{box-shadow:inset 2px 0 0 var(--accent)}
 .srci-cd .ln.hit i{color:var(--accent)}
+
+/* 인용 원문 — 코드가 아니라 문장이다. 줄바꿈하고, 구절마다 왼쪽 선을 둔다 */
+.srci.cite .srci-hd{cursor:default}
+.srci.cite .srci-cd{white-space:normal;font:400 12px/1.6 var(--sans);padding:6px 14px 8px 0;background:none}
+.srci.cite blockquote{margin:0 0 8px;padding:1px 0 1px 12px;border-left:2px solid var(--line);color:var(--body)}
+
+/* 장면의 근거 목록 — 스텝 번호 · 심볼 · 파일(없으면 인용 첫 구절). 한 줄씩, 넘치면 말줄임 */
+.srci.trail .srci-hd{cursor:default}
+.srci.trail .srci-cd{white-space:normal;padding:2px 14px 6px 0;background:none}
+.srci.trail button{display:flex;gap:10px;align-items:baseline;width:100%;min-width:0;padding:4px 0;
+  background:none;border:0;border-top:1px dotted var(--line);cursor:pointer;text-align:left}
+.srci.trail button:first-child{border-top:0}
+/* 머리글도 <i>·<span> 을 쓴다 — 목록 줄(button) 안으로 좁혀야 머리글 모양이 그대로다 */
+.srci.trail button i{flex:none;width:18px;font:400 9px var(--mono);letter-spacing:.12em;font-style:normal;color:var(--faint)}
+.srci.trail button b,.srci.trail button span,.srci.trail button q{flex:0 1 auto;min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.srci.trail button b{font:500 11px var(--mono);color:var(--ink)}
+.srci.trail button span{font:400 10px var(--mono);color:var(--faint)}
+.srci.trail button q{font:400 11.5px/1.5 var(--sans);color:var(--body)}
+.srci.trail button:hover b,.srci.trail button:hover q{color:var(--accent)}
