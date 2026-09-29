@@ -434,6 +434,14 @@ const MEASURE = (CFG) => {
        크기는 기록만 한다 — 어느 장면이 큰지는 알아야 하므로. */
   }
 
+  /* 레일의 절이 자기 칸을 넘치는가 — 넘친 글자는 아래 절 위에 겹쳐 그려진다. 절은 overflow 가
+     visible 이라 잘리지 않고 겹치므로, 컨테이너 검사로는 드러나지 않았다(1366×768 에서
+     innodb 04/2 의 손잡이 절이 33px 넘쳐 '실제 서버에서 보는 법' 과 겹친 채 배포돼 있었다). */
+  for (const sec of document.querySelectorAll('.wrap > .rail > .rl')) {
+    const d = sec.scrollHeight - sec.clientHeight;
+    if (d > 1) add('rail-overlap', { by: d, el: sec.className, note: '레일 절이 칸을 넘쳐 다음 절과 겹친다' });
+  }
+
   /* 무대 아래 발췌는 인용한 줄로 스크롤해 연다 — 맨 윗줄이 반쯤 잘려 있으면 읽는 자리를 놓친다.
      구간 사이 줄(···)의 높이가 달라서 스크롤 값을 줄 높이 배수로 반올림하는 것으로는 안 됐고,
      인용한 줄이 끝 가까이면 최댓값에서 잘렸다(배포본에서 10.5px). */
@@ -542,6 +550,8 @@ const BREAKS = {
   zoom: '@media (min-width:2000px){#app.app{zoom:1.3!important;height:100vh!important}}',
   /* .narrow-note{display:none} 을 @media 뒤에 두어 안내가 영원히 안 떴던 자리 */
   narrow: '@media (max-width:767px){.narrow-note{display:block}} .narrow-note{display:none!important}',
+  /* 레일 절이 고르게 눌려 손잡이 글자가 아래 절 위에 겹쳤던 자리(1366 innodb 04/2) — 예전 행 정의 */
+  'rail-overlap': '.wrap > .rail{grid-template-rows:auto auto minmax(72px,1fr) auto!important}',
 };
 
 /* ─────────────────────────────── 실행 ─────────────────────────────── */

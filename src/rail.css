@@ -75,8 +75,15 @@
 .rail{min-width:0;min-height:0;display:grid;
   grid-template-columns:minmax(0,1fr);
   /* 행을 명시하고 각 절에 grid-row 를 못박는다 — 절이 하나 없는 장면에서
-     자동 배치가 한 칸씩 밀려 스텝 목록이 auto 행에 걸리는 것을 막는다 */
-  grid-template-rows:auto auto minmax(72px,1fr) auto;gap:11px;
+     자동 배치가 한 칸씩 밀려 스텝 목록이 auto 행에 걸리는 것을 막는다.
+     스텝 목록 행은 내용만큼만 받는다(모자라면 72px 까지 줄고 안에서 스크롤). 예전에는
+     1fr 이라 스텝이 네댓 개인 장면에서 목록 아래가 비고 "이어지는 장면" 이 맨 아래로
+     밀려 레일 한가운데에 빈칸이 생겼다(1512×982 모음 78장 중 대부분). 남는 높이는
+     마지막 빈 행이 받는다 — 빈 곳이 가운데가 아니라 맨 아래에 모인다.
+     다른 절은 auto 가 아니라 max-content 다 — auto 로 두었더니 높이가 모자랄 때 브라우저가
+     절들을 고르게 줄여 손잡이 절(내용 178px)이 92px 로 눌리고 글자가 아래 절 위로 겹쳤다
+     (1366×768 innodb 04/2). 줄어드는 것은 스텝 목록 하나뿐이어야 한다. */
+  grid-template-rows:max-content max-content minmax(72px,max-content) max-content 1fr;gap:11px;
   padding:2px 2px 2px 16px;border-left:1px solid var(--line);
   overflow-x:hidden;overflow-y:auto}
 .rail::-webkit-scrollbar{width:3px}
@@ -221,4 +228,5 @@
 /* 초광폭(zoom) 규칙은 style.css 에만 둔다 — 두 파일에 나눠 두었더니
    #app(id) 와 .app(class) 가 섞여 4600px 분기가 끊겼다. 여기서는 선언하지 않는다.
    zoom 배율을 코드 줄높이 16px 이 정수로 남는 값만 쓰던 제약은 인라인 발췌의 줄 경계
-   스냅 때문이었다. 인라인 발췌는 걷어냈고 배율은 그대로 둔다(바꿀 이유가 없다). */
+   스냅 때문이었다. 되살린 인라인 발췌(Source.jsx 의 SourceInline)는 줄 높이의 배수가 아니라
+   인용한 줄의 offsetTop 으로 경계를 맞추므로 그 제약이 필요 없다. 배율은 그대로 둔다. */
