@@ -25,44 +25,59 @@ const DL_MIN = 96;
 /* 발췌 머리글 한 줄 + 코드 네 줄 남짓 — 그보다 작으면 읽을 것이 없다 */
 const SRC_MIN = 110;
 const GAP = 14;                                   /* .mid 의 gap 과 같다 */
-/* 무대를 따라가는 프레임 상한(약 2.5초) — 스윕이 정착을 기다리는 상한(130프레임)보다 길게.
-   실측 정착은 길어야 81프레임이었다(15폭 스윕) */
+/* 무대를 따라가는 프레임 상한(약 2.5초) — 스윕이 정착을 기다리는 상한(130프레임)보다 길게 */
 const FOLLOW_MAX = 150;
 
 /* 남는 높이를 잰다. .mid 는 패널 유무에 따라 크기가 바뀌므로(:has) 기준으로 쓸 수 없다 —
    고정 높이인 .wrap 과 무대의 *내용* 높이로 잰다. 내용 높이는 stage-wrap 의 scrollHeight 다 :
    처음엔 .scol 의 높이를 썼는데, 무대가 눌리면 .scol 도 같이 눌려서 "남는다" 고 판정했다
    (05/5 에서 10px 조각이 남았다). scrollHeight 는 눌려도 내용만큼이다.
-   카드는 스텝이 바뀐 뒤 애니메이션으로 자라므로 레인마다 크기를 관찰한다 — 레인은
-   줄어들지 않는 격자라 내용만큼이다. 1080 이하에서는 페이지가 스크롤되므로 늘 넣는다. */
+   1080 이하에서는 페이지가 스크롤되므로 늘 넣는다.
+
+   예전엔 크기(.wrap · 무대 칸 · 장면 시작 때 있던 레인)가 바뀔 때 scrollHeight 를 한 번 쟀다.
+   1512 에서 넘기는 순서대로 527 스텝 : 옛 값을 쓴 스텝 57, 무대가 제 칸에서 스크롤한 스텝 29,
+   자리가 있는데 패널이 없는 스텝 9(innodb 01/5~01/9 : 222px 남는데 없음). 틀린 것이 둘이었다.
+     · scrollHeight 는 그려진 모습까지 센다. 애니메이션 도중에는 그 모습이 레이아웃보다 크다 —
+       빠지는 레인·카드는 popLayout 이 절대 위치로 띄워 두고(data-motion-pop-id), 새 자리로
+       옮겨 가는 카드는 transform 으로 옛 자리에서 출발한다(innodb 03/2→3 : ibd 카드가
+       레이아웃보다 86px 아래에 그려진 채 5프레임에 걸쳐 올라왔다). 그 사이 근거 칸이 빠졌다
+       붙었다. 그래서 잴 때만 둘을 끄고 잰다 — 붙였다 떼는 것이 한 작업 안에서 끝나므로
+       그 사이에 그려지지 않는다.
+     · 한 번 재고 끝났다. 빠지는 요소가 DOM 에서 떨어져도 칸 크기는 그대로라 관찰이 울리지
+       않았고, 커밋 뒤에도 레이아웃이 몇 프레임 더 바뀐다(2px, ch3 04b 에서 21px). 그래서 DOM
+       변화도 보고(새 레인도 여기서 관찰에 붙인다), 무엇이든 울리면 높이가 3프레임 그대로일
+       때까지 매 프레임 따라가며 잰다. 크기 관찰과 렌더 때 한 번 재기만으로는 옛 값 7 ·
+       무대 스크롤 5 가 남았다.
+   고친 뒤 같은 527 스텝에서 셋 다 0, 전환 441개에서 패널·근거 칸이 빠졌다 붙는 것 0
+   (1512 · 1728). "빠지는 동안 줄이지 않기" 와 "렌더마다 그리기 전에 재기" 도 넣어 봤는데
+   재 보니 효과가 0 이라 뺐다. */
 function useRoom(key) {
   const [room, setRoom] = useState(0);            /* 남는 높이(px). 0 이면 넣지 않는다, Infinity 면 제한 없음 */
   useLayoutEffect(() => {
     const wrap = document.querySelector('.wrap'), sw = document.querySelector('.stage-wrap');
     if (!wrap || !sw) return undefined;
     const mq = matchMedia('(max-width:1080px)');
+    const still = document.createElement('style');
+    still.textContent = '.stage-wrap [data-motion-pop-id]{display:none!important}'
+      + ' .stage-wrap *{transform:none!important}';
+    const content = () => {
+      document.head.appendChild(still);
+      const h = sw.scrollHeight;
+      still.remove();
+      return h;
+    };
     const f = () => {
       if (mq.matches) { setRoom(Infinity); return; }
-      const left = wrap.clientHeight - sw.scrollHeight - GAP;
+      const left = wrap.clientHeight - content() - GAP;
       setRoom(left >= DL_MIN ? left : 0);
     };
-    /* 다시 잴 계기가 없으면 애니메이션 도중에 잰 값이 그대로 남는다. 예전엔 크기만 관찰했는데
-       (.wrap · 무대 칸 · 레인), 그 크기는 그대로인 채 내용 높이만 달라지는 경우가 있었다 —
-         · 빠지는 요소는 framer-motion(popLayout)이 절대 위치로 띄워 두므로 칸 크기에 안 들어가고
-           scrollHeight 에만 들어간다. 그것이 DOM 에서 떨어져도 관찰이 울리지 않았다
-           (1512 innodb 01/5~01/9 : 남는 높이 222 인데 패널 없음)
-         · 장면 시작 때 있던 레인만 관찰해서, 스텝 중에 생긴 레인이 자라도 모른다
-         · 카드의 layout 애니메이션은 transform 이라 크기 관찰에 안 잡히는데 scrollHeight 는 부풀린다
-       1512 에서 넘기는 순서대로 527 스텝을 잰 결과 : 옛 값을 쓴 스텝 57, 무대가 스크롤한 스텝 29.
-       그래서 DOM 이 바뀌는 것도 보고(떨어지는 요소 · 새 레인), 무엇이든 울리면 무대 높이가
-       3프레임 그대로일 때까지 매 프레임 따라가며 잰다 — 스윕의 정착 판정과 같은 기준이다. */
     let raf = 0;
     const g = () => {
       f();
       if (raf) return;                              /* 이미 따라가는 중 */
       let last = -1, same = 0, n = 0;
       const tick = () => {
-        const h = sw.scrollHeight;
+        const h = content();
         if (h === last) same++; else { same = 0; last = h; f(); }
         if (same >= 3 || ++n > FOLLOW_MAX) { raf = 0; f(); return; }
         raf = requestAnimationFrame(tick);

@@ -126,7 +126,7 @@ MongoDB 덱이 화면에 띄우는 발췌는 WiredTiger(GPLv2/v3) 코드뿐이�
 
     node tools/sweep.js --break=overflow --widths=1366 --decks=mysql/locks
 
-`tools/sweep-report.md` 에 그 발동 증거와, 만들면서 밟은 함정 30개가 적혀 있다.
+`tools/sweep-report.md` 에 그 발동 증거와, 만들면서 밟은 함정 31개가 적혀 있다.
 
 ## 저장소에 없는 것
 
