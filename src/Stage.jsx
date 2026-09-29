@@ -20,10 +20,15 @@ import Tree from './kinds/Tree.jsx';
 
 const KIND = { kv: Kv, list: List, frames: List, bytes: Bytes, matrix: Matrix, axis: Axis, graph: Graph, tree: Tree };
 
-function Card({ id, actor, a, chg, hot }) {
+/* ref 를 받아 motion.div 에 넘긴다. 카드를 감싼 AnimatePresence(popLayout)는 빠지는 자식에
+   ref 를 붙여 크기를 재고 절대 위치로 띄우는데, React 19 에서 ref 는 함수 컴포넌트의 보통 prop 이라
+   넘기지 않으면 ref.current 가 비고 PopChild 는 아무것도 하지 않는다. 그동안 빠지는 카드는 0.22초
+   내내 자리를 차지했고 같은 줄의 카드도 그 높이로 늘어났다 — innodb 01/11→12 에서 레인이 100 이
+   아니라 201 이었고, 그 사이 무대 아래 패널이 빠졌다 붙었다. */
+function Card({ id, actor, a, chg, hot, ref }) {
   const K = KIND[actor.kind] || Kv;
   return (
-    <motion.div layout layoutId={'card-' + id} data-act={id}
+    <motion.div ref={ref} layout layoutId={'card-' + id} data-act={id}
       className={'act' + (hot ? ' hot' : '')}
       initial={{ opacity: 0, y: 14, scale: 0.97 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
