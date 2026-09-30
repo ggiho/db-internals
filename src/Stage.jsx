@@ -124,6 +124,34 @@ function link(a, b, box) {
   if (Math.abs(dy) > 24) {
     const [u, d] = a.y <= b.y ? [a, b] : [b, a];
     const m = cy((u.bot + d.top) / 2);
+    /* 레인을 건너뛰면 사이 레인의 카드가 곡선 밑에 깔린다 — 곡선이 그 카드의 글자를 그었다
+       (innodb 04/5 : SESSION → REDO 가 BUFFER POOL 의 p:20 · p:21 줄 위로 224px, ch3 11/4 :
+       OPERATION → CHECKSUM 이 PAGE 의 본문 위로). 그때만 첫 레인 틈에서 꺾고, 사이 레인에서
+       카드가 없는 세로 통로로 내려가, 마지막 틈에서 다시 꺾는다. 통로는 끝점의 바로 아래 · 위
+       (꺾음이 하나)를 먼저 쓰고, 둘 다 막혔으면 카드 사이 틈이나 맨 오른쪽 카드 너머를 쓴다. */
+    const mid = Object.values((box && box.byId) || {}).filter((c) => c.top >= u.bot - 1 && c.bot <= d.top + 1);
+    const on = (x, y) => mid.some((c) => x > c.left + 2 && x < c.right - 2 && y > c.top + 2 && y < c.bot - 2);
+    let hits = false;
+    for (let i = 1; i < 24 && !hits; i++) {
+      const t = i / 24, s = 1 - t;
+      hits = on(u.x + (d.x - u.x) * t * t * (3 - 2 * t), u.bot * s * s * s + m * 3 * s * t + d.top * t * t * t);
+    }
+    if (hits) {
+      const T = Math.min(...mid.map((c) => c.top)), B = Math.max(...mid.map((c) => c.bot));
+      const free = (x) => x > 1 && x < W - 1 && !mid.some((c) => x > c.left - 6 && x < c.right + 6);
+      const xs = [d.x, u.x];
+      const iv = mid.map((c) => [c.left, c.right]).sort((p, q) => p[0] - q[0]);
+      let r = iv[0][1];                             /* 지금까지 본 카드들의 오른쪽 끝 */
+      for (const [l, rr] of iv.slice(1)) { if (l - r >= 14) xs.push((r + l) / 2); r = Math.max(r, rr); }
+      xs.push(r + 14);
+      const x = xs.slice(0, 2).find(free)
+        ?? xs.slice(2).filter(free).sort((p, q) => Math.abs(p - u.x) + Math.abs(p - d.x) - Math.abs(q - u.x) - Math.abs(q - d.x))[0];
+      if (x !== undefined) {
+        const mt = cy((u.bot + T) / 2), mb = cy((B + d.top) / 2);
+        return `M${cx(u.x)},${cy(u.bot)} C${cx(u.x)},${mt} ${cx(x)},${mt} ${cx(x)},${cy(T)}`
+          + ` L${cx(x)},${cy(B)} C${cx(x)},${mb} ${cx(d.x)},${mb} ${cx(d.x)},${cy(d.top)}`;
+      }
+    }
     return `M${cx(u.x)},${cy(u.bot)} C${cx(u.x)},${m} ${cx(d.x)},${m} ${cx(d.x)},${cy(d.top)}`;
   }
   /* 같은 레인이면 카드 사이를 옆으로 지난다. 위로 호를 그리면 그 호가
@@ -132,6 +160,18 @@ function link(a, b, box) {
   const bow = (b.x - a.x) * 0.5;
   const x0 = cx(a.x < b.x ? a.right : a.left);
   const x1 = cx(a.x < b.x ? b.left : b.right);
+  /* 다만 두 카드 사이에 다른 카드가 있으면 그 카드를 가로지르지 않고 카드 밑으로 돌아간다 —
+     가로지르면 선이 그 카드의 글자 한가운데에 걸려 취소선으로 읽혔다(innodb 09/2 : SESSION →
+     MDL QUEUE 가 STATEMENT 의 DDL 문장 위를 지났다). 카드 아래 7px, 레인 사이 틈 안이다. */
+  const lo = Math.min(x0, x1), hi = Math.max(x0, x1);
+  const between = Object.values((box && box.byId) || {})
+    .filter((c) => c.left >= lo - 1 && c.right <= hi + 1 && c.top < y && c.bot > y);
+  if (between.length) {
+    const yb = cy(Math.max(a.bot, b.bot, ...between.map((c) => c.bot)) + 7);
+    const s = a.x < b.x ? 1 : -1, r = 8;
+    return `M${cx(a.x)},${cy(a.bot)} Q${cx(a.x)},${yb} ${cx(a.x + s * r)},${yb}`
+      + ` L${cx(b.x - s * r)},${yb} Q${cx(b.x)},${yb} ${cx(b.x)},${cy(b.bot)}`;
+  }
   return `M${x0},${y} C${cx(x0 + bow * 0.25)},${cy(y - 9)} ${cx(x1 - bow * 0.25)},${cy(y - 9)} ${x1},${y}`;
 }
 

@@ -60,6 +60,7 @@
  *
  * --break 는 검사가 정말 발동하는지 확인하는 용도다 (발동하지 않는 검사는 무가치하다) :
  *   overflow · text-clip · label-overlap · zoom · narrow · rail-overlap · stage-squeezed
+ * (rail-through-card 는 CSS 로 되돌릴 수 없다 — 옛 판(배포본)에 --base 로 돌려 확인한다)
  */
 /* playwright 는 이 프로젝트에 설치하지 않는다(브라우저까지 수백 MB). 경로를
    PLAYWRIGHT_PATH 로 받고, 없으면 평소대로 'playwright' 를 찾는다.
@@ -449,6 +450,39 @@ const MEASURE = (CFG) => {
   for (const st of document.querySelectorAll('.stage-wrap .stage')) {
     const d = st.scrollHeight - st.clientHeight;
     if (d > 1) add('stage-squeezed', { by: d, note: '무대가 눌려 레인이 스파인 · 푸터 밑으로 들어간다' });
+  }
+
+  /* 흐름선이 끝점이 아닌 카드 위를 지나는가 — 레일 SVG 는 카드 위(z-index:3)에 그려지므로
+     선이 그 카드의 글자 한가운데를 그어 취소선처럼 읽힌다. 넘침도 겹침도 아니라서 어느 검사에도
+     안 걸렸다(1512 innodb 09/2 : SESSION → MDL QUEUE 가 STATEMENT 의 DDL 문장 위를 지났다 —
+     한 장씩 눈으로 보다 찾았다). 경로를 4px 간격으로 따라가며, 끝점을 품은 카드를 빼고
+     카드 안(가장자리 3px 안쪽)에 연달아 든 길이를 잰다. */
+  for (const svg of document.querySelectorAll('.stage .rails')) {
+    /* 레일이 카드 밑에 칠해지는 폭(767 이하)에서는 겹쳐도 선이 카드 뒤로 지나간다 — 글자를 긋지 않는다 */
+    const row = svg.parentElement.querySelector('.row');
+    if (row && +getComputedStyle(svg).zIndex < +getComputedStyle(row).zIndex) continue;
+    const sr = svg.getBoundingClientRect();
+    const k = sr.width / (svg.viewBox.baseVal.width || sr.width || 1);
+    const cards = [...svg.parentElement.querySelectorAll('.act')].filter(visible)
+      .map((e) => ({ r: rc(e), id: e.getAttribute('data-act') }));
+    const inR = (r, q, m) => q.x > r.left + m && q.x < r.right - m && q.y > r.top + m && q.y < r.bottom - m;
+    for (const p of svg.querySelectorAll('path.rail, path.rail-ghost')) {
+      const L = p.getTotalLength();
+      if (!(L > 0)) continue;
+      const at = (s) => { const q = p.getPointAtLength(s); return { x: sr.left + q.x * k, y: sr.top + q.y * k }; };
+      const ends = [at(0), at(L)];
+      const endOf = (q) => (cards.find((c) => inR(c.r, q, -3)) || {}).id;
+      const others = cards.filter((c) => !ends.some((q) => inR(c.r, q, -3)));
+      let run = 0, worst = 0, hit = '';
+      for (let s = 0; s <= L; s += 4) {
+        const c = others.find((o) => inR(o.r, at(s), 3));
+        if (c) { run += 4; if (run > worst) { worst = run; hit = c.id; } } else run = 0;
+      }
+      const ghost = p.classList.contains('rail-ghost');
+      if (worst > 8) add('rail-through-card', { by: worst, ghost,
+        el: (ghost ? '유령 ' : '') + endOf(ends[0]) + ' → ' + endOf(ends[1]) + ' 가 ' + hit + ' 위로',
+        note: '흐름선이 끝점이 아닌 카드 위를 지난다' });
+    }
   }
 
   /* 무대 아래 발췌는 인용한 줄로 스크롤해 연다 — 맨 윗줄이 반쯤 잘려 있으면 읽는 자리를 놓친다.

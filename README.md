@@ -34,7 +34,7 @@
 **검사를 사람 판단에 맡기지 않는다.** 락 호환/강도 행렬 150칸은 소스의 배열과
 칸 단위로 대조하고(`tools/mxcheck.js`), `NAME = 값` 형태의 주장은 저장소에서
 grep 해 확인한다(`tools/claimcheck.js`). 레이아웃은 15폭 × 7,400방문을 훑어
-넘침·글자잘림·라벨겹침·레일 겹침을 잡는다(`tools/sweep.js`).
+넘침·글자잘림·라벨겹침·레일 겹침·무대 눌림·카드를 긋는 흐름선을 잡는다(`tools/sweep.js`).
 
 **손잡이를 돌리면 흐름이 바뀐다.** 무대 옆 손잡이 패널의 값은 설명이 아니라 입력이다.
 값을 누르면 그 장면이 그 설정의 동작으로 다시 재생된다 — 스텝의 문장·근거·배우 상태가
@@ -126,7 +126,7 @@ MongoDB 덱이 화면에 띄우는 발췌는 WiredTiger(GPLv2/v3) 코드뿐이�
 
     node tools/sweep.js --break=overflow --widths=1366 --decks=mysql/locks
 
-`tools/sweep-report.md` 에 그 발동 증거와, 만들면서 밟은 함정 31개가 적혀 있다.
+`tools/sweep-report.md` 에 그 발동 증거와, 만들면서 밟은 함정 32개가 적혀 있다.
 
 ## 저장소에 없는 것
 

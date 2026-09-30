@@ -34,6 +34,11 @@
      명시적으로 100% 를 줘서 상자와 어긋나지 않게 못박는다. */
   position:absolute;inset:0;width:100%;height:100%;
   pointer-events:none;z-index:3;overflow:visible}
+/* 휴대폰 폭에서는 카드가 줄을 다 차지해 사이 레인에 빈 세로 통로가 없다 — 레인을 건너뛰는 선이
+   피해 갈 길이 없어 카드의 글자를 그었다(390 : 173건, 대부분 유령선). 그 폭에서만 레일을 카드
+   밑으로 내려 선이 카드 뒤로 지나가게 한다. 넓은 폭은 link() 가 빈 통로로 돌리므로 카드 위에
+   둔다 — 밑에 두면 끝점의 점과 빛이 카드에 반쯤 가린다. */
+@media (max-width:767px){ .stage .rails{z-index:0} }
 .rail{fill:none;stroke:var(--line);stroke-width:1;opacity:.45}
 .rail-lit{
   fill:none;stroke:var(--fl-1);stroke-width:2.4;stroke-linecap:round;
