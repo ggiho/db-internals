@@ -19,6 +19,8 @@
 .dl-none{grid-column:1 / -1;margin:0;font:400 11.5px/1.6 var(--mono);color:var(--faint)}
 
 .dl-nb{flex:none;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+/* 첫 변경 줄과 앞뒤 줄이 함께 들어갈 자리가 없으면 앞뒤 줄을 뺀다 — Delta.jsx 의 DL_NAV */
+.delta.tight .dl-nb{display:none}
 .dl-nb button{min-width:0;display:flex;gap:8px;align-items:baseline;text-align:left;padding:4px 0;
   background:none;border:0;border-top:1px dotted var(--line);cursor:pointer;color:var(--mid)}
 .dl-nb button:last-child{justify-content:flex-end;text-align:right}

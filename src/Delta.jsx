@@ -21,11 +21,15 @@ import './delta.css';
    남는 높이가 117 이라 패널이 통째로 빠지고 130px 이 빈칸으로 남았다. 96 이면 한 묶음과 앞뒤
    줄이 들어간다. 그보다 작으면 10~30px 로 쪼그라들어 내용 0줄을 보이며 무대에서 높이만
    빼앗는다(1366×768 실측) — 그래서 문턱은 남긴다.
-   96 에서 80 으로 내렸다. 바꾼 것이 한 줄이거나 "상태는 그대로다" 뿐인 패널은 79px 인데,
-   남는 높이 80~95 인 화면이 패널 없이 그만큼(최대 108px)을 비워 두었다(1512 에서 14 화면,
-   1366 에서 35 — locks 05/6 은 94). 80 이면 제목 · 변경 첫 줄 · 앞뒤 줄이 보이고 나머지는 안에서
-   스크롤한다. 남는 높이는 무대가 쓰지 않는 자리라 무대를 누르지도 않는다. */
-const DL_MIN = 80;
+   96 에서 80 으로 내렸다가(남는 높이 80~95 인 화면이 패널 없이 최대 108px 을 비웠다 — 1512 에서
+   14 화면, 1366 에서 35), 문턱을 한 값으로 두지 않게 됐다. 80 은 "상태는 그대로다" 패널(79px)에만
+   맞았다. 변경이 한 줄인 패널은 92px 이라 80~91 에서는 첫 변경 줄이 잘려 제목과 배우 이름만
+   읽혔다(1366 innodb 01/1 : 18px 중 11px). 그래서 내용이 문턱을 정한다 — 첫 줄이 온전히 들어가야
+   띄우고, 앞뒤 줄까지 들어갈 자리가 없으면 앞뒤 줄을 뺀다(앞뒤 스텝은 레일의 목록과 ← → 에 있다).
+   치수는 delta.css 에서 : 테두리와 위 여백 10 · 제목과 틈 17 · 배우 이름 13 · 한 줄 18 · 앞뒤 줄과 틈 34.
+   남는 높이는 무대가 쓰지 않는 자리라 무대를 누르지도 않는다. */
+const DL_TOP = 10 + 17, DL_NAME = 13, DL_LINE = 18, DL_NAV = 34;
+const DL_MIN = DL_TOP + DL_LINE;                  /* 가장 작은 패널 — "상태는 그대로다" 한 줄 */
 /* 발췌 머리글 한 줄 + 코드 세 줄 — 인용한 줄과 그 위아래 한 줄씩. 처음엔 네 줄 남짓(110)이었는데,
    1512×982 에서 바꾼 것만 뜬 145 화면 중 40 이 82~109px 을 남기고 그만큼(최대 124px)을 비워 두었다
    (innodb 01/1 은 4px 모자랐다). 그보다 작으면 읽을 것이 없다. */
@@ -119,9 +123,10 @@ function trailOf(steps, i) {
   return rows;
 }
 
-function Panel({ rows, lk, prev, next, i, onSeek, style, pref }) {
+function Panel({ rows, lk, prev, next, i, onSeek, style, pref, tight, sig }) {
   return (
-    <section className="delta" aria-label="이 스텝이 바꾼 것" style={style} ref={pref}>
+    <section className={'delta' + (tight ? ' tight' : '')} aria-label="이 스텝이 바꾼 것" style={style} ref={pref}
+      data-sig={sig}>
       <div className="dl-bd">
         <b className="dl-t">이 스텝이 바꾼 것</b>
         {rows.length ? rows.map((r) => (
@@ -150,13 +155,35 @@ export default function Delta({ scene, frames, i, ACTORS, steps, onSeek, deck, a
      그리기 전에 재고 다시 그리므로 깜박이지 않는다(useLayoutEffect). */
   const pref = useRef(null);
   const [dh, setDh] = useState(0);
+  /* 첫 항목의 실제 아래 끝 — 배우 이름이나 첫 변경이 두 줄로 접히면 치수보다 크다(1366 wal 02/3 :
+     첫 변경이 35px). 무엇을 쟀는지(내용과 폭)와 함께 둔다 — 다른 내용에는 치수로 어림한다. */
+  const [f1, setF1] = useState({ sig: '', h: 0 });
   useLayoutEffect(() => {
-    const h = pref.current ? pref.current.offsetHeight : 0;
+    const el = pref.current;
+    const h = el ? el.offsetHeight : 0;
     if (h !== dh) setDh(h);
+    const f = el && el.querySelector('.dl-row li, .dl-none');
+    if (!f) return;
+    /* 내용마다 한 번만 잰다 — 잰 값이 앞뒤 줄을 빼고 넣는 것을 정하고, 그것이 패널 높이를 바꿔
+       다시 재면 값이 1px 씩 흔들려 끝없이 다시 그렸다(Maximum update depth). */
+    if (el.dataset.sig === f1.sig) return;
+    /* rect 는 배율(2000 이상의 zoom)이 곱해진 값이고 남는 높이는 CSS px 이다 — 나눠서 맞춘다.
+       안 나누면 2560(1.5배)에서 첫 항목이 1.5배로 잡혀 들어갈 패널까지 빠졌다. 배율은 0.25 단위다
+       (style.css) — rect 와 offsetHeight 의 비는 반올림 차로 1 에서도 1.005 쯤이 나온다. */
+    const box = el.getBoundingClientRect();
+    const z = el.offsetHeight ? Math.round(box.height / el.offsetHeight * 4) / 4 || 1 : 1;
+    setF1({ sig: el.dataset.sig, h: Math.ceil((f.getBoundingClientRect().bottom - box.top) / z) });
   });
   if (!room) return null;
-  const p = { rows: delta(scene, frames, i, ACTORS), lk: looks(steps[i], ACTORS),
-    prev: steps[i - 1], next: steps[i + 1], i, onSeek, pref };
+  const rows = delta(scene, frames, i, ACTORS);
+  const lk = looks(steps[i], ACTORS);
+  const sig = innerWidth + ' ' + scene.num + '/' + i + ' ' + lk.join(',') + ' '
+    + rows.map((r) => r.who + ':' + r.lines.map((l) => l.s + l.t).join(',')).join(';');
+  /* 첫 줄 — 변경이 있으면 배우 이름과 그 첫 변경, 없으면 "상태는 그대로다" — 이 온전히 들어가야 띄운다 */
+  const first = f1.sig === sig ? f1.h : DL_TOP + (rows.length ? DL_NAME : 0) + DL_LINE;
+  if (room < first) return null;
+  const p = { rows, lk, sig,
+    prev: steps[i - 1], next: steps[i + 1], i, onSeek, pref, tight: room < first + DL_NAV };
   /* 근거 칸 — 소스 발췌가 먼저, 없으면 스텝의 인용, 그것도 없으면 장면의 인용,
      그것도 없으면 장면의 근거 목록(정리 스텝) */
   const st = steps[i];

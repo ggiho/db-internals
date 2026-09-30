@@ -59,7 +59,7 @@
  *        [--base=http://localhost:5180] [--json=out.json] [--break=NAME]
  *
  * --break 는 검사가 정말 발동하는지 확인하는 용도다 (발동하지 않는 검사는 무가치하다) :
- *   overflow · text-clip · label-overlap · zoom · narrow · rail-overlap · stage-squeezed
+ *   overflow · text-clip · label-overlap · zoom · narrow · rail-overlap · stage-squeezed · dl-first-cut
  * (rail-through-card 는 CSS 로 되돌릴 수 없다 — 옛 판(배포본)에 --base 로 돌려 확인한다)
  */
 /* playwright 는 이 프로젝트에 설치하지 않는다(브라우저까지 수백 MB). 경로를
@@ -486,6 +486,16 @@ const MEASURE = (CFG) => {
     }
   }
 
+  /* 무대 아래 "바꾼 것" 의 첫 줄이 잘렸는가 — 남는 높이에 맞춰 줄어든 패널은 안에서 스크롤하는데,
+     첫 변경 줄까지 잘리면 제목과 배우 이름만 읽힌다(1366 innodb 01/1 : 18px 중 11px). 스크롤
+     상자 안이라 글자 잘림 검사는 일부러 보지 않는 자리다. */
+  const dlb = document.querySelector('.delta .dl-bd');
+  const dl1 = dlb && visible(dlb) && dlb.querySelector('.dl-row li, .dl-none');
+  if (dl1) {
+    const cut = dl1.getBoundingClientRect().bottom - dlb.getBoundingClientRect().bottom;
+    if (cut > 1) add('dl-first-cut', { by: +cut.toFixed(1), note: '바꾼 것의 첫 줄이 잘렸다' });
+  }
+
   /* 무대 아래 발췌는 인용한 줄로 스크롤해 연다 — 맨 윗줄이 반쯤 잘려 있으면 읽는 자리를 놓친다.
      구간 사이 줄(···)의 높이가 달라서 스크롤 값을 줄 높이 배수로 반올림하는 것으로는 안 됐고,
      인용한 줄이 끝 가까이면 최댓값에서 잘렸다(배포본에서 10.5px). */
@@ -598,6 +608,8 @@ const BREAKS = {
   'rail-overlap': '.wrap > .rail{grid-template-rows:auto auto minmax(72px,1fr) auto!important}',
   /* 무대가 눌려 레인 위에 스파인 · 푸터가 겹쳤던 자리(1366 innodb 01/3 · 1512 01/12) — 예전 flex */
   'stage-squeezed': '.scol .stage{flex:0 1 auto!important;min-height:0!important}',
+  /* 좁은 자리에서도 앞뒤 줄을 두어 첫 변경 줄이 잘렸던 자리(1366 innodb 01/1) — 앞뒤 줄을 되살린다 */
+  'dl-first-cut': '.delta.tight .dl-nb{display:grid!important}',
 };
 
 /* ─────────────────────────────── 실행 ─────────────────────────────── */
