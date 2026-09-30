@@ -104,16 +104,21 @@ function touched(step, chg) {
 /* 이 스텝이 실제로 무대에 올릴 배우 — 가독성의 핵심 규칙이다.
    전에는 덱의 모든 배우(최대 20개)를 언제나 그렸고 안 쓰는 것은 세로 띠로 접었다.
    실측하니 3장 덱은 평균 4개만 쓰면서 16개가 띠였다 — 화면의 80% 가 정보 없는 픽셀.
-   그래서 "장면의 cast" 가 아니라 "이 스텝이 건드리는 것 + 직전 맥락" 만 올린다. */
+   그래서 "장면의 cast" 가 아니라 "이 스텝이 건드리는 것 + 직전 맥락" 만 올린다.
+   상한(maxCards)은 맥락에만 건다 — 건드린 배우까지 자르면 바뀐 것이 무대에 없고 아래 패널에만
+   남는다. 실측 : 건드린 배우가 5~6 인 스텝이 6곳이었다 — innodb 06/8 은 .ibd · DOUBLEWRITE 가,
+   locks 01/8 · 03/3 은 행(클러스터)이, ch3 09/1 · 09/3 은 CELLS 가 무대에 없었다.
+   그래서 건드린 것은 모두 올리고, 4장이 안 되면 맥락으로 채운다. */
 export function onStage(scene, frames, i, maxCards = 4) {
   const cast = scene.cast || [];
   const now = frames[i]?.touch || new Set();
   const prev = frames[i - 1]?.touch || new Set();
   const rank = (id) => (now.has(id) ? 0 : prev.has(id) ? 1 : 2);
+  const n = Math.max(maxCards, cast.filter((id) => now.has(id)).length);
   return cast
     .map((id, idx) => ({ id, idx, r: rank(id) }))
     .sort((a, b) => a.r - b.r || a.idx - b.idx)
-    .slice(0, maxCards)
+    .slice(0, n)
     .sort((a, b) => a.idx - b.idx)           /* 자리 순서는 원래 배열대로 — 세계가 흔들리지 않게 */
     .map((x) => x.id);
 }

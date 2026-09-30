@@ -2,7 +2,8 @@
 
    흐름 데이터는 지어내지 않는다. 이미 저작돼 있는 두 가지만 쓴다.
      · frame.touch  — 이 스텝이 실제로 바꾼 배우 집합 (bake 가 계산해 둔 것)
-     · deck.EDGES   — 레인 경계의 저작된 라벨 ({after:'mem', lb:'메모리 · 디스크'}).
+     · deck.EDGES   — 레인 경계의 저작된 라벨 ({after:'mem', lb:'메모리 · 디스크'}, 아래 레인을
+                      가려야 하면 before:'disk').
                       이전 렌더러는 이걸 쓰지 않아 죽은 데이터였다.
    그래서 선은 "이 스텝이 건드린 배우들" 을 레인 순서로 이은 것이고,
    토큰이 경계를 넘을 때 그 경계의 저작된 라벨이 함께 켜진다.
@@ -78,25 +79,37 @@ function useRails(wrapRef, touchIds, key) {
           left: r.left - box.left, right: r.right - box.left,
         });
       }
+      const byId = {};
+      /* 유령선은 지금 무대에 있는 배우 전부의 좌표가 필요하다 —
+         이번 스텝이 건드린 것만으로는 지나온 경로를 못 그린다. */
+      for (const el of wrap.querySelectorAll('[data-act]')) {
+        const r = el.getBoundingClientRect();
+        byId[el.getAttribute('data-act')] = {
+          x: r.left - box.left + r.width / 2, y: r.top - box.top + r.height / 2,
+          top: r.top - box.top, bot: r.bottom - box.top,
+          left: r.left - box.left, right: r.right - box.left,
+        };
+      }
       /* 서명에 상자 크기를 넣는다. 점 좌표만 보던 탓에, 카드 위치는 그대로인데
          무대 높이만 줄어드는 전환(01/6 → 01/7 : 387px → 301px)에서 setGeo 가 다시
-         불리지 않아 SVG 가 387px 로 남았다 — 2초 뒤에도 그대로였고, 무대를 62px 넘쳤다. */
+         불리지 않아 SVG 가 387px 로 남았다 — 2초 뒤에도 그대로였고, 무대를 62px 넘쳤다.
+         건드리지 않은 카드의 자리도 넣는다 — 레인을 건너뛰는 선은 사이 카드를 피해 돌아가는데,
+         끝점 두 카드가 먼저 멈추면 서명이 굳어 사이 카드가 옮겨 가기 전의 자리로 길을 냈다
+         (wal 04/11 → 12 : PROCARRAY 가 오른쪽 칸에서 넓은 칸으로 가며 선 밑에 들어와 96px 겹침). */
+      /* 경계 라벨도 잰다 — 레인을 건너는 선이 라벨 글자를 그었다(스윕 1100 mongodb 09/4 :
+         SESSION A → HISTORY STORE 가 'reconciliation · journal' 위로 12px). 라벨은 틈의 오른쪽 끝에
+         앉으므로 길이가 곧 선이 피해야 할 자리다. */
+      const labels = [...wrap.querySelectorAll('.edge > b')].map((el) => {
+        const r = el.getBoundingClientRect();
+        return { top: r.top - box.top, bot: r.bottom - box.top, left: r.left - box.left, right: r.right - box.left };
+      });
       const sig = box.width.toFixed(1) + 'x' + box.height.toFixed(1) + ' '
-        + pts.map((p) => p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ');
+        + Object.entries(byId).map(([id, c]) => id + ':' + c.left.toFixed(1) + ',' + c.top.toFixed(1)
+          + ',' + c.right.toFixed(1) + ',' + c.bot.toFixed(1)).join(' ')
+        + ' | ' + labels.map((l) => l.left.toFixed(1) + ',' + l.top.toFixed(1) + ',' + l.right.toFixed(1)).join(' ');
       if (sig !== last) {
         last = sig;
-        const byId = {};
-        /* 유령선은 지금 무대에 있는 배우 전부의 좌표가 필요하다 —
-           이번 스텝이 건드린 것만으로는 지나온 경로를 못 그린다. */
-        for (const el of wrap.querySelectorAll('[data-act]')) {
-          const r = el.getBoundingClientRect();
-          byId[el.getAttribute('data-act')] = {
-            x: r.left - box.left + r.width / 2, y: r.top - box.top + r.height / 2,
-            top: r.top - box.top, bot: r.bottom - box.top,
-            left: r.left - box.left, right: r.right - box.left,
-          };
-        }
-        setGeo({ w: box.width, h: box.height, pts, byId });
+        setGeo({ w: box.width, h: box.height, pts, byId, labels });
       }
       if (now < stopAt) raf = requestAnimationFrame(measure);
     };
@@ -124,6 +137,15 @@ function link(a, b, box) {
   if (Math.abs(dy) > 24) {
     const [u, d] = a.y <= b.y ? [a, b] : [b, a];
     const m = cy((u.bot + d.top) / 2);
+    /* 경계 라벨은 틈의 오른쪽 끝에 앉는다. 끝점이 라벨 밑이면 그 카드 안에서 라벨 왼쪽으로 옮겨
+       나가고 들어온다 — 두 끝과 통로가 모두 라벨 왼쪽이면, x 가 한쪽으로만 가는 곡선은 라벨을
+       지나지 않는다. 라벨이 카드보다 넓어 옮길 자리가 없으면 그대로 둔다. */
+    const labs = ((box && box.labels) || []).filter((l) => l.top >= u.bot - 1 && l.bot <= d.top + 1);
+    const offLab = (c) => {
+      const l = labs.find((q) => c.x > q.left - 8 && c.x < q.right + 8);
+      return l && l.left - 10 >= c.left + 12 ? l.left - 10 : c.x;
+    };
+    const ux = offLab(u), dx = offLab(d);
     /* 레인을 건너뛰면 사이 레인의 카드가 곡선 밑에 깔린다 — 곡선이 그 카드의 글자를 그었다
        (innodb 04/5 : SESSION → REDO 가 BUFFER POOL 의 p:20 · p:21 줄 위로 224px, ch3 11/4 :
        OPERATION → CHECKSUM 이 PAGE 의 본문 위로). 그때만 첫 레인 틈에서 꺾고, 사이 레인에서
@@ -134,25 +156,28 @@ function link(a, b, box) {
     let hits = false;
     for (let i = 1; i < 24 && !hits; i++) {
       const t = i / 24, s = 1 - t;
-      hits = on(u.x + (d.x - u.x) * t * t * (3 - 2 * t), u.bot * s * s * s + m * 3 * s * t + d.top * t * t * t);
+      hits = on(ux + (dx - ux) * t * t * (3 - 2 * t), u.bot * s * s * s + m * 3 * s * t + d.top * t * t * t);
     }
     if (hits) {
       const T = Math.min(...mid.map((c) => c.top)), B = Math.max(...mid.map((c) => c.bot));
-      const free = (x) => x > 1 && x < W - 1 && !mid.some((c) => x > c.left - 6 && x < c.right + 6);
-      const xs = [d.x, u.x];
+      /* 통로도 라벨 왼쪽이어야 한다 — 오른쪽 카드 너머 통로가 라벨 밑으로 내려갔다(mongodb 09/4) */
+      const free = (x) => x > 1 && x < W - 1 && !mid.some((c) => x > c.left - 6 && x < c.right + 6)
+        && labs.every((l) => x < l.left - 8);
+      const xs = [dx, ux];
       const iv = mid.map((c) => [c.left, c.right]).sort((p, q) => p[0] - q[0]);
       let r = iv[0][1];                             /* 지금까지 본 카드들의 오른쪽 끝 */
       for (const [l, rr] of iv.slice(1)) { if (l - r >= 14) xs.push((r + l) / 2); r = Math.max(r, rr); }
       xs.push(r + 14);
+      xs.push(iv[0][0] - 14);                       /* 맨 왼쪽 카드 앞 — 오른쪽이 라벨로 막혔을 때 */
       const x = xs.slice(0, 2).find(free)
-        ?? xs.slice(2).filter(free).sort((p, q) => Math.abs(p - u.x) + Math.abs(p - d.x) - Math.abs(q - u.x) - Math.abs(q - d.x))[0];
+        ?? xs.slice(2).filter(free).sort((p, q) => Math.abs(p - ux) + Math.abs(p - dx) - Math.abs(q - ux) - Math.abs(q - dx))[0];
       if (x !== undefined) {
         const mt = cy((u.bot + T) / 2), mb = cy((B + d.top) / 2);
-        return `M${cx(u.x)},${cy(u.bot)} C${cx(u.x)},${mt} ${cx(x)},${mt} ${cx(x)},${cy(T)}`
-          + ` L${cx(x)},${cy(B)} C${cx(x)},${mb} ${cx(d.x)},${mb} ${cx(d.x)},${cy(d.top)}`;
+        return `M${cx(ux)},${cy(u.bot)} C${cx(ux)},${mt} ${cx(x)},${mt} ${cx(x)},${cy(T)}`
+          + ` L${cx(x)},${cy(B)} C${cx(x)},${mb} ${cx(dx)},${mb} ${cx(dx)},${cy(d.top)}`;
       }
     }
-    return `M${cx(u.x)},${cy(u.bot)} C${cx(u.x)},${m} ${cx(d.x)},${m} ${cx(d.x)},${cy(d.top)}`;
+    return `M${cx(ux)},${cy(u.bot)} C${cx(ux)},${m} ${cx(dx)},${m} ${cx(dx)},${cy(d.top)}`;
   }
   /* 같은 레인이면 카드 사이를 옆으로 지난다. 위로 호를 그리면 그 호가
      위쪽 레인 영역까지 솟아올라 엉뚱한 곳에 떠 보인다(녹화로 확인). */
@@ -217,7 +242,11 @@ export default function Stage({ deck, scene, frame, stage, step }) {
   const spanHi = Math.max(...[...tLanes].map((l) => idxOf.get(l) ?? -1));
   const crossed = (li) => tLanes.size > 1 && li >= spanLo && li < spanHi;
 
-  const edgeFor = (laneId) => (deck.EDGES || []).find((e) => e.after === laneId);
+  /* before 가 있는 경계는 바로 아래 레인이 그것일 때만 이름을 단다. 사이 레인이 무대에
+     없으면 그 아래 레인이 붙는데, 그때도 같은 이름을 달면 틀린 말이 된다
+     (mongodb 06/8 : TIMESTAMPS → SECONDARY 사이에 DISK 가 빠져 'reconciliation' 이 켜졌다). */
+  const edgeFor = (laneId, nextId) => (deck.EDGES || [])
+    .find((e) => e.after === laneId && (!e.before || e.before === nextId));
 
   return (
     <LayoutGroup>
@@ -275,7 +304,7 @@ export default function Stage({ deck, scene, frame, stage, step }) {
                 </AnimatePresence>
               </div>
               {li < live.length - 1 && (() => {
-                const e = edgeFor(lane.id);
+                const e = edgeFor(lane.id, live[li + 1].id);
                 return (
                   <div className={'edge' + (crossed(li) ? ' lit' : '') + (e ? ' named' : '')}
                     data-hot={e ? e.hot : undefined}>
