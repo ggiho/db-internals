@@ -5,7 +5,7 @@
 
 **https://db-internals.pages.dev**
 
-지금은 MySQL(InnoDB·락), PostgreSQL(MVCC·힙·락·WAL), Aurora, MongoDB(WiredTiger), 그리고
+지금은 MySQL(InnoDB·락), PostgreSQL(MVCC·힙·버퍼·B-tree·락·WAL), Aurora, MongoDB(WiredTiger), 그리고
 *Database Internals* 2·3장 대조를 담고 있다. 주소와 디렉터리가 엔진 계층을 가지므로
 엔진을 늘려도 도구와 검사가 그대로 붙는다.
 
@@ -110,7 +110,7 @@ MongoDB 덱이 화면에 띄우는 발췌는 WiredTiger(GPLv2/v3) 코드뿐이�
 소스가 없으면 `verify.js` 는 "파일을 못 읽었다" 만 낸다 — 그것은 통과가 아니라 미검증이다.
 실제로 PostgreSQL 트리가 사라져 있는 동안 인용 오류 한 건이 가려져 있었다.
 
-    bash tools/check.sh                      # 버전 일치 + verify + 행렬 대조 + 상수 주장 대조
+    bash tools/check.sh                      # 버전 일치 + verify + 행렬 대조 + 상수 주장 대조 + PG 지표 이름 대조
     node tools/srcver.js                     # 덱이 띄우는 버전 = 대조하는 트리의 버전
     node tools/lines.js  mysql/locks         # 심볼 → 줄 번호 (linemap.js 생성)
     node tools/extract.js mysql/locks        # 줄 번호 → 소스 발췌 (code.js 생성)
@@ -128,7 +128,7 @@ MongoDB 덱이 화면에 띄우는 발췌는 WiredTiger(GPLv2/v3) 코드뿐이�
 
     node tools/sweep.js --base=http://localhost:5181 --break=overflow --widths=1366 --decks=mysql/locks
 
-`tools/sweep-report.md` 에 그 발동 증거와, 만들면서 밟은 함정 35개가 적혀 있다.
+`tools/sweep-report.md` 에 그 발동 증거와, 만들면서 밟은 함정 42개가 적혀 있다.
 
 ## 저장소에 없는 것
 
