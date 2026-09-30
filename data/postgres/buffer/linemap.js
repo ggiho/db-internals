@@ -1,0 +1,3 @@
+const LINES = {"src/backend/storage/buffer/bufmgr.c#PinBuffer":3090,"src/backend/storage/buffer/freelist.c#StrategyGetBuffer":196,"src/backend/storage/buffer/bufmgr.c#GetVictimBuffer":2354,"src/backend/storage/buffer/bufmgr.c#BufferAlloc":2009,"src/backend/storage/buffer/bufmgr.c#BgBufferSync":3643,"src/backend/storage/buffer/freelist.c#ClockSweepTick":108,"src/backend/access/heap/heapam.c#initscan":354,"src/backend/storage/buffer/freelist.c#GetAccessStrategy":541,"src/backend/storage/buffer/freelist.c#GetBufferFromRing":737,"src/backend/storage/buffer/freelist.c#StrategyRejectBuffer":840};
+
+export { LINES };

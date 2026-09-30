@@ -32,6 +32,21 @@ export const CORE = {
     a: 'COMMITTED 와 INVALID 두 힌트 비트를 함께 켠다',
     x: ['t_infomask 에 FROZEN 전용 비트를 하나 더 둔다', 'xmax 에 동결 전용 XID 를 적는다', 't_ctid 에 동결 표식을 적는다'],
   },
+  '08/4': {
+    q: '다른 세션이 고치는 중인 행을 UPDATE 하면 pg_locks 에서 무엇을 기다리나?',
+    a: '그 행을 고친 트랜잭션의 transactionid',
+    x: ['그 행의 row 락', '그 테이블의 RowExclusiveLock', '그 페이지의 버퍼 락'],
+  },
+  '08/7': {
+    q: '기다린 끝에 행이 먼저 갱신돼 있으면 REPEATABLE READ 의 UPDATE 는?',
+    a: '직렬화 실패(40001) 오류로 끝난다',
+    x: ['최신 버전으로 WHERE 를 다시 확인해 고친다', '자기 스냅샷의 옛 버전 위에 그대로 쓴다', '상대가 끝날 때까지 다시 기다린다'],
+  },
+  '08/11': {
+    q: 'InnoDB 와 PG 의 REPEATABLE READ 가 동시 UPDATE 에서 다른 점은?',
+    a: 'InnoDB 는 최신 버전에 쓰고, PG 는 오류를 낸다',
+    x: ['둘 다 직렬화 실패 오류를 낸다', 'InnoDB 는 오류를 내고, PG 는 최신 버전에 쓴다', '둘 다 자기 스냅샷의 값에 덮어쓴다'],
+  },
   '07/3': {
     q: 'UPDATE 가 HOT 이 되려면 무엇이 필요한가?',
     a: '인덱스 키 열 불변, 같은 페이지에 빈 자리',

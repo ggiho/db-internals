@@ -55,4 +55,19 @@ export const CORE = {
     a: '복구는 짧아지지만 FPI 가 늘어 WAL 이 커진다',
     x: ['복구도 짧아지고 WAL 도 줄어든다', 'WAL 은 줄지만 복구가 길어진다', '복구 시간은 그대로고 쓰기만 줄어든다'],
   },
+  '04/6': {
+    q: 'synchronous_commit=on 에서 COMMIT 이 기다리는 디스크 작업은?',
+    a: '커밋 레코드 끝까지 WAL 을 쓰고 fsync',
+    x: ['바뀐 힙 페이지를 데이터 파일에 쓰기', 'pg_xact 페이지를 디스크에 쓰기', 'WAL 과 힙 페이지를 함께 fsync'],
+  },
+  '04/11': {
+    q: '커밋한 변경이 다른 세션의 새 스냅샷에 보이기 시작하는 때는?',
+    a: 'ProcArray 에서 그 xid 가 빠진 뒤',
+    x: ['WAL fsync 가 끝난 직후', 'pg_xact 에 COMMITTED 가 적힌 직후', '힙 페이지가 디스크에 쓰인 뒤'],
+  },
+  '04/15': {
+    q: 'COMMIT 응답을 받은 순간 디스크에 반드시 있는 것은?',
+    a: 'UPDATE 와 COMMIT 의 WAL 레코드',
+    x: ['바뀐 힙 페이지', 'pg_xact 의 COMMITTED 표시', 'WAL 레코드와 바뀐 힙 페이지'],
+  },
 };

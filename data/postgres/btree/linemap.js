@@ -1,0 +1,3 @@
+const LINES = {"src/backend/access/nbtree/nbtinsert.c#_bt_findinsertloc":815,"src/backend/access/nbtree/nbtinsert.c#_bt_delete_or_dedup_one_page":2683,"src/backend/access/nbtree/nbtsplitloc.c#_bt_findsplitloc":129,"src/backend/access/nbtree/nbtinsert.c#_bt_split":1467,"src/backend/access/nbtree/nbtinsert.c#_bt_insert_parent":2099,"src/backend/access/nbtree/nbtsearch.c#_bt_moveright":246,"src/include/access/nbtree.h#BTreeTupleIsPosting":493,"src/backend/access/nbtree/nbtdedup.c#_bt_dedup_pass":58,"src/backend/access/nbtree/nbtdedup.c#_bt_bottomupdel_pass":307,"src/backend/access/common/reloptions.c#boolRelOpts":94};
+
+export { LINES };

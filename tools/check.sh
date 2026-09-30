@@ -18,6 +18,9 @@ for d in $DECKS; do
   case "$d" in postgres/*) node tools/pgmx.js "$d" || FAIL=1 ;; esac
   node tools/claimcheck.js "$d" || FAIL=1
 done
+# PG 덱의 "보는 법" 이 가리키는 뷰 · 열 — 17 에서 옮겨 간 열을 18 덱이 가리키고 있었다
+printf '── pgwatch\n'
+node tools/pgwatch.js || FAIL=1
 # 게임 문항과 복습 상태 — 덱 데이터에서 만들어지므로 덱이 바뀌면 함께 깨질 수 있다
 printf '── play\n'
 # | tail 로 줄이면 종료 코드가 tail 의 것이 되어 실패가 사라진다 — 먼저 받고 나서 줄인다

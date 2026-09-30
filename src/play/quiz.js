@@ -138,7 +138,9 @@ const GROUPS = [
   ['pg_database', 'SELECT age(relfrozenxid)', 'pg_class.reltoastrelid'],
   ['pg_total_relation_size', 'pg_column_size(컬럼)', 'pg_class.reltoastrelid'],
   ['SHOW block_size', 'pg_settings', 'pg_controldata'],
-  ['pg_stat_wal', 'pg_stat_bgwriter', 'SELECT * FROM pg_stat_bgwriter', 'pg_control_checkpoint()',
+  /* PG 17 부터 checkpoint 통계는 pg_stat_bgwriter 가 아니라 pg_stat_checkpointer 에 있다.
+     pg_stat_io 는 WAL fsync 와 checkpointer 쓰기를 둘 다 보여 주므로 이 묶음의 오답이 될 수 없다 */
+  ['pg_stat_wal', 'pg_stat_checkpointer', 'pg_stat_io', 'pg_control_checkpoint()',
     'pg_controldata', 'pg_waldump'],
   ['AuroraReplicaLag', 'SHOW REPLICA STATUS'],
 ];

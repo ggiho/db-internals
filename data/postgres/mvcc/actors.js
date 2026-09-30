@@ -2,6 +2,8 @@
 const LANES = [
   { id:'sql',  lb:'SQL 계층',  note:'문장' },
   { id:'heap', lb:'HEAP',      note:'튜플 · 페이지 · 인덱스' },
+  /* 08 격리 수준에서만 쓴다 — 배우가 없는 레인은 무대에 안 나온다 */
+  { id:'shm',  lb:'공유 메모리', note:'락 표' },
 ];
 const ACTORS = {
   op:  { nm:'OPERATION',      lane:'sql',  kind:'kv' },
@@ -11,6 +13,10 @@ const ACTORS = {
   vac: { nm:'VACUUM',         lane:'sql',  kind:'kv' },
   xid: { nm:'XID SPACE',      lane:'sql',  kind:'kv' },
   idx: { nm:'INDEX',          lane:'heap', kind:'list' },
+  sa:  { nm:'SESSION A',      lane:'sql',  kind:'kv' },
+  sb:  { nm:'SESSION B',      lane:'sql',  kind:'kv' },
+  snap:{ nm:'SNAPSHOT (B)',   lane:'sql',  kind:'kv' },
+  lk:  { nm:'PG_LOCKS',       lane:'shm',  kind:'list' },
 };
 
 /* 흐름 화살표 — 아직 장면 간 이동만 있어 비어 있다 */
