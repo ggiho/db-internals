@@ -19,8 +19,14 @@
 .scol{flex:1 1 0;min-width:0;display:flex;flex-direction:column}
 /* style.css 는 .mid 의 *직접* 자식 무대만 잡는다(.mid > .stage). 비교 모드에서는
    .mid > .stage-wrap > .scol > .stage 로 한 단 더 들어가므로 여기서 같은 값을 준다 —
-   안 주면 열 안에서 무대가 세로로 다 먹고 카드 사이가 벌어진다. */
-.scol .stage{flex:0 1 auto;min-height:0}
+   안 주면 열 안에서 무대가 세로로 다 먹고 카드 사이가 벌어진다.
+   줄어들게 두어서도 안 된다(예전엔 0 1 auto · min-height:0 이었다). 무대가 무대 칸보다 크면
+   .stage 가 눌리고 레인이 상자 밖으로 넘치는데, .stage 는 스크롤하지 않으므로 그 자리에
+   놓이는 스파인 · 푸터가 마지막 레인 위에 겹쳐 그려졌다(1366 innodb 01/3 에서 79px). 흐름선
+   SVG 도 눌린 상자에 맞춰졌다. 넘치는 것은 무대 칸이 스크롤로 받는다. 그리고 눌린 채로 잰
+   scrollHeight 는 겹친 만큼 작게 나와서, 무대 아래 패널이 그 값으로 다시 무대를 누른 채
+   굳었다(1512 innodb 01/11→12 에서 46px — 무대 칸은 넘치지 않아 어떤 검사도 보지 않았다). */
+.scol .stage{flex:none}
 
 /* ── 비교 모드 : 두 열이 같은 스텝을 각자의 설정으로 보여준다 ── */
 .stage-wrap.split{gap:20px}

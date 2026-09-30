@@ -59,7 +59,7 @@
  *        [--base=http://localhost:5180] [--json=out.json] [--break=NAME]
  *
  * --break 는 검사가 정말 발동하는지 확인하는 용도다 (발동하지 않는 검사는 무가치하다) :
- *   overflow · text-clip · label-overlap · zoom · narrow
+ *   overflow · text-clip · label-overlap · zoom · narrow · rail-overlap · stage-squeezed
  */
 /* playwright 는 이 프로젝트에 설치하지 않는다(브라우저까지 수백 MB). 경로를
    PLAYWRIGHT_PATH 로 받고, 없으면 평소대로 'playwright' 를 찾는다.
@@ -442,6 +442,15 @@ const MEASURE = (CFG) => {
     if (d > 1) add('rail-overlap', { by: d, el: sec.className, note: '레일 절이 칸을 넘쳐 다음 절과 겹친다' });
   }
 
+  /* 무대(.stage)가 제 내용보다 작게 눌렸는가 — .stage 는 스크롤하지 않으므로 넘친 레인이 뒤에 오는
+     스파인 · 푸터 밑으로 들어가 겹쳐 그려진다. 무대 칸(.stage-wrap)은 스크롤 조상이라 넘침 검사가
+     그 안을 일부러 보지 않고, 넘친 만큼을 스파인 · 푸터 자리가 덮으면 무대 칸 자체도 넘치지 않는다
+     (1512 innodb 01/12 : 46px 겹친 채 배포돼 있었다 — 한 장씩 눈으로 보다 찾았다). */
+  for (const st of document.querySelectorAll('.stage-wrap .stage')) {
+    const d = st.scrollHeight - st.clientHeight;
+    if (d > 1) add('stage-squeezed', { by: d, note: '무대가 눌려 레인이 스파인 · 푸터 밑으로 들어간다' });
+  }
+
   /* 무대 아래 발췌는 인용한 줄로 스크롤해 연다 — 맨 윗줄이 반쯤 잘려 있으면 읽는 자리를 놓친다.
      구간 사이 줄(···)의 높이가 달라서 스크롤 값을 줄 높이 배수로 반올림하는 것으로는 안 됐고,
      인용한 줄이 끝 가까이면 최댓값에서 잘렸다(배포본에서 10.5px). */
@@ -552,6 +561,8 @@ const BREAKS = {
   narrow: '@media (max-width:767px){.narrow-note{display:block}} .narrow-note{display:none!important}',
   /* 레일 절이 고르게 눌려 손잡이 글자가 아래 절 위에 겹쳤던 자리(1366 innodb 04/2) — 예전 행 정의 */
   'rail-overlap': '.wrap > .rail{grid-template-rows:auto auto minmax(72px,1fr) auto!important}',
+  /* 무대가 눌려 레인 위에 스파인 · 푸터가 겹쳤던 자리(1366 innodb 01/3 · 1512 01/12) — 예전 flex */
+  'stage-squeezed': '.scol .stage{flex:0 1 auto!important;min-height:0!important}',
 };
 
 /* ─────────────────────────────── 실행 ─────────────────────────────── */
