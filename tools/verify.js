@@ -280,6 +280,16 @@ for (const sc of SCENES) {
     for (const w of want) if (!shown.includes(w)) err(`SCENE ${sc.num} 손잡이 ${sc.vary.knob} 의 값 ${w} 가 패널에 없다`);
     if (sc.vary.order) for (const o of sc.vary.order)
       if (!(String(o) in (sc.vary.alt || {}))) err(`SCENE ${sc.num} vary.order 의 ${o} 가 alt 에 없다`);
+    /* 변형은 기본 스텝 위에 필드 단위로 덮인다. note 를 새로 쓰고 ops 를 안 적으면 기본값의
+       ops 가 조용히 섞인다 — 뜻이 바뀐 스텝이 반대 상태를 그렸다(mongodb 06/10 w:1 이
+       "응답 = 과반 뒤", wal 04/13 off 가 "힌트 적음", buffer 02 1GB 가 없는 링을 채웠다).
+       같은 ops 를 물려받는 것이 맞으면 그대로 옮겨 적고, 바꾸는 것이 없으면 ops:{} 를 적는다. */
+    for (const [v, alt] of Object.entries(sc.vary.alt || {}))
+      for (const [k, o] of Object.entries(alt || {})) {
+        const base = (sc.steps || [])[+k - 1];
+        if (base && base.ops && o.note && !('ops' in o))
+          err(`SCENE ${sc.num}(v${v}).${String(k).padStart(2, '0')} note 를 바꾸고 ops 를 안 적었다 — 기본값의 ops 가 섞인다`);
+      }
   }
   const VALS = sc.vary ? [null, ...Object.keys(sc.vary.alt || {})] : [null];
   for (const VV of VALS) {

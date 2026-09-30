@@ -1156,7 +1156,8 @@ const SCENES = [
           why:'컬럼도 값도 같은데 extra 는 5 에서 6 으로, 널 표시는 비트맵에서 오프셋의 비트로, 필드 수는 인덱스 정의에서 레코드 안으로 옮겨갔다.',
           key:'그래서 행 형식은 <em>한번 정하면 그 테이블에 박힌다</em>. 옛 형식을 계속 읽을 수 있어야 하므로 InnoDB 는 두 해석 경로를 영구히 들고 간다 — 10 장면이 그 이야기다.',
           ref:'storage/innobase/rem/rec.h', sym:'REC_N_OLD_EXTRA_BYTES',
-          beat:1 },
+          beat:1,
+          ops:{ op:{ set:{ '원점 기준':'헤더 ← 원점 → 데이터  ·  완결|green' } } } },
     },
   } },
   steps:[

@@ -976,7 +976,8 @@ const SCENES = [
           why:'같은 조회다. 그러나 잠금의 단위를 정하기 전에 InnoDB 는 이 트랜잭션이 갭을 건너뛰어도 되는지를 먼저 판정한다.',
           key:'판정하는 것은 조회가 아니라 <em>트랜잭션의 격리 수준</em>이다. READ UNCOMMITTED 와 READ COMMITTED 는 건너뛰고, REPEATABLE READ 와 SERIALIZABLE 은 건너뛰지 않는다.',
           ref:'storage/innobase/include/trx0trx.h', sym:'skip_gap_locks',
-          fact:[['storage/innobase/include/trx0trx.h','bool skip_gap_locks() const {']] },
+          fact:[['storage/innobase/include/trx0trx.h','bool skip_gap_locks() const {']],
+          ops:{ ses:{ set:{ 'trx 60':'ACTIVE|gold' } } } },
 
       3:{ act:{ f:'ses', t:'idx', lb:'20 에 레코드 락만' },
           note:'20 을 잠근다 — 그 앞의 갭은 건드리지 않는다',
