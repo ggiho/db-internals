@@ -42,8 +42,11 @@
 .srci-hd .s{font:500 10px var(--mono);color:var(--ink);flex:none}
 .srci-hd i{margin-left:auto;flex:none;font:400 8.5px var(--mono);letter-spacing:.14em;font-style:normal;color:var(--faint)}
 .srci-hd:hover i{color:var(--ink)}
+/* 아래 한 줄 여백 — 인용한 줄이 발췌의 마지막 줄이면, 창 높이가 줄 높이의 배수가 아닐 때
+   맨 윗줄을 줄 경계에 맞추는 스크롤로는 그 줄이 끝까지 안 보였다(1728 mongodb 09/1 : 112px 창에
+   18px 줄이 4px 만 보였다). 한 줄만큼 더 내려갈 수 있게 한다. */
 .srci-cd{flex:1 1 auto;min-height:0;overflow:auto;font:400 11px/18px var(--mono);white-space:pre;
-  tab-size:2;scrollbar-width:thin;background:color-mix(in srgb, var(--line) 18%, transparent)}
+  tab-size:2;scrollbar-width:thin;background:color-mix(in srgb, var(--line) 18%, transparent);padding-bottom:18px}
 .srci-cd .ln{display:block;padding-right:14px}
 .srci-cd .ln i{display:inline-block;width:48px;padding-right:12px;text-align:right;
   color:var(--dim2);font-style:normal;user-select:none}

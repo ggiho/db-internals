@@ -9,9 +9,9 @@ import { highlight } from './hl.js';
    이제 자리가 넉넉하면 바꾼 것 아래를 근거 칸이 채운다 — 소스 발췌, 없으면 인용한 원문,
    그것도 없으면 장면의 근거 목록(셋 다 이 파일에). 배치 판단은 Delta.jsx 에. */
 
-function Line({ n, toks, hit, cite, gap }) {
+function Line({ n, toks, hit, cite, gap, own }) {
   return (
-    <span className={'ln' + (gap ? ' gap' : '') + (!gap && n === hit ? ' hit' : '') + (cite ? ' cited' : '')}>
+    <span className={'ln' + (gap ? ' gap' : '') + (!gap && n === hit ? ' hit' : '') + (cite ? ' cited' : '') + (own ? ' own' : '')}>
       <i>{n}</i>
       {toks.map((t, k) => (t.c ? <span key={k} className={t.c}>{t.v}</span> : t.v))}
     </span>
@@ -33,10 +33,30 @@ export function srcKeyOf(deck, step, at) { return key(step, deck, at); }
    높이는 부모가 정한다(남는 자리). 그 안에서 스크롤하고, 처음 보여 주는 자리는 인용한 줄이다 —
    창은 맨 위에서 시작하지만 여기는 몇 줄밖에 안 보이므로, 정의 머리보다 근거가 먼저 보여야 한다.
    인용한 줄이 없으면 정의 줄(hit)을 위에서 1/4 쯤에 둔다. 머리글을 누르면 창으로 크게 연다. */
+/* 이 스텝이 인용한 줄. 발췌를 여러 스텝이 나눠 쓰면 marks 는 모든 스텝의 인용을 합친 것이라,
+   첫 인용으로 맞추면 다른 스텝의 근거가 먼저 보였다 — 230 스텝 중 12 곳이 8줄 넘게 어긋났고
+   mongodb 07/4 는 62줄이라 작은 창에 이 스텝의 줄이 아예 없었다. 한 줄에 든 인용만 찾는다
+   (여러 줄에 걸친 인용은 찾지 못하면 예전처럼 첫 인용으로 맞춘다). */
+const norm = (t) => t.replace(/\s+/g, ' ').trim();
+function ownLines(code, step) {
+  const own = [];
+  if (!code || !step) return own;
+  const nums = code.nums || code.lines.map((_, i) => code.from + i);
+  for (const f of step.fact || []) {
+    const [file, q] = Array.isArray(f) ? f : [step.ref, f];
+    if (file !== step.ref) continue;
+    const i = code.lines.findIndex((l) => norm(l).includes(norm(q)));
+    if (i >= 0 && nums[i]) own.push(nums[i]);
+  }
+  return own;
+}
+
 export function SourceInline({ deck, step, at, onOpen }) {
   const k = key(step, deck, at);
   const code = k ? deck.CODE[k] : null;
   const lines = useMemo(() => highlight(code), [code]);
+  const own = ownLines(code, step);
+  const ownKey = own.join(',');
   const cd = useRef(null);
 
   /* 인용한 줄에서 정수 줄 수만큼 위를 맨 위로 둔다. retarget 이 거짓이면 지금 위치에서
@@ -45,7 +65,7 @@ export function SourceInline({ deck, step, at, onOpen }) {
     const el = cd.current;
     if (!el || !code) return undefined;
     const align = (retarget) => {
-      const target = el.querySelector('.ln.cited') || el.querySelector('.ln.hit');
+      const target = el.querySelector('.ln.own') || el.querySelector('.ln.cited') || el.querySelector('.ln.hit');
       const first = el.firstElementChild;
       if (!target || !first) { if (retarget) el.scrollTop = 0; return; }
       /* 절대값을 줄 높이로 반올림하면 안 된다 — 구간 사이 줄(···)은 높이가 달라서 그 아래
@@ -53,6 +73,11 @@ export function SourceInline({ deck, step, at, onOpen }) {
       const lh = target.offsetHeight || 18;
       const rel = target.offsetTop - first.offsetTop;
       let k = retarget ? Math.round(el.clientHeight / 4 / lh) : Math.round((rel - el.scrollTop) / lh);
+      /* 읽던 자리를 지키다 인용한 줄이 창 밖으로 밀리면 다시 맞춘다 — mongodb 07/3 → 07/4 에서
+         창이 96px → 114px 로 자라는 동안 줄 오프셋만 지켜, 인용 줄이 창 아래 7번째 줄에 남았다. */
+      /* clientHeight 는 정수로 반올림된 값이다 — 5120(배율 2.5)에서 71.6px 창을 72 로 읽어 마지막 줄에
+         꼭 맞는다고 보고 두었더니 그 줄이 0.4px 잘렸다(mongodb 01/3 → 01/4). 1px 여유를 둔다. */
+      if (!retarget && (k < 0 || (k + 1) * lh > el.clientHeight - 1)) k = Math.round(el.clientHeight / 4 / lh);
       /* 인용한 줄이 끝 가까이면 원하는 값이 최댓값을 넘고, 브라우저가 최댓값으로 자른다 —
          그 값은 줄 경계가 아니다(mongodb 01/4 에서 10.5px 잘림). 넘지 않는 줄 수로 줄인다. */
       const max = el.scrollHeight - el.clientHeight;
@@ -66,7 +91,7 @@ export function SourceInline({ deck, step, at, onOpen }) {
     const ro = new ResizeObserver(() => align(false));
     ro.observe(el);
     return () => ro.disconnect();
-  }, [code]);
+  }, [code, ownKey]);
 
   if (!code) return null;
   return (
@@ -77,7 +102,7 @@ export function SourceInline({ deck, step, at, onOpen }) {
         <i>크게 보기  S</i>
       </button>
       <div className="srci-cd" ref={cd}>
-        {lines.map((l, i) => <Line key={l.n + '/' + i} n={l.n} toks={l.toks} gap={l.gap} hit={code.hit} cite={!l.gap && (code.marks||[]).includes(l.n)} />)}
+        {lines.map((l, i) => <Line key={l.n + '/' + i} n={l.n} toks={l.toks} gap={l.gap} hit={code.hit} cite={!l.gap && (code.marks||[]).includes(l.n)} own={!l.gap && own.includes(l.n)} />)}
       </div>
     </section>
   );

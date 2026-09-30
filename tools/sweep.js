@@ -60,7 +60,7 @@
  *
  * --break 는 검사가 정말 발동하는지 확인하는 용도다 (발동하지 않는 검사는 무가치하다) :
  *   overflow · text-clip · label-overlap · zoom · narrow · rail-overlap · stage-squeezed · dl-first-cut ·
- *   ax-band-off · ax-label-cut
+ *   ax-band-off · ax-label-cut · src-own-hidden
  * (rail-through-card 는 CSS 로 되돌릴 수 없다 — 옛 판(배포본)에 --base 로 돌려 확인한다)
  */
 /* playwright 는 이 프로젝트에 설치하지 않는다(브라우저까지 수백 MB). 경로를
@@ -538,6 +538,13 @@ const MEASURE = (CFG) => {
     const first = [...sc.querySelectorAll('.ln')].find((l) => l.getBoundingClientRect().bottom > top + 0.5);
     const cut = first ? top - first.getBoundingClientRect().top : 0;
     if (cut > 1) add('src-top-cut', { by: +cut.toFixed(1), note: '발췌 맨 윗줄이 잘렸다' });
+    /* 이 스텝이 인용한 줄(.ln.own)이 하나도 창 안에 없으면, 발췌는 떴는데 근거가 안 보인다.
+       여러 스텝이 한 발췌를 나눠 쓰면 다른 스텝의 인용으로 맞춰 열던 탓에 실제로 그랬다
+       (mongodb 07/4 : 62줄 떨어진 이 스텝의 줄이 114px 창 밖). */
+    const sr = sc.getBoundingClientRect();
+    const own = [...sc.querySelectorAll('.ln.own')];
+    if (own.length && !own.some((l) => { const r = l.getBoundingClientRect(); return r.top >= sr.top - 0.5 && r.bottom <= sr.bottom + 0.5; }))
+      add('src-own-hidden', { by: own.length, note: '이 스텝이 인용한 줄이 발췌 창 밖에 있다' });
   }
 
   /* ── 기록(문제가 아닌 측정값) : 남는 세로 높이 ── */
@@ -643,6 +650,8 @@ const BREAKS = {
   'stage-squeezed': '.scol .stage{flex:0 1 auto!important;min-height:0!important}',
   /* 좁은 자리에서도 앞뒤 줄을 두어 첫 변경 줄이 잘렸던 자리(1366 innodb 01/1) — 앞뒤 줄을 되살린다 */
   'dl-first-cut': '.delta.tight .dl-nb{display:grid!important}',
+  /* 발췌를 다른 스텝의 인용으로 맞춰 열어, 이 스텝의 줄이 창 밖에 있던 자리(mongodb 07/4) — 그 줄을 밀어낸다 */
+  'src-own-hidden': '.srci-cd .ln.own{transform:translateY(-4000px)!important}',
   /* 축의 좌우 여백을 예전 padding 12 + margin 22 로 — 띠가 눈금과 다른 폭으로 풀리던 자리 */
   'ax-band-off': '.ax{padding-left:12px!important;padding-right:12px!important;margin-left:22px!important;margin-right:22px!important}',
   /* 라벨 바탕을 걷고 점 띠를 예전 20px 로 — 테두리가 "72 대기" · "next-key (10,20]" 를 가르던 자리 */
