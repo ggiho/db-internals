@@ -25,7 +25,9 @@ import fs from 'fs';
      MongoDB    8.0.32   (WiredTiger 11.3.0) 저장소가 커서 필요한 디렉터리만 푼다 :
        git clone --depth 1 --filter=blob:none --sparse --branch r8.0.32 \
          https://github.com/mongodb/mongo.git
-       git sparse-checkout set src/third_party/wiredtiger/src src/mongo/db/storage src/mongo/db/repl */
+       git sparse-checkout set src/third_party/wiredtiger/src src/mongo/db/storage src/mongo/db/repl
+     cone 모드(기본)라 src/mongo/db 바로 아래 파일도 함께 내려온다 — mongodb/wiredtiger 09 가
+     그중 snapshot_window_options.idl 을 대조한다. cone 을 끄고 받으면 그 인용이 "파일 없음" 이 된다. */
 
 /* 그 트리인지 확인하는 표식 — 빈 디렉터리를 붙잡지 않도록. */
 const MARK = {

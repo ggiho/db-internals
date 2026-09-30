@@ -57,4 +57,64 @@ export const CORE = {
     a: '버릴 수 없는 옛 버전을 history store 로 옮겨야 해서',
     x: ['스냅샷이 페이지에 락을 걸어 내보낼 수 없어서', 'checkpoint 가 스냅샷이 끝날 때까지 멈춰서', '스냅샷마다 캐시를 따로 복사해 두어서'],
   },
+  '06/3': {
+    q: '문서 갱신과 그 갱신의 oplog 항목은 어떻게 커밋되나?',
+    a: '같은 WiredTiger 트랜잭션으로 함께 커밋된다',
+    x: ['문서를 먼저 커밋하고 oplog 는 뒤에서 따로 쓴다', 'redo 와 binlog 처럼 두 단계 커밋으로 맞춘다', 'oplog 를 먼저 fsync 한 뒤에야 문서를 고친다'],
+  },
+  '06/8': {
+    q: 'w: "majority" 가 기다리는 과반은 어떤 노드의 과반인가? (기본 설정)',
+    a: '그 oplog 항목을 journal 에 쓴 노드',
+    x: ['그 oplog 항목을 받기만 한 노드', '그 변경을 checkpoint 까지 한 노드', '그 항목을 적용만 하고 아직 쓰지 않은 노드'],
+  },
+  '06/11': {
+    q: '기본 write concern 에서 커밋 응답을 받았다는 것은?',
+    a: '과반이 journal 에 가져 되감기지 않는다는 뜻',
+    x: ['이 노드의 로그 버퍼에 들어갔다는 뜻', '이 노드가 fsync 했고 복제는 따로라는 뜻', '모든 secondary 가 적용을 마쳤다는 뜻'],
+  },
+  '07/3': {
+    q: 'B 의 스냅샷 뒤에 A 가 커밋한 문서를 B 가 고치려 하면?',
+    a: 'B 에게 안 보이는 버전이라 충돌한다',
+    x: ['A 가 커밋했으니 최신 값 위에 그대로 쓴다', 'A 의 행 락이 풀렸는지 확인하고 기다린다', 'B 가 본 값으로 A 의 값을 덮어쓴다'],
+  },
+  '07/6': {
+    q: '트랜잭션 밖의 updateOne 이 WriteConflict 를 만나면 클라이언트는?',
+    a: '오류를 보지 않는다 — 서버가 안에서 다시 한다',
+    x: ['TransientTransactionError 를 받아 직접 다시 한다', 'lock wait timeout 까지 기다렸다가 쓴다', '충돌한 쓰기가 조용히 버려진다'],
+  },
+  '07/7': {
+    q: '같은 문서를 두 트랜잭션이 고칠 때 InnoDB 와 WiredTiger 의 차이는?',
+    a: 'InnoDB 는 락을 기다려 쓰고, WiredTiger 는 뒤에 온 쪽을 물린다',
+    x: ['둘 다 락이 풀릴 때까지 기다린 뒤 최신 값에 쓴다', '둘 다 뒤에 온 쪽을 곧바로 롤백시킨다', 'InnoDB 가 뒤에 온 쪽을 물리고 WiredTiger 가 기다린다'],
+  },
+  '08/5': {
+    q: '재시작 때 연 checkpoint(stable 90)에 ts 93 의 값이 들어 있을 수 있는 이유는?',
+    a: 'eviction 이 먼저 쓴 깨끗한 페이지를 checkpoint 가 건너뛰어서',
+    x: ['checkpoint 가 커밋 전 값도 함께 써서', 'journal 재생이 ts 93 을 데이터 파일에 다시 써서', '있을 수 없다 — checkpoint 는 stable 까지만 담는다'],
+  },
+  '08/8': {
+    q: 'journal 에 fsync 된 oplog 항목 ts 100 이 재시작 뒤 사라지는 경우는?',
+    a: '그 앞의 구멍 때문에 truncate-after point 뒤로 잘릴 때',
+    x: ['없다 — fsync 된 기록은 모두 남는다', 'rollback to stable 이 stable 보다 새 oplog 를 지울 때', 'checkpoint 가 아직 그 항목을 담지 않았을 때'],
+  },
+  '08/10': {
+    q: 'replica set 멤버의 크래시 복구는 어떤 순서인가?',
+    a: 'checkpoint 의 stable 로 되감은 뒤 oplog 를 다시 적용한다',
+    x: ['redo 를 재생한 뒤 커밋 전 것을 undo 로 되돌린다', 'journal 에서 컬렉션 변경을 재생하고 끝낸다', 'secondary 에서 데이터 파일을 통째로 받아 온다'],
+  },
+  '09/5': {
+    q: 'oldest 가 1100 s 로 올라도 1050 s 로 읽던 트랜잭션이 계속 읽을 수 있는 이유는?',
+    a: 'pinned 가 그 트랜잭션의 read timestamp 에 머물러서',
+    x: ['그 트랜잭션이 끝날 때까지 oldest 가 오르지 않아서', '그 트랜잭션이 필요한 값을 미리 복사해 두어서', '읽을 수 없다 — 곧바로 SnapshotTooOld 가 난다'],
+  },
+  '09/8': {
+    q: 'oldest(1100 s) 보다 이른 1050 s 로 새 snapshot 읽기를 열면?',
+    a: 'SnapshotTooOld 로 거절된다',
+    x: ['history store 에서 가장 가까운 값을 준다', 'read timestamp 를 1100 s 로 올려 읽는다', 'purge 가 따라올 때까지 기다린다'],
+  },
+  '09/9': {
+    q: '옛 버전을 지워도 되는 경계가 InnoDB 와 WiredTiger 에서 어떻게 다른가?',
+    a: 'WiredTiger 는 가장 오래된 읽기에 300초의 시간 창을 더한다',
+    x: ['둘 다 가장 오래된 read view 까지만 둔다', 'WiredTiger 는 checkpoint 가 끝나면 옛 버전을 모두 지운다', 'InnoDB 도 300초의 시간 창을 두고 지운다'],
+  },
 };
