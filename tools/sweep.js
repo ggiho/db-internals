@@ -59,7 +59,8 @@
  *        [--base=http://localhost:5180] [--json=out.json] [--break=NAME]
  *
  * --break 는 검사가 정말 발동하는지 확인하는 용도다 (발동하지 않는 검사는 무가치하다) :
- *   overflow · text-clip · label-overlap · zoom · narrow · rail-overlap · stage-squeezed · dl-first-cut
+ *   overflow · text-clip · label-overlap · zoom · narrow · rail-overlap · stage-squeezed · dl-first-cut ·
+ *   ax-band-off · ax-label-cut
  * (rail-through-card 는 CSS 로 되돌릴 수 없다 — 옛 판(배포본)에 --base 로 돌려 확인한다)
  */
 /* playwright 는 이 프로젝트에 설치하지 않는다(브라우저까지 수백 MB). 경로를
@@ -496,6 +497,38 @@ const MEASURE = (CFG) => {
     if (cut > 1) add('dl-first-cut', { by: +cut.toFixed(1), note: '바꾼 것의 첫 줄이 잘렸다' });
   }
 
+  /* 축의 띠 — 넘침도 겹침도 아니라 다른 검사의 정의에 안 들어간다(1366 을 한 장씩 보다 찾았다).
+     ax-band-off : 띠의 양 끝(점은 가운데)이 눈금 좌표에 있는가. 띠의 % 는 .ax 의 패딩 상자, 눈금은
+       .ax-line 폭으로 풀려서, 좌우 padding 12px 이 있던 동안 양 끝에서 최대 12px 어긋났다
+       (innodb 07/7 : gap (30,50) 이 50 을 9px 넘음). 범위는 양 끝을 1px 씩 들이는 것이 정상이다.
+     ax-label-cut : 띠의 좌우 테두리가 제 라벨 글자를 가르는가("|2 대기" · "c=2|00"). 라벨에 불투명한
+       바탕이 깔려 있으면 테두리는 그 밑에 칠해져 안 보인다. */
+  for (const ax of document.querySelectorAll('.stage-wrap .ax')) {
+    const line = ax.querySelector('.ax-line'), lo = ax.querySelector('.ax-lb.lo'), hi = ax.querySelector('.ax-lb.hi');
+    if (!visible(ax) || !line || !lo || !hi) continue;
+    const L = rc(line), z = zoomOf(ax), a = +lo.textContent, b = +hi.textContent;
+    const X = (v) => L.left + (v - a) / (b - a) * L.width;
+    for (const sp of ax.querySelectorAll('.ax-sp')) {
+      if (!visible(sp)) continue;
+      out.counts.axBands = (out.counts.axBands || 0) + 1;
+      const r = rc(sp), lb = (sp.textContent || '').trim();
+      if (sp.dataset.from === undefined) add('ax-band-off', { el: lb, note: 'data-from 이 없어 대조할 수 없다' });
+      else {
+        const f = +sp.dataset.from, t = +sp.dataset.to;
+        const off = f === t ? Math.abs((r.left + r.right) / 2 - X(f))
+          : Math.max(Math.abs(r.left - (X(f) + z)), Math.abs(r.right - (X(t) - z)));
+        if (off > TOL * z) add('ax-band-off', { by: +off.toFixed(1), el: lb });
+      }
+      const s = sp.querySelector('span');
+      if (!s || !s.firstChild) continue;
+      const bg = (cs(s).backgroundColor.match(/[\d.]+/g) || []).map(Number);
+      if (bg.length === 3 || bg[3] >= 0.99) continue;
+      const rg = document.createRange(); rg.selectNodeContents(s);
+      const tx = rg.getBoundingClientRect(), over = Math.max(r.left + z - tx.left, tx.right - (r.right - z));
+      if (over > TOL * z) add('ax-label-cut', { by: +over.toFixed(1), el: lb });
+    }
+  }
+
   /* 무대 아래 발췌는 인용한 줄로 스크롤해 연다 — 맨 윗줄이 반쯤 잘려 있으면 읽는 자리를 놓친다.
      구간 사이 줄(···)의 높이가 달라서 스크롤 값을 줄 높이 배수로 반올림하는 것으로는 안 됐고,
      인용한 줄이 끝 가까이면 최댓값에서 잘렸다(배포본에서 10.5px). */
@@ -610,6 +643,10 @@ const BREAKS = {
   'stage-squeezed': '.scol .stage{flex:0 1 auto!important;min-height:0!important}',
   /* 좁은 자리에서도 앞뒤 줄을 두어 첫 변경 줄이 잘렸던 자리(1366 innodb 01/1) — 앞뒤 줄을 되살린다 */
   'dl-first-cut': '.delta.tight .dl-nb{display:grid!important}',
+  /* 축의 좌우 여백을 예전 padding 12 + margin 22 로 — 띠가 눈금과 다른 폭으로 풀리던 자리 */
+  'ax-band-off': '.ax{padding-left:12px!important;padding-right:12px!important;margin-left:22px!important;margin-right:22px!important}',
+  /* 라벨 바탕을 걷고 점 띠를 예전 20px 로 — 테두리가 "72 대기" · "next-key (10,20]" 를 가르던 자리 */
+  'ax-label-cut': '.ax-sp span{background:none!important}.ax-sp.pt{width:20px!important}',
 };
 
 /* ─────────────────────────────── 실행 ─────────────────────────────── */
@@ -770,6 +807,7 @@ async function main() {
 
       acc.el += r.counts.el; acc.cells += r.counts.cells; acc.ranges += r.counts.ranges;
       acc.labelPairs += r.counts.labelPairs; acc.containers += r.counts.containers;
+      acc.axBands = (acc.axBands || 0) + (r.counts.axBands || 0);
       acc.acts += r.metrics.acts;
       acc.emptySum += r.metrics.emptyBelowCap;
       acc.worstEmpty = Math.max(acc.worstEmpty, r.metrics.emptyBelowCap);
@@ -863,6 +901,7 @@ async function main() {
       + `  → 문제 ${acc.problems}${acc.problems ? '  ' + JSON.stringify(acc.byCheck) : ''}`
       + `   [무대초과 ${acc.maxStageOver}${acc.maxStageAt ? ' (' + acc.maxStageAt + ')' : ''} · 바꾼것보임 ${acc.dlShown}/${n} · 발췌보임 ${acc.srcShown}/${n}`
       + ` · 캡션아래 평균 ${acc.avgEmpty} 최대 ${acc.worstEmpty}`
+      + ` · 축띠 ${acc.axBands || 0}`   /* 축 검사 둘이 본 띠 수 — 0 이면 그 둘의 "문제 0" 은 통과가 아니다 */
       + ` · 정착 최대 ${acc.settleMax}프레임${acc.settleCap ? " · 상한초과 " + acc.settleCap + "회 ⚠" : ""}`
       + (acc.transient ? ` · 재측정에서 사라진 것 ${acc.transient}건` : '') + `]`);
   }

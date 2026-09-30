@@ -5,8 +5,10 @@
    컨테이닝 블록의 *패딩 상자* 를 기준으로 풀린다. padding 을 26px 까지 늘려도
    띠는 제자리였고 라벨의 9px 초과가 그대로 남았다. 라벨을 자르면 어느 구간인지
    알 수 없게 되므로, margin 으로 삐져나올 자리를 카드 안쪽에 남긴다.
+   좌우 padding 은 0 이어야 한다 — 12px 이 있던 동안 띠(패딩 상자 기준)와 눈금(.ax-line
+   기준)이 서로 다른 폭으로 풀려 양 끝에서 12px 어긋났다. 그 12px 은 margin 으로 옮겼다.
    padding-top 은 Axis.jsx 가 행 수에 맞춰 인라인으로 덮어쓴다. */
-.ax{position:relative;flex:1;min-height:0;padding:20px 12px 26px;margin:0 22px;
+.ax{position:relative;flex:1;min-height:0;padding:20px 0 26px;margin:0 34px;
   display:flex;flex-direction:column;justify-content:center}
 .ax-line{position:relative;height:0;border-top:1px solid var(--line)}
 .ax-rec{position:absolute;top:0;display:flex;flex-direction:column;align-items:center;gap:3px}
@@ -17,14 +19,22 @@
 .ax-rec.gone i{background:var(--red)}
 .ax-rec.gone b{color:var(--red);text-decoration:line-through}
 
-/* min-width 가 필요하다 — 레코드 락은 from === to 인 점이라 폭이 1.2%(≈4px)로 계산되고,
-   그러면 라벨('71')이 자기 띠의 좌우 테두리에 걸려 글자가 잘려 보인다.
-   왼쪽 끝은 값 그 자리에 그대로 두고 폭만 라벨이 들어갈 만큼 확보한다. */
-.ax-sp{position:absolute;height:13px;min-width:20px;border:1px solid;display:flex;
+/* 점(.pt, from === to)은 폭을 라벨에 맞추고 값 위에 가운데로 둔다(Axis.jsx 의 x -50%).
+   예전엔 폭 1.2% 에 min-width 20px 만 주고 왼쪽 끝을 값에 두어, 두 글자('71')보다 긴 라벨
+   ("72 대기" · "X c=200")은 테두리가 글자를 갈랐다. min-width 는 두 글자 칩의 최소 크기라
+   점에만 준다 — 범위에 주면 좁은 축에서 띠가 범위보다 길어진다(768 ch2 06 : 0‥80 이 58px 라
+   20 단위가 12.6px, 20px 로 늘어 c0 < 20 이 27 까지 덮었다). */
+.ax-sp{position:absolute;height:13px;border:1px solid;display:flex;
   align-items:center;justify-content:center;
-  margin-left:1px;margin-right:1px;   /* 붙은 구간 사이에 이음선을 남긴다 */
+  margin-left:1px;                    /* 폭의 -2px 과 함께 양 끝을 1px 씩 들여 이음선을 남긴다 */
   transition:top .28s cubic-bezier(.22,1,.36,1)}
+.ax-sp.pt{margin-left:0;min-width:20px}
 .ax-sp span{font:400 7.5px var(--mono);letter-spacing:.1em;white-space:nowrap;padding:0 3px}
+/* 범위보다 라벨이 넓은 띠(.wide) — 띠는 범위 그대로 두고 라벨에 카드 바탕을 깔아 좌우 테두리가
+   글자를 긋지 않게 한다. 띠의 범위는 라벨 위아래로 보이는 윗선 · 아랫선의 양 끝이다.
+   바탕은 카드와 같아야 판으로 안 보인다 — 카드는 평소 --panel, 불이 들어오면 --panel2 (style.css) */
+.ax-sp.wide span{background:var(--panel)}
+.act.hot .ax-sp.wide span{background:var(--panel2)}
 .ax-sp.rec{background:rgba(94,134,201,.2);border-color:var(--accent);color:var(--accent)}
 .ax-sp.gap{background:rgba(184,160,85,.14);border-color:rgba(184,160,85,.6);color:var(--gold);
   border-style:dashed}
@@ -38,7 +48,7 @@
 /* 범위는 선의 양 끝 바깥에 min · max 로 단다. 예전엔 "0 ‥ 60" 한 줄을 .ax 바닥에
    붙였는데, 좁은 화면에서 첫 눈금 글자와 겹쳤다. 아래로 내리면 카드가 높아져
    큰 화면에서 '이 스텝이 바꾼 것' 이 들어갈 자리를 먹는다. 선 끝 바깥은
-   padding 12 + margin 22 가 비어 있어 높이를 늘리지 않고 넣을 수 있다(최대 '400'). */
+   margin 34 가 비어 있어 높이를 늘리지 않고 넣을 수 있다(최대 '400'). */
 .ax-lb{position:absolute;top:-5px;font:400 8px var(--mono);letter-spacing:.06em;
   line-height:10px;color:var(--faint);white-space:nowrap}
 .ax-lb.lo{right:100%;margin-right:6px}

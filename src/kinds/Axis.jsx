@@ -36,6 +36,19 @@ const sameRows = (a, b) => {
   return ka.length === kb.length && ka.every((k) => a[k] === b[k]);
 };
 
+/* 범위 띠보다 라벨(좌우 3px 여백 포함)이 넓은 것 — 띠는 범위 그대로 두고 라벨에 카드 바탕을 깐다.
+   띠를 늘리면 락이 걸린 범위가 틀리게 보이고, 그대로 두면 띠의 좌우 테두리가 글자를 가른다
+   (1366 innodb 07/4 "next-key (10,2|0]"). 폭은 둘 다 레이아웃 px 라 배율에 흔들리지 않는다.
+   바탕은 크기를 바꾸지 않으므로 이 값이 행 배정이나 자기 자신을 다시 바꾸지 않는다. */
+function wideOf(labels, ids) {
+  const out = {};
+  for (const id of ids) {
+    const el = labels.get(id);
+    if (el && el.offsetWidth > el.parentElement.clientWidth) out[id] = 1;
+  }
+  return out;
+}
+
 export default function Axis({ a, chg }) {
   const { min, max } = a.axis || { min: 0, max: 1 };
   const range = (max - min) || 1;
@@ -50,6 +63,7 @@ export default function Axis({ a, chg }) {
   const wrap = useRef(null);
   const labels = useRef(new Map());
   const [rows, setRows] = useState({});
+  const [wide, setWide] = useState({});
 
   /* 라벨의 가로 위치는 행과 무관하므로 (top 만 바뀐다) 한 번 재면 충분하다.
      그래서 rows 를 갱신해도 이 효과가 다시 돌 필요가 없고, 루프도 생기지 않는다.
@@ -59,6 +73,8 @@ export default function Axis({ a, chg }) {
     const run = () => {
       const next = pack(labels.current, ids);
       setRows((prev) => (sameRows(prev, next) ? prev : next));
+      const w = wideOf(labels.current, spans.filter((s) => s.from !== s.to).map((s) => s.id));
+      setWide((prev) => (sameRows(prev, w) ? prev : w));
     };
     run();
     const el = wrap.current;
@@ -78,7 +94,10 @@ export default function Axis({ a, chg }) {
           컨테이닝 블록의 *패딩 상자* 를 기준으로 풀리므로 padding 을 키워도 띠는
           제자리에 있다. 실제로 padding 을 26px 로 늘려봤지만 라벨의 9px 초과는
           그대로였다. 라벨을 자르면 어느 구간인지 알 수 없게 되므로
-          margin 으로 삐져나올 자리를 카드 안에 남긴다. */}
+          margin 으로 삐져나올 자리를 카드 안에 남긴다.
+          좌우 padding 은 하나도 두지 않는다 — 띠의 % 는 패딩 상자, 눈금의 % 는 그 안의 선
+          폭으로 풀려서, padding 12px 이 있던 동안 띠가 양 끝에서 최대 12px 어긋났다
+          (1366 innodb 07/7 : gap (30,50) 이 50 을 9px 넘고 next-key (10,20] 이 10 보다 7px 앞). */}
       <div className="ax" ref={wrap} style={{ paddingTop: padTop }}>
         {/* 사라지는 띠에 exit 애니메이션을 두면 안 된다 — AnimatePresence 는 나가는 요소를
             DOM 에 남겨두는데 그것은 spans 에 없으므로 행 배정에 참여하지 못하고 옛 top 을
@@ -87,17 +106,23 @@ export default function Axis({ a, chg }) {
             풀린 락은 즉시 사라지는 것이 뜻에도 맞는다 — 옛 렌더러도 그랬다. */}
         {spans.map((s) => {
           const L = at(s.from), R = at(s.to);
+          /* 점(from === to)은 값 위에 가운데로 놓고 폭은 라벨에 맞춘다 — 예전엔 왼쪽 끝을 값에 두고
+             20px 로 잡아, 두 글자('71')보다 긴 라벨은 테두리가 글자를 갈랐다("|2 대기").
+             범위는 양 끝을 1px 씩 안으로 들여 붙은 띠 사이에 이음선을 남긴다.
+             data-from · to 는 스윕이 띠의 양 끝을 눈금 좌표와 대조하는 데 쓴다. */
+          const pt = s.from === s.to;
           return (
             <motion.div key={s.id}
-              className={'ax-sp ' + (s.kind || 'rec') +
+              className={'ax-sp ' + (s.kind || 'rec') + (pt ? ' pt' : wide[s.id] ? ' wide' : '') +
                 (sAdd.has(s.id) ? ' new' : sMod.has(s.id) ? ' mod' : '')}
+              data-from={s.from} data-to={s.to}
               style={{
                 left: L + '%',
-                width: Math.max(R - L, 1.2) + '%',
+                width: pt ? undefined : `calc(${R - L}% - 2px)`,
                 top: TOP + (rows[s.id] || 0) * ROW_H,
               }}
-              initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
+              initial={pt ? { opacity: 0, y: -4, x: '-50%' } : { opacity: 0, y: -4 }}
+              animate={pt ? { opacity: 1, y: 0, x: '-50%' } : { opacity: 1, y: 0 }}
               transition={{ type: 'spring', stiffness: 380, damping: 32 }}>
               {/* 라벨을 직접 잰다 — 띠가 아니라 라벨이 겹치는 것이 문제이므로 */}
               <span ref={(el) => {

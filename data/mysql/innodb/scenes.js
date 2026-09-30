@@ -1114,7 +1114,7 @@ const SCENES = [
     ref:'storage/innobase/include/lock0lock.h', sym:'lock_rec_insert_check_and_lock',
     fact:[['storage/innobase/include/lock0lock.h','constexpr uint32_t LOCK_INSERT_INTENTION = 2048;']],
     ops:{ idx:{ span:{ add:[
-            { id:'ii25', from:23, to:27, kind:'blk', lb:'INSERT 25  대기', row:2 }] } },
+            { id:'ii25', from:25, to:25, kind:'blk', lb:'INSERT 25  대기', row:2 }] } },
           lock:{ add:[{ id:'25 · insert intention', tag:'x', sub:'LOCK_INSERT_INTENTION 대기' }] } } },
 
   { note:'trx 61 은 기다린다. 25 라는 값은 어디에도 없는데',
@@ -1252,7 +1252,7 @@ const SCENES = [
     why:'대기가 시작되면 wait-for 그래프에 간선이 하나 생긴다. 71 이 72 를 기다린다.',
     key:'간선 하나는 <em>교착이 아니다</em>. 그냥 대기다. 72 가 커밋하면 71 이 깨어난다.',
     ref:'storage/innobase/lock/lock0wait.cc', sym:'lock_wait_build_wait_for_graph',
-    ops:{ idx:{ span:{ add:[{ id:'w71', from:48, to:52, kind:'blk', lb:'71 대기', row:1 }] } },
+    ops:{ idx:{ span:{ add:[{ id:'w71', from:50, to:50, kind:'blk', lb:'71 대기', row:1 }] } },
           wait:{ set:{ 'trx 71':{ tag:'wait', sub:'50 을 기다림' } },
                  edge:{ add:[{ id:'e1', from:'trx 71', to:'trx 72', lb:'대기' }] } },
           ses:{ set:{ '대기 중':'1' } } } },
@@ -1263,7 +1263,7 @@ const SCENES = [
     key:'사이클이 닫히는 <em>정확한 순간</em>에 교착이 성립한다. 그 전까지는 어느 쪽도 잘못한 것이 없다.',
     ref:'storage/innobase/lock/lock0wait.cc', sym:'lock_wait_build_wait_for_graph',
     beat:1,
-    ops:{ idx:{ span:{ add:[{ id:'w72', from:8, to:12, kind:'blk', lb:'72 대기', row:1 }] } },
+    ops:{ idx:{ span:{ add:[{ id:'w72', from:10, to:10, kind:'blk', lb:'72 대기', row:1 }] } },
           wait:{ set:{ 'trx 72':{ tag:'wait', sub:'10 을 기다림' } },
                  edge:{ add:[{ id:'e2', from:'trx 72', to:'trx 71', lb:'대기', hot:1 }] } },
           ses:{ set:{ '대기 중':'2|red' } } } },
