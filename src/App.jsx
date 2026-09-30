@@ -33,8 +33,13 @@ function parse(h) {
      링크 하나로 "이 값일 때의 이 스텝" 이 재현돼야 하므로 주소에 싣는다. */
   const [n, s, v] = raw.slice(deck.length).replace(/^\//, '').split('/');
   const vv = /^v(.+)$/.exec(v || '');
-  return { deck, num: n || '', step: Math.max(1, parseInt(s, 10) || 1), v: vv ? vv[1] : null };
+  return { deck, num: n || '', step: Math.max(1, parseInt(s, 10) || 1), v: vv ? unv(vv[1]) : null };
 }
+/* 손잡이 값은 주소에 인코딩해서 싣는다 — PG 의 격리 수준은 'repeatable read' 처럼 공백이 들고
+   별칭이 없다. 브라우저는 해시의 공백을 %20 으로 바꾸므로 날것으로 실으면 값이 맞지 않는다.
+   지금까지의 값(2 · OFF · READ-COMMITTED · strict_crc32 …)은 인코딩해도 글자가 같다. */
+const env = (v) => encodeURIComponent(v);
+function unv(v) { try { return decodeURIComponent(v); } catch { return v; } }
 
 export default function App() {
   const [route, setRoute] = useState(() => parse(location.hash.slice(1)));
@@ -127,7 +132,7 @@ export default function App() {
   const nav = useCallback((num, step, push, v) => {
     /* v 를 주지 않으면 지금 값을 유지하고, null 을 주면 기본값으로 돌아간다. */
     const keep = v === undefined ? vNow : v;
-    const h = '#' + deckName + '/' + num + '/' + (step + 1) + (keep ? '/v' + keep : '');
+    const h = '#' + deckName + '/' + num + '/' + (step + 1) + (keep ? '/v' + env(keep) : '');
     /* 스텝 이동은 replaceState 다 — 한 장면을 다 보면 히스토리에 항목 열 개가 쌓여서
        뒤로가기가 "이전 장면" 이 아니라 "이전 스텝" 이 된다. 장면 이동만 쌓는다. */
     if (push) location.hash = h;
@@ -150,7 +155,7 @@ export default function App() {
 
   /* 주소를 정규화한다 — '#innodb' 처럼 장면 없이 들어오거나 스텝이 범위를 넘으면
      실제로 보고 있는 것과 주소가 달라진다. 링크를 복사했을 때 같은 화면이 떠야 한다. */
-  const canon = ready && scene ? deckName + '/' + scene.num + '/' + (i + 1) + (vNow ? '/v' + vNow : '') : null;
+  const canon = ready && scene ? deckName + '/' + scene.num + '/' + (i + 1) + (vNow ? '/v' + env(vNow) : '') : null;
   /* route 도 의존성에 넣는다. canon 만 보면, 범위를 넘는 스텝으로 들어왔을 때
      canon 이 직전과 같아 효과가 다시 돌지 않고 주소만 어긋난 채 남는다
      (실측 : #mysql/innodb/01/99 는 25번을 정확히 보여주는데 주소는 /99 였다). */
@@ -272,7 +277,7 @@ export default function App() {
               스윕이 그 스텝만 값별로 돌 수 있게 하려는 것이다(전부 돌면 방문이 값 수만큼 늘어난다). */}
           <div className={'stage-wrap' + (on ? ' split' : '')}
             data-vary={scene.vary ? Object.keys(scene.vary.alt || {}).map(
-              (v) => 'v' + v + ':' + Object.keys(scene.vary.alt[v]).join(',')).join(' ') : undefined}>
+              (v) => 'v' + env(v) + ':' + Object.keys(scene.vary.alt[v]).join(',')).join(' ') : undefined}>
             {cols.map((c) => (
               /* 열마다 layoutId 이름공간을 따로 준다. Stage 의 카드는 layoutId='card-<배우>' 를
                  쓰는데 그 이름은 전역이라, 비교 모드에서 두 열이 같은 배우를 그리면 둘이

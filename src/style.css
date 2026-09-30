@@ -79,12 +79,14 @@ html,body{background:var(--bg);color:var(--body);font-family:var(--sans)}
    .thm 이 오른쪽으로 48.5px 넘치고 페이지가 32px 가로로 스크롤됐다(스윕 실측).
    폭 경계를 새로 박지 않고 넘칠 때만 접히게 한다 — 넓은 폭에서는 wrap 이 일어나지 않는다.
    세로 간격은 따로 준다 : gap:16px 이 두 줄 사이에도 걸리면 상단이 너무 두꺼워진다. */
-.top{display:flex;flex-wrap:wrap;align-items:baseline;gap:16px;row-gap:5px;
+.top{display:flex;flex-wrap:wrap;align-items:baseline;gap:12px;row-gap:5px;
   font:400 10px var(--mono);
   letter-spacing:.2em;color:var(--faint);text-transform:uppercase}
 /* 상단 메뉴는 묶음(MYSQL·BOOK) 안에 덱들이 들어간다 — 엔진이 늘어도 한 줄에서 구분된다.
-   묶음 이름은 라벨이라 누를 수 없고, 덱만 링크다. */
-.decks .grp{display:inline-flex;align-items:baseline;gap:8px;margin-left:16px;padding-left:16px;
+   묶음 이름은 라벨이라 누를 수 없고, 덱만 링크다.
+   묶음 사이 간격은 10 + 10(+ .decks 의 gap 6)이다 — 16 + 16(+ 10)이던 동안 PG 덱이 여섯이 되자
+   1080 · 1100 에서 메뉴가 69px 넘쳐 PLAY 가 다음 줄로 내려가고 모든 화면의 무대가 16px 줄었다. */
+.decks .grp{display:inline-flex;align-items:baseline;gap:8px;margin-left:10px;padding-left:10px;
   border-left:1px solid var(--line)}
 .decks .grp:first-child{margin-left:0;padding-left:0;border-left:none}
 /* 묶음 라벨은 누를 수 없는 분류다 — 덱 링크와 같은 무게로 보이면 셋이 대등하게 읽힌다.
@@ -99,7 +101,7 @@ html,body{background:var(--bg);color:var(--body);font-family:var(--sans)}
 .top b{color:var(--body);font-weight:400}
 /* .decks 자체도 접혀야 한다. .top 만 wrap 해도 768 에서 덱 목록 한 줄이
    5.9px 넘쳤다(스윕 실측 · 테마 버튼과 무관한 별개 초과). 오른쪽 정렬을 유지한 채 접는다. */
-.decks{margin-left:auto;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px;row-gap:4px}
+.decks{margin-left:auto;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;row-gap:4px}
 .decks a{color:var(--mid);text-decoration:none}
 .decks a.on{color:var(--gold)}
 
