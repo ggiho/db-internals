@@ -85,9 +85,12 @@
 /* 배치는 기본 style.css 의 .stage/.lane/.row 가 맡는다. 경계만 다시 쓴다 —
    기본 .edge 는 height:0 · border-top 이라 안에 든 라벨이 삐져나온다. */
 .lane{padding-left:11px}
+/* 자리는 마지막 열 — 보통 배치에서는 카드 쪽 열, 한 열인 비교 모드에서는 그 열. 예전엔 auto 여서
+   두 열 배치에서 레인 이름 밑 78px 칸으로 들어갔다 — 점선은 자리가 없어 사라지고 라벨만 칸을
+   넘쳤다. 개발 서버에서는 CSS 순서가 달라 style.css 의 grid-column:2 가 이겨 가려져 있었다. */
 .edge{
   display:flex;align-items:center;gap:9px;
-  height:auto;min-height:13px;margin:2px 0;border-top:0;opacity:1;grid-column:auto}
+  height:auto;min-height:13px;margin:2px 0;border-top:0;opacity:1;grid-column:-2 / -1}
 .edge > span{
   flex:1 1 auto;height:1px;
   background:repeating-linear-gradient(to right,var(--line) 0 3px,transparent 3px 7px)}

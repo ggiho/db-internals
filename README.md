@@ -116,17 +116,18 @@ MongoDB 덱이 화면에 띄우는 발췌는 WiredTiger(GPLv2/v3) 코드뿐이�
 
 레이아웃 스윕은 playwright 가 필요하다. 이 프로젝트에 설치하지 않고(브라우저까지
 수백 MB) 머신에 있는 것을 찾아 쓴다 — 브라우저가 실제로 내려와 있는 설치를 고른다.
-`PLAYWRIGHT_PATH` 로 지정할 수도 있다. 먼저 개발 서버를 5180 에 띄운다.
+`PLAYWRIGHT_PATH` 로 지정할 수도 있다. 개발 서버가 아니라 빌드를 잰다 — 한동안 개발
+서버만 CSS 순서가 달라 사용자가 받는 화면과 달랐다.
 
-    npx vite --port 5180 --strictPort &
-    node tools/sweep.js --widths=1366
-    node tools/sweep.js --widths=1024,1080,1100,1366   # 나눠 돌릴 수 있다
+    npx vite build && npx vite preview --port 5181 &
+    node tools/sweep.js --base=http://localhost:5181 --widths=1366
+    node tools/sweep.js --base=http://localhost:5181 --widths=1024,1080,1100,1366   # 나눠 돌릴 수 있다
 
 검사가 정말 발동하는지 확인하려면 일부러 망가뜨린다.
 
-    node tools/sweep.js --break=overflow --widths=1366 --decks=mysql/locks
+    node tools/sweep.js --base=http://localhost:5181 --break=overflow --widths=1366 --decks=mysql/locks
 
-`tools/sweep-report.md` 에 그 발동 증거와, 만들면서 밟은 함정 32개가 적혀 있다.
+`tools/sweep-report.md` 에 그 발동 증거와, 만들면서 밟은 함정 33개가 적혀 있다.
 
 ## 저장소에 없는 것
 

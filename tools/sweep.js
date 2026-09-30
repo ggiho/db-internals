@@ -463,8 +463,9 @@ const MEASURE = (CFG) => {
     if (row && +getComputedStyle(svg).zIndex < +getComputedStyle(row).zIndex) continue;
     const sr = svg.getBoundingClientRect();
     const k = sr.width / (svg.viewBox.baseVal.width || sr.width || 1);
-    const cards = [...svg.parentElement.querySelectorAll('.act')].filter(visible)
-      .map((e) => ({ r: rc(e), id: e.getAttribute('data-act') }));
+    /* 카드 말고도 글자가 있는 것 — 경계 라벨과 레인 이름 — 을 함께 본다. 끝점은 카드뿐이다 */
+    const cards = [...svg.parentElement.querySelectorAll('.act, .edge > b, .lane-lb')].filter(visible)
+      .map((e) => ({ r: rc(e), id: e.getAttribute('data-act') || e.className || e.parentElement.className + ' 라벨' }));
     const inR = (r, q, m) => q.x > r.left + m && q.x < r.right - m && q.y > r.top + m && q.y < r.bottom - m;
     for (const p of svg.querySelectorAll('path.rail, path.rail-ghost')) {
       const L = p.getTotalLength();
@@ -760,7 +761,9 @@ async function main() {
       acc.acts += r.metrics.acts;
       acc.emptySum += r.metrics.emptyBelowCap;
       acc.worstEmpty = Math.max(acc.worstEmpty, r.metrics.emptyBelowCap);
-      acc.maxStageOver = Math.max(acc.maxStageOver, r.metrics.stageOver);
+      /* 가장 크게 넘친 화면도 적는다 — 값만 있으면 어디서 났는지 몰라 배포본과 로컬이 달라도(64 · 31)
+         쫓을 수 없었다 */
+      if (r.metrics.stageOver > acc.maxStageOver) { acc.maxStageOver = r.metrics.stageOver; acc.maxStageAt = hash + (tag ? ' [' + tag + ']' : ''); }
       if (r.metrics.dlH > 0) acc.dlShown++;
       if (r.metrics.srcH > 0) acc.srcShown++;
       for (const pr of r.problems) {
@@ -846,7 +849,7 @@ async function main() {
       + ` (확인 ${acc.confirmed}${acc.mismatch ? ` · 불일치 ${acc.mismatch}` : ''}${acc.varyVisits ? ` · 값 ${acc.varyVisits}` : ''})`
       + `  상자 ${acc.containers} · 요소 ${acc.el} · 칸 ${acc.cells} · 줄조각 ${acc.ranges} · 라벨쌍 ${acc.labelPairs}`
       + `  → 문제 ${acc.problems}${acc.problems ? '  ' + JSON.stringify(acc.byCheck) : ''}`
-      + `   [무대초과 ${acc.maxStageOver} · 바꾼것보임 ${acc.dlShown}/${n} · 발췌보임 ${acc.srcShown}/${n}`
+      + `   [무대초과 ${acc.maxStageOver}${acc.maxStageAt ? ' (' + acc.maxStageAt + ')' : ''} · 바꾼것보임 ${acc.dlShown}/${n} · 발췌보임 ${acc.srcShown}/${n}`
       + ` · 캡션아래 평균 ${acc.avgEmpty} 최대 ${acc.worstEmpty}`
       + ` · 정착 최대 ${acc.settleMax}프레임${acc.settleCap ? " · 상한초과 " + acc.settleCap + "회 ⚠" : ""}`
       + (acc.transient ? ` · 재측정에서 사라진 것 ${acc.transient}건` : '') + `]`);
