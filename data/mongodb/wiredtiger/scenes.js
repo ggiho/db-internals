@@ -144,6 +144,20 @@ const SCENES = [
     ops:{ snap:{ set:{ 'read_timestamp':'majority commit point' } },
           cmp:{ set:{ 'WiredTiger':'id 스냅샷 + read timestamp', 'InnoDB read view':'id 스냅샷만' } } },
     beat:1 },
+
+  { look:{ chain:true, op:true },
+    note:'읽기가 기다리는 경우가 하나 있다 — prepare 된 update 를 만났을 때',
+    why:'샤드에 걸친 트랜잭션은 두 단계로 커밋한다. prepare 한 트랜잭션은 "prepare 된 데이터를 보이게 하려고" 자기 id 를 전역 표에서 지운다 — 그 뒤의 스냅샷은 id 판정을 통과시킨다. read timestamp 가 없거나 prepare 시각보다 늦은 읽기가 그 update 에 닿으면 __wt_txn_read_upd_list_internal 이 WT_PREPARE_CONFLICT 를 돌려주고, MongoDB 의 wiredTigerPrepareConflictRetry 가 그때마다 기다렸다가 다시 한다 — 주석 그대로 횟수 제한이 없다.',
+    key:'01 장면의 쓰기는 부딪히면 기다리지 않고 물러났다. 그런데 <em>읽기</em>는 prepare 앞에서 멈춘다 — 커밋할지 아직 모르는 값을 보여 줄 수도, 건너뛸 수도 없기 때문이다.',
+    ref:WT + 'include/txn_inline.h', sym:'__wt_txn_read_upd_list_internal',
+    fact:['if (upd_visible == WT_VISIBLE_PREPARE) {',
+          'return (WT_PREPARE_CONFLICT);',
+          [WT + 'txn/txn.c',"Clear the transaction's ID from the global table, to facilitate prepared data visibility, but"],
+          [MG + 'wiredtiger/wiredtiger_prepare_conflict.h','re-try f, so any required timeout behavior must be enforced within f.']],
+    beat:1,
+    ops:{ chain:{ add:[{ id:'txn 16', tag:'hold', sub:'c = 400  ·  prepare 됨 — 커밋할지 아직 모른다' }], move:[['txn 16', 0]] },
+          snap:{ set:{ 'read_timestamp':'없음 — 최신을 읽는다' } },
+          op:{ set:{ '읽기':'find({_id:1})  ·  최신', '판정':'기다린다 — prepare 가 정해질 때까지' } } } },
   ],
 },
 {
@@ -298,7 +312,8 @@ const SCENES = [
   cast:['op','cache','chain','cmp'],
   knobs:[
     ['storage.wiredTiger.engineConfig.cacheSizeGB','(RAM−1GB)/2','최소 256MB — 이 값을 주지 않았을 때'],
-    ['wiredTigerEngineRuntimeConfig','—','eviction_target 같은 WiredTiger 설정을 실행 중에 바꾼다']],
+    /* 값 칸에 '—' 를 두면 패널이 "설정으로 바꿀 수 없다" 로 그린다 — 이것은 바꾸는 설정이다 */
+    ['wiredTigerEngineRuntimeConfig','setParameter','eviction_target 같은 WiredTiger 설정을 실행 중에 바꾼다']],
   watch:[
     ['serverStatus().wiredTiger.cache',"'bytes currently in the cache' · 'tracked dirty bytes in the cache'"],
     ['serverStatus().wiredTiger.cache',"'application thread time evicting (usecs)' — 쿼리 스레드가 치운 시간"]],
