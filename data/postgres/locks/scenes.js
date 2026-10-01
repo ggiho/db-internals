@@ -3,7 +3,7 @@
 const SCENES = [
 {
   num:'01', tab:'어디에 사는가', title:'행 락은 튜플에, 테이블 락은 공유 표에 있다',
-  sub:'그래서 행 락은 메모리를 안 먹고, 테이블 락은 넘칠 수 있다',
+  sub:'그래서 행 락은 메모리를 안 먹고, 테이블 락은 넘칠 수 있다 — 약한 것은 공유 표까지 가지도 않는다',
   cast:['stmt','tbl','tup','cmp'],
   knobs:[
     ['max_locks_per_transaction','64','공유 락 표의 크기를 이 가정으로 잡는다']],
@@ -20,8 +20,8 @@ const SCENES = [
   steps:[
   { act:{ f:'stmt', t:'tbl', lb:'테이블 락' },
     note:'테이블 락은 공유 메모리의 락 표에 들어간다',
-    why:'lock.c 가 그 표를 관리한다. 크기는 max_locks_per_transaction(기본 64)에 접속 수를 곱한 가정으로 잡히고, 주석이 "공유 락 표는 최대 이만큼이라는 가정으로 크기가 정해진다" 고 적는다.',
-    key:'그래서 PG 도 <em>락 표가 넘칠 수 있다</em>. 파티션이 많은 테이블을 한 트랜잭션에서 훑으면 객체 락이 64를 넘어 실패한다 — 행을 많이 잠글 때가 아니라 <em>객체를 많이 건드릴 때</em> 터진다.',
+    why:'lock.c 가 그 표를 관리한다. 크기는 max_locks_per_transaction(기본 64)에 접속 수를 곱한 가정으로 잡히고, 주석이 "공유 락 표는 최대 이만큼이라는 가정으로 크기가 정해진다" 고 적는다. 64 는 트랜잭션 하나의 상한이 아니라 표 전체의 크기를 정하는 평균이다.',
+    key:'그래서 PG 도 <em>락 표가 넘칠 수 있다</em>. 행을 많이 잠글 때가 아니라 <em>객체를 많이 건드릴 때</em> 터진다 — 한 트랜잭션이 64 개를 넘게 잡는 것은 표에 자리가 남아 있는 한 괜찮다(3 스텝).',
     ref:'src/backend/storage/lmgr/lock.c', sym:'max_locks_per_xact',
     fact:[['src/backend/utils/misc/guc_tables.c','Sets the maximum number of locks per transaction.'],
           ['src/backend/storage/lmgr/lock.c','int			max_locks_per_xact; /* used to set the lock table size */'],
@@ -29,6 +29,29 @@ const SCENES = [
     ops:{ stmt:{ set:{ 'SQL':'UPDATE t SET v=2 WHERE id=1', '테이블 락':'RowExclusiveLock' } },
           tbl:{ del:['(비었다)'], add:[{ id:'t', tag:'hold', sub:'RowExclusive  ·  공유 표' }] },
           cmp:{ set:{ 'PostgreSQL':'객체 락 = 공유 표', 'InnoDB':'테이블 락 = 메모리 구조체' } } } },
+
+  { look:{ tbl:true, stmt:true },
+    note:'약한 테이블 락은 공유 표까지 가지도 않는다 — 자기 PGPROC 의 칸에 적는다',
+    why:'LockAcquireExtended 는 지금 데이터베이스의 테이블에 대한 ShareUpdateExclusive 보다 약한 락(AccessShare · RowShare · RowExclusive)이면 fast-path 로 간다 — 백엔드마다 가진 칸에 적고 끝이다. 18 은 그 칸 수를 max_locks_per_transaction 에서 정한다 : 16 칸짜리 묶음을 기본 64 면 넷, 64 칸이다. 더 센 락(5단계 이상)을 누가 요청하면 그때 다른 백엔드의 칸에 든 것을 공유 표로 옮겨 충돌을 본다.',
+    key:'평범한 SELECT · UPDATE 의 테이블 락은 <em>공유 해시와 그 락을 건드리지 않는다</em>. 백엔드가 많을 때 락 관리자가 병목이 되지 않게 하는 장치이고, 칸이 차면 나머지는 공유 표로 간다.',
+    ref:'src/backend/storage/lmgr/lock.c', sym:'LockAcquireExtended',
+    fact:['if (EligibleForRelationFastPath(locktag, lockmode) &&',
+          '(mode) < ShareUpdateExclusiveLock)',
+          'if (!FastPathTransferRelationLocks(lockMethodTable, locktag,',
+          ['src/backend/utils/init/postinit.c','The default max_locks_per_transaction = 64 means 4 groups by default.'],
+          ['src/include/storage/proc.h','#define		FP_LOCK_SLOTS_PER_GROUP		16	/* don\'t change */']],
+    beat:1,
+    ops:{ tbl:{ set:{ 't':{ sub:'RowExclusive  ·  fast-path 칸 — 공유 표에 안 들어간다' } } },
+          stmt:{ set:{ '테이블 락':'RowExclusiveLock  ·  fast-path' } } } },
+
+  { look:{ tbl:true },
+    note:'칸이 차고 표도 차면 — 파티션을 많이 건드리는 순간 실패한다',
+    why:'파티션 수백 개를 훑는 쿼리는 파티션마다(그리고 인덱스마다) 락을 잡는다. fast-path 칸 64 를 넘친 것은 공유 표로 가고, 여러 세션이 한꺼번에 그러면 표 전체가 찬다. 그때 LockAcquireExtended 는 "out of shared memory" 와 함께 max_locks_per_transaction 을 늘리라는 힌트를 낸다.',
+    key:'오류 이름이 <em>메모리</em>라서 원인을 엉뚱한 데서 찾기 쉽다 — 실제로는 <em>락 표의 칸</em>이 모자란 것이다. InnoDB 도 락이 너무 많으면 같은 모양으로 실패한다("The total number of locks exceeds the lock table size") — 거기서는 <em>행 락</em>이, 여기서는 <em>객체 락</em>이 쌓여서다.',
+    ref:'src/backend/storage/lmgr/lock.c', sym:'LockAcquireExtended',
+    fact:['errmsg("out of shared memory"),',
+          'errhint("You might need to increase \\"%s\\".", "max_locks_per_transaction")));'],
+    ops:{ tbl:{ add:[{ id:'파티션 1 … 300', tag:'x', sub:'fast-path 64 칸을 넘친 것 → 공유 표 · 표가 차면 out of shared memory' }] } } },
 
   { act:{ f:'stmt', t:'tup', lb:'행 락' },
     note:'행 락은 표에 안 들어간다 — 튜플의 xmax 에 적는다',
@@ -97,6 +120,15 @@ const SCENES = [
     ref:'src/include/storage/lockdefs.h', sym:'AccessExclusiveLock',
     fact:[['src/include/storage/lockdefs.h','#define AccessExclusiveLock		8	/* ALTER TABLE, DROP TABLE, VACUUM FULL,']],
     beat:1 },
+
+  { look:{ tbl:['8 AccessExclusive'], stmt:true },
+    note:'LOCK TABLE 을 모드 없이 쓰면 8단계다',
+    why:'문법의 opt_lock 이 비어 있으면 AccessExclusiveLock 이다 — lockdefs.h 의 8단계 주석 끝에도 "모드를 적지 않은 LOCK TABLE" 이 적혀 있다. 그래서 LOCK TABLE t; 한 줄이 그 테이블의 SELECT 까지 막는다.',
+    key:'명시적 락은 <em>모드를 적어야</em> 한다 — 쓰기만 막고 싶었다면 IN SHARE MODE(5단계)면 된다. InnoDB 의 LOCK TABLES t WRITE 는 그 세션 밖의 읽기를 막는 것과 같은 결과지만, 여기서는 아무것도 안 적은 기본값이 그렇다.',
+    ref:'src/include/storage/lockdefs.h', sym:'AccessExclusiveLock',
+    fact:['* and unqualified LOCK TABLE */',
+          ['src/backend/parser/gram.y','| /*EMPTY*/						{ $$ = AccessExclusiveLock; }']],
+    ops:{ stmt:{ set:{ '최강':'AccessExclusive  ·  LOCK TABLE t; 의 기본값' } } } },
   ],
 },
 {
@@ -147,6 +179,16 @@ const SCENES = [
     ref:'src/include/storage/lockdefs.h', sym:'ShareLock',
     fact:[['src/include/storage/lockdefs.h','#define ShareLock				5	/* CREATE INDEX (WITHOUT CONCURRENTLY) */']],
     beat:1 },
+
+  { look:{ cmx:true, stmt:true },
+    note:'쓰기를 막지 않는 값 — 긴 트랜잭션 하나에 붙잡힌다',
+    why:'DefineIndex 는 lockmode 를 concurrent 면 ShareUpdateExclusiveLock, 아니면 ShareLock 으로 정한다. CONCURRENTLY 는 쓰기와 함께 돌되, 2단계에서 "옛 인덱스 목록으로 테이블을 열고 있을지 모르는 트랜잭션이 없어질 때까지" 기다린다 — 쓰기를 허락하는 락을 쥔 쪽을 ShareLock 으로 기다리는 것이다(WaitForLockers).',
+    key:'그래서 CONCURRENTLY 는 <em>쓰기를 막지 않는 대신 긴 트랜잭션에 막힌다</em>. 쓰기를 한 번 하고 오래 열려 있는 트랜잭션 하나가 인덱스 생성을 붙잡는다 — 이 표의 3 × 5 칸이 기다림의 방향만 바꾼 것이다.',
+    ref:'src/backend/commands/indexcmds.c', sym:'DefineIndex',
+    fact:['lockmode = concurrent ? ShareUpdateExclusiveLock : ShareLock;',
+          'Now we must wait until no running transaction could have the table open',
+          'WaitForLockers(heaplocktag, ShareLock, true);'],
+    ops:{ stmt:{ set:{ '충돌 칸':'38 / 64  ·  CONCURRENTLY 는 4 를 잡고 5 로 기다린다' } } } },
   ],
 },
 {

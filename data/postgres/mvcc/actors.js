@@ -16,6 +16,10 @@ const ACTORS = {
   sa:  { nm:'SESSION A',      lane:'sql',  kind:'kv' },
   sb:  { nm:'SESSION B',      lane:'sql',  kind:'kv' },
   snap:{ nm:'SNAPSHOT (B)',   lane:'sql',  kind:'kv' },
+  /* 02 판정에서 쓴다 — 08 의 SNAPSHOT (B) 는 한 세션의 것이고, 이것은 xmin · xmax · xip 세 값이다 */
+  sn:  { nm:'SNAPSHOT',       lane:'sql',  kind:'kv' },
+  /* 03 죽은 튜플에서 쓴다 — 즉시 정리의 문턱(pd_prune_xid · 빈 공간)이 페이지 헤더에 있다 */
+  ph:  { nm:'PAGE HEADER',    lane:'heap', kind:'kv' },
   lk:  { nm:'PG_LOCKS',       lane:'shm',  kind:'list' },
 };
 

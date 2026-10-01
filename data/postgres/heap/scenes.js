@@ -3,7 +3,7 @@
 const SCENES = [
 {
   num:'01', tab:'8KB', title:'페이지는 8KB 다 — InnoDB 의 절반',
-  sub:'그리고 고를 수 있는 값도 2의 거듭제곱뿐이다',
+  sub:'고를 수 있는 값은 2의 거듭제곱뿐이고, 그 8KB 가 튜플 크기 · 튜플 수 · 테이블 크기의 한계를 정한다',
   cast:['op','sp','cmp'],
   knobs:[
     ['—','—','컴파일 시점에 정해진다 — 실행 중 바꿀 수 없다']],
@@ -13,7 +13,7 @@ const SCENES = [
   links:[['02','페이지 헤더'],['03','라인 포인터']],
   init:{
     op:{ kv:{ '무엇':'페이지 한 장을 읽는다', '크기':'—' } },
-    sp:{ kv:{ '전체':'—', '헤더':'—', '데이터':'—' } },
+    sp:{ kv:{ '전체':'—', '헤더':'—', '데이터':'—', '튜플 최대':'—', '튜플 수 최대':'—' } },
     cmp:{ kv:{ 'PostgreSQL':'—', 'InnoDB':'—' } },
   },
   steps:[
@@ -34,6 +34,35 @@ const SCENES = [
     fact:[['configure.ac','set table block size in kB']],
     ops:{ sp:{ set:{ '전체':'8,192', '헤더':'24', '데이터':'8,168 (trailer 없음)' } } },
     beat:1 },
+
+  { look:{ sp:true },
+    note:'튜플 하나는 페이지를 넘지 못한다 — 8KB 에서 8,160 바이트까지',
+    why:'MaxHeapTupleSize 는 BLCKSZ 에서 페이지 헤더와 line pointer 하나를 정렬해 뺀 값이다 — 8,192 − 32. 그보다 큰 행은 페이지에 들어가지 않으므로 긴 값을 밖으로 빼내야 한다. 실제로는 행이 페이지의 4분의 1(약 2KB)을 넘으면 TOAST 가 먼저 줄이기 시작한다(04 장면).',
+    key:'InnoDB 도 긴 값을 overflow 페이지로 뺀다 — 같은 문제다. 다른 것은 PG 가 <em>딸린 테이블(TOAST)</em>을 따로 둔다는 것이다.',
+    ref:'src/include/access/htup_details.h', sym:'MaxHeapTupleSize',
+    fact:['#define MaxHeapTupleSize  (BLCKSZ - MAXALIGN(SizeOfPageHeaderData + sizeof(ItemIdData)))',
+          ['src/include/access/heaptoast.h','#define TOAST_TUPLES_PER_PAGE	4']],
+    ops:{ sp:{ set:{ '튜플 최대':'8,160  ·  넘으면 TOAST' } } } },
+
+  { look:{ sp:true },
+    note:'한 페이지의 튜플은 많아야 291 개다 — 빈 튜플도 28 바이트를 먹는다',
+    why:'MaxHeapTuplesPerPage 는 헤더를 뺀 8,168 바이트를 "정렬한 튜플 헤더 24 + line pointer 4" 로 나눈 값이다. 열이 하나도 없는 튜플도 그 이상은 안 들어간다.',
+    key:'작은 행이 많은 테이블은 <em>행마다 28 바이트</em>를 판정 정보와 자리표에 쓴다 — mvcc 덱 01 의 23바이트 헤더가 정렬되며 24 가 되고, line pointer 가 4 를 더한다.',
+    ref:'src/include/access/htup_details.h', sym:'MaxHeapTuplesPerPage',
+    fact:['#define MaxHeapTuplesPerPage',
+          '(MAXALIGN(SizeofHeapTupleHeader) + sizeof(ItemIdData))))'],
+    ops:{ sp:{ set:{ '튜플 수 최대':'291' } } } },
+
+  { look:{ op:true, cmp:true },
+    note:'파일은 1GB 마다 끊어 저장한다 — 한 테이블은 32TB 까지',
+    why:'configure 의 segsize 기본이 1(GB)이고 RELSEG_SIZE 는 그 블록 수 131,072 다. 블록 번호는 32비트(BlockNumber)이고 가장 큰 값이 0xFFFFFFFE 라, 8KB 페이지면 약 32TB 가 한 테이블의 한계다. 조각 파일은 relfilenode, relfilenode.1, .2 … 로 이어진다.',
+    key:'InnoDB 는 테이블마다 .ibd 파일 하나에 담는다(file-per-table). PG 는 <em>페이지 크기가 곧 테이블 크기의 한계</em>다 — 블록 번호의 폭은 고정이므로 페이지가 클수록 테이블이 커질 수 있다.',
+    ref:'src/include/storage/block.h', sym:'MaxBlockNumber',
+    fact:['typedef uint32 BlockNumber;',
+          '#define MaxBlockNumber			((BlockNumber) 0xFFFFFFFE)',
+          ['configure.ac','[segsize=1])']],
+    ops:{ op:{ set:{ '무엇':'테이블 파일 하나', '크기':'1GB 조각  ·  최대 약 32TB' } },
+          cmp:{ set:{ 'PostgreSQL':'1GB 조각 · 블록 번호 32비트', 'InnoDB':'.ibd 하나 (file-per-table)' } } } },
   ],
 },
 {
