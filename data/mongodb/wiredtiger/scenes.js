@@ -9,14 +9,14 @@ const MG = 'src/mongo/db/storage/';
 
 const SCENES = [
 {
-  num:'01', tab:'갱신', title:'갱신은 페이지를 고치지 않는다',
-  sub:'문서를 바꾸면 update 가 사슬 맨 앞에 붙는다 — 디스크 이미지는 그대로다',
+  num:'01', tab:'Update Chain', title:'Update Chains: Out-of-Place Writes in Memory',
+  sub:'WT_UPDATE 를 chain head 에 prepend — on-disk image 는 불변, 변경은 in-memory 에만 쌓인다',
   cast:['op','chain','img','cmp'],
   knobs:[
     ['—','—','update 사슬은 설정이 아니라 저장 형식이 정한다']],
   watch:[
     ['serverStatus().wiredTiger.transaction',"'update conflicts' — 쓰기 충돌이 롤백으로 끝난 횟수"],
-    ['serverStatus().wiredTiger.cache',"'tracked dirty bytes in the cache' — 사슬이 남긴 더티 바이트"]],
+    ['serverStatus().wiredTiger.cache','\'tracked dirty bytes in the cache\' — 사슬이 남긴 dirty 바이트']],
   links:[['02','누가 어느 버전을 보는가'],['03','디스크로 가는 것'],['04','잃지 않게 하는 장치']],
   init:{
     op:{ kv:{ '명령':'—', '단계':'대기' } },
@@ -26,7 +26,7 @@ const SCENES = [
   },
   steps:[
   { look:{ img:true },
-    note:'페이지는 디스크 이미지로 읽혀 들어온다 — 바뀐 것은 그 위에 따로 쌓인다',
+    note:'페이지 = on-disk image + 그 위의 in-memory 수정 구조',
     why:'메모리의 페이지는 읽어 온 디스크 이미지와 그 위의 수정 구조로 이뤄진다. 행 페이지에서 mod_row_update 는 이미지의 행(slot)마다 붙는 update 사슬의 머리 배열이고, 이미지에 없던 새 키는 mod_row_insert 쪽 insert 목록에 들어간다.',
     key:'읽은 이미지는 고치지 않는다. <em>이미지 + 그 위의 사슬</em>이 메모리 안의 페이지다. InnoDB 는 buffer pool 의 페이지 그 자체를 고친다.',
     ref:WT + 'include/btmem.h', sym:'__wt_update',
@@ -34,7 +34,7 @@ const SCENES = [
           [WT + 'include/btmem.h','#define mod_row_insert u2.row_leaf.insert']] },
 
   { act:{ f:'op', t:'chain', lb:'update 하나를 만든다' },
-    note:'updateOne 은 WT_UPDATE 하나를 만들어 사슬 맨 앞에 붙인다',
+    note:'updateOne — WT_UPDATE 할당 후 chain head 에 prepend',
     why:'__wt_row_modify 가 WT_UPDATE 를 할당하고(__wt_upd_alloc) 트랜잭션에 등록한 뒤(__wt_txn_modify), 새 update 의 next 가 지금의 사슬 머리를 가리키게 한다 — 주석이 "새 WT_UPDATE 가 목록의 다음 원소를 가리키게 한다" 이다.',
     key:'사슬은 <em>새것이 앞</em>이다. InnoDB 는 행을 제자리에서 고치고 옛 값을 undo 로 빼낸다. WiredTiger 는 옛 값을 그 자리에 두고 새 값을 앞에 붙인다 — 옛 버전이 사는 곳이 반대다.',
     ref:WT + 'btree/row_modify.c', sym:'__wt_row_modify',
@@ -45,7 +45,7 @@ const SCENES = [
           chain:{ del:['(비었다)'], add:[{ id:'txn 12', tag:'wait', sub:'c = 200  ·  커밋 전' }] } } },
 
   { look:{ chain:true },
-    note:'끼워 넣기는 compare-and-swap 한 번이다 — 행 락을 잡지 않는다',
+    note:'insert 는 CAS 한 번 — row lock 없음',
     why:'__wt_update_serial 이 CAS 로 사슬 머리를 바꾼다. 실패하면 그 사이에 누가 먼저 붙인 것이므로(주석 : "a new update was added after our search, we raced") 충돌 검사를 다시 하고 다시 시도한다.',
     key:'행마다 락 구조체가 없다. 같은 문서를 두 쓰기가 다투는 일은 <em>기다림이 아니라 검사</em>로 처리된다 — 다음 스텝이 그 검사다.',
     ref:WT + 'include/serial_inline.h', sym:'__wt_update_serial',
@@ -54,9 +54,9 @@ const SCENES = [
     ops:{ op:{ set:{ '단계':'CAS 로 머리 교체' } } } },
 
   { look:{ chain:true, cmp:true },
-    note:'다른 트랜잭션이 같은 문서를 고치려 하면 기다리지 않는다 — 롤백된다',
-    why:'__txn_modify_block 이 사슬을 앞에서부터 걸으며 내 스냅샷에서 보이지 않는 update — 아직 커밋 전이거나 내 스냅샷 뒤에 커밋된 것 — 를 만나면 롤백을 요구한다. 사유가 "conflict between concurrent operations" 이고 update conflicts 통계가 오른다. MongoDB 는 이 WT_ROLLBACK 을 WriteConflict 예외로 바꾼다.',
-    key:'InnoDB 는 행에 X 락을 걸고 뒤에 온 쪽을 <em>기다리게</em> 한다(그 상한이 innodb_lock_wait_timeout 이다). WiredTiger 는 <em>먼저 쓴 쪽이 남고 뒤에 온 쪽이 물러난다</em> — 기다림이 없으니 교착도 없고, 대신 다시 시도하는 일이 위 계층으로 올라간다.',
+    note:'write-write conflict — 대기 없이 WT_ROLLBACK',
+    why:'__txn_modify_block 이 사슬을 앞에서부터 걸으며 내 snapshot 에서 보이지 않는 update — 아직 커밋 전이거나 내 snapshot 뒤에 커밋된 것 — 를 만나면 롤백을 요구한다. 사유가 "conflict between concurrent operations" 이고 update conflicts 통계가 오른다. MongoDB 는 이 WT_ROLLBACK 을 WriteConflict 예외로 바꾼다.',
+    key:'InnoDB 는 행에 X 락을 걸고 뒤에 온 쪽을 <em>기다리게</em> 한다(그 상한이 innodb_lock_wait_timeout 이다). WiredTiger 는 <em>먼저 쓴 쪽이 남고 뒤에 온 쪽이 물러난다</em> — 기다림이 없으니 deadlock 도 없고, 대신 다시 시도하는 일이 위 계층으로 올라간다.',
     ref:WT + 'include/txn_inline.h', sym:'__txn_modify_block',
     fact:[[WT + 'include/txn.h','#define WT_TXN_ROLLBACK_REASON_CONFLICT "conflict between concurrent operations"'],
           [WT + 'include/txn_inline.h','WT_STAT_CONN_DATA_INCR(session, txn_update_conflict);'],
@@ -66,7 +66,7 @@ const SCENES = [
     beat:1 },
 
   { look:{ chain:true, img:true },
-    note:'커밋해도 디스크 이미지는 그대로다 — 페이지가 더러워졌다는 표시만 남는다',
+    note:'커밋 후에도 disk image 불변 — page 는 dirty 표시만',
     why:'__wt_update_serial 은 사슬에 넣은 뒤 캐시 사용량을 늘리고(__wt_cache_page_inmem_incr) 페이지를 더럽힌다(__wt_page_modify_set). 디스크 이미지는 reconciliation 이 새로 쓰기 전까지 옛 값을 담고 있다.',
     key:'그래서 커밋된 최신 값은 <em>메모리의 사슬에만</em> 있다. 그것이 디스크로 가는 길이 03 장면이고, 그 사이에 죽어도 잃지 않게 하는 장치가 04 장면이다.',
     ref:WT + 'include/serial_inline.h', sym:'__wt_update_serial',
@@ -79,13 +79,13 @@ const SCENES = [
   ],
 },
 {
-  num:'02', tab:'가시성', title:'누가 어느 버전을 보는가',
-  sub:'트랜잭션 id 로 한 번, timestamp 로 또 한 번 — 두 판정을 모두 통과한 첫 update 를 읽는다',
+  num:'02', tab:'Visibility', title:'Visibility: Transaction IDs & Read Timestamps',
+  sub:'id snapshot 판정 + read timestamp 판정 — 둘 다 통과한 chain 상의 첫 update 를 읽는다',
   cast:['op','chain','snap','cmp'],
   knobs:[
-    ['—','—','가시성은 설정이 아니다 — 스냅샷과 read timestamp 가 정한다']],
+    ['—','—','visibility 는 설정이 아니다 — snapshot 과 read timestamp 가 정한다']],
   watch:[
-    ['serverStatus().wiredTiger.snapshot-window-settings','오래 붙잡힌 스냅샷과 timestamp 의 창'],
+    ['serverStatus().wiredTiger.snapshot-window-settings','오래 붙잡힌 snapshot 과 timestamp 의 창'],
     ['db.currentOp()','오래 열린 트랜잭션 — 옛 버전을 붙잡는 쪽']],
   links:[['01','update 사슬'],['03','옛 버전이 가는 곳']],
   init:{
@@ -98,8 +98,8 @@ const SCENES = [
   },
   steps:[
   { look:{ snap:true },
-    note:'스냅샷은 세 값이다 — snap_min, snap_max, 그 사이에 돌던 트랜잭션 목록',
-    why:'__wt_txn_visible_id_snapshot 의 주석이 규칙을 그대로 적는다 : snap_max 이상인 id 는 안 보이고, snap_min 보다 작은 id 는 보이고, 나머지는 스냅샷 목록에 없을 때만 보인다. 목록은 정렬돼 있어 이진 탐색한다.',
+    note:'snapshot = snap_min · snap_max · concurrent txn 목록',
+    why:'__wt_txn_visible_id_snapshot 의 주석이 규칙을 그대로 적는다 : snap_max 이상인 id 는 안 보이고, snap_min 보다 작은 id 는 보이고, 나머지는 snapshot 목록에 없을 때만 보인다. 목록은 정렬돼 있어 이진 탐색한다.',
     key:'InnoDB 의 read view 도 <em>같은 세 값</em>을 든다 — 아래 한계, 위 한계, 그때 돌던 트랜잭션 목록. 모양이 같으니 판정도 같다. 다른 것은 다음 스텝의 두 번째 판정이다.',
     ref:WT + 'include/txn_inline.h', sym:'__wt_txn_visible_id_snapshot',
     fact:[[WT + 'include/txn_inline.h','ids >= snap_max not visible,'],
@@ -110,9 +110,9 @@ const SCENES = [
           snap:{ set:{ 'snap_min':'14', 'snap_max':'15', '동시 트랜잭션':'[ 14 ]' } } } },
 
   { look:{ chain:true },
-    note:'사슬을 앞에서부터 걷다가 처음 보이는 것을 고른다 — txn 14 는 건너뛰고 txn 12',
-    why:'__wt_txn_read_upd_list_internal 이 upd = upd->next 로 사슬을 걷고, 가시성은 __wt_txn_visible 이 판정한다. txn 14 는 스냅샷 목록에 있으므로 건너뛰고, txn 12 는 snap_min 보다 작아 보인다.',
-    key:'새것부터 보다가 멈추므로 <em>사슬이 길수록 읽기가 느려진다</em>. InnoDB 가 롤 포인터로 옛 버전을 거슬러 가는 것과 같은 방향이다 — 다른 점은 InnoDB 의 최신 값은 페이지에, 옛 값은 undo 에 있고, 여기는 최신 값이 사슬에, 옛 값은 이미지나 history store 에 있다는 것이다.',
+    note:'chain walk — 첫 visible update 채택, txn 14 skip → txn 12',
+    why:'__wt_txn_read_upd_list_internal 이 upd = upd->next 로 사슬을 걷고, visibility 는 __wt_txn_visible 이 판정한다. txn 14 는 snapshot 목록에 있으므로 건너뛰고, txn 12 는 snap_min 보다 작아 보인다.',
+    key:'새것부터 보다가 멈추므로 <em>사슬이 길수록 읽기가 느려진다</em>. InnoDB 가 roll pointer 로 옛 버전을 거슬러 가는 것과 같은 방향이다 — 다른 점은 InnoDB 의 최신 값은 페이지에, 옛 값은 undo 에 있고, 여기는 최신 값이 사슬에, 옛 값은 이미지나 history store 에 있다는 것이다.',
     ref:WT + 'include/txn_inline.h', sym:'__wt_txn_read_upd_list_internal',
     fact:[[WT + 'include/txn_inline.h','for (; upd != NULL; upd = upd->next) {'],
           [WT + 'include/txn_inline.h',"Skip reserved place-holders, they're never visible."],
@@ -123,8 +123,8 @@ const SCENES = [
     beat:1 },
 
   { look:{ snap:true, chain:true },
-    note:'두 번째 판정 — id 로 보여도 read timestamp 보다 늦게 커밋됐으면 안 보인다',
-    why:'txn 14 가 ts 30 으로 커밋한 뒤 ts 25 로 읽는 트랜잭션이 온다. 이제 txn 14 는 스냅샷 목록에 없어 id 판정은 통과하지만, __wt_txn_visible 은 이어서 __wt_txn_timestamp_visible 을 부르고 거기서 "return (timestamp <= txn_shared->read_timestamp);" 에 걸린다 — 30 > 25 다.',
+    note:'2차 판정 — id 로 visible 이어도 commit ts > read ts 면 invisible',
+    why:'txn 14 가 ts 30 으로 커밋한 뒤 ts 25 로 읽는 트랜잭션이 온다. 이제 txn 14 는 snapshot 목록에 없어 id 판정은 통과하지만, __wt_txn_visible 은 이어서 __wt_txn_timestamp_visible 을 부르고 거기서 "return (timestamp <= txn_shared->read_timestamp);" 에 걸린다 — 30 > 25 다.',
     key:'"언제의 데이터를 읽는가" 를 트랜잭션 id 가 아니라 <em>timestamp 라는 두 번째 시계</em>로도 고를 수 있다. InnoDB read view 에는 이 판정이 없다 — 보이는 것은 read view 를 만든 순간이 정한다.',
     ref:WT + 'include/txn_inline.h', sym:'__wt_txn_visible',
     fact:[[WT + 'include/txn_inline.h','return (timestamp <= txn_shared->read_timestamp);'],
@@ -134,9 +134,9 @@ const SCENES = [
           op:{ set:{ '읽기':'ts 25 시점으로 읽기', '판정':'c = 200  ·  30 > 25' } } } },
 
   { look:{ snap:true, cmp:true },
-    note:'MongoDB 의 majority 읽기가 이 두 번째 판정을 쓴다',
+    note:'readConcern majority — read timestamp = majority commit point',
     why:'readConcern majority 이면 WiredTigerRecoveryUnit 이 트랜잭션을 snapshot manager 의 committed snapshot 위에서 연다(beginTransactionOnCommittedSnapshot). snapshot manager 는 그 timestamp 를 read_timestamp 로 넘긴다(setReadSnapshot).',
-    key:'과반이 복제한 시점을 <em>read_timestamp 로 넣으면</em> 그 뒤에 커밋된 것은 두 번째 판정에서 걸러진다. 복제의 시각과 저장 엔진의 가시성이 같은 시계를 쓰는 것이 WiredTiger 가 timestamp 를 따로 둔 이유다.',
+    key:'과반이 복제한 시점을 <em>read_timestamp 로 넣으면</em> 그 뒤에 커밋된 것은 두 번째 판정에서 걸러진다. 복제의 시각과 저장 엔진의 visibility 가 같은 시계를 쓰는 것이 WiredTiger 가 timestamp 를 따로 둔 이유다.',
     ref:WT + 'include/txn_inline.h', sym:'__wt_txn_timestamp_visible',
     fact:[[MG + 'wiredtiger/wiredtiger_recovery_unit.cpp','_sessionCache->snapshotManager().beginTransactionOnCommittedSnapshot('],
           [MG + 'wiredtiger/wiredtiger_snapshot_manager.cpp','txnOpen.setReadSnapshot(committedSnapshot);'],
@@ -146,8 +146,8 @@ const SCENES = [
     beat:1 },
 
   { look:{ chain:true, op:true },
-    note:'읽기가 기다리는 경우가 하나 있다 — prepare 된 update 를 만났을 때',
-    why:'샤드에 걸친 트랜잭션은 두 단계로 커밋한다. prepare 한 트랜잭션은 "prepare 된 데이터를 보이게 하려고" 자기 id 를 전역 표에서 지운다 — 그 뒤의 스냅샷은 id 판정을 통과시킨다. read timestamp 가 없거나 prepare 시각보다 늦은 읽기가 그 update 에 닿으면 __wt_txn_read_upd_list_internal 이 WT_PREPARE_CONFLICT 를 돌려주고, MongoDB 의 wiredTigerPrepareConflictRetry 가 그때마다 기다렸다가 다시 한다 — 주석 그대로 횟수 제한이 없다.',
+    note:'reader 가 대기하는 유일한 경우 — prepared update (WT_PREPARE_CONFLICT)',
+    why:'샤드에 걸친 트랜잭션은 두 단계로 커밋한다. prepare 한 트랜잭션은 "prepare 된 데이터를 보이게 하려고" 자기 id 를 전역 표에서 지운다 — 그 뒤의 snapshot 은 id 판정을 통과시킨다. read timestamp 가 없거나 prepare 시각보다 늦은 읽기가 그 update 에 닿으면 __wt_txn_read_upd_list_internal 이 WT_PREPARE_CONFLICT 를 돌려주고, MongoDB 의 wiredTigerPrepareConflictRetry 가 그때마다 기다렸다가 다시 한다 — 주석 그대로 횟수 제한이 없다.',
     key:'01 장면의 쓰기는 부딪히면 기다리지 않고 물러났다. 그런데 <em>읽기</em>는 prepare 앞에서 멈춘다 — 커밋할지 아직 모르는 값을 보여 줄 수도, 건너뛸 수도 없기 때문이다.',
     ref:WT + 'include/txn_inline.h', sym:'__wt_txn_read_upd_list_internal',
     fact:['if (upd_visible == WT_VISIBLE_PREPARE) {',
@@ -161,15 +161,15 @@ const SCENES = [
   ],
 },
 {
-  num:'03', tab:'디스크로', title:'디스크 이미지에는 커밋된 값 하나만 간다',
-  sub:'reconciliation 이 새 이미지를 쓴다 — 커밋 전 값은 메모리에 남고, 더 옛 버전은 history store 로 간다',
+  num:'03', tab:'Reconciliation', title:'Reconciliation: One Committed Value per Key',
+  sub:'reconciliation 이 새 disk image 를 쓴다 — uncommitted 는 메모리에, older version 은 history store 로',
   cast:['chain','img','hs','cmp'],
   knobs:[
-    ['—','—','무엇이 이미지로 가는지는 설정이 아니라 가시성이 정한다']],
+    ['—','—','무엇이 이미지로 가는지는 설정이 아니라 visibility 가 정한다']],
   watch:[
     ['serverStatus().wiredTiger.cache',"'history store table on-disk size' — 옛 버전이 쌓인 양"],
     ['WiredTigerHS.wt','history store 파일 — dbPath 에 있다']],
-  links:[['02','가시성'],['05','이 일을 부르는 것 — eviction'],['04','checkpoint']],
+  links:[['02','visibility'],['05','이 일을 부르는 것 — eviction'],['04','checkpoint']],
   init:{
     chain:{ items:[
       { id:'txn 16', tag:'wait', sub:'c = 400  ·  커밋 전' },
@@ -181,14 +181,14 @@ const SCENES = [
   },
   steps:[
   { look:{ chain:true, img:true },
-    note:'eviction 이나 checkpoint 가 더러운 페이지를 새 디스크 이미지로 다시 쓴다',
+    note:'eviction · checkpoint — dirty page 를 새 disk image 로 rewrite',
     why:'__wt_reconcile 의 설명이 "메모리 안의 페이지를 디스크 형식으로 맞추고 쓴다" 이다. 이미지와 사슬을 합쳐 새 이미지를 만든다 — 옛 이미지를 고치는 것이 아니다(04 장면).',
-    key:'InnoDB 의 flush 는 buffer pool 의 페이지를 <em>그대로</em> 내려쓴다. 여기서는 내려쓸 페이지가 메모리에 없다 — 이미지와 사슬을 합쳐 <em>새로 만들어야</em> 한다. 그래서 이 일에 이름이 따로 있다.',
+    key:'InnoDB 의 flush 는 buffer pool 의 페이지를 <em>그대로</em> flush 한다. 여기서는 flush 할 페이지가 메모리에 없다 — 이미지와 사슬을 합쳐 <em>새로 만들어야</em> 한다. 그래서 이 일에 이름이 따로 있다.',
     ref:WT + 'reconcile/rec_write.c', sym:'__wt_reconcile',
     fact:[[WT + 'reconcile/rec_write.c','Reconcile an in-memory page into its on-disk format, and write it.']] },
 
   { look:{ chain:true, img:true },
-    note:'키마다 값 하나 — 가장 새로운 커밋된 update 를 고른다',
+    note:'키당 값 하나 — newest committed update 를 선택',
     why:'__rec_upd_select 가 사슬을 앞에서부터 걸으며 커밋 전인 것(txn 16)은 건너뛰고 처음 만난 커밋된 것(txn 14)을 고른다 — 주석이 "Always select the newest committed update to write to disk" 다.',
     key:'이미지는 <em>한 버전만</em> 담는다. 건너뛴 txn 16 과 그 아래의 txn 12 가 어디로 가는지가 다음 두 스텝이다.',
     ref:WT + 'reconcile/rec_visibility.c', sym:'__rec_upd_select',
@@ -197,9 +197,9 @@ const SCENES = [
           chain:{ set:{ 'txn 14':{ sub:'c = 300  ·  이미지로 감' } } } } },
 
   { look:{ chain:true, cmp:true },
-    note:'커밋 전 update 는 디스크로 가지 않는다 — 메모리에 되돌려 둔다',
+    note:'uncommitted update 는 디스크 불가 — 메모리 chain 에 복원',
     why:'checkpoint 는 주석 그대로 "커밋되지 않은 변경을 결코 디스크에 쓰지 않는다". eviction 도 커밋 전 update 가 남아 있으면 그 사슬을 따로 챙겨 두었다가 새 페이지에 다시 붙인다 — 주석이 사슬을 챙기는 첫째 경우로 "더 새로운 커밋 전 update" 를 든다.',
-    key:'그래서 크래시 뒤 <em>되돌릴 것이 디스크에 없다</em>. InnoDB 는 커밋 전 변경이 든 페이지도 내려쓰고 크래시 뒤 undo 로 되돌린다(mysql/innodb 03). 여기는 — prepare 된 분산 트랜잭션을 빼면 — 애초에 커밋 전 값을 디스크에 두지 않는다.',
+    key:'그래서 크래시 뒤 <em>되돌릴 것이 디스크에 없다</em>. InnoDB 는 커밋 전 변경이 든 페이지도 flush 하고 크래시 뒤 undo 로 되돌린다(mysql/innodb 03). 여기는 — prepare 된 분산 트랜잭션을 빼면 — 애초에 커밋 전 값을 디스크에 두지 않는다.',
     ref:WT + 'reconcile/rec_write.c', sym:'__wti_rec_split_finish',
     fact:[[WT + 'reconcile/rec_write.c','Checkpoint never writes uncommitted changes to disk'],
           [WT + 'reconcile/rec_visibility.c','1. Newer uncommitted updates or database is configured for in-memory storage.']],
@@ -208,7 +208,7 @@ const SCENES = [
     beat:1 },
 
   { act:{ f:'chain', t:'hs', lb:'옛 버전을 옮긴다' },
-    note:'이미지보다 오래된 버전은 history store 로 간다',
+    note:'image 보다 오래된 version — history store 로 이동',
     why:'__wt_hs_insert_updates 가 이미지에 쓴 값 바로 아래 버전부터 WiredTigerHS.wt 에 넣는다 — 주석이 "on-page 값 바로 아래의 값" 을 첫 대상으로 적는다. 넣을 때 각 버전의 stop 시점을 다음 버전의 start 시점으로 맞춘다 — txn 12 의 값은 ts 20 부터 ts 30 까지 유효했다.',
     key:'InnoDB 의 undo 는 롤백과 MVCC 두 일을 한다. 여기서 <em>MVCC 쪽만</em> 맡는 것이 history store 다 — 롤백은 앞 스텝대로 디스크에서 할 일이 없다.',
     ref:WT + 'history/hs_rec.c', sym:'__wt_hs_insert_updates',
@@ -219,9 +219,9 @@ const SCENES = [
           chain:{ del:['txn 12'] } } },
 
   { look:{ hs:true },
-    note:'옛 버전을 원하는 읽기는 사슬 → 이미지 → history store 순으로 찾는다',
+    note:'historical read 경로 — chain → on-disk image → history store',
     why:'__wt_txn_read 가 사슬에서 보이는 것을 못 찾으면 on-disk 값을 보고, 그것도 안 보이면 history store 를 뒤진다 — 주석이 "If there\'s no visible update in the update chain or ondisk, check the history store file." 이다. ts 25 로 읽는 쪽은 여기서 c = 200 을 찾는다.',
-    key:'오래 열린 스냅샷이 하나 있으면 그가 볼 버전을 버릴 수 없으니 <em>history store 가 자란다</em>. InnoDB 에서 긴 트랜잭션이 purge 를 막아 undo 가 쌓이는 것(mysql/innodb 02)과 같은 병이다.',
+    key:'오래 열린 snapshot 이 하나 있으면 그가 볼 버전을 버릴 수 없으니 <em>history store 가 자란다</em>. InnoDB 에서 긴 트랜잭션이 purge 를 막아 undo 가 쌓이는 것(mysql/innodb 02)과 같은 병이다.',
     ref:WT + 'include/txn_inline.h', sym:'__wt_txn_read',
     fact:[[WT + 'include/txn_inline.h',"If there's no visible update in the update chain or ondisk, check the history store file."]],
     ops:{ hs:{ set:{ '_id:1 · ts 20':{ sub:'c = 200  ·  ts 25 로 읽는 쪽이 여기서 찾는다' } } } },
@@ -229,11 +229,11 @@ const SCENES = [
   ],
 },
 {
-  num:'04', tab:'journal·checkpoint', title:'잃지 않게 하는 두 장치',
-  sub:'journal 은 100ms 마다, checkpoint 는 60초마다 — 그리고 replica set 의 컬렉션은 journal 에 없다',
+  num:'04', tab:'Journal · Checkpoint', title:'Durability: Journal Flushes & Checkpoints',
+  sub:'journal flush 100ms · checkpoint 60s — replica set 에서 replicated collection 은 journal 대상이 아니다',
   cast:['op','jr','ck','img','cmp'],
   knobs:[
-    ['storage.journal.commitIntervalMs','100','journal 을 내려쓰는 간격 (ms)'],
+    ['storage.journal.commitIntervalMs','100','journal 을 flush 하는 간격 (ms)'],
     ['storage.syncPeriodSecs','60','checkpoint 간격 (초) — 코드 이름은 syncdelay']],
   watch:[
     ['serverStatus().wiredTiger.log','journal 레코드와 sync 횟수'],
@@ -248,9 +248,9 @@ const SCENES = [
   },
   steps:[
   { act:{ f:'op', t:'jr', lb:'커밋 레코드' },
-    note:'커밋은 journal 에 레코드를 쓰지만 fsync 를 기다리지 않는다',
+    note:'commit 은 log record 를 쓰되 fsync 를 기다리지 않는다',
     why:'WiredTiger 의 기본이 transaction_sync=(enabled=false,method=fsync) 다. MongoDB 는 연결을 열 때 log=(enabled=true,remove=true,path=journal,…) 을 주고 transaction_sync 는 켜지 않는다 — MongoDB 가 journal 이라 부르는 것이 WiredTiger 의 log 다.',
-    key:'InnoDB 의 기본(innodb_flush_log_at_trx_commit=1)은 <em>커밋마다 fsync</em> 다. WiredTiger 의 커밋은 레코드를 로그 버퍼에 두고 돌아온다 — 그것을 디스크로 내리는 일이 다음 스텝이다.',
+    key:'InnoDB 의 기본(innodb_flush_log_at_trx_commit=1)은 <em>커밋마다 fsync</em> 다. WiredTiger 의 커밋은 레코드를 log buffer 에 두고 돌아온다 — 그것을 디스크로 내리는 일이 다음 스텝이다.',
     ref:WT + 'log/log.c', sym:'__wt_log_flush',
     fact:[[WT + 'config/config_def.c','transaction_sync=(enabled=false,method=fsync),'],
           [MG + 'wiredtiger/wiredtiger_kv_engine.cpp','log=(enabled=true,remove=true,path=journal,compressor=']],
@@ -259,7 +259,7 @@ const SCENES = [
           cmp:{ set:{ 'MongoDB':'커밋이 fsync 를 기다리지 않는다', 'InnoDB':'커밋마다 fsync (기본 1)' } } } },
 
   { look:{ jr:true },
-    note:'journal 은 100ms 마다 한꺼번에 내려간다',
+    note:'journal flush — 100ms 주기의 batch fsync',
     why:'MongoDB 의 JournalFlusher 가 journalCommitIntervalMs(기본 100)마다, 또는 누가 waitForJournalFlush 로 부르면 곧바로 flush 한다. flush 는 WiredTiger 에 log_flush("sync=on") 을 부르는 것이고, __wt_log_flush 가 그 요청을 받아 로그를 지정한 수준까지 내리고 기다린다.',
     key:'여러 커밋이 <em>한 번의 fsync</em> 를 나눠 쓴다 — InnoDB 의 그룹 커밋과 같은 효과를 시간 간격으로 얻는다. 대가는 j 를 요구하지 않은 쓰기가 응답과 fsync 사이에 이 간격을 둔다는 것이다.',
     ref:WT + 'log/log.c', sym:'__wt_log_flush',
@@ -270,7 +270,7 @@ const SCENES = [
     ops:{ jr:{ set:{ '커밋 레코드':{ tag:'ok', sub:'fsync 됨 — 100ms 주기' } } } } },
 
   { look:{ jr:true, cmp:true },
-    note:'replica set 에서는 컬렉션의 변경을 journal 에 쓰지 않는다 — oplog 만 쓴다',
+    note:'replica set — collection 변경은 unlogged, oplog 만 journal',
     why:'WiredTigerUtil::useTableLogging 이 복제가 켜져 있으면 local DB 밖의 컬렉션에 false 를 돌려준다 — 주석이 "All replicated collections are not logged." 이다. 이어서 "local 의 나머지는 로그된다. 특히 oplog 와 사용자가 만든 컬렉션" 이라 적는다.',
     key:'컬렉션 변경의 redo 는 <em>oplog 그 자체</em>다. 같은 변경을 journal 과 oplog 에 두 번 적지 않는다. 그래서 복구는 checkpoint 에 oplog 를 다시 적용하는 일이 된다 — 마지막 스텝.',
     ref:WT + 'log/log.c', sym:'__wt_log_flush',
@@ -281,9 +281,9 @@ const SCENES = [
     beat:1 },
 
   { act:{ f:'ck', t:'img', lb:'새 블록에 쓴다' },
-    note:'checkpoint 는 60초마다 — 그리고 쓰던 블록을 덮어쓰지 않는다',
+    note:'checkpoint 60s — copy-on-write, 기존 block 을 덮어쓰지 않는다',
     why:'syncdelay 의 기본이 60(주석 "seconds between checkpoints")이다. 블록 관리자는 checkpoint 를 두 단계로 쓴다 — 새 checkpoint 정보를 쓰고, 그것이 안전하게 저장된 뒤에야 옛 checkpoint 가 쓰던 블록을 재사용 목록에 넣는다. 주석이 이유를 적는다 : 먼저 할당하면 "저장되기 전에 죽었을 때 아직 checkpoint 가 참조하는 블록을 덮어쓴 셈" 이 된다.',
-    key:'그래서 WiredTiger 에는 <em>doublewrite 같은 장치가 필요 없다</em>. InnoDB 는 페이지를 제자리에 덮어쓰므로 찢어진 쓰기를 doublewrite 사본으로 막는다(mysql/innodb 01). 여기는 새 블록에 쓰니 쓰다가 찢어져도 직전 checkpoint 가 온전하다.',
+    key:'그래서 WiredTiger 에는 <em>doublewrite 같은 장치가 필요 없다</em>. InnoDB 는 페이지를 제자리에 덮어쓰므로 torn write 를 doublewrite 사본으로 막는다(mysql/innodb 01). 여기는 새 블록에 쓰니 쓰다가 찢어져도 직전 checkpoint 가 온전하다.',
     ref:WT + 'block/block_ckpt.c', sym:'__ckpt_process',
     fact:[[WT + 'block/block_ckpt.c','Checkpoints are a two-step process'],
           [WT + 'block/block_ckpt.c',"have overwritten blocks still referenced by checkpoints in the system."],
@@ -295,9 +295,9 @@ const SCENES = [
     beat:1 },
 
   { look:{ ck:true, jr:true, cmp:true },
-    note:'복구 — 마지막 stable checkpoint 에서 oplog 를 끝까지 다시 적용한다',
+    note:'restart 경로 — stable checkpoint 위에 oplog 를 다시 apply',
     why:'WiredTiger 는 checkpoint 를 연 뒤 log 에서 각 파일의 checkpoint LSN 이후 레코드만 적용한다(__wt_log_cmp(lsnp, &r->files[id].ckpt_lsn) >= 0). 이어서 MongoDB 의 복제 복구가 "Starting recovery oplog application at the stable timestamp" 를 남기고 stable timestamp 부터 oplog 끝까지 적용한다.',
-    key:'InnoDB 는 redo 를 재생하고 undo 로 되돌린다(mysql/innodb 03). 여기는 되돌릴 것이 없고(03 장면), <em>재생할 것이 oplog</em> 다 — 저장 엔진의 복구와 복제의 복구가 같은 기록을 쓴다.',
+    key:'InnoDB 는 redo 를 replay 하고 undo 로 되돌린다(mysql/innodb 03). 여기는 되돌릴 것이 없고(03 장면), <em>replay 할 것이 oplog</em> 다 — 저장 엔진의 복구와 복제의 복구가 같은 기록을 쓴다.',
     ref:WT + 'txn/txn_recover.c', sym:'__recovery_cursor',
     fact:[[WT + 'txn/txn_recover.c','__wt_log_cmp(lsnp, &r->files[id].ckpt_lsn) >= 0'],
           ['src/mongo/db/repl/replication_recovery.cpp','Starting recovery oplog application at the stable timestamp']],
@@ -307,8 +307,8 @@ const SCENES = [
   ],
 },
 {
-  num:'05', tab:'eviction', title:'캐시가 차면 누가 치우는가',
-  sub:'80% 부터 백그라운드 스레드가, 95% 를 넘으면 쿼리를 돌리던 스레드도 치운다',
+  num:'05', tab:'Eviction', title:'Cache Eviction: Targets, Triggers & App-Thread Eviction',
+  sub:'eviction_target 80% 부터 background, eviction_trigger 95% 초과면 application thread 까지 동원',
   cast:['op','cache','chain','cmp'],
   knobs:[
     ['storage.wiredTiger.engineConfig.cacheSizeGB','(RAM−1GB)/2','최소 256MB — 이 값을 주지 않았을 때'],
@@ -328,7 +328,7 @@ const SCENES = [
   },
   steps:[
   { look:{ cache:true },
-    note:'캐시 크기는 (메모리 − 1GB) 의 절반, 최소 256MB',
+    note:'cache size = (RAM − 1GB) × 0.5, 최소 256MB',
     why:'MongoDB 가 연결을 열 때 cache_size 를 정한다 — 주석이 "256MB 를 최소로, 그렇지 않으면 1GB 를 넘는 메모리의 50%" 다. 16GB 기계면 7.5GB 다. WiredTiger 는 그 값을 cache_size 로 받는다.',
     key:'InnoDB buffer pool 의 기본은 128MB 이고 운영자가 늘린다. MongoDB 는 <em>기본부터 메모리의 절반 가까이</em>를 캐시로 잡는다.',
     ref:WT + 'conn/conn_cache.c', sym:'__cache_config_local',
@@ -338,7 +338,7 @@ const SCENES = [
     ops:{ cache:{ set:{ '크기':'7.5 GB (16 GB 기계)', '사용':'40 %', 'dirty':'2 %', 'eviction':'쉬는 중' } } } },
 
   { look:{ cache:true },
-    note:'백그라운드 eviction 은 80% 부터 치운다 — 95% 가 문턱이다',
+    note:'background eviction — target 80%, trigger 95%',
     why:'WiredTiger 의 기본이 eviction_target=80, eviction_trigger=95 다. MongoDB 는 eviction=(threads_min=4,threads_max=4) 로 eviction 작업 스레드 넷을 둔다. __evict_server 가 치울 페이지를 고르고 작업 스레드가 내보낸다.',
     key:'목표와 문턱 사이가 <em>백그라운드가 따라잡을 여유</em>다. 쓰기가 그보다 빠르면 다음 스텝으로 간다.',
     ref:WT + 'evict/evict_lru.c', sym:'__evict_server',
@@ -349,9 +349,9 @@ const SCENES = [
           cache:{ set:{ '사용':'82 %', 'eviction':'백그라운드 스레드 4개' } } } },
 
   { look:{ cache:true, chain:true },
-    note:'더러운 것은 따로 센다 — 5% 부터 치우고 20% 가 문턱이다',
+    note:'dirty 는 별도 — dirty_target 5%, dirty_trigger 20%',
     why:'기본이 eviction_dirty_target=5, eviction_dirty_trigger=20 이다. 더러운 페이지는 내보내려면 reconciliation 으로 새 이미지를 만들어야 해서 깨끗한 페이지를 버리는 것보다 비싸다. 그래서 전체 사용량과 별도로 dirty 비율에 문턱을 둔다.',
-    key:'InnoDB 도 더티 비율을 따로 본다(innodb_max_dirty_pages_pct). 다만 거기서 더티 페이지를 치우는 것은 <em>제자리 쓰기</em>이고, 여기서는 <em>새 이미지 쓰기와 history store 옮기기</em>다(03 장면).',
+    key:'InnoDB 도 dirty 비율을 따로 본다(innodb_max_dirty_pages_pct). 다만 거기서 dirty page 를 치우는 것은 <em>제자리 쓰기</em>이고, 여기서는 <em>새 이미지 쓰기와 history store 옮기기</em>다(03 장면).',
     ref:WT + 'evict/evict_lru.c', sym:'__evict_server',
     fact:[[WT + 'config/config_def.c','eviction_dirty_target=5'],
           [WT + 'config/config_def.c','eviction_dirty_trigger=20']],
@@ -359,9 +359,9 @@ const SCENES = [
           chain:{ set:{ 'txn 14':{ sub:'c = 300  ·  커밋됨 — 내보내려면 reconciliation' } } } } },
 
   { look:{ cache:true, op:true, cmp:true },
-    note:'문턱을 넘으면 쿼리를 돌리던 스레드가 직접 치운다',
+    note:'trigger 초과 — application thread 가 직접 evict (latency spike)',
     why:'__wt_cache_eviction_check 가 문턱을 넘은 것을 보면 그 스레드를 __wt_cache_eviction_worker 로 보낸다 — 주석이 "문턱을 넘은 만큼 애플리케이션 스레드를 관여시킨다" 고 적는다. 통계 application thread time evicting 이 그 시간을 센다.',
-    key:'쿼리가 <em>자기와 무관한 페이지를 치우느라</em> 멈춘다. mysql/innodb 06 에서 사용자 스레드가 더티 페이지를 직접 내려쓰던 것과 같은 모양의 지연이다 — 응답 시간은 튀는데 원인은 그 쿼리에 없다.',
+    key:'쿼리가 <em>자기와 무관한 페이지를 치우느라</em> 멈춘다. mysql/innodb 06 에서 사용자 스레드가 dirty page 를 직접 flush 하던 것과 같은 모양의 지연이다 — 응답 시간은 튀는데 원인은 그 쿼리에 없다.',
     ref:WT + 'include/cache_inline.h', sym:'__wt_cache_eviction_check',
     fact:[[WT + 'include/cache_inline.h','Calculate the cache full percentage; anything over the trigger means we involve the'],
           [WT + 'include/cache_inline.h','return (__wt_cache_eviction_worker(session, busy, readonly));'],
@@ -372,9 +372,9 @@ const SCENES = [
     beat:1 },
 
   { look:{ chain:true, cache:true },
-    note:'eviction 은 reconciliation 이다 — 03 장면의 일이 여기서 일어난다',
+    note:'eviction = reconciliation — 03 장면의 작업이 여기서 실행',
     why:'__wt_cache_eviction_check 의 주석이 "Eviction causes reconciliation." 이다. 더러운 페이지를 내보내려면 새 이미지를 만들고, 누가 볼 수도 있는 옛 버전은 history store 로 옮기고, 커밋 전 update 는 메모리에 되돌려 둔다.',
-    key:'그래서 <em>긴 스냅샷 하나가 캐시 압력으로 돌아온다</em>. 옛 버전을 버릴 수 없으니 옮길 것이 늘고, 옮기느라 eviction 이 느려지고, 느려지면 문턱을 넘는다. 메모리 부족 · 긴 트랜잭션 · history store 증가 — 셋 중 하나가 보이면 나머지를 의심한다.',
+    key:'그래서 <em>긴 snapshot 하나가 캐시 압력으로 돌아온다</em>. 옛 버전을 버릴 수 없으니 옮길 것이 늘고, 옮기느라 eviction 이 느려지고, 느려지면 문턱을 넘는다. 메모리 부족 · 긴 트랜잭션 · history store 증가 — 셋 중 하나가 보이면 나머지를 의심한다.',
     ref:WT + 'include/cache_inline.h', sym:'__wt_cache_eviction_check',
     fact:[[WT + 'include/cache_inline.h','Eviction causes reconciliation.']],
     ops:{ cache:{ set:{ 'eviction':'더티 → reconciliation → history store' } },
@@ -383,8 +383,8 @@ const SCENES = [
   ],
 },
 {
-  num:'06', tab:'쓰기 경로', title:'쓰기 한 건이 응답을 받기까지',
-  sub:'문서와 oplog 가 한 트랜잭션으로 커밋되고, 기본값은 과반이 journal 에 쓴 뒤에야 응답한다',
+  num:'06', tab:'Write Path', title:'Write Path: Oplog, Journal & Majority Ack',
+  sub:'문서와 oplog entry 는 한 WT transaction — 기본 w:majority 는 과반의 journal 뒤에 ack',
   cast:['op','chain','oplog','ts','jr','sec','cmp'],
   /* 손잡이는 클러스터의 기본 write concern(setDefaultRWConcern)이다. 따로 정하지 않았을 때의
      암묵의 기본값은 대개 { w: "majority" } 이고(repl/README.md), majority 는 j 를 따로 안 적으면 journal 까지
@@ -396,15 +396,15 @@ const SCENES = [
       1:{ key:'이 값에서는 클러스터 기본을 <em>w:1</em> 로 정해 두었다 — 응답이 무엇을 기다리지 않게 되는지 따라가 보라.',
           ops:{ op:{ set:{ '쓰기 확인':'w: 1 (setDefaultRWConcern)|gold', '단계':'요청 받음' } } } },
       6:{ look:{ op:true, jr:true },
-          note:'w:1 — journal 을 기다리지 않고 곧바로 응답한다',
-          why:'w:1 은 j 를 함께 주지 않으면 journal 을 기다리지 않는다 — writeConcernMajorityJournalDefault 는 { w: "majority" } 의 동작만 정한다. 로그 레코드는 아직 로그 버퍼에 있고, 100ms 주기의 flush 가 내린다(04 장면).',
+          note:'w:1 — journal 대기 없이 즉시 ack',
+          why:'w:1 은 j 를 함께 주지 않으면 journal 을 기다리지 않는다 — writeConcernMajorityJournalDefault 는 { w: "majority" } 의 동작만 정한다. 로그 레코드는 아직 log buffer 에 있고, 100ms 주기의 flush 가 내린다(04 장면).',
           key:'응답과 fsync 사이에 <em>최대 100ms</em> 가 생긴다. 그 사이 서버가 죽으면 응답을 받은 쓰기가 사라질 수 있다.',
           ref:WT + 'log/log.c', sym:'__wt_log_flush',
           fact:[[MG + '../repl/repl_set_config.idl','Determines the behavior of { w: "majority" } write concern if the write concern'],
                 [MG + 'storage_options.h','AtomicWord<int> journalCommitIntervalMs{100};']],
           ops:{ op:{ set:{ '응답':'ok — journal 전|gold' } } } },
       8:{ look:{ ts:true, sec:true },
-          note:'과반 커밋 시점이 뒤따라온다 — 이 쓰기는 그보다 먼저 응답했다',
+          note:'majority commit point 는 뒤따라온다 — ack 가 먼저 나갔다',
           why:'secondary 가 ts 101 을 journal 에 쓰면 과반 커밋 시점이 올라간다. w:1 의 응답은 이것을 기다리지 않았으므로, 응답을 받은 순간 이 쓰기는 과반에 있지 않았을 수 있다.',
           key:'응답이 곧 <em>복제된 사실</em>은 아니다. w:1 은 "이 노드가 받았다" 는 뜻뿐이다.',
           ref:WT + 'txn/txn_timestamp.c', sym:'__wt_txn_global_set_timestamp',
@@ -412,15 +412,15 @@ const SCENES = [
           ops:{ ts:{ set:{ 'majority commit point':'101|green' } } } },
       /* ops 를 비워 둔다 — 적지 않으면 기본값 10 스텝의 ops(응답 = 과반 뒤)가 그대로 섞인다 */
       10:{ look:{ op:true, sec:true }, ops:{},
-           note:'과반에 닿기 전에 primary 가 죽으면 — 이 쓰기는 새 primary 의 역사에 없어 되감긴다',
-           why:'repl README : 과반이 안 된 쓰기를 가진 노드는 그 변경을 되감고 동기 원본의 역사에 맞춰 다시 앞으로 간다. 되감기는 WiredTiger 를 stable timestamp 로 돌리는 일이다 — durable 시각이 stable 보다 큰 값은 지워진다(08 장면).',
+           note:'과반 전 primary crash — 새 primary 의 history 에 없어 rollback 대상',
+           why:'repl README : 과반이 안 된 쓰기를 가진 노드는 그 변경을 rollback 하고 동기 원본의 역사에 맞춰 다시 앞으로 간다. rollback 은 WiredTiger 를 stable timestamp 로 돌리는 일이다 — durable 시각이 stable 보다 큰 값은 지워진다(08 장면).',
            key:'w:1 의 위험은 fsync 만이 아니다 — <em>응답을 받은 쓰기가 복제 역사에서 지워질 수 있다</em>. majority 는 그 둘을 모두 기다린 값이다.',
            ref:WT + 'rollback_to_stable/rts_btree.c', sym:'__rts_btree_abort_ondisk_kv',
            fact:['} else if (tw->durable_start_ts > rollback_timestamp ||',
                  ['src/mongo/db/repl/README.md','uncommitted writes will roll back its changes and roll forward to match its sync source.'],
                  ['src/mongo/db/repl/README.md','recover to a [`stable_timestamp`](#replication-timestamp-glossary), which is the highest timestamp']] },
       11:{ look:{ op:true, jr:true, cmp:true },
-           note:'정리 — w:1 은 로컬 커밋에서 응답하고, 내구성과 복제는 뒤에서 따라온다',
+           note:'정리 — w:1 은 local commit 에서 ack, durability · replication 은 비동기',
            why:'커밋은 같다 — 문서와 oplog 가 한 트랜잭션이고 로그 레코드가 버퍼에 들어간다. 다른 것은 응답이 기다리는 것이다 : w:1 은 아무것도, majority 는 journal 과 과반 복제를.',
            key:'InnoDB 의 커밋은 <em>로컬에서</em> 내구성을 정하고(flush_log_at_trx_commit · sync_binlog) 복제는 따로다. MongoDB 는 기본값이 <em>복제된 내구성</em>이고 w:1 이 그 반대편이다.',
            ref:WT + 'txn/txn.c', sym:'__wt_txn_commit',
@@ -448,7 +448,7 @@ const SCENES = [
   },
   steps:[
   { look:{ op:true },
-    note:'기본 write concern 은 대개 { w: "majority" } 다 — 따로 적지 않으면 그것을 기다린다',
+    note:'기본 write concern — 대개 { w: "majority" }, 미지정이면 이것을 대기',
     why:'클러스터 기본값을 정하지 않으면 서버가 암묵의 기본(IDWC)을 정하고, repl README 가 "대부분의 경우 {w: "majority"}" 라 적는다 — arbiter 가 있고 data 노드가 투표 과반을 넘지 못하는 구성만 w:1 이다. majority 는 j 를 안 적으면 journal 까지 기다린다 — writeConcernMajorityJournalDefault 의 기본이 true 다.',
     key:'"응답" 의 뜻이 설정에 달려 있다. 기본값에서는 <em>과반이 journal 에 가졌다</em>는 뜻이다 — 손잡이로 w:1 과 비교해 보라.',
     fact:[['src/mongo/db/repl/README.md','For most cases, the IDWC will default to'],
@@ -456,7 +456,7 @@ const SCENES = [
     ops:{ op:{ set:{ '쓰기 확인':'w: majority (기본)', '단계':'요청 받음' } } } },
 
   { act:{ f:'op', t:'chain', lb:'update 를 사슬에' },
-    note:'문서 갱신은 01 장면 그대로다 — update 를 사슬 맨 앞에 붙인다',
+    note:'문서 update — 01 장면 그대로, chain head 에 prepend',
     why:'MongoDB 의 복구 단위가 WiredTiger 트랜잭션을 열고 커서로 문서를 고친다. __wt_row_modify 가 새 update 를 사슬 머리에 붙인다 — 아직 커밋 전이다.',
     key:'여기까지는 <em>메모리의 사슬</em>뿐이다. 이 쓰기가 복제되고 살아남으려면 두 가지가 더 필요하다 — oplog 와 journal.',
     ref:WT + 'btree/row_modify.c', sym:'__wt_row_modify',
@@ -465,8 +465,8 @@ const SCENES = [
           op:{ set:{ '단계':'문서 갱신' } } } },
 
   { act:{ f:'op', t:'oplog', lb:'oplog 항목' },
-    note:'같은 트랜잭션 안에서 oplog 에 항목을 하나 넣는다 — $inc 는 $set 으로 바꿔 적는다',
-    why:'OpObserver 가 쓰기마다 local.oplog.rs 에 그 쓰기를 설명하는 문서를 넣는다. repl README : 항목은 멱등하게 고쳐 쓴다 — $inc 는 $set 으로. oplog 문서도 같은 WriteUnitOfWork 안의 또 하나의 __wt_row_modify 이고, __wt_txn_modify 가 두 update 를 같은 트랜잭션에 등록한다 — 둘은 함께 커밋되거나 함께 사라진다(oplog.cpp : WUOW 가 되감기지 않은 것을 확인한 뒤에야 last optime 을 올린다).',
+    note:'같은 transaction 에 oplog entry — $inc 는 idempotent $set 으로 rewrite',
+    why:'OpObserver 가 쓰기마다 local.oplog.rs 에 그 쓰기를 설명하는 문서를 넣는다. repl README : 항목은 멱등하게 고쳐 쓴다 — $inc 는 $set 으로. oplog 문서도 같은 WriteUnitOfWork 안의 또 하나의 __wt_row_modify 이고, __wt_txn_modify 가 두 update 를 같은 트랜잭션에 등록한다 — 둘은 함께 커밋되거나 함께 사라진다(oplog.cpp : WUOW 가 rollback 되지 않은 것을 확인한 뒤에야 last optime 을 올린다).',
     key:'복제의 기록과 데이터가 <em>한 트랜잭션</em>이다. InnoDB 는 redo 와 binlog 가 서로 다른 로그라 두 단계 커밋으로 맞춘다(mysql/innodb 01) — 여기는 맞출 것이 없다.',
     ref:WT + 'btree/row_modify.c', sym:'__wt_row_modify',
     fact:['WT_ERR(__wt_txn_modify(session, upd));',
@@ -477,9 +477,9 @@ const SCENES = [
           op:{ set:{ '단계':'oplog 항목' } } } },
 
   { act:{ f:'op', t:'ts', lb:'commit ts 101' },
-    note:'oplog 항목의 ts 를 commit timestamp 로 주고 WiredTiger 트랜잭션을 커밋한다',
+    note:'oplog ts 를 commit timestamp 로 — WT transaction commit',
     why:'복구 단위가 timestamp_transaction_uint(WT_TS_TXN_TYPE_COMMIT, ts) 로 커밋 시각을 준 뒤 commit_transaction 을 부른다. __wt_txn_commit 은 트랜잭션에 등록된 op 를 차례로 돌며 그 시각을 update 마다 찍는다 — 문서의 update 에도, oplog 의 update 에도. 02 장면의 두 번째 판정이 쓰는 시각이다.',
-    key:'oplog 의 시각과 저장 엔진의 가시성 시각이 <em>같은 수</em>다. 그래서 "ts 101 까지 읽기" 가 저장 엔진 안에서 그대로 성립한다.',
+    key:'oplog 의 시각과 저장 엔진의 visibility 시각이 <em>같은 수</em>다. 그래서 "ts 101 까지 읽기" 가 저장 엔진 안에서 그대로 성립한다.',
     ref:WT + 'txn/txn.c', sym:'__wt_txn_commit',
     fact:['for (i = 0, op = txn->mod; i < txn->mod_count; i++, op++) {',
           '__wt_txn_op_set_timestamp(session, op);',
@@ -490,7 +490,7 @@ const SCENES = [
           oplog:{ set:{ 'ts 101':{ tag:'clean', sub:"u  _id:1  {$set:{c:201}}" } } } } },
 
   { act:{ f:'oplog', t:'jr', lb:'로그 레코드', hot:'io' },
-    note:'커밋이 로그 레코드를 쓴다 — 그런데 로그에 가는 것은 oplog 쪽뿐이다',
+    note:'commit 이 쓰는 log record — 실리는 것은 oplog entry 뿐',
     why:'__wt_txn_commit 은 레코드를 쓰는 순간부터 트랜잭션을 풀 때까지 visibility 락을 읽기로 쥐고 __wt_txn_log_commit 을 부른다 — checkpoint 가 얻는 LSN 이 늘 보이는 데이터와 맞게 하려는 것이다. 복제되는 컬렉션은 로그하지 않으므로(04 장면) 레코드에 담기는 것은 oplog 항목이다.',
     key:'journal 에 있는 것이 <em>oplog 한 줄</em>이면 충분하다 — 크래시 뒤에 그 줄을 다시 적용하면 문서가 되살아난다(08 장면).',
     ref:WT + 'txn/txn.c', sym:'__wt_txn_commit',
@@ -501,7 +501,7 @@ const SCENES = [
           op:{ set:{ '단계':'로컬 커밋 끝' } } } },
 
   { act:{ f:'op', t:'jr', lb:'log_flush sync=on', hot:'io' },
-    note:'majority 는 journal 까지 기다린다 — 로그를 fsync 한다, 먼저 한 쪽이 있으면 그것에 얹는다',
+    note:'majority 는 j:true — log_flush(sync=on), 진행 중 flush 가 있으면 편승',
     why:'waitUntilDurable 은 먼저 "우리가 lastSyncTime 을 읽은 뒤 누가 이미 sync 했으면 끝" 인지 본다. 아니면 log_flush("sync=on") 으로 WiredTiger 에 로그를 내리라고 한다 — 04 장면의 flush 와 같은 호출을 이 쓰기가 기다린다.',
     key:'여러 쓰기가 <em>fsync 한 번</em>을 나눠 쓴다 — PG 의 XLogFlush 그룹 커밋(postgres/wal 04)과 같은 모양이다.',
     ref:WT + 'log/log.c', sym:'__wt_log_flush',
@@ -512,14 +512,14 @@ const SCENES = [
           op:{ set:{ '단계':'journal 기다림' } } } },
 
   { act:{ f:'oplog', t:'sec', lb:'oplog 를 끌어간다', hot:'repl' },
-    note:'secondary 가 oplog 를 끌어가 적용하고, 자기 journal 에 쓴 위치를 primary 에 알린다',
+    note:'secondary 가 oplog 를 pull · apply — durable 위치를 primary 에 보고',
     why:'repl README : 복제는 secondary 가 끌어가는 방식이다. secondary 는 ts 101 을 가져와 적용하고, 자기 쪽에서 내구성이 생긴 위치를 primary 에 보고한다.',
     key:'primary 가 밀어 주지 않는다 — <em>secondary 가 가져간다</em>. 그래서 느린 secondary 는 primary 를 막지 않고, 대신 과반 커밋 시점을 늦춘다.',
     fact:[['src/mongo/db/repl/README.md','Secondaries drive oplog replication via a pull process.']],
     ops:{ sec:{ set:{ '가져감':'ts 101', '적용':'ts 101', 'journal':'ts 101' } } } },
 
   { look:{ ts:true, sec:true },
-    note:'과반이 ts 101 을 journal 에 가지면 과반 커밋 시점이 101 로 오르고, 기다리던 쓰기가 깨어난다',
+    note:'과반의 journal 확보 — majority commit point 101, 대기 writer wake-up',
     why:'과반의 내구성 위치가 모이면 committed snapshot 을 올리고, 주석 그대로 read concern · write concern 을 기다리던 스레드를 깨운다. 이 쓰기의 응답이 그 깨움을 기다리고 있었다.',
     key:'"과반" 은 <em>journal 에 쓴 노드의 과반</em>이다 — 받기만 한 노드는 세지 않는다(writeConcernMajorityJournalDefault).',
     ref:WT + 'txn/txn_timestamp.c', sym:'__wt_txn_global_set_timestamp',
@@ -528,7 +528,7 @@ const SCENES = [
     ops:{ ts:{ set:{ 'majority commit point':'101|green' } } } },
 
   { look:{ ts:true },
-    note:'stable timestamp 도 101 로 오른다 — checkpoint 가 담을 수 있는 가장 높은 시각이다',
+    note:'stable timestamp 101 — checkpoint 가 담을 수 있는 상한',
     why:'stable optime 은 겹침이 없는 지점 이하여야 하고, majority 읽기가 켜져 있으면 과반 커밋 시점도 넘지 않아야 한다. 정해지면 저장 엔진에 setStableTimestamp 로 넘긴다 — WiredTiger 의 set_timestamp 가 받는다.',
     key:'checkpoint 는 <em>stable 까지만</em> 담는다. 그래서 checkpoint 에서 다시 시작하면 과반이 확인한 역사에 서 있게 된다(08 장면).',
     ref:WT + 'txn/txn_timestamp.c', sym:'__wt_txn_global_set_timestamp',
@@ -537,14 +537,14 @@ const SCENES = [
     ops:{ ts:{ set:{ 'stable':'101' } } } },
 
   { look:{ op:true },
-    note:'이제 응답한다 — 과반이 journal 에 가졌고, 되감길 일이 없다',
-    why:'과반이 가진 쓰기는 누가 새 primary 가 되든 그 역사에 있다. README 가 되감기의 대상을 "과반이 안 된 쓰기" 로 적는다 — 이 쓰기는 거기서 벗어났다.',
+    note:'ack — 과반 durable, rollback 대상 아님',
+    why:'과반이 가진 쓰기는 누가 새 primary 가 되든 그 역사에 있다. README 가 rollback 의 대상을 "과반이 안 된 쓰기" 로 적는다 — 이 쓰기는 거기서 벗어났다.',
     key:'기본값의 응답은 <em>fsync + 복제 + 과반 확인</em>을 모두 기다린 값이다. 느린 이유이자 안전한 이유다.',
     fact:[['src/mongo/db/repl/README.md','uncommitted writes will roll back its changes and roll forward to match its sync source.']],
     ops:{ op:{ set:{ '응답':'ok — 과반이 journal 에 가진 뒤|green' } } } },
 
   { look:{ op:true, jr:true, cmp:true },
-    note:'정리 — 커밋은 로컬이고 한 번이다. 응답이 무엇을 기다리는지는 write concern 이 정한다',
+    note:'정리 — commit 은 local 1회, ack 시점은 write concern 이 정한다',
     why:'문서와 oplog 가 한 트랜잭션으로 커밋되고, 로그에는 oplog 항목이 간다. majority 는 그 뒤에 journal fsync 와 과반의 journal 을 기다린다.',
     key:'InnoDB 의 커밋은 <em>로컬에서</em> 내구성을 정하고 복제는 따로다. MongoDB 의 기본은 <em>과반의 내구성</em>이다 — 같은 "커밋 응답" 이 가리키는 사실이 다르다.',
     ref:WT + 'txn/txn.c', sym:'__wt_txn_commit',
@@ -553,16 +553,16 @@ const SCENES = [
   ],
 },
 {
-  num:'07', tab:'쓰기 충돌', title:'커밋된 것과도 부딪힌다',
-  sub:'내 스냅샷 뒤에 커밋된 문서를 고치면 트랜잭션이 통째로 물러난다 — 한 문서 쓰기는 서버가 알아서 다시 한다',
+  num:'07', tab:'Write Conflicts', title:'Write Conflicts: First Writer Wins, No Waiting',
+  sub:'snapshot 이후 commit 된 version 과도 conflict — multi-doc txn 은 통째로 abort, single-doc write 는 server-side retry',
   cast:['sa','sb','snap','chain','cmp'],
   knobs:[
-    ['—','—','충돌은 설정이 아니다 — 스냅샷과 update 사슬이 정한다'],
+    ['—','—','충돌은 설정이 아니다 — snapshot 과 update 사슬이 정한다'],
     ['transactionLifetimeLimitSeconds','60','여러 문서 트랜잭션이 열려 있을 수 있는 시간 — 넘으면 서버가 끊는다'] ],
   watch:[
     ['serverStatus().wiredTiger.transaction',"'update conflicts' — 충돌로 롤백을 요구한 횟수"],
     ['드라이버 오류 라벨','TransientTransactionError 가 붙으면 트랜잭션 전체를 다시 해도 안전하다'] ],
-  links:[['01','커밋 전 update 와의 충돌'],['02','스냅샷이 보는 것']],
+  links:[['01','커밋 전 update 와의 충돌'],['02','snapshot 이 보는 것']],
   init:{
     sa:{ kv:{ 'txn':'—', '문장':'—', '상태':'—' } },
     sb:{ kv:{ 'txn':'—', '문장':'—', '상태':'—', '다시 한 횟수':'0' } },
@@ -572,17 +572,17 @@ const SCENES = [
   },
   steps:[
   { act:{ f:'sb', t:'snap', lb:'트랜잭션 시작 · 읽기' },
-    note:'B 가 여러 문서 트랜잭션을 열고 _id:1 을 읽는다 — 그때 A(txn 20)가 돌고 있다',
-    why:'트랜잭션의 첫 읽기에서 스냅샷을 잡는다. A 가 아직 돌고 있으므로 스냅샷 목록에 20 이 들어가고, B 는 c = 100 을 본다(02 장면의 판정).',
-    key:'이 스냅샷이 <em>트랜잭션이 끝날 때까지</em> B 가 보는 세계다 — PG 의 REPEATABLE READ 와 같다(postgres/mvcc 08).',
+    note:'B 가 multi-document txn 시작, _id:1 read — A(txn 20) running',
+    why:'트랜잭션의 첫 읽기에서 snapshot 을 잡는다. A 가 아직 돌고 있으므로 snapshot 목록에 20 이 들어가고, B 는 c = 100 을 본다(02 장면의 판정).',
+    key:'이 snapshot 이 <em>트랜잭션이 끝날 때까지</em> B 가 보는 세계다 — PG 의 REPEATABLE READ 와 같다(postgres/mvcc 08).',
     ref:WT + 'txn/txn.c', sym:'__wt_txn_get_snapshot',
     fact:[[WT + 'include/txn_inline.h','everything else is visible unless it is found in the snapshot.']],
     ops:{ sb:{ set:{ 'txn':'id 없음 · 읽기만 했다', '문장':'startTransaction · find({_id:1})', '상태':'c = 100 을 봤다' } },
           snap:{ set:{ 'snap_min':'20', 'snap_max':'21', '동시 트랜잭션':'[ 20 ]' } } } },
 
   { act:{ f:'sa', t:'chain', lb:'updateOne · 커밋' },
-    note:'A 가 _id:1 을 고치고 커밋한다 — 사슬 맨 앞에 커밋된 txn 20 이 선다',
-    why:'A 의 update 가 사슬 머리에 붙고 ts 30 으로 커밋된다. 이제 _id:1 의 최신 값은 c = 101 이다. B 의 스냅샷은 이것을 모른다 — 20 이 목록에 있었다.',
+    note:'A 가 _id:1 update 후 commit — chain head = committed txn 20',
+    why:'A 의 update 가 사슬 머리에 붙고 ts 30 으로 커밋된다. 이제 _id:1 의 최신 값은 c = 101 이다. B 의 snapshot 은 이것을 모른다 — 20 이 목록에 있었다.',
     key:'충돌이 <em>이미 끝난 쓰기</em>와 생길 수 있다는 것이 이 장면의 요점이다. 01 장면은 커밋 전 update 와의 충돌이었다.',
     ref:WT + 'btree/row_modify.c', sym:'__wt_row_modify',
     fact:['upd->next = old_upd;'],
@@ -590,9 +590,9 @@ const SCENES = [
           chain:{ add:[{ id:'txn 20', tag:'ok', sub:'c = 101  ·  커밋됨 ts 30' }], move:[['txn 20', 0]] } } },
 
   { look:{ chain:true, snap:true },
-    note:'B 가 같은 문서를 고치려 한다 — 사슬 머리(txn 20)가 커밋됐지만 B 에게는 안 보인다',
-    why:'__txn_modify_block 은 사슬을 앞에서부터 걸으며 내 스냅샷에서 보이지 않고 중단되지도 않은 update 를 찾는다. txn 20 은 커밋됐지만 B 의 스냅샷 목록에 있으므로 보이지 않는다 — 충돌이다.',
-    key:'규칙은 "커밋됐는가" 가 아니라 <em>"내가 볼 수 있는가"</em>다. 스냅샷이 모르는 버전 위에는 쓰지 않는다.',
+    note:'B 의 update — chain head 는 committed 지만 B 의 snapshot 엔 invisible',
+    why:'__txn_modify_block 은 사슬을 앞에서부터 걸으며 내 snapshot 에서 보이지 않고 중단되지도 않은 update 를 찾는다. txn 20 은 커밋됐지만 B 의 snapshot 목록에 있으므로 보이지 않는다 — 충돌이다.',
+    key:'규칙은 "커밋됐는가" 가 아니라 <em>"내가 볼 수 있는가"</em>다. snapshot 이 모르는 버전 위에는 쓰지 않는다.',
     ref:WT + 'include/txn_inline.h', sym:'__txn_modify_block',
     fact:['for (; upd != NULL && !__wt_txn_upd_visible(session, upd); upd = upd->next) {',
           'rollback = true;'],
@@ -600,7 +600,7 @@ const SCENES = [
     ops:{ sb:{ set:{ '문장':"updateOne({_id:1}, {$inc:{c:1}})", '상태':'충돌 — 스냅샷이 모르는 버전' } } } },
 
   { look:{ sb:true },
-    note:'WT_ROLLBACK 이 WriteConflict 가 되고, 트랜잭션 안이면 트랜잭션이 통째로 중단된다',
+    note:'WT_ROLLBACK → WriteConflict — txn 내부면 통째로 abort (TransientTransactionError)',
     why:'WiredTiger 가 롤백을 요구하면 MongoDB 는 WriteConflictException 을 던진다 — WriteUnitOfWork 의 커밋 경로가 그렇게 적혀 있다. 여러 문서 트랜잭션 안에서는 이 오류로 트랜잭션이 중단되고, 응답에 TransientTransactionError 라벨이 붙는다.',
     key:'라벨의 뜻이 README 에 있다 — <em>부작용 없이 중단됐으니 트랜잭션 전체를 다시 해도 안전하다</em>. 다시 하는 것은 호출한 쪽의 몫이다.',
     ref:WT + 'include/txn_inline.h', sym:'__txn_modify_block',
@@ -610,8 +610,8 @@ const SCENES = [
     ops:{ sb:{ set:{ '상태':'WriteConflict → 트랜잭션 중단|red' } } } },
 
   { act:{ f:'sb', t:'chain', lb:'다시 — 새 스냅샷' },
-    note:'드라이버가 트랜잭션을 처음부터 다시 한다 — 새 스냅샷에서 c = 101 을 보고 102 로 고친다',
-    why:'새 스냅샷에는 돌고 있는 트랜잭션이 없으므로 txn 20 이 보인다 — 이번에는 사슬 머리가 보이는 update 라 충돌이 없다. id 는 update 를 트랜잭션에 등록할 때(__txn_next_op) 받는데 충돌 검사는 그 앞이라, 첫 시도는 id 없이 끝났다. 그래서 이번 시도가 21 을 받는다.',
+    note:'driver 가 txn 전체 retry — 새 snapshot 에서 c = 101 → 102',
+    why:'새 snapshot 에는 돌고 있는 트랜잭션이 없으므로 txn 20 이 보인다 — 이번에는 사슬 머리가 보이는 update 라 충돌이 없다. id 는 update 를 트랜잭션에 등록할 때(__txn_next_op) 받는데 충돌 검사는 그 앞이라, 첫 시도는 id 없이 끝났다. 그래서 이번 시도가 21 을 받는다.',
     key:'결과는 차례로 실행한 것과 같은 102 다. <em>재시도가 직렬화를 대신한다</em> — 그래서 경합이 심한 문서에는 재시도가 거듭된다.',
     ref:WT + 'include/txn_inline.h', sym:'__txn_modify_block',
     fact:[['src/mongo/db/repl/README.md','error code), so that the caller knows that they can safely retry the entire transaction.'],
@@ -621,34 +621,34 @@ const SCENES = [
           chain:{ add:[{ id:'txn 21', tag:'wait', sub:'c = 102  ·  커밋 전' }], move:[['txn 21', 0]] } } },
 
   { look:{ sb:true, chain:true },
-    note:'트랜잭션 밖의 한 문서 쓰기라면 클라이언트는 이 오류를 보지 않는다 — 서버가 안에서 다시 한다',
-    why:'서버는 쓰기를 writeConflictRetry 로 감싸 WriteConflict 가 나면 새 스냅샷으로 다시 돈다 — 저장 계층의 일괄 삽입도 그 모양이다. 트랜잭션 안에서는 이미 한 일을 되돌릴 수 없으므로 이 재시도가 없다.',
+    note:'single-doc write — client 는 오류를 보지 않는다, server 가 writeConflictRetry',
+    why:'서버는 쓰기를 writeConflictRetry 로 감싸 WriteConflict 가 나면 새 snapshot 으로 다시 돈다 — 저장 계층의 일괄 삽입도 그 모양이다. 트랜잭션 안에서는 이미 한 일을 되돌릴 수 없으므로 이 재시도가 없다.',
     key:'같은 충돌이 <em>한 문서 쓰기에서는 지연으로</em>, <em>트랜잭션에서는 오류로</em> 나타난다.',
     fact:[[MG + 'storage_util.h','auto status = writeConflictRetry(opCtx, "batchInsertDocuments", nsOrUUID, [&] {']],
     beat:1 },
 
   { look:{ sb:true, cmp:true },
-    note:'정리 — WiredTiger 는 먼저 쓴 쪽을 남기고 뒤에 온 쪽을 물린다. 기다림은 재시도로 바뀐다',
-    why:'문서를 두고 기다리는 일이 없으니 문서끼리의 교착도 없다. 대신 뒤에 온 쪽이 다시 해야 하고, 그 일은 한 문서 쓰기면 서버가, 트랜잭션이면 드라이버가 한다.',
-    key:'InnoDB 의 UPDATE 는 락을 기다린 뒤 <em>최신 값에 쓴다</em> — REPEATABLE READ 에서도 오류가 없다. WiredTiger 의 트랜잭션은 <em>스냅샷의 값에만 쓰고</em>, 맞지 않으면 물러난다.',
+    note:'정리 — first writer wins, 대기는 retry 로 대체된다',
+    why:'문서를 두고 기다리는 일이 없으니 문서끼리의 deadlock 도 없다. 대신 뒤에 온 쪽이 다시 해야 하고, 그 일은 한 문서 쓰기면 서버가, 트랜잭션이면 드라이버가 한다.',
+    key:'InnoDB 의 UPDATE 는 락을 기다린 뒤 <em>최신 값에 쓴다</em> — REPEATABLE READ 에서도 오류가 없다. WiredTiger 의 트랜잭션은 <em>snapshot 의 값에만 쓰고</em>, 맞지 않으면 물러난다.',
     ref:WT + 'include/txn_inline.h', sym:'__txn_modify_block',
     beat:1,
     ops:{ cmp:{ set:{ 'WiredTiger':'충돌 → 물러나 다시', 'InnoDB':'충돌 → 락 대기 · 최신 값에 쓰기|gold' } } } },
   ],
 },
 {
-  num:'08', tab:'재시작', title:'죽은 뒤에 남는 것',
-  sub:'데이터는 checkpoint 의 stable 로 되감고, oplog 는 journal 로 되살려, 그 차이를 다시 적용한다',
+  num:'08', tab:'Restart', title:'Crash Recovery: Rollback-to-Stable & Oplog Replay',
+  sub:'데이터는 checkpoint 의 stable 로 rewind, oplog 는 journal 로 복원 — 그 차이를 oplog replay 로 메운다',
   cast:['ck','ts','jr','oplog','img','hs','chain','cmp'],
   /* 이야기의 숫자 : 마지막 checkpoint 는 stable 90 에서 찍혔다. 그 뒤 _id:1 이 ts 93(c=150),
      ts 96(c=160)에 바뀌었고, eviction 이 checkpoint 전에 c=150 을 이미지에 쓰며 c=140(ts 85)을
      history store 로 옮겼다. 죽는 순간 stable 은 96, ts 99 는 커밋 전(oplog 구멍)이었다. */
   knobs:[
     ['storage.syncPeriodSecs','60','checkpoint 간격 — 길수록 재시작 때 다시 적용할 oplog 가 길다'],
-    ['storage.journal.commitIntervalMs','100','journal 을 내려쓰는 간격 — 그 사이의 oplog 항목은 크래시로 잃는다'] ],
+    ['storage.journal.commitIntervalMs','100','journal 을 flush 하는 간격 — 그 사이의 oplog 항목은 크래시로 잃는다'] ],
   watch:[
     ['mongod 로그',"id 21544 'Recovering from stable timestamp' — 복구가 선 시각과 oplog 끝"],
-    ['mongod 로그',"'recovery rollback to stable has successfully finished' — WiredTiger 가 되감는 데 든 시간"] ],
+    ['mongod 로그','\'recovery rollback to stable has successfully finished\' — WiredTiger 가 rollback 하는 데 든 시간'] ],
   links:[['04','journal 과 checkpoint'],['06','stable 이 오르는 길'],['09','timestamp 와 history store']],
   init:{
     ck:{ kv:{ 'checkpoint ts':'90', 'log 시작점':'이 checkpoint 의 LSN' } },
@@ -668,8 +668,8 @@ const SCENES = [
   },
   steps:[
   { look:{ chain:true, oplog:true, ts:true, jr:true },
-    note:'프로세스가 죽는다 — 캐시의 사슬과 oplog, 메모리의 stable(96)이 함께 사라진다',
-    why:'디스크에 남는 것은 마지막 checkpoint 와 거기 적힌 timestamp, history store, fsync 된 journal 이다. 로그 버퍼의 ts 101 은 fsync 전이라 없다. WiredTiger 는 연결을 열 때마다 복구를 돈다 — 깨끗이 끝났든 아니든.',
+    note:'crash — cache 의 chain · oplog, in-memory stable(96) 소실',
+    why:'디스크에 남는 것은 마지막 checkpoint 와 거기 적힌 timestamp, history store, fsync 된 journal 이다. log buffer 의 ts 101 은 fsync 전이라 없다. WiredTiger 는 연결을 열 때마다 복구를 돈다 — 깨끗이 끝났든 아니든.',
     key:'"무엇이 남는가" 의 답은 <em>checkpoint 와 journal</em> 둘이다. 나머지는 이 둘에서 다시 만든다.',
     ref:WT + 'txn/txn_recover.c', sym:'__wt_txn_recover',
     fact:[[WT + 'docs/arch-checkpoint.dox','A checkpoint is a known point in time from which WiredTiger can recover in the event of a'],
@@ -680,7 +680,7 @@ const SCENES = [
           jr:{ del:['ts 101'] } } },
 
   { act:{ f:'ck', t:'ts', lb:'checkpoint ts 를 읽는다' },
-    note:'WiredTiger 가 마지막 checkpoint 를 열고, 거기 적힌 timestamp 를 recovery timestamp 로 둔다',
+    note:'last checkpoint open — checkpoint timestamp 를 recovery timestamp 로',
     why:'__recovery_set_checkpoint_timestamp 가 metadata 에서 마지막 checkpoint 의 stable timestamp 를 읽어 recovery_timestamp 에 넣는다. checkpoint 는 찍을 때의 stable 을 checkpoint_timestamp 로 적어 둔다 — 그것이 90 이다.',
     key:'되살아날 데이터의 시각은 <em>죽기 직전의 stable(96)이 아니라 checkpoint 의 stable(90)</em>이다.',
     ref:WT + 'txn/txn_recover.c', sym:'__recovery_set_checkpoint_timestamp',
@@ -689,7 +689,7 @@ const SCENES = [
     ops:{ ts:{ set:{ 'recovery ts':'90' } } } },
 
   { act:{ f:'jr', t:'oplog', lb:'log 재생', hot:'io' },
-    note:'journal 을 checkpoint LSN 부터 다시 읽는다 — 되살아나는 것은 oplog 뿐이다',
+    note:'log replay from checkpoint LSN — 되살아나는 것은 logged oplog 뿐',
     why:'__wt_txn_recover 가 checkpoint LSN 부터 __wt_log_scan 으로 레코드를 읽고, 파일마다 그 파일의 checkpoint LSN 이후 것만 적용한다. 복제되는 컬렉션은 로그하지 않으므로(04 장면) 레코드는 oplog 의 것이다 — ts 93 · 96 · 98 · 100 이 돌아온다.',
     key:'journal 은 <em>oplog 를 지키는 장치</em>다. _id:1 의 ts 93 · 96 변경은 journal 에 없고, oplog 항목으로만 남아 있다.',
     ref:WT + 'txn/txn_recover.c', sym:'__wt_txn_recover',
@@ -703,9 +703,9 @@ const SCENES = [
       { id:'ts 100', tag:'clean', sub:'u  _id:2  ·  journal 에서' }] } } },
 
   { look:{ ts:true },
-    note:'stable timestamp 를 recovery timestamp 에 맞춘다 — 90',
-    why:'__recovery_txn_setup_initial_state 가 checkpoint 에 적힌 timestamp 들("마지막으로 성공한 checkpoint 의 stable 과 oldest")을 설정한 뒤, stable 을 recovery timestamp 로 둔다. 이 값이 곧 되감기의 기준이다.',
-    key:'stable 은 <em>과반이 확인한 시각</em>이었다(06 장면). 거기까지는 어느 노드에서도 되감기지 않는다 — 그러니 거기로 돌아가 서는 것이 안전하다.',
+    note:'stable 을 checkpoint 시점(90)으로 되돌려 둔다',
+    why:'__recovery_txn_setup_initial_state 가 checkpoint 에 적힌 timestamp 들("마지막으로 성공한 checkpoint 의 stable 과 oldest")을 설정한 뒤, stable 을 recovery timestamp 로 둔다. 이 값이 곧 rollback 의 기준이다.',
+    key:'stable 은 <em>과반이 확인한 시각</em>이었다(06 장면). 거기까지는 어느 노드에서도 rollback 되지 않는다 — 그러니 거기로 돌아가 서는 것이 안전하다.',
     ref:WT + 'txn/txn_recover.c', sym:'__recovery_txn_setup_initial_state',
     fact:['These are the stable timestamp and oldest timestamps of the last successful checkpoint.',
           'Set the stable timestamp from recovery timestamp.',
@@ -713,7 +713,7 @@ const SCENES = [
     ops:{ ts:{ set:{ 'stable':'90' } } } },
 
   { look:{ img:true, ck:true },
-    note:'그런데 checkpoint 안에 90 보다 새 값이 있다 — eviction 이 먼저 써 둔 페이지다',
+    note:'그런데 checkpoint 에 90 보다 새 값 — eviction 이 먼저 쓴 clean page',
     why:'checkpoint 는 더러운 페이지만 reconcile 한다. eviction 이 checkpoint 전에 깨끗하게 만든 페이지는 "eviction 이 쓴 update 가 checkpoint 트랜잭션에 보이든 말든" 건너뛴다. eviction 은 가장 새로운 커밋된 값을 쓰므로(03 장면), ts 93 의 c = 150 이 checkpoint(90) 안에 그대로 있다.',
     key:'checkpoint 는 <em>90 까지만 담은 사진이 아니다</em>. 90 보다 새 값이 섞여 있고, 그 값의 옛 버전은 history store 에 있다.',
     ref:WT + 'reconcile/rec_visibility.c', sym:'__rec_upd_select',
@@ -724,9 +724,9 @@ const SCENES = [
     ops:{ img:{ set:{ '_id:1':{ tag:'hold', sub:'c = 150  ·  ts 93 > stable 90' } } } } },
 
   { act:{ f:'hs', t:'img', lb:'stable 버전으로' },
-    note:'rollback to stable — 90 보다 새 on-disk 값을 history store 의 stable 버전으로 바꾼다',
+    note:'rollback-to-stable — unstable on-disk value 를 history store 의 stable version 으로',
     why:'복구 끝에서 WiredTiger 가 rollback_to_stable 을 부른다. __rts_btree_abort_ondisk_kv 는 on-disk 값의 durable start timestamp 가 stable 보다 크면 history store 에서 stable 한 버전을 찾아 그것으로 바꾼다 — _id:1 은 ts 85 의 c = 140 으로 돌아가고, 그 버전은 history store 에서 빠진다.',
-    key:'되감기에 쓰는 것은 undo 가 아니라 <em>history store</em> 다. MVCC 를 위해 남긴 옛 버전이 복구에서도 쓰인다.',
+    key:'rollback 에 쓰는 것은 undo 가 아니라 <em>history store</em> 다. MVCC 를 위해 남긴 옛 버전이 복구에서도 쓰인다.',
     ref:WT + 'rollback_to_stable/rts_btree.c', sym:'__rts_btree_abort_ondisk_kv',
     fact:['} else if (tw->durable_start_ts > rollback_timestamp ||',
           'return (__rts_btree_ondisk_fixup_key(',
@@ -736,7 +736,7 @@ const SCENES = [
           hs:{ del:['_id:1 · ts 85'] } } },
 
   { look:{ oplog:true, ts:true },
-    note:'oplog 는 되감지 않는다 — 로그되는 테이블이라 rollback to stable 이 건너뛴다',
+    note:'oplog 는 rewind 대상 아님 — logged table 이라 RTS skip',
     why:'__wti_rts_btree_walk_btree 의 첫 판정이 "커밋 단위 내구성을 가진 파일은 커밋을 지우지 않는다" 다 — WT_BTREE_LOGGED 면 그대로 돌아간다. oplog 는 로그되므로 stable(90) 뒤의 ts 93 … 100 이 그대로 남는다.',
     key:'이제 <em>데이터는 90, oplog 는 100</em> 에 서 있다. 그 차이를 메우는 것이 MongoDB 쪽 복구다.',
     ref:WT + 'rollback_to_stable/rts_btree_walk.c', sym:'__wti_rts_btree_walk_btree',
@@ -747,7 +747,7 @@ const SCENES = [
     ops:{ ts:{ set:{ 'oplog 끝':'100' } } } },
 
   { act:{ f:'ts', t:'oplog', lb:'98 뒤를 자른다' },
-    note:'oplog 를 구멍 없는 지점(98)까지 자른다 — journal 에 fsync 됐던 ts 100 도 버린다',
+    note:'oplog truncate — no-holes point(98) 뒤 제거, fsync 된 ts 100 도',
     why:'primary 는 journal 을 내리기 전에 "구멍 없는 가장 늦은 지점" 을 oplogTruncateAfterPoint 에 적는다. ts 99 가 커밋 전이었으므로 그 값이 98 이다. 재시작하면 그 뒤를 잘라낸다. secondary 는 메모리에서 구멍이 없는 항목까지만 가져갈 수 있으니, ts 100 은 복제된 적이 없다.',
     key:'fsync 된 기록도 <em>버려질 수 있다</em>. 기준은 fsync 가 아니라 복제의 역사와 맞는가다 — w:1 로 응답받은 쓰기가 사라지는 또 하나의 길이다(06 장면).',
     fact:[['src/mongo/db/repl/README.md','**`oplogTruncateAfterPoint`**: Tracks the latest no oplog holes point. On primaries, it is updated'],
@@ -759,7 +759,7 @@ const SCENES = [
           ts:{ set:{ 'truncate-after':'—  ·  자르고 지웠다', 'oplog 끝':'98' } } } },
 
   { act:{ f:'oplog', t:'chain', lb:'stable 부터 다시 적용' },
-    note:'stable(90) 부터 oplog 끝(98)까지 다시 적용한다 — _id:1 은 c = 160 으로 돌아온다',
+    note:'oplog replay — stable(90) → top(98), _id:1 은 c = 160',
     why:'MongoDB 의 복제 복구가 저장 엔진에 recovery timestamp 를 묻고, "Recovering from stable timestamp" 를 남긴 뒤 _applyToEndOfOplog 로 그 뒤의 항목을 적용한다. 항목은 멱등하게 적혀 있다($inc 가 $set 으로) — 다시 적용해도 값이 어긋나지 않는다.',
     key:'복구의 마지막 단계가 <em>복제의 적용 경로</em>다. secondary 가 primary 의 oplog 를 적용하듯, 자기 oplog 를 자기에게 적용한다.',
     fact:[['src/mongo/db/repl/replication_recovery.cpp','stableTimestamp = _storageInterface->getRecoveryTimestamp(opCtx->getServiceContext());'],
@@ -771,9 +771,9 @@ const SCENES = [
       { id:'ts 93', tag:'ok', sub:'_id:1  c = 150  ·  다시 적용' }] } } },
 
   { look:{ img:true, oplog:true, cmp:true },
-    note:'정리 — 저장 엔진은 stable 로 되감고, 복제는 oplog 로 앞으로 간다',
-    why:'WiredTiger 는 checkpoint 를 열고 로그된 oplog 만 재생한 뒤, stable 보다 새 것을 history store 로 되감는다. MongoDB 는 oplog 의 구멍 뒤를 자르고 stable 부터 끝까지 다시 적용한다. 되감기가 있었으면 WiredTiger 는 곧바로 checkpoint 를 하나 더 찍는다 — 다음 시작을 빠르게 하려고.',
-    key:'InnoDB 는 <em>물리 redo 로 앞으로 가고 undo 로 되돌린다</em>(mysql/innodb 03). MongoDB 는 <em>먼저 되감고 논리 oplog 로 앞으로 간다</em> — 순서도, 앞으로 가는 기록의 종류도 반대다.',
+    note:'정리 — storage 는 stable 로 rewind, replication 이 oplog 로 roll forward',
+    why:'WiredTiger 는 checkpoint 를 열고 로그된 oplog 만 replay 한 뒤, stable 보다 새 것을 history store 로 rollback 한다. MongoDB 는 oplog 의 구멍 뒤를 자르고 stable 부터 끝까지 다시 적용한다. rollback 이 있었으면 WiredTiger 는 곧바로 checkpoint 를 하나 더 찍는다 — 다음 시작을 빠르게 하려고.',
+    key:'InnoDB 는 <em>물리 redo 로 앞으로 가고 undo 로 되돌린다</em>(mysql/innodb 03). MongoDB 는 <em>먼저 rollback 하고 논리 oplog 로 앞으로 간다</em> — 순서도, 앞으로 가는 기록의 종류도 반대다.',
     ref:WT + 'txn/txn_recover.c', sym:'__wt_txn_recover',
     fact:['Forcibly log a checkpoint so the next open is fast and keep the metadata up to date with'],
     beat:1,
@@ -781,8 +781,8 @@ const SCENES = [
   ],
 },
 {
-  num:'09', tab:'timestamp·history', title:'옛 버전은 시각으로 지킨다',
-  sub:'oldest 는 stable 을 300초 뒤에서 따라가고, 돌고 있는 읽기가 그보다 이른 시각을 붙잡는다',
+  num:'09', tab:'Timestamps', title:'Timestamps & History Retention: Oldest, Stable, Pinned',
+  sub:'oldest 는 stable − minSnapshotHistoryWindowInSeconds — running reader 가 pinned 를 그보다 뒤로 붙잡는다',
   cast:['ts','sa','img','hs','ck','cmp'],
   /* timestamp 는 (초, 순번)이다 — 창이 초로 정해지므로 이 장면은 초만 적는다.
      _id:1 의 버전 : c=500 [900, 1100) · c=600 [1100, 1250) 은 history store, c=700 은 이미지. */
@@ -792,7 +792,7 @@ const SCENES = [
   watch:[
     ['serverStatus().wiredTiger["snapshot-window-settings"]',"'total number of SnapshotTooOld errors' · 'current available snapshot window size in seconds'"],
     ['serverStatus().wiredTiger.cache',"'history store table on-disk size' — 창과 긴 읽기가 붙잡은 옛 버전"] ],
-  links:[['03','history store 로 가는 것'],['05','history store 가 캐시를 누를 때'],['08','stable 로 되감기']],
+  links:[['03','history store 로 가는 것'],['05','history store 가 캐시를 누를 때'],['08','stable 로 rollback']],
   init:{
     ts:{ kv:{ '최신 커밋':'1310 s', 'all_durable':'1310 s', 'stable':'1300 s', 'oldest':'1000 s', 'pinned':'1000 s' } },
     sa:{ kv:{ '읽기':'—', 'read ts':'—', '상태':'—' } },
@@ -805,7 +805,7 @@ const SCENES = [
   },
   steps:[
   { look:{ ts:true },
-    note:'timestamp 넷의 순서 — oldest ≤ stable ≤ all_durable ≤ 최신 커밋',
+    note:'timestamp 순서 — oldest ≤ stable ≤ all_durable ≤ latest commit',
     why:'MongoDB 의 용어집이 적는다 : stable 은 "저장 엔진이 checkpoint 를 찍어도 되는 가장 새 시각", oldest 는 "저장 엔진이 history 를 보장하는 가장 이른 시각", all_durable 은 "그보다 이른 timestamp 의 트랜잭션이 모두 커밋된 지점" 이다 — 이름과 달리 디스크 내구성이 아니라 커밋만 뜻한다. 복제는 stable ≤ all_durable 을 지킨다.',
     key:'timestamp 는 <em>애플리케이션의 시간</em>이다. MongoDB 는 oplog 의 시각을 그대로 쓰고, 그것은 (초, 순번)이다 — 여기서는 초만 적는다.',
     ref:WT + 'txn/txn_timestamp.c', sym:'__txn_global_query_timestamp',
@@ -817,7 +817,7 @@ const SCENES = [
           ['src/mongo/db/repl/README.md','`stable_timestamp` <= `all_durable`.']] },
 
   { look:{ ts:true },
-    note:'oldest 는 stable 을 300초 뒤에서 따라간다 — minSnapshotHistoryWindowInSeconds',
+    note:'history window 300 s — oldest 는 stable 을 그만큼 뒤에서 추종',
     why:'setStableTimestamp 가 WiredTiger 에 stable 을 넘긴 뒤 oldest 를 앞으로 민다. _calculateHistoryLagFromStableTimestamp 가 oldest 를 stable 의 초에서 minSnapshotHistoryWindowInSeconds(기본 300)를 뺀 값으로 정한다 — stable 이 1300 s 이면 oldest 는 1000 s 다.',
     key:'옛 버전을 버리는 경계가 <em>트랜잭션이 아니라 시각</em>이다. 읽는 쪽이 하나도 없어도 300초 안의 어느 시점이든 읽을 수 있게 history 를 둔다.',
     ref:WT + 'txn/txn_timestamp.c', sym:'__wt_txn_global_set_timestamp',
@@ -828,7 +828,7 @@ const SCENES = [
     ops:{ ts:{ set:{ 'oldest':'1000 s  ·  stable − 300 s' } } } },
 
   { act:{ f:'sa', t:'ts', lb:'read ts 1050 s' },
-    note:'A 가 1050 s 시점으로 읽는다 — 창 안이라 열린다',
+    note:'A 의 snapshot read @ 1050 s — window 안이라 open',
     why:'readConcern snapshot 의 atClusterTime 이 WiredTiger 트랜잭션의 read timestamp 가 된다. __wti_txn_set_read_timestamp 는 그것이 oldest 보다 이르면 거절하고, 아니면 트랜잭션에 적는다. 1050 s 는 oldest(1000 s) 이후다.',
     key:'read timestamp 는 한 번 정하면 <em>트랜잭션이 끝날 때까지</em> 그대로다. 그 시각의 세상을 계속 본다.',
     ref:WT + 'txn/txn_timestamp.c', sym:'__wti_txn_set_read_timestamp',
@@ -839,7 +839,7 @@ const SCENES = [
     ops:{ sa:{ set:{ '읽기':"find({_id:1})  ·  atClusterTime 1050 s", 'read ts':'1050 s', '상태':'열림' } } } },
 
   { act:{ f:'sa', t:'hs', lb:'1050 s 의 값' },
-    note:'A 가 볼 값은 이미지에 없다 — c = 500 을 옛 버전에서 찾는다',
+    note:'A 의 version 은 image 에 없다 — c = 500 을 history store 에서',
     why:'1050 s 에 유효한 버전은 [900, 1100) 의 c = 500 이다. stop 시각은 포함하지 않으므로 1100 s 에 읽으면 c = 600 이 보인다. 이미지의 c = 700 은 1250 s 부터라 너무 새고, 사슬에도 없으니 __wt_txn_read 가 history store 를 뒤진다(03 장면).',
     key:'시각으로 읽는 쪽은 <em>이미지가 아니라 history store</em> 에서 답을 찾는 일이 잦다. history store 가 캐시에 없으면 그 읽기는 디스크를 읽는다.',
     ref:WT + 'include/txn_inline.h', sym:'__wt_txn_read',
@@ -849,7 +849,7 @@ const SCENES = [
           hs:{ set:{ '_id:1 · ts 900':{ sub:'c = 500  ·  [900, 1100) — A 가 읽는다' } } } } },
 
   { look:{ ts:true, sa:true },
-    note:'stable 이 1400 s 로 가면 oldest 는 1100 s 로 — 그래도 pinned 는 1050 s 에 선다',
+    note:'stable 1400 s → oldest 1100 s — 그래도 pinned 는 A 의 1050 s',
     why:'oldest 는 A 를 기다리지 않고 앞으로 간다. 대신 WiredTiger 는 pinned 를 따로 센다 — __wti_txn_get_pinned_timestamp 가 oldest 에서 시작해 돌고 있는 트랜잭션의 read timestamp 를 모두 보고 가장 이른 것을 고른다. A 의 1050 s 가 그것이다.',
     key:'<em>oldest 는 약속이고, pinned 가 실제 경계</em>다. 새 읽기는 oldest 에 막히지만, 이미 돌고 있는 읽기는 pinned 가 지킨다.',
     ref:WT + 'txn/txn_timestamp.c', sym:'__wti_txn_get_pinned_timestamp',
@@ -862,7 +862,7 @@ const SCENES = [
     ops:{ ts:{ set:{ 'pinned':'1050 s  ·  A 의 read ts|gold', 'oldest':'1100 s', 'stable':'1400 s', 'all_durable':'1410 s', '최신 커밋':'1410 s' } } } },
 
   { look:{ sa:true, ts:true, hs:true },
-    note:'A 가 끝나면 pinned 가 1100 s 로 — c = 500 은 이제 아무도 볼 수 없다',
+    note:'A 종료 → pinned 1100 s — c = 500 은 globally invisible',
     why:'c = 500 의 stop 은 1100 s 다. __wt_txn_tw_stop_visible_all 은 stop 시각이 모두에게 보이는지 묻고, 그 timestamp 판정이 "timestamp <= pinned" 다. 끝났다는 사실을 모두가 보면 그 값을 읽을 수 있는 쪽이 없다 — history store 문서가 이것을 "전역으로 보이는 tombstone" 이라 부른다.',
     key:'지워도 된다는 판정은 <em>stop 시각 ≤ pinned</em> 하나다. c = 600 은 stop 이 1250 s 라 아직 남는다 — 1100 s 에서 1250 s 사이를 읽을 수 있다.',
     ref:WT + 'include/txn_inline.h', sym:'__wt_txn_tw_stop_visible_all',
@@ -874,7 +874,7 @@ const SCENES = [
           hs:{ set:{ '_id:1 · ts 900':{ tag:'x', sub:'c = 500  ·  stop 1100 ≤ pinned 1100' } } } } },
 
   { act:{ f:'ck', t:'hs', lb:'다시 쓸 때 건너뛴다' },
-    note:'history store 를 다시 쓸 때 그 기록을 건너뛴다 — 페이지 전체가 그렇다면 checkpoint 가 통째로 지운다',
+    note:'HS reconciliation 이 해당 record skip — page 전체면 checkpoint 가 통째로 drop',
     why:'history store 는 보통의 행 저장 테이블이라 같은 reconciliation 을 거친다. __wti_rec_row_leaf 는 stop 이 전역으로 보이는 on-disk 키에 새 update 가 없으면 그 키를 쓰지 않는다. 문서가 덧붙인다 — checkpoint 는 그런 기록만 든 history store 페이지를 지울 수 있다.',
     key:'history store 의 크기를 정하는 것은 <em>가장 이른 pinned</em> 다 — 300초의 창, 그리고 그보다 오래 붙잡는 읽기.',
     ref:WT + 'reconcile/rec_row.c', sym:'__wti_rec_row_leaf',
@@ -886,7 +886,7 @@ const SCENES = [
           ck:{ set:{ '마지막 checkpoint':'방금', '지운 것':'_id:1 · ts 900 (stop ≤ pinned)' } } } },
 
   { act:{ f:'sa', t:'ts', lb:'atClusterTime 1050 s' },
-    note:'A 가 다시 1050 s 로 읽으려 하면 — oldest(1100 s) 보다 이르니 거절된다',
+    note:'A 가 1050 s 로 재요청 — oldest(1100 s) 이전이라 SnapshotTooOld',
     why:'__wti_txn_set_read_timestamp 가 read timestamp 가 oldest 보다 이른 것을 보고 EINVAL 을 돌려준다. MongoDB 는 그것을 SnapshotTooOld — "Read timestamp … is older than the oldest available timestamp." 로 바꾼다. c = 500 은 이미 지워졌다 — 열어 주면 틀린 값을 줄 것이다.',
     key:'시각으로 읽는 쪽에게 과거는 <em>300초</em>다. 그보다 오래 걸리는 분석은 창을 늘리거나 다른 길을 찾아야 하고, 창을 늘리면 history store 가 그만큼 자란다.',
     ref:WT + 'txn/txn_timestamp.c', sym:'__wti_txn_set_read_timestamp',
@@ -897,7 +897,7 @@ const SCENES = [
     ops:{ sa:{ set:{ '읽기':'다시  ·  atClusterTime 1050 s', '상태':'SnapshotTooOld|red' } } } },
 
   { look:{ ts:true, hs:true, cmp:true },
-    note:'정리 — 옛 버전은 두 겹으로 지킨다 : 시간 창(oldest)과 돌고 있는 읽기(pinned)',
+    note:'정리 — history 는 두 겹 보존 : time window(oldest) 와 running reader(pinned)',
     why:'stable 이 오르면 oldest 가 300초 뒤에서 따라오고, pinned 는 oldest 와 돌고 있는 읽기들의 read timestamp 중 가장 이른 것이다. stop 이 pinned 이하인 버전은 reconciliation 이 다시 쓸 때 사라진다.',
     key:'InnoDB 의 purge 경계는 <em>가장 오래된 read view</em> 하나다 — 그것이 끝나면 곧바로 지울 수 있다. WiredTiger 는 거기에 <em>300초의 시간 창</em>을 더한다 — 읽는 쪽이 없어도 그만큼의 옛 버전을 둔다.',
     ref:WT + 'include/txn_inline.h', sym:'__wt_txn_visible_all',

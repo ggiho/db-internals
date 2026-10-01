@@ -6,9 +6,9 @@
        문서에 없는 값이라 논문 원문을 따로 대조한다(tools/paper.js). 논문은 2017 년의
        설계를 적으므로 지금 서비스의 값까지는 보증하지 않는다. */
 const DECK = {
-  title: 'Aurora MySQL 아키텍처',
+  title: 'Aurora MySQL Architecture',
   brand: 'AURORA MYSQL',
-  brand2: '문서·논문 인용  ·  vs INNODB 8.4.8',
+  brand2: 'DOCS & PAPERS  ·  vs INNODB 8.4.8',
   favicon: '☁️',
 };
 

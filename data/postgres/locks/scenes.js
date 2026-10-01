@@ -2,11 +2,11 @@
    충돌 표는 소스의 LOCKMASK 배열에서 유도해 옮겼고 tools/pgmx.js 가 칸 단위로 대조한다. */
 const SCENES = [
 {
-  num:'01', tab:'어디에 사는가', title:'행 락은 튜플에, 테이블 락은 공유 표에 있다',
-  sub:'그래서 행 락은 메모리를 안 먹고, 테이블 락은 넘칠 수 있다 — 약한 것은 공유 표까지 가지도 않는다',
+  num:'01', tab:'Lock Storage', title:'Where Locks Live: Tuple Header vs. Shared Lock Table',
+  sub:'row lock 은 튜플 xmax 에, relation lock 은 shared lock table 에 — 약한 relation lock 은 fast-path 로 우회',
   cast:['stmt','tbl','tup','cmp'],
   knobs:[
-    ['max_locks_per_transaction','64','공유 락 표의 크기를 이 가정으로 잡는다']],
+    ['max_locks_per_transaction','64','shared lock table 의 크기를 이 가정으로 잡는다']],
   watch:[
     ['pg_locks','locktype 이 relation 인 것과 tuple 인 것을 나눠 보라'],
     ['SELECT xmax FROM t','행 락은 여기 보인다 — 별도 표가 아니다']],
@@ -19,7 +19,7 @@ const SCENES = [
   },
   steps:[
   { act:{ f:'stmt', t:'tbl', lb:'테이블 락' },
-    note:'테이블 락은 공유 메모리의 락 표에 들어간다',
+    note:'relation lock — shared memory 의 lock table(hash) 에 등록',
     why:'lock.c 가 그 표를 관리한다. 크기는 max_locks_per_transaction(기본 64)에 접속 수를 곱한 가정으로 잡히고, 주석이 "공유 락 표는 최대 이만큼이라는 가정으로 크기가 정해진다" 고 적는다. 64 는 트랜잭션 하나의 상한이 아니라 표 전체의 크기를 정하는 평균이다.',
     key:'그래서 PG 도 <em>락 표가 넘칠 수 있다</em>. 행을 많이 잠글 때가 아니라 <em>객체를 많이 건드릴 때</em> 터진다 — 한 트랜잭션이 64 개를 넘게 잡는 것은 표에 자리가 남아 있는 한 괜찮다(3 스텝).',
     ref:'src/backend/storage/lmgr/lock.c', sym:'max_locks_per_xact',
@@ -31,7 +31,7 @@ const SCENES = [
           cmp:{ set:{ 'PostgreSQL':'객체 락 = 공유 표', 'InnoDB':'테이블 락 = 메모리 구조체' } } } },
 
   { look:{ tbl:true, stmt:true },
-    note:'약한 테이블 락은 공유 표까지 가지도 않는다 — 자기 PGPROC 의 칸에 적는다',
+    note:'fast-path — 약한 relation lock 은 자기 PGPROC 슬롯에, shared table 우회',
     why:'LockAcquireExtended 는 지금 데이터베이스의 테이블에 대한 ShareUpdateExclusive 보다 약한 락(AccessShare · RowShare · RowExclusive)이면 fast-path 로 간다 — 백엔드마다 가진 칸에 적고 끝이다. 18 은 그 칸 수를 max_locks_per_transaction 에서 정한다 : 16 칸짜리 묶음을 기본 64 면 넷, 64 칸이다. 더 센 락(5단계 이상)을 누가 요청하면 그때 다른 백엔드의 칸에 든 것을 공유 표로 옮겨 충돌을 본다.',
     key:'평범한 SELECT · UPDATE 의 테이블 락은 <em>공유 해시와 그 락을 건드리지 않는다</em>. 백엔드가 많을 때 락 관리자가 병목이 되지 않게 하는 장치이고, 칸이 차면 나머지는 공유 표로 간다.',
     ref:'src/backend/storage/lmgr/lock.c', sym:'LockAcquireExtended',
@@ -45,7 +45,7 @@ const SCENES = [
           stmt:{ set:{ '테이블 락':'RowExclusiveLock  ·  fast-path' } } } },
 
   { look:{ tbl:true },
-    note:'칸이 차고 표도 차면 — 파티션을 많이 건드리는 순간 실패한다',
+    note:'슬롯 · 테이블 모두 포화 — 파티션 다수 접근 시 out of shared memory',
     why:'파티션 수백 개를 훑는 쿼리는 파티션마다(그리고 인덱스마다) 락을 잡는다. fast-path 칸 64 를 넘친 것은 공유 표로 가고, 여러 세션이 한꺼번에 그러면 표 전체가 찬다. 그때 LockAcquireExtended 는 "out of shared memory" 와 함께 max_locks_per_transaction 을 늘리라는 힌트를 낸다.',
     key:'오류 이름이 <em>메모리</em>라서 원인을 엉뚱한 데서 찾기 쉽다 — 실제로는 <em>락 표의 칸</em>이 모자란 것이다. InnoDB 도 락이 너무 많으면 같은 모양으로 실패한다("The total number of locks exceeds the lock table size") — 거기서는 <em>행 락</em>이, 여기서는 <em>객체 락</em>이 쌓여서다.',
     ref:'src/backend/storage/lmgr/lock.c', sym:'LockAcquireExtended',
@@ -54,7 +54,7 @@ const SCENES = [
     ops:{ tbl:{ add:[{ id:'파티션 1 … 300', tag:'x', sub:'fast-path 64 칸을 넘친 것 → 공유 표 · 표가 차면 out of shared memory' }] } } },
 
   { act:{ f:'stmt', t:'tup', lb:'행 락' },
-    note:'행 락은 표에 안 들어간다 — 튜플의 xmax 에 적는다',
+    note:'row lock 은 lock table 밖 — 튜플 xmax 에 기록',
     why:'t_xmax 주석이 "deleting or locking xact ID" 다. 락임을 나타내는 것은 HEAP_XMAX_LOCK_ONLY 비트다. 즉 행 락 하나에 공유 메모리가 한 바이트도 쓰이지 않는다.',
     key:'백만 행을 잠가도 <em>락 표는 그대로</em>다. 대신 백만 페이지가 더러워진다 — 비용이 메모리에서 <em>디스크 쓰기로</em> 옮겨간 것이다. mvcc 덱 01 에서 같은 필드를 봤다.',
     ref:'src/include/access/htup_details.h', sym:'HeapTupleFields',
@@ -65,7 +65,7 @@ const SCENES = [
           cmp:{ set:{ 'PostgreSQL':'행 락 = 튜플 안', 'InnoDB':'행 락 = 메모리 구조체' } } } },
 
   { look:{ cmp:true },
-    note:'그래서 두 엔진의 한계가 다른 자리에 있다',
+    note:'정리 — 두 엔진의 한계가 다른 자원에서 터진다',
     why:'InnoDB 는 행 락도 메모리에 두므로 대량 갱신이 락 메모리를 먹는다. PG 는 그 부담이 없지만 객체 락 표가 좁고, 행 락을 잡는 것만으로 페이지가 더러워져 WAL 과 checkpoint 에 실린다.',
     key:'"어디에 두는가" 하나가 <em>어디서 터지는가</em>를 정한다. mysql/locks 01 에서 InnoDB 가 락을 두 층에서 잡는 것을 봤고, 여기서는 그 두 층이 <em>서로 다른 매체</em>에 있다.',
     ref:'src/backend/storage/lmgr/lock.c', sym:'LockConflicts',
@@ -73,8 +73,8 @@ const SCENES = [
   ],
 },
 {
-  num:'02', tab:'8단계', title:'테이블 락은 여덟 단계다',
-  sub:'그리고 어떤 문장이 무엇을 잡는지 소스 주석에 적혀 있다',
+  num:'02', tab:'Lock Modes', title:'Table-Level Lock Modes: Eight Levels',
+  sub:'각 모드를 잡는 statement 가 lockdefs.h 주석에 그대로 — ALTER 가 왜 막히는지 헤더 하나로 답한다',
   cast:['tbl','stmt','cmp'],
   knobs:[
     ['—','—','모드는 코드에 박힌 상수다']],
@@ -97,16 +97,16 @@ const SCENES = [
   },
   steps:[
   { look:{ tbl:true },
-    note:'이름이 곧 문장 목록이다 — 주석에 그렇게 적혀 있다',
+    note:'모드 이름 = statement 목록 — lockdefs.h 주석',
     why:'lockdefs.h 는 각 상수 뒤에 그 락을 잡는 문장을 주석으로 달아 둔다 — AccessShareLock 은 SELECT, RowExclusiveLock 은 INSERT·UPDATE·DELETE, AccessExclusiveLock 은 ALTER TABLE·DROP TABLE·VACUUM FULL 이다.',
-    key:'"내 ALTER 가 왜 막히나" 를 <em>헤더 파일 하나로</em> 답할 수 있다. InnoDB 는 MDL 아홉 단계와 InnoDB 다섯 모드가 따로라 두 표를 봐야 한다(mysql/locks 03·10).',
+    key:'"내 ALTER 가 왜 막히나" 를 <em>헤더 파일 하나로</em> 답할 수 있다. MySQL 은 MDL 열 단계와 InnoDB 다섯 모드가 따로라 두 표를 봐야 한다(mysql/locks 03·10).',
     ref:'src/include/storage/lockdefs.h', sym:'AccessExclusiveLock',
     fact:[['src/include/storage/lockdefs.h','#define AccessShareLock			1	/* SELECT */'],
           ['src/include/storage/lockdefs.h','#define RowExclusiveLock		3	/* INSERT, UPDATE, DELETE */'],
           ['src/include/storage/lockdefs.h','#define MaxLockMode				8	/* highest standard lock mode */']] },
 
   { look:{ tbl:['4 ShareUpdateExclusive'] },
-    note:'VACUUM 이 자기 모드를 갖는다 — 4단계다',
+    note:'ShareUpdateExclusive(4) — VACUUM 전용 모드, self-conflict',
     why:'ShareUpdateExclusiveLock 주석에 VACUUM(non-FULL)·ANALYZE 가 적혀 있다. 이 모드는 자기 자신과 충돌하므로 같은 테이블에 VACUUM 두 개가 동시에 돌지 않는다. 그러나 3단계(INSERT·UPDATE·DELETE)와는 충돌하지 않는다.',
     key:'그래서 <em>VACUUM 은 쓰기를 막지 않는다</em>. mvcc 덱 04 의 정리가 서비스 중에 돌 수 있는 근거가 이 한 칸이고, VACUUM FULL 이 8단계라 모든 것을 막는 것과 대비된다.',
     ref:'src/include/storage/lockdefs.h', sym:'ShareUpdateExclusiveLock',
@@ -114,7 +114,7 @@ const SCENES = [
     ops:{ cmp:{ set:{ 'PostgreSQL':'VACUUM 전용 모드 있음', 'InnoDB':'purge 는 락 모드가 없다' } } } },
 
   { look:{ tbl:['8 AccessExclusive'] },
-    note:'8단계는 모든 것을 막는다 — 읽기까지',
+    note:'AccessExclusive(8) — SELECT 까지 block',
     why:'AccessExclusiveLock 은 AccessShareLock(SELECT)과도 충돌한다. ALTER TABLE·DROP TABLE·VACUUM FULL 이 이것을 잡으므로, 그 문장이 대기하는 동안 뒤에 온 SELECT 도 함께 막힌다.',
     key:'대기 줄이 <em>뒤를 막는다</em>는 점이 InnoDB 의 MDL 과 같다(mysql/locks 11). 짧은 ALTER 라도 앞에 긴 트랜잭션이 있으면 전체가 멈추는 사고가 두 엔진에서 같은 모양으로 일어난다.',
     ref:'src/include/storage/lockdefs.h', sym:'AccessExclusiveLock',
@@ -122,7 +122,7 @@ const SCENES = [
     beat:1 },
 
   { look:{ tbl:['8 AccessExclusive'], stmt:true },
-    note:'LOCK TABLE 을 모드 없이 쓰면 8단계다',
+    note:'LOCK TABLE 모드 생략 = AccessExclusive',
     why:'문법의 opt_lock 이 비어 있으면 AccessExclusiveLock 이다 — lockdefs.h 의 8단계 주석 끝에도 "모드를 적지 않은 LOCK TABLE" 이 적혀 있다. 그래서 LOCK TABLE t; 한 줄이 그 테이블의 SELECT 까지 막는다.',
     key:'명시적 락은 <em>모드를 적어야</em> 한다 — 쓰기만 막고 싶었다면 IN SHARE MODE(5단계)면 된다. InnoDB 의 LOCK TABLES t WRITE 는 그 세션 밖의 읽기를 막는 것과 같은 결과지만, 여기서는 아무것도 안 적은 기본값이 그렇다.',
     ref:'src/include/storage/lockdefs.h', sym:'AccessExclusiveLock',
@@ -132,8 +132,8 @@ const SCENES = [
   ],
 },
 {
-  num:'03', tab:'충돌 표', title:'무엇이 무엇을 막는가',
-  sub:'8×8 — 소스의 비트마스크에서 유도한 표다',
+  num:'03', tab:'Conflict Matrix', title:'Lock Conflict Matrix: 8 × 8 from Bitmasks',
+  sub:'LockConflicts[] 비트마스크에서 유도한 8×8 — 손으로 옮기지 않고 매번 소스에서 재유도해 대조한다',
   cast:['cmx','stmt'],
   knobs:[
     ['—','—','표는 설정이 아니라 코드에 박힌 배열이다']],
@@ -159,21 +159,21 @@ const SCENES = [
   },
   steps:[
   { look:{ cmx:true },
-    note:'표는 코드에 격자로 없다 — 비트마스크 배열이다',
+    note:'격자는 코드에 없다 — LockConflicts[] 비트마스크 배열',
     why:'LockConflicts 는 모드마다 "이 모드와 충돌하는 모드들" 을 LOCKBIT_ON 으로 OR 한 값이다. 격자로 보려면 그 마스크를 펼쳐야 한다. InnoDB 는 주석에 ASCII 표를 갖고 있어 눈으로 읽히지만 PG 는 계산해야 보인다.',
     key:'그래서 이 덱의 64칸은 <em>손으로 옮긴 것이 아니라 유도한 것</em>이다. tools/pgmx.js 가 매번 소스에서 다시 유도해 칸 단위로 대조한다 — 옮겨 적는 순간 틀리기 때문이다.',
     ref:'src/backend/storage/lmgr/lock.c', sym:'LockConflicts',
     fact:[['src/backend/storage/lmgr/lock.c','static const LOCKMASK LockConflicts[] = {']] },
 
   { look:{ cmx:true, stmt:true },
-    note:'충돌은 64칸 중 38칸이고, 표는 대칭이다',
+    note:'충돌 38/64, 대칭 — 강도 순 번호라 계단형',
     why:'유도한 결과가 대칭이다 — A 가 B 를 막으면 B 도 A 를 막는다. 계단 모양으로 아래·오른쪽이 채워지는데, 이는 모드가 강도 순으로 번호를 갖고 있어서다(1 AccessShare … 8 AccessExclusive).',
     key:'InnoDB 의 5×5 호환 표는 <em>AI 행이 대칭을 깬다</em>(mysql/locks 04). PG 는 AUTO_INCREMENT 같은 특례 모드가 없어 표가 깨끗한 계단이다 — 대신 모드가 여덟이라 외울 것이 많다.',
     ref:'src/backend/storage/lmgr/lock.c', sym:'LockConflicts',
     fact:[['src/backend/storage/lmgr/lock.c','LOCKBIT_ON(AccessExclusiveLock),']] },
 
   { look:{ cmx:true },
-    note:'실전에서 가장 자주 부딪히는 칸 — 3단계와 5단계',
+    note:'실전 hot spot — RowExclusive(3) × Share(5)',
     why:'RowExclusive(INSERT·UPDATE·DELETE)와 Share(CREATE INDEX)가 서로 막는다. 그래서 CONCURRENTLY 없이 인덱스를 만들면 그동안 쓰기가 전부 멈춘다.',
     key:'표에서 <em>한 칸을 알면 사고 하나를 안다</em>. CREATE INDEX CONCURRENTLY 가 대신 4단계(ShareUpdateExclusive)를 잡아 쓰기를 허용하는 것도 같은 표에서 읽힌다.',
     ref:'src/include/storage/lockdefs.h', sym:'ShareLock',
@@ -181,7 +181,7 @@ const SCENES = [
     beat:1 },
 
   { look:{ cmx:true, stmt:true },
-    note:'쓰기를 막지 않는 값 — 긴 트랜잭션 하나에 붙잡힌다',
+    note:'CIC 의 대가 — write 는 허용, 대신 long transaction 을 대기',
     why:'DefineIndex 는 lockmode 를 concurrent 면 ShareUpdateExclusiveLock, 아니면 ShareLock 으로 정한다. CONCURRENTLY 는 쓰기와 함께 돌되, 2단계에서 "옛 인덱스 목록으로 테이블을 열고 있을지 모르는 트랜잭션이 없어질 때까지" 기다린다 — 쓰기를 허락하는 락을 쥔 쪽을 ShareLock 으로 기다리는 것이다(WaitForLockers).',
     key:'그래서 CONCURRENTLY 는 <em>쓰기를 막지 않는 대신 긴 트랜잭션에 막힌다</em>. 쓰기를 한 번 하고 오래 열려 있는 트랜잭션 하나가 인덱스 생성을 붙잡는다 — 이 표의 3 × 5 칸이 기다림의 방향만 바꾼 것이다.',
     ref:'src/backend/commands/indexcmds.c', sym:'DefineIndex',
@@ -192,19 +192,19 @@ const SCENES = [
   ],
 },
 {
-  num:'04', tab:'교착', title:'기다리다 1초가 지나면 스스로 확인한다',
-  sub:'PG 는 검출기를 따로 두지 않는다 — 기다리는 쪽이 검사하고, 풀 수 있으면 줄을 바꾼다',
+  num:'04', tab:'Deadlock', title:'Deadlock Detection: Timeout-Triggered Self-Check',
+  sub:'상주 detector 없음 — deadlock_timeout 이 지나면 대기자 스스로 wait-for graph 를 검사, 가능하면 queue 재배열',
   cast:['stmt','tbl','wait','cmp'],
   knobs:[
-    ['deadlock_timeout','1s','이만큼 기다린 뒤에야 교착을 확인한다 — 그 전에는 검사조차 하지 않는다'],
-    ['log_lock_waits','off','켜면 deadlock_timeout 을 넘긴 대기를 로그에 남긴다 — 교착이 아니어도'],
-    ['max_locks_per_transaction','64','공유 락 표의 크기를 이 가정으로 잡는다'] ],
+    ['deadlock_timeout','1s','이만큼 기다린 뒤에야 deadlock 을 확인한다 — 그 전에는 검사조차 하지 않는다'],
+    ['log_lock_waits','off','켜면 deadlock_timeout 을 넘긴 대기를 로그에 남긴다 — deadlock 이 아니어도'],
+    ['max_locks_per_transaction','64','shared lock table 의 크기를 이 가정으로 잡는다'] ],
   watch:[
     ['pg_locks','granted = false 인 행이 기다리는 쪽이다'],
     ['pg_stat_activity','wait_event_type = Lock 이면 이 큐에 있다'],
     ['서버 로그','deadlock detected 와 그 아래 프로세스별 대기 관계'] ],
   links:[
-    ['03','무엇이 무엇을 막는가 — 교착의 재료'],
+    ['03','무엇이 무엇을 막는가 — deadlock 의 재료'],
     ['01','락이 어디에 사는가'] ],
   init:{
     stmt:{ kv:{ '세션 A':'UPDATE t SET v=1 WHERE id=1', '세션 B':'UPDATE t SET v=2 WHERE id=2', '검사 상태':'DS_NOT_YET_CHECKED' } },
@@ -220,22 +220,22 @@ const SCENES = [
 
   steps:[
   { look:{ tbl:true, stmt:true },
-    note:'각자 자기 행을 잠갔다. 여기까지는 아무 문제 없다',
+    note:'각자 자기 row lock 확보 — 여기까지 정상',
     why:'행 락은 튜플 헤더에 기록되고, 서로 다른 행이므로 부딪히지 않는다.',
-    key:'교착의 재료는 <em>각자 정상적인 한 걸음</em>이다. 잘못된 문장이 있어야 생기는 것이 아니다.',
+    key:'deadlock 의 재료는 <em>각자 정상적인 한 걸음</em>이다. 잘못된 문장이 있어야 생기는 것이 아니다.',
     ref:'src/backend/storage/lmgr/lock.c', sym:'LockAcquire',
     beat:1 },
 
   { act:{ f:'stmt', t:'wait', lb:'A → 행 2 요청' },
-    note:'A 가 행 2 를 원한다 — B 가 쥐고 있다',
+    note:'A → row 2 요청, B 가 보유',
     why:'ProcSleep 이 A 를 대기 큐에 넣는다. 간선 하나가 생긴다.',
-    key:'간선 하나는 교착이 아니다. 그리고 이 순간 PG 는 <em>아무것도 확인하지 않는다</em> — 검사할 이유가 없다고 보기 때문이다.',
+    key:'간선 하나는 deadlock 이 아니다. 그리고 이 순간 PG 는 <em>아무것도 확인하지 않는다</em> — 검사할 이유가 없다고 보기 때문이다.',
     ref:'src/backend/storage/lmgr/proc.c', sym:'ProcSleep',
     ops:{ wait:{ set:{ '백엔드 A':{ tag:'wait', sub:'행 2 를 기다림' } },
                  edge:{ add:[{ id:'e1', from:'백엔드 A', to:'백엔드 B', lb:'대기' }] } } } },
 
   { act:{ f:'stmt', t:'wait', lb:'B → 행 1 요청' },
-    note:'B 가 행 1 을 원한다 — 사이클이 닫혔다',
+    note:'B → row 1 요청 — cycle 성립',
     why:'두 번째 간선이 생기면서 A → B → A 가 된다. 이 순간에도 아직 아무도 그것을 모른다.',
     key:'사이클이 닫힌 시점과 <em>그것을 알아내는 시점이 다르다</em>. 그 간격이 deadlock_timeout 이다.',
     ref:'src/backend/storage/lmgr/proc.c', sym:'ProcSleep',
@@ -244,9 +244,9 @@ const SCENES = [
                  edge:{ add:[{ id:'e2', from:'백엔드 B', to:'백엔드 A', lb:'대기', hot:1 }] } },
           stmt:{ set:{ '검사 상태':'여전히 DS_NOT_YET_CHECKED|red' } } } },
 
-  { note:'1초가 지난다. 그리고 기다리던 쪽이 스스로 검사한다',
+  { note:'deadlock_timeout(1s) 경과 — 대기자가 직접 검사',
     why:'deadlock_timeout(기본 1000ms)이 지나면 시그널이 got_deadlock_timeout 을 세우고, ProcSleep 의 대기 루프가 그것을 보고 CheckDeadLock 을 부른다. 검사하는 것은 별도 스레드가 아니라 기다리고 있던 그 백엔드다.',
-    key:'그래서 PG 에는 <em>상시 도는 검출기가 없다</em>. 교착이 없으면 검사 비용도 0 이고, 교착이 있으면 최소 1초가 지나야 알려진다 — InnoDB 는 반대로 거래했다.',
+    key:'그래서 PG 에는 <em>상시 도는 검출기가 없다</em>. deadlock 이 없으면 검사 비용도 0 이고, deadlock 이 있으면 최소 1초가 지나야 알려진다 — InnoDB 는 반대로 거래했다.',
     ref:'src/backend/storage/lmgr/proc.c', sym:'ProcSleep',
     fact:[['src/backend/storage/lmgr/proc.c','if (got_deadlock_timeout)'],
           ['src/backend/storage/lmgr/proc.c','CheckDeadLock();'],
@@ -256,7 +256,7 @@ const SCENES = [
           cmp:{ set:{ 'PG':'기다리는 백엔드가 1초 뒤 직접|gold' } } } },
 
   { act:{ f:'wait', t:'wait', lb:'줄을 바꿔 풀 수 있나' },
-    note:'검사는 먼저 "죽이지 않고 풀 수 있나" 를 본다',
+    note:'먼저 묻는다 — abort 없이 풀 수 있는가 (soft edge 재배열)',
     why:'DeadLockCheck 의 주석이 순서를 적는다 — 사이클을 찾으면 먼저 대기 큐를 재배열해 풀어 보고, 그것이 불가능할 때만 DS_HARD_DEADLOCK 을 돌려준다. 재배열로 풀리는 경우가 DS_SOFT_DEADLOCK 이다.',
     key:'InnoDB 에 없는 단계다. 같은 락을 여러 모드로 기다리는 줄에서는 <em>순서만 바꿔도 사이클이 끊긴다</em> — 아무도 롤백하지 않는다.',
     ref:'src/backend/storage/lmgr/deadlock.c', sym:'DeadLockCheck',
@@ -264,7 +264,7 @@ const SCENES = [
           ['src/include/storage/lock.h','DS_SOFT_DEADLOCK,			/* deadlock avoided by queue rearrangement */']],
     ops:{ stmt:{ set:{ '검사 상태':'재배열 시도 중' } } } },
 
-  { note:'이 사이클은 재배열로 풀리지 않는다 — 둘 다 이미 쥔 것이 있다',
+  { note:'이 cycle 은 hard edge — 재배열로 해소 불가',
     why:'재배열은 아직 아무것도 얻지 못한 대기자들의 순서를 바꾸는 것이다. A 와 B 는 각각 행 하나를 이미 쥐고 그것을 놓지 않은 채 기다린다 — 순서를 어떻게 바꿔도 서로를 기다린다.',
     key:'그래서 <em>soft 와 hard 를 가르는 것은 사이클의 모양</em>이다. 큐 안의 순서 문제면 soft, 이미 쥔 것끼리 엮이면 hard 다.',
     ref:'src/backend/storage/lmgr/deadlock.c', sym:'DeadLockCheck',
@@ -274,7 +274,7 @@ const SCENES = [
           wait:{ set:{ '백엔드 A':{ tag:'x', sub:'검사한 쪽 · 자기가 중단된다' } } } } },
 
   { act:{ f:'wait', t:'stmt', lb:'검사한 쪽이 중단된다' },
-    note:'희생자를 고르지 않는다 — 검사를 실행한 백엔드가 자기 트랜잭션을 중단한다',
+    note:'victim 선정 없음 — 검사를 돌린 backend 가 자기 트랜잭션을 abort',
     why:'주석이 그대로 적는다 — 호출자가 그 프로세스의 트랜잭션을 중단할 것으로 기대된다. 여기서 검사를 실행한 것은 먼저 1초를 채운 A 이므로 A 가 ERROR 를 받는다.',
     key:'InnoDB 는 <em>되돌릴 양이 적은 쪽</em>을 골라 죽인다. PG 는 <em>먼저 알아챈 쪽</em>이 죽는다 — 고르는 비용을 치르지 않는 대신 큰 트랜잭션이 희생될 수 있다.',
     ref:'src/backend/storage/lmgr/deadlock.c', sym:'DeadLockCheck',
@@ -287,8 +287,8 @@ const SCENES = [
           stmt:{ set:{ '세션 A':'ERROR: deadlock detected|red', '검사 상태':'중단 완료' } } } },
 
   { look:{ wait:true, cmp:true },
-    note:'다섯 번째 상태가 있다 — 막고 있는 것이 autovacuum 이면',
-    why:'DS_BLOCKED_BY_AUTOVACUUM 은 교착이 아니다. 큐를 막고 있는 것이 autovacuum 작업자라는 판정이고, 그때 PG 는 사용자 트랜잭션을 중단하는 대신 그 작업자에게 취소 시그널을 보낸다.',
+    note:'다섯 번째 결과 — blocker 가 autovacuum 이면 그쪽에 cancel',
+    why:'DS_BLOCKED_BY_AUTOVACUUM 은 deadlock 이 아니다. 큐를 막고 있는 것이 autovacuum 작업자라는 판정이고, 그때 PG 는 사용자 트랜잭션을 중단하는 대신 그 작업자에게 취소 시그널을 보낸다.',
     key:'같은 자리에서 <em>사용자 쪽을 살리는 선택</em>을 한다. VACUUM 은 나중에 다시 돌면 되고 사용자 트랜잭션은 그렇지 않다는 판단이 코드에 박혀 있다.',
     ref:'src/backend/storage/lmgr/proc.c', sym:'ProcSleep',
     fact:[['src/include/storage/lock.h','DS_BLOCKED_BY_AUTOVACUUM,	/* no deadlock; queue blocked by autovacuum'],
@@ -298,7 +298,7 @@ const SCENES = [
                       'PG':'검사한 쪽이 중단 · 1초 뒤 · autovacuum 은 취소|gold' } } } },
 
   { look:{ stmt:true, cmp:true },
-    note:'정리 — 두 엔진이 같은 문제를 다르게 나눴다',
+    note:'정리 — 같은 문제, 다른 분업',
     why:'InnoDB 는 검사를 상시로 돌려 즉시 알아내고 희생자를 고른다. PG 는 검사를 대기 경로로 미뤄 평시 비용을 없애고, 풀 수 있으면 줄을 바꾸고, 못 풀면 알아챈 쪽이 물러난다.',
     key:'어느 쪽이 낫다기보다 <em>무엇을 상수로 두었는지가 다르다</em>. InnoDB 는 지연을, PG 는 평시 비용을 상수로 뒀다.',
     ref:'src/include/storage/lock.h', sym:'DeadLockState',
@@ -306,8 +306,8 @@ const SCENES = [
   ],
 },
 {
-  num:'05', tab:'SSI', title:'아무것도 막지 않는 락으로 직렬성을 지킨다',
-  sub:'SIREAD 는 깃발이다 — 충돌을 막는 대신 기록하고, 위험한 모양이 되면 그때 중단한다',
+  num:'05', tab:'SSI', title:'Serializable Snapshot Isolation: SIREAD Locks & rw-Conflicts',
+  sub:'SIREAD 는 non-blocking flag — 충돌을 막지 않고 기록, dangerous structure 가 되면 commit 시 abort',
   cast:['stmt','sir','rw','cmp'],
   knobs:[
     ['default_transaction_isolation','read committed','serializable 로 올릴 때만 SIREAD 가 만들어진다'],
@@ -318,7 +318,7 @@ const SCENES = [
     ['pg_stat_database','xact_rollback 중 40001 의 비중'],
     ['서버 로그','could not serialize access due to read/write dependencies'] ],
   links:[
-    ['04','교착은 막는 락에서 나온다 — 이쪽은 막지 않는다'],
+    ['04','deadlock 은 막는 락에서 나온다 — 이쪽은 막지 않는다'],
     ['03','충돌 표는 막는 락의 규칙이다'] ],
   init:{
     stmt:{ kv:{ '세션 A':'SELECT sum(v) FROM t WHERE k=1', '세션 B':'SELECT sum(v) FROM t WHERE k=2',
@@ -333,9 +333,9 @@ const SCENES = [
 
   steps:[
   { act:{ f:'stmt', t:'sir', lb:'A 가 읽은 범위에 SIREAD' },
-    note:'읽기가 락을 만든다 — 읽은 튜플뿐 아니라 읽었을 범위까지',
+    note:'read 가 SIREAD lock 을 남긴다 — 튜플뿐 아니라 predicate 범위까지',
     why:'주석의 첫 항목이 그것을 적는다 — 실제로 읽은 튜플 외에 술어에 따라 읽혔을 튜플의 범위까지 덮어야 하므로, 페이지·인덱스 구간·테이블 같은 객체에 락을 걸어 술어를 모형화한다.',
-    key:'그래서 SIREAD 는 <em>없는 행도 덮는다</em> — 팬텀을 잡으려면 빈 자리를 알아야 한다는 점은 InnoDB 의 갭 락과 같은 문제의식이다.',
+    key:'그래서 SIREAD 는 <em>없는 행도 덮는다</em> — 팬텀을 잡으려면 빈 자리를 알아야 한다는 점은 InnoDB 의 gap lock 과 같은 문제의식이다.',
     ref:'src/backend/storage/lmgr/predicate.c', sym:'CreatePredicateLock',
     fact:[['src/backend/storage/lmgr/predicate.c','(1)	Besides tuples actually read, they must cover ranges of tuples'],
           ['src/backend/storage/lmgr/predicate.c','require modelling the predicates through locks against database']],
@@ -344,7 +344,7 @@ const SCENES = [
           stmt:{ set:{ '판정':'수집 중' } } } },
 
   { act:{ f:'stmt', t:'sir', lb:'B 가 읽은 범위에도' },
-    note:'B 도 자기 범위를 읽고 SIREAD 를 남긴다 — 둘은 서로를 막지 않는다',
+    note:'B 도 자기 범위에 SIREAD — 서로 block 하지 않는다',
     why:'주석의 세 번째 항목이 성질을 정한다 — 이들은 아무것도 막지 않는다. 락이라기보다 깃발에 가깝고, 객체를 가리키며 일반 쓰기 락과의 rw-conflict 를 찾는 데 쓰인다.',
     key:'이름이 락인데 <em>막는 일을 하지 않는다</em>. 그래서 pg_locks 에서 SIREAD 행의 granted 는 언제나 true 다 — 기다리는 상태가 존재하지 않는다.',
     ref:'src/backend/storage/lmgr/predicate.c', sym:'CreatePredicateLock',
@@ -355,7 +355,7 @@ const SCENES = [
           cmp:{ set:{ 'SSI':'읽기가 쓰기를 막지 않는다|gold' } } } },
 
   { act:{ f:'stmt', t:'rw', lb:'A 가 B 의 범위에 쓴다' },
-    note:'A 가 k=2 에 쓴다 — B 가 읽은 자리다',
+    note:'A 가 k=2 에 write — B 가 read 한 자리, rw-conflict 간선',
     why:'쓰기가 상대의 SIREAD 를 만나면 rw-conflict 간선이 생긴다. B 가 먼저 읽었고 A 가 나중에 썼으므로 방향은 B → A 다. 막지는 않는다 — 기록만 한다.',
     key:'이 순간 아무도 기다리지 않는다. <em>충돌은 기록되었을 뿐</em>이고 두 트랜잭션은 계속 진행한다 — 2PL 이라면 여기서 멈췄다.',
     ref:'src/backend/storage/lmgr/predicate.c', sym:'SetRWConflict',
@@ -364,7 +364,7 @@ const SCENES = [
           stmt:{ set:{ '세션 A':'UPDATE t SET v=v+1 WHERE k=2' } } } },
 
   { act:{ f:'stmt', t:'rw', lb:'B 가 A 의 범위에 쓴다' },
-    note:'B 도 k=1 에 쓴다 — 두 번째 간선이 생기고 모양이 닫힌다',
+    note:'B 가 k=1 에 write — 두 번째 간선, dangerous structure 성립',
     why:'이제 A → B 간선도 생긴다. 한 트랜잭션이 rw-conflict 를 들어오는 쪽과 나가는 쪽 모두 갖게 되는 이 모양이 위험한 구조(dangerous structure)다 — 직렬 순서를 만들 수 없다는 신호다.',
     key:'탐지 대상이 <em>사이클이 아니라 이 모양</em>이다. Cahill 의 논문이 보인 것은 이 구조만 잡아도 직렬성이 지켜진다는 것 — 실제 사이클을 추적하는 것보다 싸다.',
     ref:'src/backend/storage/lmgr/predicate.c', sym:'SetRWConflict',
@@ -375,7 +375,7 @@ const SCENES = [
           stmt:{ set:{ '세션 B':'UPDATE t SET v=v+1 WHERE k=1', '판정':'위험한 구조|red' } } } },
 
   { act:{ f:'rw', t:'stmt', lb:'커밋할 때 중단된다' },
-    note:'판정은 커밋 시점이다 — 40001 로 실패한다',
+    note:'판정은 commit 시점 — 40001 serialization_failure',
     why:'진행 중에는 막지 않았으므로 두 트랜잭션 모두 마지막까지 왔다. 커밋하려는 쪽이 자기가 위험한 구조 안에 있음을 확인하고 중단한다.',
     key:'그래서 SERIALIZABLE 을 쓰면 <em>애플리케이션에 재시도가 필요하다</em>. 대기가 없는 대신 실패가 늦게 온다 — 일을 다 하고 나서 버린다.',
     ref:'src/backend/storage/lmgr/predicate.c', sym:'PreCommit_CheckForSerializationFailure',
@@ -384,7 +384,7 @@ const SCENES = [
           stmt:{ set:{ '세션 B':'ERROR 40001  ·  read/write dependencies|red', '판정':'직렬화 실패' } } } },
 
   { look:{ sir:true },
-    note:'끝난 트랜잭션의 락이 아직 pg_locks 에 있다',
+    note:'종료된 트랜잭션의 SIREAD 가 pg_locks 에 잔존',
     why:'주석의 네 번째 항목이 이유를 적는다 — SIREAD 는 트랜잭션에 딸려 있지만 그 트랜잭션이 성공적으로 커밋한 뒤에도 살아남고, 겹쳐 있던 모든 트랜잭션이 끝날 때까지 남는다. 프로세스가 사라져도 그렇다. 반대로 최상위 트랜잭션이 롤백되면 즉시 무시 표시가 붙어 그 뒤 아무 때나 해제될 수 있다.',
     key:'그래서 <em>끝난 트랜잭션의 락이 pg_locks 에 보인다</em>. 이상해 보이지만 그것이 있어야 뒤늦게 쓰는 쪽이 충돌을 알아낼 수 있다.',
     ref:'src/backend/storage/lmgr/predicate.c', sym:'CreatePredicateLock',
@@ -393,7 +393,7 @@ const SCENES = [
     ops:{ sir:{ set:{ 'B : k=2 구간':{ tag:'hold', sub:'B 는 끝났는데 락은 남는다' } } } } },
 
   { look:{ sir:true, cmp:true },
-    note:'RAM 에 두어야 하므로 공간이 부족하면 굵게 합친다',
+    note:'shared memory 한도 — 부족하면 granularity 를 키워 promote',
     why:'두 번째 항목이 그 이유를 적는다 — 빠른 접근을 위해 메모리에 유지해야 하고, 그래서 항상 튜플 단위를 지킬 수는 없다. 공간이 고갈에 가까워지면 한 트랜잭션이 가진 여러 세밀한 락을 굵은 락 하나로 합친다.',
     key:'합치면 <em>거짓 충돌이 늘어난다</em> — 읽지 않은 행까지 덮이므로 40001 이 더 자주 난다. max_pred_locks_per_transaction 을 올리는 것이 그 대가를 미루는 방법이다.',
     ref:'src/backend/storage/lmgr/predicate.c', sym:'CreatePredicateLock',
@@ -404,8 +404,8 @@ const SCENES = [
                       'SSI':'막지 않는다 · 늦은 실패와 재시도|gold' } } } },
 
   { look:{ cmp:true, stmt:true },
-    note:'정리 — 같은 보장을 대기로 사는 대신 실패로 산다',
-    why:'2PL 은 충돌을 사전에 막아 직렬성을 얻고 대기·교착을 낸다. SSI 는 막지 않고 진행시켜 동시성을 얻고, 위험한 모양이 남으면 커밋 시점에 중단한다.',
+    note:'정리 — 같은 보장을 blocking 대신 abort 로',
+    why:'2PL 은 충돌을 사전에 막아 직렬성을 얻고 대기·deadlock 을 낸다. SSI 는 막지 않고 진행시켜 동시성을 얻고, 위험한 모양이 남으면 커밋 시점에 중단한다.',
     key:'그래서 <em>SERIALIZABLE 의 비용이 CPU 가 아니라 재시도</em>다. 읽기가 많고 충돌이 드문 부하에서 유리하고, 충돌이 흔하면 같은 일을 두 번 하게 된다.',
     ref:'src/backend/storage/lmgr/predicate.c', sym:'PreCommit_CheckForSerializationFailure',
     beat:1 },

@@ -3,7 +3,7 @@
    같은 문제를 두 엔진이 다르게 풀었다 : InnoDB 는 doublewrite 버퍼라는 별도 영역을 두고,
    PG 는 WAL 안에 페이지 전체 이미지를 넣는다. */
 const DECK = {
-  title: 'PostgreSQL WAL · 크래시 복구',
+  title: 'PostgreSQL WAL & Crash Recovery',
   brand: 'POSTGRESQL 18.6',
   brand2: 'WAL  ·  vs INNODB REDO',
   favicon: '🐘',

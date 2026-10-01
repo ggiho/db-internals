@@ -382,7 +382,7 @@ html,body{background:var(--bg);color:var(--body);font-family:var(--sans)}
   .gr{overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
   .gr::-webkit-scrollbar{display:none}
 
-  /* 호환 행렬도 같다 — MDL 9단×10열 표는 390 에 들어갈 수 없고(실측 +58px),
+  /* 호환 행렬도 같다 — MDL 10×10 표는 390 에 들어갈 수 없고(실측 +58px),
      칸을 줄이면 어느 행·열인지 못 읽는다. 표 자체를 그 축으로 넘긴다.
      overflow-x 만으로는 안 된다 : 표가 컨테이너 폭(116px)으로 쭈그러들어 10열을
      거기에 밀어넣고 열 이름 8칸이 잘렸다(SWLP·SNRW 가 붙어 SSHSRSWSWLP… 로 보였다).

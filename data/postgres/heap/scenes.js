@@ -2,8 +2,8 @@
    어떻게 다르게 풀었는지 바이트로 보인다. book/ch3 05·06 과 짝이 되는 덱이다. */
 const SCENES = [
 {
-  num:'01', tab:'8KB', title:'페이지는 8KB 다 — InnoDB 의 절반',
-  sub:'고를 수 있는 값은 2의 거듭제곱뿐이고, 그 8KB 가 튜플 크기 · 튜플 수 · 테이블 크기의 한계를 정한다',
+  num:'01', tab:'Page Size', title:'Page Geometry: 8KB Blocks & Their Hard Limits',
+  sub:'BLCKSZ 는 빌드 상수(2의 거듭제곱) — 이 8KB 가 max tuple size · tuples per page · relation size 를 결정한다',
   cast:['op','sp','cmp'],
   knobs:[
     ['—','—','컴파일 시점에 정해진다 — 실행 중 바꿀 수 없다']],
@@ -18,7 +18,7 @@ const SCENES = [
   },
   steps:[
   { look:{ op:true },
-    note:'기본 8KB — configure 의 blocksize 가 8(kB)로 잡혀 있다',
+    note:'기본 BLCKSZ 8KB — configure 의 blocksize=8, 빌드 시점 상수',
     why:'configure.ac 의 blocksize 기본값이 8 이고 meson 쪽 선택지는 1·2·4·8·16·32 다. 즉 컴파일 시점에 정해지고 실행 중에는 바꿀 수 없다.',
     key:'InnoDB 는 <em>16KB</em>이고 innodb_page_size 로 재시작 없이는 못 바꾸지만 설정 값이다. PG 는 <em>빌드 시점 상수</em>다 — 바꾸려면 다시 컴파일하고 데이터를 새로 적재해야 한다.',
     ref:'src/include/storage/bufpage.h', sym:'PageHeaderData',
@@ -27,7 +27,7 @@ const SCENES = [
           cmp:{ set:{ 'PostgreSQL':'8KB  ·  빌드 상수', 'InnoDB':'16KB  ·  설정' } } } },
 
   { look:{ sp:true },
-    note:'선택지가 2의 거듭제곱뿐인 것도 같다',
+    note:'선택지는 2의 거듭제곱(1–32KB)뿐 — offset 연산을 bit 연산으로 끝내려는 제약',
     why:'1·2·4·8·16·32 kB 중에서만 고를 수 있다. 페이지 안 오프셋 계산이 비트 연산으로 끝나게 하려는 제약이고, InnoDB 가 UNIV_PAGE_SIZE_DEF 를 1 << 14 로 정의한 것과 같은 이유다.',
     key:'두 엔진이 <em>다른 크기를 고르고 같은 제약을 지킨다</em>. InnoDB 쪽 근거는 BOOK CH2 의 블록 장면에 있다 — 여기서는 그 선택지 목록이 그 제약을 드러낸다.',
     ref:'src/include/storage/bufpage.h', sym:'SizeOfPageHeaderData',
@@ -36,7 +36,7 @@ const SCENES = [
     beat:1 },
 
   { look:{ sp:true },
-    note:'튜플 하나는 페이지를 넘지 못한다 — 8KB 에서 8,160 바이트까지',
+    note:'MaxHeapTupleSize — 8KB 기준 8,160 B, 넘으면 페이지에 안 들어간다',
     why:'MaxHeapTupleSize 는 BLCKSZ 에서 페이지 헤더와 line pointer 하나를 정렬해 뺀 값이다 — 8,192 − 32. 그보다 큰 행은 페이지에 들어가지 않으므로 긴 값을 밖으로 빼내야 한다. 실제로는 행이 페이지의 4분의 1(약 2KB)을 넘으면 TOAST 가 먼저 줄이기 시작한다(04 장면).',
     key:'InnoDB 도 긴 값을 overflow 페이지로 뺀다 — 같은 문제다. 다른 것은 PG 가 <em>딸린 테이블(TOAST)</em>을 따로 둔다는 것이다.',
     ref:'src/include/access/htup_details.h', sym:'MaxHeapTupleSize',
@@ -45,7 +45,7 @@ const SCENES = [
     ops:{ sp:{ set:{ '튜플 최대':'8,160  ·  넘으면 TOAST' } } } },
 
   { look:{ sp:true },
-    note:'한 페이지의 튜플은 많아야 291 개다 — 빈 튜플도 28 바이트를 먹는다',
+    note:'페이지당 튜플 상한 291 — 빈 튜플도 28 B 를 소비',
     why:'MaxHeapTuplesPerPage 는 헤더를 뺀 8,168 바이트를 "정렬한 튜플 헤더 24 + line pointer 4" 로 나눈 값이다. 열이 하나도 없는 튜플도 그 이상은 안 들어간다.',
     key:'작은 행이 많은 테이블은 <em>행마다 28 바이트</em>를 판정 정보와 자리표에 쓴다 — mvcc 덱 01 의 23바이트 헤더가 정렬되며 24 가 되고, line pointer 가 4 를 더한다.',
     ref:'src/include/access/htup_details.h', sym:'MaxHeapTuplesPerPage',
@@ -54,7 +54,7 @@ const SCENES = [
     ops:{ sp:{ set:{ '튜플 수 최대':'291' } } } },
 
   { look:{ op:true, cmp:true },
-    note:'파일은 1GB 마다 끊어 저장한다 — 한 테이블은 32TB 까지',
+    note:'1GB segment 단위 저장 — BlockNumber 32 bit 라 relation 은 약 32TB 까지',
     why:'configure 의 segsize 기본이 1(GB)이고 RELSEG_SIZE 는 그 블록 수 131,072 다. 블록 번호는 32비트(BlockNumber)이고 가장 큰 값이 0xFFFFFFFE 라, 8KB 페이지면 약 32TB 가 한 테이블의 한계다. 조각 파일은 relfilenode, relfilenode.1, .2 … 로 이어진다.',
     key:'InnoDB 는 테이블마다 .ibd 파일 하나에 담는다(file-per-table). PG 는 <em>페이지 크기가 곧 테이블 크기의 한계</em>다 — 블록 번호의 폭은 고정이므로 페이지가 클수록 테이블이 커질 수 있다.',
     ref:'src/include/storage/block.h', sym:'MaxBlockNumber',
@@ -66,8 +66,8 @@ const SCENES = [
   ],
 },
 {
-  num:'02', tab:'페이지 헤더', title:'24바이트 헤더를 한 필드씩',
-  sub:'InnoDB 의 38바이트 FIL 헤더와 같은 자리를 다르게 쓴다',
+  num:'02', tab:'Page Header', title:'PageHeaderData: 24 Bytes, Field by Field',
+  sub:'InnoDB FIL header(38 B)와 같은 역할을 다른 배치로 — LSN · checksum · free-space bounds · prune hint',
   cast:['hdr','cmp'],
   knobs:[
     ['—','—','배치는 구조체 정의가 정한다']],
@@ -90,15 +90,15 @@ const SCENES = [
   },
   steps:[
   { look:{ hdr:['pd_lsn'] },
-    note:'첫 8바이트가 LSN 이다 — InnoDB 도 같은 값을 갖지만 자리가 다르다',
-    why:'PageHeaderData 의 첫 필드가 pd_lsn 이고 주석이 "이 페이지의 마지막 변경에 대한 xlog 레코드의 마지막 바이트 다음" 이라고 적는다. 복구가 이 값을 보고 재생 여부를 정한다.',
-    key:'InnoDB 는 LSN 을 <em>오프셋 16</em>에 두고 trailer 에 하위 4바이트를 한 번 더 쓴다(book/ch3 11). PG 는 <em>맨 앞에 한 번만</em> 둔다 — 대신 체크섬을 따로 갖는다.',
+    note:'offset 0 = pd_lsn — InnoDB 는 같은 값을 offset 16 + trailer 에',
+    why:'PageHeaderData 의 첫 필드가 pd_lsn 이고 주석이 "이 페이지의 마지막 변경에 대한 xlog 레코드의 마지막 바이트 다음" 이라고 적는다. 복구가 이 값을 보고 replay 여부를 정한다.',
+    key:'InnoDB 는 LSN 을 <em>오프셋 16</em>에 두고 trailer 에 하위 4바이트를 한 번 더 쓴다(book/ch3 11). PG 는 <em>맨 앞에 한 번만</em> 둔다 — 대신 checksum 을 따로 갖는다.',
     ref:'src/include/storage/bufpage.h', sym:'PageHeaderData',
     fact:[['src/include/storage/bufpage.h','PageXLogRecPtr pd_lsn;']],
     ops:{ cmp:{ set:{ 'PostgreSQL':'LSN 오프셋 0', 'InnoDB':'LSN 오프셋 16 + trailer' } } } },
 
   { look:{ hdr:['pd_lower','pd_upper'] },
-    note:'빈 공간을 두 오프셋으로 표시한다 — 아래와 위',
+    note:'pd_lower / pd_upper — free space 의 두 경계, line pointer 와 tuple 이 양쪽에서 자란다',
     why:'pd_lower 는 빈 공간의 시작, pd_upper 는 끝이다. 라인 포인터가 앞에서 자라며 pd_lower 를 밀고, 튜플이 뒤에서 자라며 pd_upper 를 당긴다. 둘이 만나면 그 페이지가 꽉 찬 것이다.',
     key:'InnoDB 는 <em>PAGE_HEAP_TOP 과 슬롯 배열</em>로 같은 일을 한다(book/ch3 05v). 구조가 거울처럼 같다 — <em>두 방향으로 자라 가운데서 만난다</em>.',
     ref:'src/include/storage/bufpage.h', sym:'PageHeaderData',
@@ -107,15 +107,15 @@ const SCENES = [
     ops:{ cmp:{ set:{ 'PostgreSQL':'pd_lower / pd_upper', 'InnoDB':'PAGE_HEAP_TOP / PAGE_DIR' } } } },
 
   { look:{ hdr:['pd_prune_xid'] },
-    note:'마지막 4바이트는 "여기 치울 것이 있다" 는 쪽지다',
+    note:'pd_prune_xid — prune 후보 힌트 4 바이트',
     why:'pd_prune_xid 는 이 페이지에서 정리 가능한 가장 오래된 XID 다. 0 이면 치울 것이 없다는 뜻이라 즉시 정리(pruning)가 그 자리에서 빠져나온다 — mvcc 덱 03 의 heap_page_prune_opt 가 이 값을 먼저 본다.',
-    key:'MVCC 를 힙에 두었기 때문에 <em>페이지 헤더에 정리용 필드가 필요해진다</em>. InnoDB 헤더에는 이런 필드가 없다 — 옛 버전이 undo 에 있으니 페이지가 정리를 알 필요가 없다.',
+    key:'MVCC 를 heap 에 두었기 때문에 <em>페이지 헤더에 정리용 필드가 필요해진다</em>. InnoDB 헤더에는 이런 필드가 없다 — 옛 버전이 undo 에 있으니 페이지가 정리를 알 필요가 없다.',
     ref:'src/include/storage/bufpage.h', sym:'PageHeaderData',
     fact:[['src/include/storage/bufpage.h','TransactionId pd_prune_xid;']],
     ops:{ cmp:{ set:{ 'PostgreSQL':'pd_prune_xid 있음', 'InnoDB':'대응 필드 없음' } } } },
 
   { look:{ hdr:true },
-    note:'그리고 24 라는 수는 코드에 적혀 있지 않다',
+    note:'header 크기는 hardcode 가 아니다 — struct layout 에서 유도',
     why:'SizeOfPageHeaderData 는 offsetof(PageHeaderData, pd_linp) 로 정의된다. 즉 필드를 더하면 24 가 되지만 그 수를 쓰지 않는다 — 필드를 바꾸면 값이 따라 움직인다.',
     key:'InnoDB 의 <em>FIL_PAGE_DATA = 38</em> 은 리터럴이고 PG 의 <em>SizeOfPageHeaderData</em> 는 계산이다. 같은 문제에 대한 두 가지 태도이고, 뒤쪽이 필드 추가에 강하다.',
     ref:'src/include/storage/bufpage.h', sym:'SizeOfPageHeaderData',
@@ -124,8 +124,8 @@ const SCENES = [
   ],
 },
 {
-  num:'03', tab:'라인 포인터', title:'라인 포인터는 4바이트에 세 값을 담는다',
-  sub:'InnoDB 슬롯은 2바이트에 오프셋 하나뿐이다',
+  num:'03', tab:'Line Pointers', title:'ItemIdData: Three Fields in 32 Bits',
+  sub:'lp_off · lp_flags · lp_len 을 4 바이트 bitfield 에 — InnoDB slot 은 2 바이트 offset 하나',
   cast:['lp','cmp','sp'],
   knobs:[
     ['—','—','비트 폭은 구조체가 정한다']],
@@ -144,7 +144,7 @@ const SCENES = [
   },
   steps:[
   { look:{ lp:true },
-    note:'한 항목이 32비트다 — 오프셋 15 · 상태 2 · 길이 15',
+    note:'ItemIdData = 4 바이트 bitfield — offset · flags · length',
     why:'ItemIdData 는 비트필드다 : lp_off:15, lp_flags:2, lp_len:15. 합이 정확히 32비트이므로 항목 하나가 4바이트다. 오프셋에 15비트면 32,768 까지라 8KB 페이지를 충분히 덮는다.',
     key:'InnoDB 슬롯은 <em>2바이트에 오프셋만</em> 담는다(PAGE_DIR_SLOT_SIZE = 2). PG 는 <em>길이와 상태까지</em> 넣어 4바이트를 쓴다 — 그 대가로 튜플 길이를 헤더에서 바로 알 수 있다.',
     ref:'src/include/storage/itemid.h', sym:'ItemIdData',
@@ -154,7 +154,7 @@ const SCENES = [
           sp:{ set:{ '포인터당':'4바이트' } } } },
 
   { look:{ lp:true },
-    note:'상태는 넷이고 2비트에 정확히 들어맞는다',
+    note:'state 넷 — UNUSED · NORMAL · REDIRECT · DEAD, 2 bit 에 정확히',
     why:'LP_UNUSED 0 · LP_NORMAL 1 · LP_REDIRECT 2 · LP_DEAD 3 이다. 2비트가 표현할 수 있는 네 값을 하나도 남기지 않고 쓴다.',
     key:'폭이 <em>남지도 부족하지도 않다</em>. book/ch3 03 에서 본 "비트를 접어 넣는" 방식이고, PG 도 같은 절약을 한다.',
     ref:'src/include/storage/itemid.h', sym:'LP_REDIRECT',
@@ -163,7 +163,7 @@ const SCENES = [
           ['src/include/storage/itemid.h','#define LP_DEAD			3']] },
 
   { look:{ lp:true, cmp:true },
-    note:'LP_REDIRECT 가 HOT 사슬의 이음매다',
+    note:'LP_REDIRECT — HOT chain 의 이음매',
     why:'HOT 갱신에서 인덱스는 옛 라인 포인터를 계속 가리킨다. 즉시 정리(pruning)가 옛 튜플을 치우면 그 포인터를 지울 수 없으므로 REDIRECT 로 바꿔 새 튜플을 가리키게 한다 — lp_len 은 0 이 된다.',
     key:'mvcc 덱 07 의 HOT 이 <em>이 두 비트로 성립한다</em>. InnoDB 는 secondary 인덱스가 항상 클러스터를 다시 찾으므로 이런 이음매가 필요 없다 — 대신 매번 두 번 찾는다.',
     ref:'src/include/storage/itemid.h', sym:'LP_REDIRECT',
@@ -171,9 +171,9 @@ const SCENES = [
     ops:{ cmp:{ set:{ 'PostgreSQL':'REDIRECT 로 사슬 유지', 'InnoDB':'secondary → 클러스터 재탐색' } } } },
 
   { look:{ sp:true },
-    note:'그래서 포인터 비용도 다르다 — 튜플마다 하나씩',
+    note:'비용 구조 — 튜플마다 4 바이트 line pointer, InnoDB 는 4~8 레코드당 slot 하나',
     why:'PG 는 튜플마다 라인 포인터 하나가 필요하다(4바이트). InnoDB 는 슬롯을 4~8개 레코드마다 하나만 둔다(book/ch3 06) — 레코드 하나당 평균 0.25~0.5바이트다.',
-    key:'같은 8KB 에서 <em>PG 는 포인터에 더 쓰고 대신 길이를 얻는다</em>. 어느 쪽이 낫다기보다, 가시성(visibility)을 힙에 둔 설계가 헤더 비용을 계속 요구한다는 점이 일관된다.',
+    key:'같은 8KB 에서 <em>PG 는 포인터에 더 쓰고 대신 길이를 얻는다</em>. 어느 쪽이 낫다기보다, visibility 를 heap 에 둔 설계가 헤더 비용을 계속 요구한다는 점이 일관된다.',
     ref:'src/include/storage/bufpage.h', sym:'PageHeaderData',
     fact:[['src/include/storage/itemid.h','lp_flags:2,		/* state of line pointer, see below */']],
     ops:{ sp:{ set:{ '레코드당':'PG 4B  ·  InnoDB 0.25~0.5B' } } },
@@ -181,8 +181,8 @@ const SCENES = [
   ],
 },
 {
-  num:'04', tab:'TOAST', title:'8KB 를 넘는 행은 페이지 안에 둘 수 없다',
-  sub:'한 페이지에 튜플 네 개가 들어가야 한다는 가정이 문턱을 정한다',
+  num:'04', tab:'TOAST', title:'TOAST: Compress, Then Move Out of Line',
+  sub:'문턱은 페이지당 튜플 4개 가정에서 유도 — 넘으면 inline 압축, 그래도 크면 out-of-line',
   cast:['op','tup','tst','sp','cmp'],
   knobs:[
     ['toast_tuple_target','2000','테이블마다 문턱을 낮출 수 있다 — 올릴 수는 없다'],
@@ -210,7 +210,7 @@ const SCENES = [
 
   steps:[
   { look:{ sp:true, op:true },
-    note:'문턱은 "한 페이지에 튜플 네 개" 라는 가정에서 나온다',
+    note:'TOAST 문턱 2,032 B — 페이지당 튜플 4개 가정에서 유도',
     why:'TOAST_TUPLES_PER_PAGE 가 4 이고, TOAST_TUPLE_THRESHOLD 는 그 개수가 들어갈 수 있는 가장 큰 튜플 크기다. 8,192 에서 페이지 헤더 24 와 라인 포인터 4개를 뺀 뒤 4 로 나누고 정렬을 맞추면 2,032 바이트가 된다.',
     key:'숫자가 임의로 정해진 것이 아니라 <em>02·03 장면의 바이트에서 계산된다</em>. 페이지 헤더와 라인 포인터를 몰라도 되는 값이 아니다.',
     ref:'src/include/access/heaptoast.h', sym:'TOAST_TUPLE_THRESHOLD',
@@ -221,7 +221,7 @@ const SCENES = [
           op:{ set:{ '목표':'2,032 B 이하로' } } } },
 
   { look:{ tup:true },
-    note:'6,400 바이트다. 세 배 넘게 줄여야 한다',
+    note:'6,400 바이트 행 — 문턱의 세 배 이상, 줄여야 한다',
     why:'문턱을 넘으면 toaster 가 작동한다. 주석이 목표를 적는다 — 압축할 수 있는 필드를 압축하고 EXTENDED·EXTERNAL 데이터를 밖으로 옮겨 TOAST_TUPLE_TARGET 이하로 만든다.',
     key:'줄이는 방법이 둘이다 — <em>압축</em>과 <em>밖으로 내보내기</em>. 어느 것을 먼저 시도하는지가 컬럼의 attstorage 로 정해진다.',
     ref:'src/backend/access/heap/heaptoast.c', sym:'heap_toast_insert_or_update',
@@ -230,7 +230,7 @@ const SCENES = [
     ops:{ op:{ set:{ '단계':'1단계 — 큰 것부터 압축' } } } },
 
   { act:{ f:'op', t:'tup', lb:'memo 압축' },
-    note:'1단계 — 가장 큰 필드부터, EXTENDED 면 제자리에서 압축한다',
+    note:'pass 1 — 가장 큰 EXTENDED 필드부터 inline 압축',
     why:'루프가 가장 큰 속성을 찾아 attstorage 가 EXTENDED(x)면 toast_tuple_try_compression 을 부른다. EXTERNAL(e)이면 압축을 건너뛰고 바로 밖으로 낸다 — 이미 압축된 데이터에 압축을 다시 걸지 않겠다는 선언이다.',
     key:'"가장 큰 것부터" 가 반복된다. <em>목표에 닿을 때까지 한 번에 하나씩</em> 줄인다 — 전부 압축하지 않는다.',
     ref:'src/backend/access/heap/heaptoast.c', sym:'heap_toast_insert_or_update',
@@ -240,7 +240,7 @@ const SCENES = [
           op:{ set:{ '튜플 크기':'4,847 B  ·  아직 넘는다|red' } } } },
 
   { act:{ f:'tup', t:'tst', lb:'blob 을 밖으로' },
-    note:'2단계 — 압축으로 부족하면 큰 것을 TOAST 테이블로 옮긴다',
+    note:'pass 2 — 압축으로 부족하면 out-of-line, TOAST relation 으로 이동',
     why:'두 번째 루프가 아직 제자리에 있는 EXTENDED·EXTERNAL 속성을 밖으로 낸다. 다만 딸림 TOAST 테이블이 없으면(reltoastrelid 가 InvalidOid) 이 단계를 건너뛴다.',
     key:'밖으로 나간 값은 <em>2KB 짜리 조각으로 쪼개져</em> 딸림 테이블의 행이 된다. 원래 자리에는 그것을 가리키는 18바이트 포인터만 남는다.',
     ref:'src/backend/access/heap/heaptoast.c', sym:'heap_toast_insert_or_update',
@@ -256,14 +256,14 @@ const SCENES = [
           sp:{ set:{ '들어갈 수 있나':'예|green' } } } },
 
   { look:{ tst:true },
-    note:'TOAST 테이블은 별도 테이블이다 — 인덱스까지 따라온다',
+    note:'TOAST relation 은 독립 테이블 — 자체 index 까지',
     why:'chunk_id · chunk_seq · chunk_data 세 컬럼을 갖고, (chunk_id, chunk_seq) 유니크 인덱스로 순서를 복원한다. pg_class.reltoastrelid 가 그 OID 를 가리킨다.',
     key:'그래서 <em>테이블 크기를 볼 때 본체만 보면 틀린다</em>. pg_relation_size 는 본체만이고, 딸림 것까지 세려면 pg_total_relation_size 다.',
     ref:'src/include/access/heaptoast.h', sym:'TOAST_MAX_CHUNK_SIZE',
     fact:[['src/include/access/heaptoast.h','#define TOAST_TUPLES_PER_PAGE	4']],
     ops:{ cmp:{ set:{ 'PG':'딸림 테이블 + 인덱스 · 2KB 조각' } } } },
 
-  { note:'3·4단계는 MAIN 컬럼을 위한 것이다 — 마지막 수단',
+  { note:'pass 3 · 4 — MAIN 컬럼용 최후 수단',
     why:'attstorage 가 MAIN(m)이면 사용자가 "되도록 제자리에 두라" 고 말한 것이다. 그래서 앞의 두 단계는 MAIN 을 건드리지 않고, 목표에 닿지 못했을 때만 3단계에서 압축하고 4단계에서 밖으로 낸다. 그 단계의 목표는 더 느슨하다 — 한 페이지에 튜플 하나가 들어가면 된다.',
     key:'네 단계가 <em>사용자의 선언을 존중하는 순서</em>로 놓여 있다. 같은 값이라도 attstorage 에 따라 어느 단계에서 처리될지가 달라진다.',
     ref:'src/include/access/heaptoast.h', sym:'TOAST_TUPLE_TARGET_MAIN',
@@ -274,7 +274,7 @@ const SCENES = [
     ops:{ op:{ set:{ '단계':'3·4단계는 MAIN 에만' } } } },
 
   { look:{ cmp:true, tup:true },
-    note:'InnoDB 도 같은 문제를 풀지만 문턱과 단위가 다르다',
+    note:'InnoDB 도 off-page 로 푼다 — 문턱과 단위가 다를 뿐',
     why:'InnoDB 는 행이 페이지의 절반을 넘지 못하게 하고, 넘치는 부분을 오버플로 페이지로 보낸다 — 같은 테이블스페이스 안이고 별도 테이블이 아니다. PG 는 딸림 테이블과 인덱스를 만든다.',
     key:'그래서 진단하는 자리가 다르다. InnoDB 는 <em>같은 .ibd 안</em>에서 커지고, PG 는 <em>다른 테이블</em>이 커진다 — 후자는 눈에 잘 안 띈다.',
     ref:'src/include/access/heaptoast.h', sym:'TOAST_TUPLE_THRESHOLD',
@@ -284,8 +284,8 @@ const SCENES = [
   ],
 },
 {
-  num:'05', tab:'빈 공간', title:'넣을 페이지를 매번 훑어 찾지 않는다',
-  sub:'페이지마다 빈 공간을 한 바이트로 줄이고, 그 바이트들로 트리를 만든다',
+  num:'05', tab:'FSM', title:'Free Space Map: One Byte per Page, a Tree of Maxima',
+  sub:'페이지당 free space 를 1 바이트 category 로 양자화 — 그 위에 max-tree 를 쌓아 로그 시간 탐색',
   cast:['op','fsm','tree','sp','cmp'],
   knobs:[
     ['fillfactor','100','페이지를 이만큼만 채우고 나머지는 HOT 갱신용으로 남긴다'],
@@ -314,14 +314,14 @@ const SCENES = [
 
   steps:[
   { look:{ op:true, fsm:true },
-    note:'865 바이트가 들어갈 페이지를 찾아야 한다 — 전부 읽으면 안 된다',
-    why:'힙이 10만 페이지면 순서대로 읽어 보는 것은 800MB 를 읽는 일이다. 삽입 한 건에 그 비용을 물릴 수 없다.',
+    note:'865 바이트 들어갈 페이지 탐색 — full scan 은 불가',
+    why:'heap 이 10만 페이지면 순서대로 읽어 보는 것은 800MB 를 읽는 일이다. 삽입 한 건에 그 비용을 물릴 수 없다.',
     key:'그래서 <em>빈 공간을 따로 색인</em>한다. 문제는 그 색인이 너무 크지 않아야 한다는 것이다.',
     ref:'src/backend/storage/freespace/freespace.c', sym:'GetPageWithFreeSpace',
     beat:1 },
 
   { act:{ f:'fsm', t:'sp', lb:'한 바이트로 줄인다' },
-    note:'페이지당 한 바이트다 — 정확한 바이트 수가 아니라 256단계 중 하나',
+    note:'페이지당 1 바이트 — 정확한 값이 아니라 256 category 중 하나',
     why:'FSM_CATEGORIES 가 256 이고 FSM_CAT_STEP 은 BLCKSZ 를 그것으로 나눈 값이다 — 8,192 / 256 = 32 바이트. 여유 공간을 32 로 나눠 0 ‥ 255 사이의 값 하나로 만든다.',
     key:'정확도를 버려 크기를 얻었다. 10만 페이지의 요약이 <em>100KB 로 줄어든다</em> — 그러면 색인 자체가 메모리에 머문다.',
     ref:'src/backend/storage/freespace/freespace.c', sym:'fsm_space_avail_to_cat',
@@ -330,15 +330,15 @@ const SCENES = [
     ops:{ sp:{ set:{ '요약 단위':'32 B  (8,192 / 256)|gold' } } } },
 
   { look:{ fsm:true },
-    note:'32바이트 단위로 버림한다 — 그래서 요약은 항상 실제보다 작거나 같다',
+    note:'32 바이트 단위 내림 — category 는 실제 free space 이하로 보수적',
     why:'버림이므로 "요약이 N 이면 실제 여유는 최소 N×32" 가 성립한다. 거짓으로 크게 말하지 않으므로, 트리가 찾아 준 페이지에 실제로 들어가지 않는 일은 생기지 않는다.',
     key:'어느 쪽으로 버림하는지가 <em>정확성의 방향</em>을 정한다. 반대로 올림했다면 찾은 페이지를 읽고 나서 안 들어간다는 것을 알게 된다.',
     ref:'src/backend/storage/freespace/freespace.c', sym:'fsm_space_cat_to_avail',
     ops:{ op:{ set:{ '찾는 방법':'요약 ≥ 28 인 페이지  (865 / 32)' } } } },
 
   { act:{ f:'fsm', t:'tree', lb:'페이지 안에 이진 트리' },
-    note:'FSM 페이지 하나가 그 안에서 또 이진 트리다',
-    why:'fp_nodes 배열의 앞쪽이 상위 노드, 뒤쪽이 잎이다. 각 상위 노드는 자식들의 최댓값을 담는다 — 배열로 저장한 최대 힙이다. 루트만 보면 이 페이지가 담당하는 구간에 충분한 여유가 있는지 한 번에 안다.',
+    note:'FSM 페이지 내부 — 배열로 저장한 binary max-tree',
+    why:'fp_nodes 배열의 앞쪽이 상위 노드, 뒤쪽이 잎이다. 각 상위 노드는 자식들의 최댓값을 담는다 — 배열로 저장한 최대 heap 이다. 루트만 보면 이 페이지가 담당하는 구간에 충분한 여유가 있는지 한 번에 안다.',
     key:'그래서 <em>없는 것을 확인하는 비용도 한 번</em>이다. 구간 전체를 훑지 않고 루트 한 바이트로 건너뛴다.',
     ref:'src/include/storage/fsm_internals.h', sym:'FSMPageData',
     fact:[['src/include/storage/fsm_internals.h','fp_nodes contains the binary tree, stored in array. The first'],
@@ -347,9 +347,9 @@ const SCENES = [
     ops:{ tree:{ set:{ 'FSM 잎':{ id:'FSM 잎', lvl:2, keys:'힙 페이지별 요약  ·  최대 힙', fill:.6 } } } } },
 
   { act:{ f:'tree', t:'op', lb:'3단을 내려간다' },
-    note:'FSM 페이지들이 다시 3단 트리를 이룬다',
+    note:'FSM 페이지들 — 다시 3-level tree',
     why:'FSM_TREE_DEPTH 는 한 FSM 페이지가 담는 슬롯 수에 따라 3 또는 4 다. 8KB 블록에서는 3 이다. 루트 FSM 페이지 → 중간 → 잎 순으로 내려가며 각 단에서 충분한 값을 가진 자식을 고른다.',
-    key:'힙이 아무리 커도 <em>FSM 페이지 세 장만 읽는다</em>. 색인을 다시 색인해서 얻은 결과다.',
+    key:'heap 이 아무리 커도 <em>FSM 페이지 세 장만 읽는다</em>. 색인을 다시 색인해서 얻은 결과다.',
     ref:'src/backend/storage/freespace/freespace.c', sym:'fsm_search',
     fact:[['src/backend/storage/freespace/freespace.c','#define FSM_TREE_DEPTH	((SlotsPerFSMPage >= 1626) ? 3 : 4)'],
           ['src/backend/storage/freespace/freespace.c','#define FSM_ROOT_LEVEL	(FSM_TREE_DEPTH - 1)']],
@@ -358,7 +358,7 @@ const SCENES = [
           op:{ set:{ '읽은 페이지':'3  →  그다음 힙 1장' } } } },
 
   { look:{ fsm:true, op:true },
-    note:'요약은 실시간이 아니다 — VACUUM 이 지나가야 갱신된다',
+    note:'실시간 아님 — VACUUM 이 지나가야 갱신',
     why:'삽입하는 쪽은 자기가 쓴 페이지의 요약만 고친다. 삭제로 생긴 여유는 VACUUM 이 그 페이지를 훑을 때 반영된다. 그래서 대량 삭제 직후의 FSM 은 그 공간을 모른다.',
     key:'그래서 <em>DELETE 뒤에 테이블이 줄지 않는 것</em>과 <em>그 공간이 재사용되지 않는 것</em>이 다른 문제다. 후자는 FSM 이 아직 모르는 동안만이다.',
     ref:'src/backend/storage/freespace/freespace.c', sym:'FreeSpaceMapVacuum',
@@ -366,9 +366,9 @@ const SCENES = [
     ops:{ fsm:{ set:{ 'p0':{ id:'p0', sz:1, tag:'red', sub:'0  ·  실제로는 비었는데' } } } } },
 
   { look:{ cmp:true, sp:true },
-    note:'InnoDB 는 같은 일을 다른 자리에서 한다',
+    note:'InnoDB 는 FSP_HDR · XDES 로 extent 관리 — 행 위치는 clustered index 의 키가 정한다',
     why:'InnoDB 는 익스텐트 단위로 세그먼트 인벤토리 페이지(FSP_HDR · XDES)를 두고, 페이지 단위 여유는 인덱스 구조 자체가 관리한다. 별도의 3단 트리를 두지 않는다.',
-    key:'PG 는 <em>힙이 정렬돼 있지 않기 때문에</em> 빈 공간 색인이 따로 필요하다. InnoDB 의 힙은 클러스터 인덱스 자체라서 넣을 자리가 키로 정해진다 — 찾을 필요가 없다.',
+    key:'PG 는 <em>heap 이 정렬돼 있지 않기 때문에</em> 빈 공간 색인이 따로 필요하다. InnoDB 의 heap 은 클러스터 인덱스 자체라서 넣을 자리가 키로 정해진다 — 찾을 필요가 없다.',
     ref:'src/backend/storage/freespace/freespace.c', sym:'GetPageWithFreeSpace',
     beat:1,
     ops:{ cmp:{ set:{ 'InnoDB':'클러스터 인덱스가 자리를 정한다 · 찾지 않는다',

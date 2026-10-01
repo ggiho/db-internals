@@ -2,8 +2,8 @@
    그쪽은 소스로 검증된다. Aurora 쪽은 AWS 문서 인용까지만 보증한다 — 등급을 화면에 적어 둔다. */
 const SCENES = [
 {
-  num:'01', tab:'근거 등급', title:'무엇을 확인했고 무엇을 확인하지 못했나',
-  sub:'Aurora 는 닫힌 소스다 — 무엇을 보증하고 무엇을 보증하지 않는지 먼저 밝힌다',
+  num:'01', tab:'Evidence', title:'Evidence Grades: What Is Verified, What Is Not',
+  sub:'closed source — 문서 cite · InnoDB fact · 논문 인용을 등급별로 분리해 보증 범위부터 명시한다',
   cast:['grade','chk'],
   knobs:[
     ['—','—','이 장면은 읽는 법에 관한 것이다']],
@@ -17,21 +17,21 @@ const SCENES = [
   },
   steps:[
   { look:{ grade:true },
-    note:'다른 일곱 덱은 모든 주장을 소스 문자열에 묶는다. Aurora 는 그럴 수 없다',
+    note:'다른 덱은 모든 주장을 소스 문자열에 고정 — Aurora 는 불가',
     why:'MySQL 8.4.8 과 PostgreSQL 18.6 은 소스가 있어 lines.js 가 줄 번호를 찾고 verify.js 가 fact 문자열을 대조한다. Aurora 는 코드가 공개되지 않아 대조할 대상이 없다.',
     key:'그래서 이 덱은 <em>겉모습이 같아도 등급이 다르다</em>. Aurora 쪽 문장은 "AWS 문서가 이렇게 말한다" 까지가 보증 범위다 — 코드가 정말 그렇게 되어 있다는 보증이 아니다.',
     cite:["The Aurora DB cluster illustrates the separation of compute capacity and storage."],
     ops:{ grade:{ set:{ 'Aurora 주장':'AWS 문서 인용  ·  문서까지만 보증|gold' } } } },
 
   { look:{ chk:true },
-    note:'cite 가 보증하는 것 — 저장해 둔 문서 문장과 글자 단위로 맞는지 본다',
+    note:'cite 의 보증 범위 — 저장한 문서 문장과 글자 단위 일치',
     why:'덱마다 인용 말뭉치를 따로 둔다(이 덱은 AWS 문서에서 그대로 옮긴 26문장). verify.js 가 스텝의 cite 구절을 그 말뭉치에서 찾지 못하면 오류를 낸다 — 공백과 대소문자만 정규화하고 그 밖은 글자 그대로다.',
     key:'그러니 cite 가 통과했다는 것은 <em>내가 문장을 지어내지 않았다</em>는 뜻이다. 그 문장이 사실인지는 AWS 가 보증할 몫이다.',
     ops:{ chk:{ set:{ 'cite (문서)':'말뭉치 26문장과 대조', '대조되는 것':'문서 cite' } } } },
 
   { look:{ chk:true, grade:true },
-    note:'fact 가 보증하는 것 — 이 덱의 InnoDB 쪽은 여전히 소스 등급이다',
-    why:'같은 스텝 안에서도 두 등급이 섞인다. 예를 들어 04 장면은 "buffer pool 이 DB 프로세스 안에 있다" 를 소스로 못박는다 — buf_pool_init 이 buf_pool_ptr 을 서버 프로세스 힙에 할당한다.',
+    note:'fact 의 보증 범위 — InnoDB 쪽은 여전히 소스 등급',
+    why:'같은 스텝 안에서도 두 등급이 섞인다. 예를 들어 04 장면은 "buffer pool 이 DB 프로세스 안에 있다" 를 소스로 못박는다 — buf_pool_init 이 buf_pool_ptr 을 서버 프로세스 heap 에 할당한다.',
     key:'구분하는 방법이 있다. <em>소스 패널이 열리면 fact 등급</em>이고, 인용만 있으면 cite 등급이다. 이 스텝은 소스가 열린다 — 아래에서 확인할 수 있다.',
     fact:[['storage/innobase/buf/buf0buf.cc','buf_pool_ptr = (buf_pool_t *)ut::zalloc_withkey(']],
     ref:'storage/innobase/buf/buf0buf.cc', sym:'buf_pool_init',
@@ -40,7 +40,7 @@ const SCENES = [
     beat:1 },
 
   { look:{ grade:true },
-    note:'수치는 문서에 없다 — 그래서 논문을 따로 인용한다',
+    note:'수치는 문서에 없다 — 논문을 별도 인용',
     why:'6중 복제, 4/6 쓰기 quorum, 10GB 세그먼트 같은 수치는 AWS 문서에서 확인하지 못했다. 그 값은 SIGMOD 2017 논문에 있다. 기억으로 옮겨 적지 않고, Amazon Science 가 거는 논문 PDF 에서 원문을 뽑아 문서와 같은 방식으로 대조한다 — 05 장면이 그 인용이다.',
     key:'문서가 말하는 것은 <em>"세 개 가용 영역에 걸친 복사본"</em>까지다. 논문은 그 복사본이 여섯이고 넷을 모아야 쓴다고 적는다. 다만 논문은 2017 년의 설계를 적는다 — "현재 10GB" 가 지금도 10GB 인지는 어느 쪽도 말하지 않으므로 이 덱은 그것을 다루지 않는다.',
     cite:["A cluster volume consists of copies of the data across three Availability Zones in a single AWS Region.",
@@ -48,7 +48,7 @@ const SCENES = [
     ops:{ grade:{ set:{ '수치 (quorum 등)':'SIGMOD 2017 논문 인용|gold', '다루지 않는 것':'지금 서비스의 수치' } } } },
 
   { look:{ chk:true },
-    note:'논문 인용도 같은 파이프라인이 검증한다 — 그리고 출처를 섞지 않는다',
+    note:'논문 인용도 같은 pipeline 으로 검증 — 출처 등급은 섞지 않는다',
     why:'tools/paper.js 가 PDF 에서 원문을 뽑고 sha256 으로 판을 고정한다 — 같은 제목의 다른 판은 문장이 조금씩 다르다. verify.js 는 cite 를 문서와 논문 두 말뭉치에서 찾고, 논문에만 있는 구절을 인용한 스텝이 글에서 논문을 밝히지 않으면 오류를 낸다.',
     key:'그래서 이 덱의 Aurora 문장은 두 갈래다 — <em>"문서가 적는다"</em>와 <em>"논문이 적는다"</em>. 둘 다 "내가 지어내지 않았다" 까지를 보증하고, 그 문장이 지금의 서비스에서도 참인지는 각 출처의 몫이다.',
     ops:{ chk:{ set:{ 'cite (논문)':'SIGMOD 2017 · 판 고정', '대조되는 것':'문서 cite · 논문 cite · fact|gold' } } },
@@ -56,8 +56,8 @@ const SCENES = [
   ],
 },
 {
-  num:'02', tab:'compute·storage', title:'compute 와 storage 를 갈라 놓았다',
-  sub:'인스턴스가 하나여도 클러스터다 — 볼륨이 여러 노드에 흩어져 있으므로',
+  num:'02', tab:'Compute · Storage', title:'Disaggregated Storage: Compute vs. Cluster Volume',
+  sub:'인스턴스 하나여도 클러스터 — 볼륨이 여러 storage node 에 분산돼 있다',
   cast:['op','wr','vol','cmp'],
   knobs:[
     ['—','—','복제 정도는 인스턴스 수와 무관하다']],
@@ -76,7 +76,7 @@ const SCENES = [
   },
   steps:[
   { look:{ wr:true, vol:true },
-    note:'데이터는 인스턴스가 아니라 클러스터 볼륨에 있다',
+    note:'데이터 위치 — 인스턴스가 아니라 cluster volume',
     why:'문서는 볼륨을 "세 개 가용 영역에 걸친 복사본으로 이뤄진 하나의 가상 볼륨" 이라 하고, 인스턴스가 하나여도 클러스터인 이유를 "저장 볼륨이 여러 가용 영역의 여러 storage 노드에 흩어져 있기 때문" 이라 적는다.',
     key:'InnoDB 에서 <em>.ibd 파일이 인스턴스에 붙어 있던 것</em>이 여기서 떨어져 나갔다. mysql/innodb 01 의 마지막 스텝이 "커밋이 보장하는 것은 redo 에 있다이지 데이터 파일에 있다가 아니다" 였는데, Aurora 는 그 데이터 파일 자체를 인스턴스 밖으로 옮겼다.',
     cite:["the underlying storage volume involves multiple storage nodes distributed across multiple Availability Zones",
@@ -86,7 +86,7 @@ const SCENES = [
           wr:{ set:{ '데이터 파일':'없음  ·  볼륨에 있다' } } } },
 
   { act:{ f:'op', t:'wr', lb:'쓰기는 한 곳만' },
-    note:'쓰기는 프라이머리 하나가 전담한다',
+    note:'write 는 primary 단독',
     why:'문서가 "프라이머리(쓰기) DB 인스턴스 — 읽기와 쓰기를 지원하고 클러스터 볼륨에 대한 모든 데이터 수정을 수행한다" 고 적는다. 즉 다중 쓰기가 아니다.',
     key:'InnoDB 의 <em>단일 쓰기 노드 가정이 그대로 남아 있다</em>. 락도 MVCC 도 그 가정 위에 있으므로(mysql/locks 전체) 그 부분은 Aurora 에서도 같은 규칙으로 움직인다.',
     cite:["Primary (writer) DB instance - Supports read and write operations, and performs all of the data modifications to the cluster volume."],
@@ -95,7 +95,7 @@ const SCENES = [
           wr:{ set:{ '역할':'쓰기 전담  ·  유일' } } } },
 
   { look:{ vol:true },
-    note:'인스턴스를 늘려도 데이터를 복사하지 않는다',
+    note:'instance 를 추가해도 data copy 없음',
     why:'문서가 "Aurora 는 테이블 데이터의 새 복사본을 만들지 않는다. 대신 그 DB 인스턴스가 이미 모든 데이터를 담고 있는 공유 볼륨에 연결한다" 고 적는다. 복제 정도는 인스턴스 수와 무관하다고도 못박는다.',
     key:'읽기 노드를 늘리는 비용이 <em>데이터 크기와 무관</em>해진다. MySQL 복제에서 replica 하나를 추가하려면 전체 데이터를 복사해야 했던 것과 갈리는 지점이다.',
     cite:["you can add a DB instance quickly because Aurora doesn't make a new copy of the table data. Instead, the DB instance connects to the shared volume that already contains all your data.",
@@ -106,8 +106,8 @@ const SCENES = [
   ],
 },
 {
-  num:'03', tab:'replica', title:'클러스터 안에서는 binlog 를 쓰지 않는다',
-  sub:'그런데 리전을 넘으면 다시 binlog 다 — 같은 제품 안에 두 방식이 있다',
+  num:'03', tab:'Replicas', title:'Aurora Replicas: Shared Volume, No Binlog Replay',
+  sub:'cluster 내부는 shared volume 이라 binlog 불필요 — 리전을 넘으면 다시 binlog replication',
   cast:['wr','rd','vol','cmp'],
   knobs:[
     ['—','—','replica 수 상한은 15 다']],
@@ -125,9 +125,9 @@ const SCENES = [
   },
   steps:[
   { look:{ rd:true, vol:true },
-    note:'리더는 쓰기 노드의 로그를 재생하지 않는다 — 같은 볼륨을 본다',
+    note:'reader 는 writer 의 log 를 replay 하지 않는다 — 같은 volume 을 읽는다',
     why:'문서가 "프라이머리와 Aurora replica 는 클러스터 볼륨의 데이터를 하나의 논리 볼륨으로 본다" 고 적는다. 그래서 "클러스터 볼륨이 모든 인스턴스에 공유되므로 각 replica 를 위해 데이터 복사본을 복제하는 추가 작업이 거의 필요 없다" 고 이어진다.',
-    key:'MySQL 복제의 <em>relay log 재생이 없다</em>. mysql/innodb 01 에서 본 binlog 는 그 재생을 위한 것이었는데, 클러스터 안에서는 그 경로가 쓰이지 않는다.',
+    key:'MySQL 복제의 <em>relay log replay 가 없다</em>. mysql/innodb 01 에서 본 binlog 는 그 replay 를 위한 것이었는데, 클러스터 안에서는 그 경로가 쓰이지 않는다.',
     cite:["The DB cluster volume is physically made up of multiple copies of the data for the DB cluster. The primary instance and the Aurora Replicas in the DB cluster all see the data in the cluster volume as a single logical volume.",
           "Because the cluster volume is shared among all DB instances in your DB cluster, minimal additional work is required to replicate a copy of the data for each Aurora Replica."],
     ref:'sql/binlog.cc', sym:'MYSQL_BIN_LOG::process_flush_stage_queue',
@@ -135,7 +135,7 @@ const SCENES = [
           cmp:{ set:{ 'Aurora 클러스터 내':'binlog 재생 없음', 'MySQL 복제':'binlog → relay log 재생' } } } },
 
   { look:{ rd:true },
-    note:'그래도 지연이 0 은 아니다 — 문서는 보통 100ms 미만이라 적는다',
+    note:'lag 은 0 이 아니다 — 문서 기준 보통 100ms 미만',
     why:'"모든 Aurora replica 가 최소한의 replica 지연으로 같은 데이터를 돌려준다. 이 지연은 보통 프라이머리가 갱신을 쓴 뒤 100밀리초보다 훨씬 작다" 고 적고, 쓰기가 많은 구간에서는 지연이 늘 수 있다고 덧붙인다.',
     key:'볼륨을 공유해도 <em>리더의 buffer pool 은 각자</em>다. 문서가 지연을 0 이라 하지 않는 이유가 거기 있다 — 캐시에 남은 옛 페이지를 무효화하는 일이 남는다.',
     cite:["As a result, all Aurora Replicas return the same data for query results with minimal replica lag. This lag is usually much less than 100 milliseconds after the primary instance has written an update."],
@@ -143,7 +143,7 @@ const SCENES = [
     ops:{ rd:{ set:{ '리더 1':{ sub:'지연 < 100ms  ·  buffer pool 은 각자' } } } } },
 
   { look:{ cmp:true },
-    note:'그런데 리전을 넘으면 binlog 가 다시 등장한다',
+    note:'cross-region — binlog replication 재등장',
     why:'문서가 "MySQL 바이너리 로그(binlog) 복제를 사용해 다른 AWS 리전에 Aurora MySQL DB 클러스터의 읽기 복제본을 만들 수 있다" 고 적고, 같은 리전의 두 Aurora 클러스터 사이에도 binlog 복제를 쓸 수 있다고 적는다.',
     key:'같은 제품 안에 <em>두 가지 복제가 공존한다</em> — 클러스터 안은 공유 볼륨, 클러스터·리전을 넘으면 binlog. 그래서 mysql/innodb 01 에서 고친 2PC 순서(redo 그룹 fsync → binlog 쓰기 → binlog fsync)는 <em>리전 간 복제를 쓰는 순간 다시 그대로 의미를 갖는다</em>.',
     cite:["You can create an Aurora read replica of an Aurora MySQL DB cluster in a different AWS Region, by using MySQL binary log (binlog) replication. Each cluster can have up to five read replicas created this way, each in a different Region.",
@@ -152,9 +152,9 @@ const SCENES = [
     ops:{ cmp:{ set:{ 'Aurora 리전 간':'binlog 복제  ·  최대 5' } } } },
 
   { look:{ rd:true, wr:true },
-    note:'그리고 페일오버는 볼륨을 옮기는 일이 아니라 역할을 바꾸는 일이다',
+    note:'failover = volume 이동이 아니라 role 전환',
     why:'문서가 "쓰기 인스턴스가 사용 불가가 되면 Aurora 가 리더 인스턴스 하나를 새 쓰기 인스턴스로 자동 승격한다" 고 적고, "페일오버로 replica 를 승격하는 것이 프라이머리를 다시 만드는 것보다 훨씬 빠르다" 고 적는다.',
-    key:'데이터가 이미 공유돼 있으니 <em>옮길 것이 없다</em>. 승격이 빠른 이유가 그것이고, replica 가 없으면 그 이점도 없다고 문서가 함께 적는다.',
+    key:'데이터가 이미 공유돼 있으니 <em>옮길 것이 없다</em>. promotion 이 빠른 이유가 그것이고, replica 가 없으면 그 이점도 없다고 문서가 함께 적는다.',
     cite:["If the writer instance in a cluster becomes unavailable, Aurora automatically promotes one of the reader instances to take its place as the new writer.",
           "Promoting an Aurora Replica by failover is much faster than recreating the primary instance."],
     ref:'sql/binlog/recovery.cc', sym:'Binlog_recovery::recover',
@@ -164,8 +164,8 @@ const SCENES = [
   ],
 },
 {
-  num:'04', tab:'복구·캐시', title:'복구에서 binlog 를 빼고, buffer pool 을 프로세스 밖으로 냈다',
-  sub:'01 에서 고친 2PC 순서가 왜 Aurora 에서 비용으로만 남는지',
+  num:'04', tab:'Recovery · Cache', title:'Crash Recovery & a Buffer Cache That Survives Restarts',
+  sub:'binlog 없는 병렬 비동기 recovery, buffer pool 은 DB process 밖으로 — 2PC 가 Aurora 에선 비용으로만 남는 이유',
   cast:['op','pc','vol','cmp','grade'],
   knobs:[
     ['binlog_format','ROW','문서는 외부 복제에 안 쓰면 OFF 를 권한다'],
@@ -183,9 +183,9 @@ const SCENES = [
   },
   steps:[
   { look:{ op:true },
-    note:'InnoDB 라면 여기서 redo 를 재생한다 — checkpoint 를 찾고 그 뒤를 따라간다',
-    why:'재시작 경로가 recv_recovery_from_checkpoint_start 로 들어가 recv_recovery_on 을 켜고 "가장 최근 checkpoint 를 찾는다". 재생할 양이 곧 재시작 시간이다.',
-    key:'이 재생은 <em>인스턴스 안에서 일어난다</em>. 그래서 buffer pool 이 비어 있고, 재생이 끝날 때까지 열리지 않는다.',
+    note:'InnoDB 라면 — checkpoint 를 찾고 그 뒤 redo replay',
+    why:'재시작 경로가 recv_recovery_from_checkpoint_start 로 들어가 recv_recovery_on 을 켜고 "가장 최근 checkpoint 를 찾는다". replay 할 양이 곧 재시작 시간이다.',
+    key:'이 replay 는 <em>인스턴스 안에서 일어난다</em>. 그래서 buffer pool 이 비어 있고, replay 가 끝날 때까지 열리지 않는다.',
     fact:[['storage/innobase/log/log0recv.cc','recv_recovery_on = true;'],
           ['storage/innobase/log/log0recv.cc','/* Look for the latest checkpoint */']],
     ref:'storage/innobase/log/log0recv.cc', sym:'recv_recovery_from_checkpoint_start',
@@ -193,16 +193,16 @@ const SCENES = [
           cmp:{ set:{ 'InnoDB 복구':'재생 끝날 때까지 닫힘' } } } },
 
   { look:{ op:true, cmp:true },
-    note:'Aurora 는 binlog 없이, 병렬 스레드로 비동기 복구한다고 문서가 적는다',
+    note:'Aurora — binlog 없이 병렬 thread 비동기 recovery (문서)',
     why:'"Aurora 는 예기치 않은 재시작에서 거의 즉시 복구하도록 설계됐고 바이너리 로그 없이 애플리케이션 데이터를 계속 제공한다. Aurora 는 병렬 스레드에서 비동기적으로 복구하므로, 데이터베이스는 예기치 않은 재시작 직후 열려 있고 사용 가능하다" 고 적는다.',
-    key:'"열려 있고 사용 가능하다" 는 <em>재생을 안 한다는 말이 아니다</em>. 재생을 기다리지 않는다는 말이다 — 문서는 그 이상을 설명하지 않는다.',
+    key:'"열려 있고 사용 가능하다" 는 <em>replay 를 안 한다는 말이 아니다</em>. replay 를 기다리지 않는다는 말이다 — 문서는 그 이상을 설명하지 않는다.',
     cite:["Aurora is designed to recover from an unplanned restart almost instantaneously and continue to serve your application data without the binary log. Aurora recovers asynchronously on parallel threads, so that your database is open and available immediately after an unplanned restart."],
     ref:'storage/innobase/log/log0recv.cc', sym:'recv_recovery_from_checkpoint_start',
     ops:{ op:{ set:{ '재생 대상':'비동기 · 병렬' } },
           cmp:{ set:{ 'Aurora 복구':'즉시 열림 · binlog 불필요' } } } },
 
   { look:{ cmp:true, op:true },
-    note:'그런데 binlog 를 켜면 그 이점이 사라진다 — 문서가 직접 그렇게 적는다',
+    note:'binlog 를 켜면 그 이점이 사라진다 — 문서가 직접 명시',
     why:'"Aurora 에서 바이너리 로깅을 켜면 예기치 않은 재시작 후의 복구 시간에 직접 영향을 준다. 바이너리 로그 복구를 수행하도록 강제하기 때문이다" 라고 적고, 이어서 "Aurora 는 DB 클러스터 내부에서 데이터를 복제하거나 PITR 을 수행하는 데 바이너리 로그가 필요하지 않다" 고 적는다.',
     key:'01 에서 고친 순서 — redo 그룹 fsync → binlog 쓰기 → binlog fsync(커밋 판정) — 는 <em>binlog 를 켠 대가</em>다. 클러스터 안에서만 쓴다면 그 대가에 대응하는 이득이 없다. 그래서 문서가 OFF 를 권한다.',
     cite:["Enabling binary logging on Aurora directly affects the recovery time after an unplanned restart, because it forces the DB instance to perform binary log recovery.",
@@ -214,15 +214,15 @@ const SCENES = [
     beat:1 },
 
   { look:{ pc:true },
-    note:'buffer pool 이 DB 프로세스 안에 있다 — InnoDB 에서는 서버가 직접 할당한다',
-    why:'buf_pool_init 이 buf_pool_ptr 을 서버 프로세스 힙에 할당한다. 그러니 프로세스가 죽으면 이 메모리도 같이 사라진다.',
+    note:'InnoDB buffer pool — DB process 내부, 서버가 직접 할당',
+    why:'buf_pool_init 이 buf_pool_ptr 을 서버 프로세스 heap 에 할당한다. 그러니 프로세스가 죽으면 이 메모리도 같이 사라진다.',
     key:'재시작 직후 <em>모든 읽기가 디스크로 간다</em>. 워밍업이 필요한 이유이고, 그 동안 응답이 느린 이유다.',
     fact:[['storage/innobase/buf/buf0buf.cc','buf_pool_ptr = (buf_pool_t *)ut::zalloc_withkey(']],
     ref:'storage/innobase/buf/buf0buf.cc', sym:'buf_pool_init',
     ops:{ pc:{ set:{ '사는 곳':'DB 프로세스 힙', '재시작 후':'비어 있음 — 워밍업 필요' } } } },
 
   { look:{ pc:true, cmp:true },
-    note:'Aurora 는 이 캐시를 별도 프로세스로 옮겼다 — 그래서 재시작해도 남는다',
+    note:'Aurora — cache 를 별도 process 로 분리, restart 후에도 warm',
     why:'"Aurora 에서 각 DB 인스턴스의 페이지 캐시는 데이터베이스와 별개의 프로세스에서 관리되며, 그래서 페이지 캐시가 데이터베이스와 독립적으로 살아남을 수 있다" 고 적고, "페이지 캐시는 Aurora MySQL 에서 InnoDB 버퍼 풀이라고도 부른다" 고 같은 것임을 못 박는다.',
     key:'같은 자료구조를 <em>수명만 떼어냈다</em>. 그래서 "데이터베이스 실패 시에도 페이지 캐시는 메모리에 남아, 재시작할 때 최신 데이터 페이지를 따뜻하게 유지한다" 가 성립한다.',
     cite:["In Aurora, each DB instance's page cache is managed in a separate process from the database, which allows the page cache to survive independently of the database.",
@@ -234,7 +234,7 @@ const SCENES = [
     beat:1 },
 
   { look:{ vol:true },
-    note:'storage 쪽은 세그먼트가 깨지면 즉시 고친다 — 다른 복사본을 써서',
+    note:'storage 측 segment 손상 — 다른 copy 로 즉시 repair',
     why:'"디스크 볼륨의 세그먼트가 실패하면 Aurora 가 즉시 그 세그먼트를 복구한다. 세그먼트를 복구할 때, 클러스터 볼륨을 구성하는 다른 볼륨의 데이터를 사용해 복구된 세그먼트의 데이터가 최신임을 보장한다" 고 적는다.',
     key:'문서는 <em>세그먼트라는 단위가 있다</em>는 것까지만 말한다. 크기와 quorum 수는 문서에 없고 SIGMOD 2017 논문에 있다 — 05 장면이 그 원문을 인용한다.',
     cite:["When a segment of a disk volume fails, Aurora immediately repairs the segment. When Aurora repairs the disk segment, it uses the data in the other volumes that make up the cluster volume to ensure that the data in the repaired segment is current.",
@@ -247,8 +247,8 @@ const SCENES = [
   ],
 },
 {
-  num:'05', tab:'quorum', title:'쓰기는 여섯 중 넷, 읽기는 여섯 중 셋',
-  sub:'AZ 하나와 노드 하나를 잃어도 데이터가 남는다 — 이 장면의 수치는 SIGMOD 2017 논문 인용이다',
+  num:'05', tab:'Quorum', title:'Quorum Writes: 4 of 6 to Write, 3 of 6 to Read',
+  sub:'3 AZ × 2 copy — AZ+1 장애에도 데이터 보존, 수치는 SIGMOD 2017 논문 인용',
   cast:['vol','qm','mdl','grade'],
   knobs:[
     ['—','—','quorum 수와 세그먼트 크기는 설정이 아니다 — 서비스가 정한다']],
@@ -266,7 +266,7 @@ const SCENES = [
   },
   steps:[
   { look:{ qm:true, vol:true },
-    note:'흔한 방식은 셋에 복제하고 둘을 모은다 — 2/3 quorum',
+    note:'흔한 방식 — 3-way 복제, 2/3 quorum',
     why:'논문이 "노드 하나를 잃는 것을 견디는 흔한 방식은 V=3 에 복제하고 쓰기 quorum 2/3, 읽기 quorum 2/3 에 기대는 것" 이라 적고, 곧바로 "2/3 quorum 은 부족하다고 본다" 고 적는다.',
     key:'quorum 에는 규칙이 둘 있다 — 읽기는 최신 쓰기를 알아야 하고(<em>Vr + Vw > V</em>), 쓰기도 최신 쓰기를 알아야 한다(<em>Vw > V/2</em>). 2+2 > 3, 2 > 1.5 — 셋짜리도 규칙은 지킨다. 부족한 것은 규칙이 아니라 무엇을 한꺼번에 잃느냐다.',
     cite:["A common approach to tolerate the loss of a single node is to replicate data to (V = 3) nodes and rely on a write quorum of 2/3 (Vw = 2) and a read quorum of 2/3 (Vr = 2).",
@@ -276,7 +276,7 @@ const SCENES = [
     ops:{ mdl:{ set:{ '2/3 모델':'V=3 · 쓰기\u00a02 · 읽기\u00a02' } } } },
 
   { look:{ vol:true, qm:true },
-    note:'AZ 하나가 통째로 죽을 때 다른 AZ 의 고장 하나와 겹치면, 남은 하나가 최신인지 알 수 없다',
+    note:'AZ 장애 + 타 AZ 노드 장애 동시 — 남은 하나의 최신성 판단 불가',
     why:'논문이 "AZ C 가 화재·지붕 붕괴·홍수로 실패하면, AZ A 나 B 에 동시에 고장이 있는 복제본의 quorum 이 깨진다" 고 적고, 그때 "2/3 읽기 quorum 모델에서는 복사본 둘을 잃어 셋째가 최신인지 판단할 수 없다" 고 적는다.',
     key:'디스크 하나하나의 고장은 서로 무관하지만 <em>AZ 고장은 그 AZ 의 디스크·노드가 한꺼번에 죽는 상관된 고장</em>이다. 큰 fleet 에는 늘 어딘가 고장 나 수리 중인 노드가 있으므로, quorum 은 AZ 고장과 그 배경 고장이 겹치는 것을 견뎌야 한다.',
     cite:["the failure of AZ C, due to a fire, roof failure, flood, etc, will break quorum for any of the replicas that concurrently have failures in AZ A or AZ B.",
@@ -287,7 +287,7 @@ const SCENES = [
     beat:1 },
 
   { look:{ vol:true, qm:true },
-    note:'Aurora 는 여섯에 복제한다 — AZ 마다 둘',
+    note:'Aurora — 6-way 복제, AZ 마다 둘',
     why:'논문이 "각 데이터 항목을 3개 AZ 에 걸쳐 6중으로, AZ 마다 두 복사본씩 복제한다" 고 적고, "6표(V=6), 쓰기 quorum 4/6(Vw=4), 읽기 quorum 3/6(Vr=3)" 을 쓴다고 적는다. 목표도 적는다 — AZ 하나와 노드 하나(AZ+1)를 잃어도 데이터를 잃지 않고, AZ 하나를 잃어도 쓰기를 계속하는 것.',
     key:'규칙 둘을 그대로 지킨다 — <em>3+4 = 7 > 6, 4 > 3</em>. 표를 늘린 목적은 규칙이 아니라 잃어도 되는 것의 모양이다. 다음 두 스텝이 그 모양이다.',
     cite:["We achieve this by replicating each data item 6 ways across 3 AZs with 2 copies of each item in each AZ.",
@@ -301,7 +301,7 @@ const SCENES = [
           mdl:{ set:{ 'Aurora':'V=6 · 쓰기\u00a04 · 읽기\u00a03' } } } },
 
   { look:{ vol:true, qm:true },
-    note:'AZ 하나를 잃어도 쓸 수 있다 — 넷이 남는다',
+    note:'AZ 하나 손실 — 넷이 남아 write 가능',
     why:'논문이 이 모델로 "AZ 하나의 실패를 포함해 아무 노드 둘을 잃어도 쓰기 가용성을 유지한다" 고 적는다.',
     key:'쓰기에 필요한 넷이 <em>정확히</em> 남는다. 여기서 하나를 더 잃으면 쓰기는 멈춘다 — 그런데 데이터까지 잃지는 않는다. 다음 스텝이 2/3 모델이 판단 불능에 빠졌던 바로 그 모양이다.',
     cite:["lose any two nodes, including a single AZ failure and maintain write availability."],
@@ -309,7 +309,7 @@ const SCENES = [
           qm:{ set:{ '살아 있는 표':'4', '쓰기':'가능 — 4/6 을 채운다|green' } } } },
 
   { look:{ vol:true, qm:true },
-    note:'AZ 하나와 노드 하나(AZ+1) — 쓰기는 멈추지만 데이터는 남는다',
+    note:'AZ+1 — write 정지, data 는 보존',
     why:'논문이 "AZ 하나와 노드 하나 더(노드 3개 고장)를 잃어도 읽기 가용성을 잃지 않는다" 고 적고, "읽기 quorum 을 지키면 복사본을 더 붙여 쓰기 quorum 을 다시 세울 수 있다" 고 적는다.',
     key:'셋이 남으니 Vr = 3 이 선다. <em>최신본이 그 셋 안에 반드시 있다</em> — Vr + Vw > V 가 뜻하는 것이 이것이다. 2/3 모델은 같은 고장에서 하나가 남아 판단할 수 없었다. 남은 셋으로 새 복사본을 만들어 넷을 채우면 쓰기가 돌아온다.',
     cite:["lose a single AZ and one additional node (a failure of 3 nodes) without losing read availability",
@@ -319,7 +319,7 @@ const SCENES = [
     beat:1 },
 
   { look:{ vol:true, grade:true },
-    note:'고장 둘이 겹칠 틈을 줄인다 — 볼륨을 10GB 세그먼트로 쪼갠다',
+    note:'이중 장애 창 축소 — volume 을 10GB segment 로 분할',
     why:'논문이 독립 고장의 발생률(MTTF)은 줄이기 어렵다고 보고 "대신 MTTR 을 줄여 이중 고장의 취약 구간을 좁힌다" 고 적는다. 방법은 볼륨을 "현재 10GB" 인 고정 크기 세그먼트로 나누고, 세그먼트 여섯 개(세 AZ 에 둘씩)를 Protection Group(PG) 하나로 묶는 것이다.',
     key:'논문은 10GB 세그먼트가 <em>10Gbps 링크로 10초면 복구된다</em>고 적는다. quorum 을 잃으려면 그 10초 안에 독립 고장 둘과 다른 AZ 의 실패가 겹쳐야 한다. "현재 10GB" 는 2017 년의 값이다 — 지금 서비스의 값은 문서가 적지 않는다.',
     cite:["We instead focus on reducing MTTR to shrink the window of vulnerability to a double fault.",
@@ -332,7 +332,7 @@ const SCENES = [
     beat:1 },
 
   { look:{ qm:true, vol:['AZ-b · 1'] },
-    note:'그런데 평소 읽기는 quorum 을 모으지 않는다',
+    note:'평시 read 는 quorum 을 모으지 않는다',
     why:'논문이 "평소에는 데이터베이스가 읽기 quorum 으로 합의를 세울 필요가 없다" 고 적는다. 읽을 때 그 시점의 VDL 로 read-point 를 정하고, 그 read-point 까지 완전한 세그먼트 하나를 골라 바로 읽는다. 데이터베이스가 각 세그먼트의 진도(SCL)를 추적하므로 어느 것이 충분한지 이미 안다.',
     key:'3/6 읽기 quorum 은 <em>데이터베이스가 그 상태를 잃었을 때 — 복구 때</em> 쓰는 것이다. "읽을 때마다 셋을 읽는다" 로 이해하면 틀린다. 논문도 "복구로 상태를 다시 세워야 할 때를 빼면 quorum 읽기가 아니라 세그먼트 하나를 읽는다" 고 적는다.',
     cite:["The database does not need to establish consensus using a read quorum under normal circumstances.",
@@ -342,7 +342,7 @@ const SCENES = [
     beat:1 },
 
   { look:{ mdl:true },
-    note:'비교 — AZ 두 곳의 동기 미러링 MySQL 은 4/4 쓰기 quorum 이다',
+    note:'비교 — 2-AZ 동기 미러링 MySQL 은 4/4 write quorum',
     why:'논문이 AZ 두 곳에 걸쳐 EBS 를 동기 미러링하는 MySQL 구성을 "분산 시스템 관점에서 4/4 쓰기 quorum 으로 볼 수 있고, 고장과 느린 노드에 취약하다" 고 적는다. 쓰기마다 넷 모두를 기다리므로 가장 느린 하나가 응답 시간을 정한다.',
     key:'4/6 은 복사본을 더 두면서 <em>기다리는 수는 줄인</em> 것이다 — 여섯 중 느린 둘을 기다리지 않는다. 논문은 storage 노드 하나가 밀려도 "4/6 quorum 쓰기가 그것을 느린 노드 하나로 흡수한다" 고 적는다. 같은 넷이라도 "넷 모두" 와 "여섯 중 넷" 은 다르다.',
     cite:["From a distributed system perspective, this model can be viewed as having a 4/4 write quorum, and is vulnerable to failures and outlier performance.",

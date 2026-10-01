@@ -3,8 +3,8 @@
    그림의 leaf 는 키 범위 몇 줄로 줄였다. 항목 수 말고는 소스의 규칙 그대로다. */
 const SCENES = [
 {
-  num:'01', tab:'분할', title:'가르기 전에 먼저 치운다',
-  sub:'자리가 없으면 죽은 항목부터 지우고, 그래도 없을 때 가른다 — 읽기는 그동안 오른쪽 링크를 따라간다',
+  num:'01', tab:'Page Split', title:'Leaf Split: High Key & Right-Link',
+  sub:'split 전에 LP_DEAD 부터 회수, 그래도 없을 때 split — 진행 중 reader 는 right-link 로 이동 (Lehman & Yao)',
   cast:['op','cmp','bt','leaf','right'],
   knobs:[
     ['fillfactor','90','leaf 의 채움 비율 — 가장 오른쪽 leaf 를 가를 때 왼쪽에 남기는 몫'],
@@ -30,7 +30,7 @@ const SCENES = [
   },
   steps:[
   { act:{ f:'op', t:'bt', lb:'35 → leaf L' },
-    note:'INSERT 35 가 leaf L 에 닿는다 — 페이지에 빈 자리가 없다',
+    note:'INSERT 35 → leaf L, free space 없음',
     why:'_bt_findinsertloc 이 넣을 자리를 찾는데 남은 공간이 새 항목보다 작다. 주석 : 대상 페이지에 새 항목이 안 들어가면, 지금 삭제나 중복 제거를 해서 삽입 때의 분할을 피해 본다.',
     key:'PG 의 B-tree 는 <em>분할을 마지막 수단</em>으로 둔다. 가르기 전에 치울 수 있는 것을 세 가지 방법으로 치워 본다.',
     ref:'src/backend/access/nbtree/nbtinsert.c', sym:'_bt_findinsertloc',
@@ -40,8 +40,8 @@ const SCENES = [
           leaf:{ set:{ '30 ‥ 39':{ sub:'살아 있는 항목 6개  ·  35 가 들어갈 자리' } } } } },
 
   { act:{ f:'op', t:'leaf', lb:'LP_DEAD 지우기' },
-    note:'먼저 LP_DEAD 표시가 붙은 항목을 지운다 — 12 와 22 가 빠지자 35 가 들어간다',
-    why:'인덱스 스캔이 가리킨 힙 튜플이 모두에게 죽은 것을 알면 그 인덱스 항목에 LP_DEAD 를 켜 둔다(_bt_killitems). 자리가 모자랄 때 그것들을 먼저 지우고, 새 항목이 들어갈 만큼 비면 여기서 끝난다 — "분할을 이미 피했으면 돌아간다".',
+    note:'1차 — LP_DEAD 항목 삭제, 12 · 22 가 빠지며 35 수용',
+    why:'인덱스 스캔이 가리킨 heap 튜플이 모두에게 죽은 것을 알면 그 인덱스 항목에 LP_DEAD 를 켜 둔다(_bt_killitems). 자리가 모자랄 때 그것들을 먼저 지우고, 새 항목이 들어갈 만큼 비면 여기서 끝난다 — "분할을 이미 피했으면 돌아간다".',
     key:'읽기가 남긴 표시가 <em>쓰기의 분할을 막는다</em>. VACUUM 을 기다리지 않는 인덱스 쪽의 즉시 정리다(mvcc 03 의 pruning 과 짝이다).',
     ref:'src/backend/access/nbtree/nbtinsert.c', sym:'_bt_delete_or_dedup_one_page',
     fact:['Scan over all items to see which ones need to be deleted according to',
@@ -51,7 +51,7 @@ const SCENES = [
           op:{ set:{ '결과':'분할 없이 들어감|green' } } } },
 
   { look:{ op:true, leaf:true },
-    note:'34 · 36 · 38 이 더 들어와 다시 찬다 — 이번엔 LP_DEAD 도 없고 같은 키도 없다',
+    note:'34 · 36 · 38 유입으로 재포화 — LP_DEAD 도 중복 키도 없음',
     why:'두 번째 방법(bottom-up 삭제)은 실행기 힌트가 "들어오는 항목이 논리적으로 안 바뀌었다" 고 할 때 — 키가 그대로인 UPDATE 일 때 — 한다. 세 번째(중복 제거)는 같은 키가 있어야 합칠 것이 있다. 새 키만 들어오는 INSERT 에는 둘 다 할 일이 없다.',
     key:'세 방법 모두 <em>이미 있는 것을 줄이는 일</em>이다. 정말 새 키가 늘면 가르는 수밖에 없다.',
     ref:'src/backend/access/nbtree/nbtinsert.c', sym:'_bt_delete_or_dedup_one_page',
@@ -61,7 +61,7 @@ const SCENES = [
           leaf:{ set:{ '30 ‥ 39':{ sub:'34 · 36 · 38 까지 10개 — 다시 가득' } } } } },
 
   { look:{ leaf:true, bt:true },
-    note:'가를 자리를 고른다 — 가장 오른쪽 leaf 가 아니면 양쪽 빈 공간이 비슷한 곳',
+    note:'split point 선정 — rightmost leaf 가 아니면 좌우 free space 균형',
     why:'_bt_findsplitloc 은 양쪽 여유 공간의 균형이 받아들일 만한 분할점만 후보로 보고, 그중 왼쪽 마지막 키와 오른쪽 첫 키를 가르는 데 필요한 열이 가장 적은 점을 고른다 — 뒤따르는 열을 최대한 잘라 내려는 것이다(suffix truncation). 가장 오른쪽 leaf 라면 규칙이 다르다(8 스텝).',
     key:'분할점은 <em>공간 균형과 키 길이</em>를 함께 본다. 잘라 낸 짧은 키가 부모로 올라가 부모를 덜 채운다.',
     ref:'src/backend/access/nbtree/nbtsplitloc.c', sym:'_bt_findsplitloc',
@@ -70,7 +70,7 @@ const SCENES = [
     ops:{ op:{ set:{ '단계':'분할점 고르기' } } } },
 
   { act:{ f:'leaf', t:'right', lb:'오른쪽 절반을 옮긴다' },
-    note:'오른쪽 절반을 새 페이지로 옮기고, 왼쪽 페이지에 high key 와 오른쪽 링크를 단다',
+    note:'오른쪽 절반을 새 페이지로 — 왼쪽에 high key 와 right-link',
     why:'_bt_split 은 왼쪽 페이지의 high key 를 _bt_truncate 로 만든다 — 오른쪽 첫 키와 가르는 데 필요한 만큼만. 새 오른쪽 페이지는 원래 페이지의 high key(40)를 물려받는다. 왼쪽의 btpo_next 가 새 페이지를, 새 페이지의 btpo_prev 가 왼쪽을 가리킨다.',
     key:'high key 는 <em>이 페이지에 올 수 있는 키의 상한</em>이다. 이것과 오른쪽 링크가 있으면 부모에 아직 알리지 않았어도 트리가 올바르다 — 7 스텝의 읽기가 그것을 쓴다.',
     ref:'src/backend/access/nbtree/nbtinsert.c', sym:'_bt_split',
@@ -87,7 +87,7 @@ const SCENES = [
                add:[{ id:'leaf L′', lvl:1, keys:'35 ‥ 39', fill:.5 }], move:[['leaf L′', 2]] } } },
 
   { act:{ f:'right', t:'bt', lb:'부모에 알린다' },
-    note:'그다음에 부모(root)에 새 페이지로 가는 downlink 를 넣는다 — 분할이 여기서 끝난다',
+    note:'부모(root)에 downlink 삽입 — 여기서 split 완료',
     why:'_bt_insert_parent 의 설명이 "부모에 downlink 를 넣어 분할을 마친다" 다. 부모도 가득이면 같은 일이 한 층 위에서 되풀이되고, root 가 갈라지면 _bt_newlevel 이 그 위에 새 root 를 만든다 — 트리는 위로 자란다.',
     key:'분할은 <em>두 단계</em>다 — 가르고, 그다음 알린다. 두 단계 사이에도 트리를 읽을 수 있다는 것이 PG B-tree 의 설계다.',
     ref:'src/backend/access/nbtree/nbtinsert.c', sym:'_bt_insert_parent',
@@ -97,7 +97,7 @@ const SCENES = [
           op:{ set:{ '단계':'부모에 downlink', '결과':'분할 끝' } } } },
 
   { look:{ leaf:true, bt:true },
-    note:'그사이 37 을 찾으러 온 읽기는 leaf L 에서 high key 를 보고 오른쪽 링크를 따라간다',
+    note:'concurrent reader(37) — high key 확인 후 right-link 추종',
     why:'README : 자식 페이지로 내려가면 그 페이지의 high key 를 찾는 키와 비교한다. 찾는 키가 더 크면 그 페이지가 동시에 갈라진 것이므로 오른쪽 링크를 따라가 그 범위를 가진 새 페이지를 찾는다. 그래서 읽기 락을 쥔 채 트리를 내려가지 않아도 된다.',
     key:'Lehman & Yao 의 B-link 트리다. <em>읽는 쪽이 분할을 스스로 알아챈다</em> — 부모에 downlink 가 아직 없어도 틀리지 않는다.',
     ref:'src/backend/access/nbtree/nbtsearch.c', sym:'_bt_moveright',
@@ -107,7 +107,7 @@ const SCENES = [
     beat:1 },
 
   { look:{ bt:true, cmp:true },
-    note:'가장 오른쪽 leaf 는 다르게 가른다 — 왼쪽을 90% 채워 두고 나머지만 넘긴다',
+    note:'rightmost leaf 는 비대칭 split — 왼쪽 90% 유지',
     why:'_bt_findsplitloc 의 주석 : 가장 오른쪽 leaf 에는 fillfactor 배수를 늘 쓴다. 기본 leaf fillfactor 가 90 이다. 키가 계속 커지며 들어오면 오른쪽 끝만 갈라지므로, 왼쪽에 남는 페이지는 90% 찬 채로 굳는다.',
     key:'늘어나는 키(시퀀스 · 시각)에서 <em>반쯤 빈 페이지가 쌓이지 않는다</em>. InnoDB 도 순차 삽입을 알아보고 새 레코드 자리에서 쪼갠다(mysql/innodb 10) — 같은 문제에 같은 방향의 답이다.',
     ref:'src/backend/access/nbtree/nbtsplitloc.c', sym:'_bt_findsplitloc',
@@ -116,7 +116,7 @@ const SCENES = [
     ops:{ cmp:{ set:{ 'InnoDB':'순차면 새 레코드 자리에서 쪼갠다', 'PG':'가장 오른쪽 leaf 는 90% 남긴다|gold' } } } },
 
   { look:{ op:true, leaf:true, cmp:true },
-    note:'정리 — 치우고, 그래도 안 되면 가르고, 그다음 알린다',
+    note:'정리 — reclaim → split → parent 갱신 순',
     why:'자리를 만드는 순서가 정해져 있다 : LP_DEAD 지우기 → bottom-up 삭제 → 중복 제거 → 분할. 앞의 셋은 페이지 하나 안에서 끝나고, 분할만 이웃과 부모를 건드린다.',
     key:'InnoDB 는 지운 표시가 된 보조 인덱스 레코드를 <em>purge 스레드가 나중에</em> 치운다. PG 는 <em>페이지가 찼을 때 그 자리에서</em> 치운다 — 치우는 때가 다르다.',
     ref:'src/backend/access/nbtree/nbtinsert.c', sym:'_bt_delete_or_dedup_one_page',
@@ -126,8 +126,8 @@ const SCENES = [
   ],
 },
 {
-  num:'02', tab:'중복 제거', title:'같은 키는 하나로 묶는다',
-  sub:'값이 몇 개 없는 열의 인덱스는 키를 한 번만 적고 TID 를 배열로 모은다',
+  num:'02', tab:'Deduplication', title:'B-tree Deduplication: Posting Lists',
+  sub:'저카디널리티 인덱스는 키를 한 번만 — TID 를 posting list 로 묶어 split 을 늦춘다',
   cast:['op','cmp','bt','leaf','right'],
   /* 손잡이는 인덱스 저장 파라미터다(CREATE INDEX … WITH (deduplicate_items = off)).
      _bt_delete_or_dedup_one_page 의 마지막 조건 BTGetDeduplicateItems(rel) 에서 갈린다.
@@ -135,7 +135,7 @@ const SCENES = [
   vary:{ knob:'deduplicate_items', base:'on', alt:{
     'off':{
       3:{ act:{ f:'leaf', t:'right', lb:'합치지 않고 가른다' },
-          note:'deduplicate_items = off — 합치지 않고 가른다',
+          note:'deduplicate_items = off — merge 없이 split',
           why:'_bt_delete_or_dedup_one_page 의 마지막 조건 BTGetDeduplicateItems(rel) 이 거짓이라 아무것도 줄이지 못하고 돌아온다. 자리가 없으니 _bt_split 으로 간다.',
           key:'같은 키 120개가 <em>두 페이지로 나뉜다</em> — 새로운 정보는 TID 뿐인데 페이지가 는다.',
           ref:'src/backend/access/nbtree/nbtinsert.c', sym:'_bt_delete_or_dedup_one_page',
@@ -147,20 +147,20 @@ const SCENES = [
                      set:{ 'leaf A':{ fill:.5 } } },
                 op:{ set:{ '단계':'분할|red' } } } },
       4:{ look:{ leaf:true, right:true },
-          note:'끄면 posting list 는 생기지 않는다 — 항목마다 키를 다시 적는다',
+          note:'off — posting list 없음, 항목마다 키 반복',
           why:'항목 하나가 키와 TID 하나다. 같은 값이 계속 들어오는 한 페이지는 같은 속도로 차고, 분할도 같은 속도로 온다.',
           key:'인덱스 크기가 <em>행 수에 정비례</em>한다 — 값의 종류가 몇 개든 상관없다.',
           ref:'src/include/access/nbtree.h', sym:'BTreeTupleIsPosting',
           fact:['Sometimes non-pivot tuples also use a representation that repurposes'] },
       5:{ look:{ leaf:true, bt:true },
-          note:'합치지는 않지만 분할점 규칙은 같다 — 한 값뿐인 페이지는 왼쪽을 96% 남긴다',
+          note:'merge 는 없어도 split point 규칙은 동일 — single-value 페이지는 왼쪽 96% 유지',
           why:'분할점의 "single value" 규칙은 중복 제거 설정과 무관하게 _bt_findsplitloc 이 고른다. 같은 값의 가장 오른쪽 페이지면 왼쪽을 거의 가득 둔 채 가른다.',
           key:'끄더라도 <em>반쯤 빈 페이지가 줄줄이 생기지는 않는다</em>. 다만 페이지 수 자체가 합칠 때보다 많다.',
           ref:'src/backend/access/nbtree/nbtsplitloc.c', sym:'_bt_findsplitloc',
           fact:['SPLIT_SINGLE_VALUE,			/* leave left page almost full */',
                 ['src/include/access/nbtree.h','#define BTREE_SINGLEVAL_FILLFACTOR	96']] },
       7:{ look:{ leaf:true, cmp:true },
-          note:'정리 — 끄면 InnoDB 보조 인덱스와 같은 모양이 된다',
+          note:'정리 — off 면 InnoDB secondary index 와 같은 모양',
           why:'항목마다 키와 TID 하나 — 값이 셋뿐이어도 행 수만큼 항목이 있다. 켜 두면 같은 키는 posting list 하나로 줄어든다.',
           key:'기본값이 on 인 이유다. 끄는 것은 <em>항목을 자주 지우고 다시 넣어</em> posting list 를 쪼개는 비용이 더 큰 드문 경우다.',
           ref:'src/backend/access/common/reloptions.c', sym:'boolRelOpts',
@@ -194,14 +194,14 @@ const SCENES = [
   },
   steps:[
   { look:{ op:true, leaf:true },
-    note:'값이 셋뿐인 열의 인덱스 — leaf 가 같은 키로 가득하다',
-    why:'보통의 leaf 항목은 키와 힙 TID 하나다. status 처럼 값이 몇 개 없는 열이면 같은 키가 TID 만 바꿔 수백 번 되풀이된다.',
+    note:'값이 셋뿐인 열 — leaf 가 동일 키로 포화',
+    why:'보통의 leaf 항목은 키와 heap TID 하나다. status 처럼 값이 몇 개 없는 열이면 같은 키가 TID 만 바꿔 수백 번 되풀이된다.',
     key:'페이지를 채우는 것은 <em>키의 반복</em>이다 — 새로운 정보는 TID 뿐이다.',
     ref:'src/include/access/nbtree.h', sym:'BTreeTupleIsPosting',
     fact:['Sometimes non-pivot tuples also use a representation that repurposes'] },
 
   { look:{ leaf:true, op:true },
-    note:'자리가 없다 — LP_DEAD 도 없고, 새로 넣는 INSERT 라 bottom-up 삭제도 해당이 없다',
+    note:'free space 없음 — LP_DEAD 없음, 순수 INSERT 라 bottom-up deletion 대상도 아님',
     why:'01 장면의 순서 그대로다. LP_DEAD 지우기는 지울 것이 없고, bottom-up 삭제는 키가 안 바뀐 UPDATE 일 때만 한다. 남은 것이 중복 제거다.',
     key:'세 번째 방법까지 왔다. 여기서 <em>합칠지 가를지</em>가 정해진다.',
     ref:'src/backend/access/nbtree/nbtinsert.c', sym:'_bt_delete_or_dedup_one_page',
@@ -209,7 +209,7 @@ const SCENES = [
     ops:{ op:{ set:{ '단계':'자리 부족 — 세 번째 방법' } } } },
 
   { act:{ f:'op', t:'leaf', lb:'중복 제거' },
-    note:'같은 키를 posting list 하나로 합친다 — 키는 한 번, TID 는 배열로',
+    note:'동일 키를 posting list 로 merge — key 1회, TID 배열',
     why:'BTGetDeduplicateItems(rel) 이 참이고 키가 바이트로 같음을 보장하는 형식이면(allequalimage) _bt_dedup_pass 가 돈다. nbtree.h : 중복 제거는 같은 여러 항목을 논리적으로 같고 공간을 덜 쓰는 표현으로 합친다 — posting list 는 ItemPointerData 의 배열이다.',
     key:'분할 대신 <em>압축</em>으로 자리를 만든다. 값이 몇 개 없는 인덱스일수록 크게 준다.',
     ref:'src/backend/access/nbtree/nbtdedup.c', sym:'_bt_dedup_pass',
@@ -223,7 +223,7 @@ const SCENES = [
           op:{ set:{ '단계':'중복 제거 — 가르지 않음|green' } } } },
 
   { look:{ leaf:true },
-    note:'합치는 때는 가르기 직전뿐이다 — 평소에는 항목 하나씩 넣는다',
+    note:'dedup 시점은 split 직전뿐 — 평시엔 tuple 단위 insert',
     why:'nbtree.h : posting list 항목은 게으르게 만든다 — 그러지 않으면 leaf 를 갈라야 하는 시점에. 형식은 t_tid · t_info · 키 값 · posting list(TID 배열) 순이다.',
     key:'넣을 때마다 합치면 넣는 비용이 오르므로 <em>어차피 가를 페이지에서만</em> 합친다. 게으른 압축이다.',
     ref:'src/include/access/nbtree.h', sym:'BTreeTupleIsPosting',
@@ -231,7 +231,7 @@ const SCENES = [
           't_tid | t_info | key values | posting list (TID array)'] },
 
   { look:{ leaf:true, bt:true },
-    note:'페이지가 한 값뿐이면 끝의 몇 개는 합치지 않고 남긴다 — 곧 올 분할에 대비해',
+    note:'single-value 페이지 — 끝 몇 개는 merge 하지 않고 남김 (곧 올 split 대비)',
     why:'nbtdedup.c 의 머리말 : 페이지가 한 값으로 가득하면 "single value" 전략을 써서 페이지 끝에 합치지 않은 항목 몇 개를 남긴다. 그 뒤의 분할은 nbtsplitloc.c 의 같은 이름의 전략으로 왼쪽을 거의 가득(96%) 둔다.',
     key:'같은 값이 끝없이 들어오면 <em>왼쪽을 96% 채워 두고</em> 오른쪽으로 넘긴다 — 반쯤 빈 페이지를 만들지 않는다.',
     ref:'src/backend/access/nbtree/nbtdedup.c', sym:'_bt_dedup_pass',
@@ -239,8 +239,8 @@ const SCENES = [
           ['src/include/access/nbtree.h','#define BTREE_SINGLEVAL_FILLFACTOR	96']] },
 
   { look:{ op:true, leaf:true },
-    note:'키가 안 바뀐 UPDATE 가 HOT 이 못 되면 같은 키 항목이 또 생긴다 — 가르기 전에 옛 버전을 지운다',
-    why:'bottom-up 삭제는 "UPDATE 가 만드는 MVCC 버전 반복 때문에 생기는 불필요한 분할을 아예 막는" 것이 목표다. 같은 키의 항목들이 가리키는 힙 튜플을 확인해 모두에게 죽은 옛 버전의 항목을 지운다. 이것은 deduplicate_items 와 무관하게 돈다.',
+    note:'non-HOT UPDATE 가 만든 동일 키 version churn — split 전에 bottom-up deletion 으로 회수',
+    why:'bottom-up 삭제는 "UPDATE 가 만드는 MVCC 버전 반복 때문에 생기는 불필요한 분할을 아예 막는" 것이 목표다. 같은 키의 항목들이 가리키는 heap 튜플을 확인해 모두에게 죽은 옛 버전의 항목을 지운다. 이것은 deduplicate_items 와 무관하게 돈다.',
     key:'버전이 쌓여 인덱스가 부푸는 PG 의 고질을 <em>분할 직전에 되돌린다</em>(mvcc 07 의 HOT 이 못 된 경우의 뒷수습이다).',
     ref:'src/backend/access/nbtree/nbtdedup.c', sym:'_bt_bottomupdel_pass',
     fact:['entirely prevent "unnecessary" page splits caused by MVCC version churn',
@@ -248,7 +248,7 @@ const SCENES = [
     ops:{ op:{ set:{ '문장':"UPDATE orders SET note = … WHERE id = 7", '단계':'bottom-up 삭제' } } } },
 
   { look:{ leaf:true, cmp:true },
-    note:'정리 — PG 인덱스는 같은 키를 TID 배열로 묶어 둔다',
+    note:'정리 — PG index 는 동일 키를 TID 배열로 압축',
     why:'값이 셋뿐인 열에 행이 백만 개여도 leaf 에는 키마다 posting list 몇 개가 있을 뿐이다. 합치는 것은 가르기 직전이고, 그래서 넣는 속도는 거의 그대로다.',
     key:'InnoDB 보조 인덱스는 <em>항목마다 (키, PK)</em> 를 그대로 둔다 — 같은 키를 묶는 구조가 없다. 값의 종류가 적은 인덱스에서 두 엔진의 크기가 크게 갈린다.',
     ref:'src/backend/access/nbtree/nbtdedup.c', sym:'_bt_dedup_pass',

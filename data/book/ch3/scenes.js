@@ -3,8 +3,8 @@
    책의 도판과 문장을 옮기지 않는다 — 개념을 다시 그리고 설명은 내가 쓴다. */
 const SCENES = [
 {
-  num:'01', tab:'바이트 순서', title:'같은 4바이트, 다른 해석',
-  sub:'책은 선택으로 제시한다 — InnoDB 는 하나를 정해 놓았다',
+  num:'01', tab:'Byte Order', title:'Byte Order: Big-Endian on Disk, Regardless of CPU',
+  sub:'책은 선택지로 제시 — InnoDB 는 big-endian 하나로 고정',
   cast:['op','val','rec'],
   vsLabel:'A  ·  BIG-ENDIAN  (InnoDB 가 고른 것)', pair:'01v',
   knobs:[
@@ -30,7 +30,7 @@ const SCENES = [
     "the number this representation yields is just an approximation" ],
   steps:[
   { look:{ val:['AA'] },
-    note:'가장 큰 자리(AA)가 가장 낮은 주소에 온다',
+    note:'big-endian — 최상위 byte(AA)가 최저 address',
     why:'0xAABBCCDD 를 4바이트로 쓸 때 AA · BB · CC · DD 순서로 놓는다. 사람이 숫자를 읽는 순서와 같다. 부호 반전은 row0mysql.cc 의 저장 경로가 한다.',
     key:'부호 없는 정수라면 이 순서에서 <em>바이트 비교가 숫자 비교와 일치한다</em>. 부호 있는 정수는 최상위 비트 때문에 어긋나므로 InnoDB 가 <em>부호 비트를 반전해</em> 저장한다 — 그래야 같은 성질이 유지된다.',
     ref:'storage/innobase/include/mach0data.ic', sym:'mach_write_to_4',
@@ -38,7 +38,7 @@ const SCENES = [
     beat:1 },
 
   { act:{ f:'op', t:'val', lb:'mach_write_to_4' },
-    note:'InnoDB 는 플랫폼을 보지 않는다 — 언제나 이 순서로 쓴다',
+    note:'InnoDB 는 platform 무관 — 항상 이 순서로 write',
     why:'b[0] = n >> 24, b[1] = n >> 16, b[2] = n >> 8, b[3] = n. 조건문이 없다.',
     key:'책은 RocksDB 가 플랫폼 엔디안을 확인해 뒤집는 예를 든다. InnoDB 는 <em>확인 자체를 하지 않는다</em> — 그래서 x86 에서 만든 .ibd 를 ARM 에서 그대로 읽는다.',
     ref:'storage/innobase/include/mach0data.ic', sym:'mach_write_to_4',
@@ -48,14 +48,14 @@ const SCENES = [
           val:{ set:{ 'AA':{ tag:'gold', sub:'a+0  MSB  ← n >> 24' } } } } },
 
   { look:{ op:true },
-    note:'파일 안의 모든 것이 같은 규칙을 따른다 — 예외를 두지 않겠다는 선언이다',
+    note:'파일 내 모든 multi-byte 값이 같은 규칙 — 예외 없음',
     why:'mach0data.h 머리에 규칙이 적혀 있다 : "데이터와 모든 필드는 데이터베이스 파일에 항상 같은 형식으로 저장된다 — ascii, big-endian." 그리고 파일의 모든 데이터는 반드시 이 모듈의 함수로만 접근해야 한다고 못박는다.',
     key:'바이트 순서를 <em>고르는 것</em>보다 중요한 것은 <em>한 곳에서만 다루는 것</em>이다. 그래서 InnoDB 코드에는 캐스팅으로 정수를 읽는 자리가 없다 — 전부 mach_* 를 지난다.',
     ref:'storage/innobase/include/mach0data.ic', sym:'mach_write_to_4',
     fact:[['storage/innobase/include/mach0data.h','in the same format: ascii, big-endian']] },
 
   { look:{ val:true },
-    note:'폭은 필요한 것만 있다 — 5바이트짜리는 없다',
+    note:'폭별 write 함수는 필요한 것만 — 5 byte 용은 없다',
     why:'mach_write_to_ 계열은 1·2·3·4·6·7·8 이 있고 5 가 없다. 6 은 DATA_TRX_ID_LEN, 7 은 DATA_ROLL_PTR_LEN 이다. 두 값은 static_assert 로 못박혀 있어 바뀌면 컴파일이 멈춘다.',
     key:'함수 목록이 <em>포맷의 목록</em>이다. 5바이트 함수가 없는 것은 5바이트 필드가 없기 때문이고, 6·7 이 있는 것은 레코드 헤더가 그 폭을 요구하기 때문이다 — 07a 장면이 그 자리다.',
     ref:'storage/innobase/include/data0type.h', sym:'DATA_TRX_ID_LEN',
@@ -64,14 +64,14 @@ const SCENES = [
           ['storage/innobase/include/mach0data.h','mach_write_to_6']] },
 
   { act:{ f:'val', t:'rec', lb:'읽을 때도 같은 순서' },
-    note:'읽기는 정확히 반대 조립이다',
+    note:'read 는 정확히 역순 조립',
     why:'mach_read_from_4 가 b[0]<<24 | b[1]<<16 | b[2]<<8 | b[3] 로 되돌린다. 쓰기와 읽기가 대칭이다.',
     key:'대칭이 아니면 <em>같은 프로세스가 자기 쓴 것도 못 읽는다</em>. 직렬화 형식에서 가장 먼저 맞춰야 하는 것.',
     ref:'storage/innobase/include/mach0data.ic', sym:'mach_read_from_4',
     ops:{ rec:{ del:['—'], add:[{ id:'0xAABBCCDD', sz:4, tag:'hdr', sub:'복원됨' }] },
           op:{ set:{ '값':'0xAABBCCDD  ← 왕복 성공|green' } } } },
 
-  { note:'부동소수는 다른 얘기다 — IEEE 754 로 부호·지수·가수를 나눈다',
+  { note:'float 은 별개 — IEEE 754 sign · exponent · mantissa',
     why:'32비트 float 은 가수 23비트, 지수 8비트, 부호 1비트다. 정수처럼 자리값이 아니라 세 조각의 조합이다.',
     key:'그래서 부동소수는 <em>근사값</em>이다. 책도 "이 표현이 내놓는 수는 근사에 불과하다" 고 짚는다 — 키로 쓰기 곤란한 이유.',
     ref:'storage/innobase/include/mach0data.ic', sym:'mach_double_write',
@@ -82,7 +82,7 @@ const SCENES = [
 {
   num:'01v', tab:'—', hidden:true,
   vsLabel:'B  ·  LITTLE-ENDIAN  (x86 메모리 안)',
-  title:'같은 4바이트, 다른 해석', sub:'CPU 가 메모리에 두는 순서는 반대다',
+  title:'Little-Endian: The Same Four Bytes in CPU Memory', sub:'CPU 가 memory 에 두는 순서는 반대 — x86 은 little-endian',
   cast:['op','val','rec'],
   knobs:[
     ['—','—','바이트 순서는 설정으로 바꿀 수 없다 — 파일 형식에 박혀 있다']],
@@ -105,14 +105,14 @@ const SCENES = [
     "EncodeFixed64WithEndian" ],
   steps:[
   { look:{ val:['AA'] },
-    note:'가장 큰 자리(AA)가 가장 높은 주소에 온다 — x86 이 이렇게 둔다',
+    note:'little-endian — 최상위 byte(AA)가 최고 address, x86 의 방식',
     why:'작은 자리부터 놓는다. 하위 바이트만 읽어 작은 타입으로 자르는 연산이 주소 계산 없이 된다.',
     key:'CPU 에게는 편하지만, 이 순서로 파일에 쓰면 <em>바이트 비교가 숫자 순서와 어긋난다</em>. 0x0100 이 0x00FF 보다 작아 보인다.',
     ref:'storage/innobase/include/mach0data.ic', sym:'mach_write_to_4',
     beat:1 },
 
   { act:{ f:'op', t:'val', lb:'그대로 파일에 쓴다면' },
-    note:'메모리 표현을 그대로 쓰면 플랫폼마다 파일이 달라진다',
+    note:'memory 표현을 그대로 쓰면 platform 마다 파일이 달라진다',
     why:'x86 에서 만든 파일을 빅엔디안 기계에서 읽으면 숫자가 뒤집힌다. 그래서 플랫폼을 확인해 뒤집는 코드가 필요해진다.',
     key:'책이 든 RocksDB 예가 이 경우다 — <em>EncodeFixed64WithEndian 이 플랫폼을 확인</em>하고 필요하면 뒤집는다. 코드가 하나 늘어난다.',
     ref:'storage/innobase/include/mach0data.ic', sym:'mach_write_to_4',
@@ -121,14 +121,14 @@ const SCENES = [
           val:{ set:{ 'AA':{ tag:'red', sub:'a+3  MSB  ← 파일에선 위험' } } } } },
 
   { look:{ op:true },
-    note:'그 규칙이 없으면 파일이 만든 기계에 묶인다',
+    note:'규칙이 없으면 파일이 생성한 machine 에 종속',
     why:'메모리 표현을 그대로 쓰면 같은 값이 x86 과 빅엔디언 기계에서 다른 바이트가 된다. 그래서 InnoDB 는 호스트 순서와 저장 순서를 이름으로 분리해 둔다 — mach0data.h 의 주석이 "storage byte order (big endian)" 와 "host byte order" 를 나눠 부른다.',
     key:'이식성은 <em>읽는 쪽의 배려</em>가 아니라 <em>쓰는 쪽의 규칙</em>으로 얻는다. 왼쪽(A)이 플랫폼을 아예 보지 않는 이유가 이것이다.',
     ref:'storage/innobase/include/mach0data.ic', sym:'mach_read_from_4',
     fact:[['storage/innobase/include/mach0data.h','in the same format: ascii, big-endian']] },
 
   { look:{ val:true },
-    note:'그리고 폭마다 함수가 따로 필요해진다 — 뒤집는 규칙이 폭에 달렸으므로',
+    note:'폭마다 함수가 따로 — byte swap 규칙이 폭에 의존',
     why:'저장 순서가 정해져 있으면 폭별 함수 하나로 끝난다(mach_write_to_1·2·3·4·6·7·8). 메모리 표현을 그대로 쓰면 폭마다 플랫폼 조건까지 곱해진다. 5바이트 함수가 없는 것도 5바이트 필드가 없기 때문이지 플랫폼 때문이 아니다.',
     key:'같은 함수 목록이 A 에서는 <em>포맷 명세</em>이지만 B 에서는 <em>플랫폼별 분기 표</em>가 된다. 그래서 InnoDB 는 B 를 고르지 않았다.',
     ref:'storage/innobase/include/data0type.h', sym:'DATA_ROLL_PTR_LEN',
@@ -136,7 +136,7 @@ const SCENES = [
           ['storage/innobase/include/mach0data.h','mach_write_to_7']] },
 
   { act:{ f:'val', t:'rec', lb:'뒤집어 읽어야 한다' },
-    note:'읽는 쪽이 자기 플랫폼과 파일의 순서를 비교해 결정한다',
+    note:'reader 가 자기 platform 과 파일의 order 를 비교해 결정',
     why:'MySQL 서버 층은 정수를 little-endian 으로 넘긴다. 그 경계에서 InnoDB 가 big-endian 으로 뒤집고 부호 있는 정수면 부호 비트까지 반전한다 — 변환이 한 곳에 모여 있다.',
     key:'InnoDB 는 <em>이 분기를 아예 두지 않는다</em>. 쓸 때 하나로 정했으므로 읽을 때 물어볼 것이 없다.',
     ref:'storage/innobase/include/mach0data.ic', sym:'mach_read_from_4',
@@ -144,7 +144,7 @@ const SCENES = [
     ops:{ rec:{ del:['—'], add:[{ id:'0xAABBCCDD', sz:4, tag:'gold', sub:'뒤집어 복원' }] },
           op:{ set:{ '값':'0xAABBCCDD  ← 분기 필요|gold' } } } },
 
-  { note:'부동소수는 양쪽 다 IEEE 754 를 쓴다',
+  { note:'float 은 양쪽 다 IEEE 754',
     why:'부호·지수·가수의 비트 배치는 표준이 정한다. 바이트 순서만 플랫폼 문제로 남는다.',
     key:'그래서 부동소수도 <em>바이트 순서만 맞추면</em> 이식된다. 근사값이라는 성질은 순서와 무관하게 남는다.',
     ref:'storage/innobase/include/mach0data.ic', sym:'mach_double_write',
@@ -153,8 +153,8 @@ const SCENES = [
   ],
 },
 {
-  num:'02', tab:'가변 길이', title:'길이를 어디에 적는가',
-  sub:'Pascal 문자열 · 널 종료 · 그리고 InnoDB 가 고른 세 번째 방법',
+  num:'02', tab:'Varlen', title:'Variable-Length Data: Length Prefixes vs. Null Termination',
+  sub:'Pascal string · null-terminated · 그리고 InnoDB 가 고른 세 번째 방식',
   cast:['op','val','rec'],
   knobs:[
     ['innodb_default_row_format','dynamic','가변 길이 필드를 어떻게 담을지를 정하는 행 형식'],
@@ -175,14 +175,14 @@ const SCENES = [
     "finding out a length of a string in constant time" ],
   steps:[
   { look:{ val:true },
-    note:'데이터만 놓으면 어디서 끝나는지 알 수 없다',
+    note:'data 만 놓으면 끝을 알 수 없다',
     why:'고정 크기 타입은 크기가 타입에 박혀 있지만 문자열은 아니다. 경계를 알려주는 장치가 필요하다.',
     key:'이것이 3장 전체를 관통하는 문제다 — <em>가변 크기를 어떻게 담느냐</em>. 셀도, 페이지도 같은 문제를 다르게 푼다.',
     ref:'storage/innobase/include/mach0data.ic', sym:'mach_read_from_2',
     beat:1 },
 
   { act:{ f:'op', t:'rec', lb:'Pascal 방식 : 길이를 앞에' },
-    note:'앞에 2바이트 길이를 붙인다 — 책이 UCSD/Pascal 문자열이라 부르는 것',
+    note:'2-byte length prefix — 책이 말하는 UCSD/Pascal string',
     why:'읽는 쪽은 2바이트를 먼저 읽어 6을 알고, 이어서 6바이트를 자른다.',
     key:'길이를 <em>상수 시간에</em> 안다. 널 종료 방식은 끝을 찾으려 처음부터 훑어야 한다 — O(n).',
     ref:'storage/innobase/include/mach0data.ic', sym:'mach_write_to_2',
@@ -191,7 +191,7 @@ const SCENES = [
             { id:'L e s l i e', sz:6, tag:'', sub:'데이터 6B' }] },
           op:{ set:{ '방식':'Pascal · 길이 선행', '길이 알기':'O(1)|green' } } } },
 
-  { note:'널 종료 방식이라면 길이 필드가 없고 끝에 0x00 이 온다',
+  { note:'null-terminated 라면 length field 없이 끝에 0x00',
     why:'읽는 쪽이 0 을 만날 때까지 소비한다. 저장은 1바이트로 끝나지만 길이를 알려면 훑어야 한다.',
     key:'그리고 <em>데이터에 0x00 이 들어갈 수 없다</em>. 바이너리를 담아야 하는 데이터베이스에는 못 쓴다.',
     ref:'storage/innobase/include/mach0data.ic', sym:'mach_read_from_1',
@@ -199,7 +199,7 @@ const SCENES = [
     beat:1 },
 
   { act:{ f:'rec', t:'val', lb:'InnoDB : 길이를 레코드 앞쪽 바깥에' },
-    note:'InnoDB 는 길이를 레코드 시작 지점보다 앞에 둔다 — 그리고 역순으로',
+    note:'InnoDB — length 를 record origin 앞에, 역순으로',
     why:'COMPACT·DYNAMIC 형식에서 가변 길이 필드의 길이 목록과 NULL 비트맵이 레코드 원점 앞에 쌓인다. 원점에서 뒤로 읽는다.',
     key:'왜 이렇게 하나 — <em>원점 뒤쪽은 고정 오프셋으로 접근</em>하고 싶기 때문이다. 가변 부분을 앞으로 밀어내면 뒷부분 오프셋이 안 변한다.',
     ref:'storage/innobase/rem/rec.cc', sym:'rec_get_offsets',
@@ -222,8 +222,8 @@ const SCENES = [
   ],
 },
 {
-  num:'03', tab:'비트', title:'한 바이트에 여덟 개를 담는다',
-  sub:'불리언 · enum · 플래그 — 그리고 2의 거듭제곱만 쓰는 이유',
+  num:'03', tab:'Bit Packing', title:'Bit-Packed Flags: Eight Booleans in One Byte',
+  sub:'boolean · enum · flag — 그리고 power-of-two mask 만 쓰는 이유',
   cast:['op','val','bits','rec'],
   knobs:[
     ['innodb_default_row_format','dynamic','NULL 비트맵의 유무와 크기를 정하는 행 형식']],
@@ -247,14 +247,14 @@ const SCENES = [
     "Enums, short for enumerated types, can be represented as integers" ],
   steps:[
   { look:{ val:true },
-    note:'불리언 하나에 한 바이트를 쓰면 비트 7개가 버려진다',
+    note:'boolean 하나에 1 byte — 7 bit 낭비',
     why:'값이 두 개뿐인데 256가지를 표현할 자리를 쓴다. 레코드마다 반복되면 누적이 크다.',
     key:'페이지 하나에 레코드가 수백 개다. 레코드당 3바이트면 <em>페이지당 1KB 이상</em>이 플래그에만 간다.',
     ref:'storage/innobase/include/mach0data.ic', sym:'mach_read_from_1',
     beat:1 },
 
   { act:{ f:'op', t:'bits', lb:'한 바이트에 묶는다' },
-    note:'세 개를 한 바이트의 서로 다른 비트에 넣는다',
+    note:'셋을 한 byte 의 서로 다른 bit 에',
     why:'비트 1번은 is_leaf, 2번은 var_size, 3번은 has_overflow. 나머지 5비트는 남겨 둔다.',
     key:'마스크가 <em>2의 거듭제곱</em>이어야 한다 — 그때만 켜진 비트가 하나이고, 서로 겹치지 않는다.',
     ref:'storage/innobase/include/mach0data.ic', sym:'mach_write_to_1',
@@ -267,14 +267,14 @@ const SCENES = [
           op:{ set:{ '비트로 쓰면':'1 B|green' } } } },
 
   { look:{ bits:true },
-    note:'켜기·끄기·검사가 모두 비트 연산 한 번이다',
+    note:'set · clear · test — 모두 bitwise 연산 1회',
     why:'켜기는 OR, 끄기는 AND 와 NOT, 검사는 AND 후 0 비교. 분기도 루프도 없다.',
     key:'그래서 플래그는 <em>읽기 경로에서 공짜에 가깝다</em>. 페이지를 만질 때마다 확인해야 하는 것들을 여기 둔다.',
     ref:'storage/innobase/include/mach0data.ic', sym:'mach_read_from_1',
     beat:1 },
 
   { act:{ f:'bits', t:'rec', lb:'enum 은 값 하나로' },
-    note:'enum 은 상호 배타적이라 비트가 아니라 값 하나를 쓴다',
+    note:'enum 은 mutually exclusive — bit 가 아니라 값 하나',
     why:'노드 타입은 root · internal · leaf 중 하나다. 동시에 둘일 수 없으므로 0·1·2 로 충분하다.',
     key:'플래그와 enum 의 차이가 여기다 — <em>플래그는 겹칠 수 있고 enum 은 못 한다</em>. InnoDB 의 FIL_PAGE_TYPE 이 enum 이다.',
     ref:'storage/innobase/include/fil0fil.h', sym:'fil_page_type_is_index',
@@ -284,15 +284,15 @@ const SCENES = [
           op:{ set:{ '담을 것':'불리언 3개 + 타입 enum' } } } },
 
   { look:{ rec:true, op:true },
-    note:'3바이트가 1바이트로, 그리고 타입은 2바이트 enum 으로',
+    note:'3 byte → 1 byte, type 은 2-byte enum 으로',
     why:'플래그는 묶고 enum 은 값으로. 둘을 섞지 않는 것이 핵심이다.',
     key:'책이 든 예시 마스크(0x01·0x02·0x04)가 그대로 InnoDB 레코드 헤더에서 쓰인다 — <em>삭제 표시 플래그</em>가 그중 하나다.',
     beat:1 },
   ],
 },
 {
-  num:'04', tab:'파일', title:'파일은 헤더와 페이지와 trailer 다',
-  sub:'InnoDB 는 trailer 를 페이지마다 둔다',
+  num:'04', tab:'File Layout', title:'File Layout: Header, Pages & Per-Page Trailers',
+  sub:'InnoDB 는 trailer 를 page 마다 둔다',
   cast:['op','file','pg','hdr'],
   knobs:[
     ['innodb_page_size','16 KB','파일을 나누는 단위'],
@@ -317,14 +317,14 @@ const SCENES = [
     "it significantly simplifies read and write access" ],
   steps:[
   { look:{ file:true },
-    note:'파일 앞 세 페이지는 역할이 고정돼 있다',
+    note:'파일 앞 세 page — 역할 고정',
     why:'책은 "고정 크기 헤더로 시작하고 고정 크기 trailer 로 끝날 수 있다" 고 말한다. InnoDB 는 그 헤더를 페이지 단위로 둔다.',
     key:'헤더가 <em>파일 앞 몇 바이트가 아니라 페이지 몇 개</em>다. 나머지와 크기가 같아서 페이지 번호 계산이 단순해진다.',
     ref:'storage/innobase/include/fsp0fsp.h', sym:'fsp_is_system_tablespace',
     beat:1 },
 
   { act:{ f:'file', t:'pg', lb:'page 5 를 읽는다' },
-    note:'페이지 번호에 크기를 곱하면 파일 오프셋이다',
+    note:'page no × page size = file offset',
     why:'모든 페이지가 같은 크기라서 5 × 16384 = 81920 이다. 조회 테이블이 필요 없다.',
     key:'책이 말한 대로 <em>같은 크기 페이지가 읽기·쓰기 접근을 크게 단순화한다</em>. 이것이 in-place 갱신 구조의 공통 선택이다.',
     ref:'storage/innobase/fil/fil0fil.cc', sym:'fil_io',
@@ -335,8 +335,8 @@ const SCENES = [
           op:{ set:{ '페이지 수':'파일 크기 ÷ 16 KB' } } } },
 
   { act:{ f:'pg', t:'hdr', lb:'헤더 38바이트를 읽는다' },
-    note:'FIL 헤더는 38바이트 · 고정 오프셋',
-    why:'0 체크섬, 4 페이지 번호, 8 이전 형제, 12 다음 형제, 16 LSN, 24 타입, 26 flush LSN, 34 space id.',
+    note:'FIL header — 38 byte, 고정 offset',
+    why:'0 checksum, 4 페이지 번호, 8 이전 형제, 12 다음 형제, 16 LSN, 24 타입, 26 flush LSN, 34 space id.',
     key:'전부 <em>고정 오프셋</em>이다 — 계산이 필요 없다. 가변 길이를 헤더에 두지 않는 이유가 이것이다.',
     ref:'storage/innobase/include/fil0fil.h', sym:'fil_page_get_type',
     beat:1,
@@ -345,8 +345,8 @@ const SCENES = [
                       'FIL_PAGE_LSN':'4,912  (오프셋 16)' } } } },
 
   { look:{ pg:['8B'] },
-    note:'그리고 페이지마다 trailer 8바이트가 붙는다',
-    why:'FIL_PAGE_DATA_END = 8. 앞 4바이트가 체크섬, 뒤 4바이트가 FIL_PAGE_LSN 의 하위 절반이다.',
+    note:'page 마다 8-byte trailer',
+    why:'FIL_PAGE_DATA_END = 8. 앞 4바이트가 checksum, 뒤 4바이트가 FIL_PAGE_LSN 의 하위 절반이다.',
     key:'책은 trailer 를 <em>파일 끝</em>의 것으로 말한다. InnoDB 는 <em>페이지 끝마다</em> 둔다 — 그 이유는 11 장면에서 나온다.',
     ref:'storage/innobase/include/fil0fil.h', sym:'fil_page_get_type',
     fact:[['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_DATA_END = 8;'],
@@ -354,15 +354,15 @@ const SCENES = [
     beat:1 },
 
   { look:{ hdr:true, file:true },
-    note:'정리 — 파일은 같은 크기 페이지의 배열이고, 페이지마다 머리와 꼬리가 있다',
+    note:'정리 — 파일은 동일 크기 page 의 array, page 마다 head 와 tail',
     why:'파일 수준 헤더는 page 0 이 맡고, 페이지 수준 헤더는 각 페이지의 앞 38바이트다.',
     key:'계층이 <em>파일 → 페이지 → 셀</em> 로 내려간다. 책이 말한 "필드로 셀을, 셀로 페이지를, 페이지로 구역을" 이 그대로다.',
     beat:1 },
   ],
 },
 {
-  num:'04a', tab:'FIL 헤더', title:'38바이트 헤더를 한 필드씩',
-  sub:'모든 페이지가 같은 자리에 같은 것을 둔다 — 그래서 계산이 필요 없다',
+  num:'04a', tab:'FIL Header', title:'FIL Header: 38 Bytes, Field by Field',
+  sub:'모든 page 가 같은 offset 에 같은 field — 그래서 계산이 필요 없다',
   cast:['op','fil','fld','hdr'],
   knobs:[
     ['innodb_page_size','16 KB','헤더 38B + trailer 8B 를 뺀 나머지가 데이터다'],
@@ -392,7 +392,7 @@ const SCENES = [
     "it significantly simplifies read and write access" ],
   steps:[
   { look:{ fil:true, op:true },
-    note:'여덟 필드가 38바이트를 채우고, 그 다음부터 데이터다',
+    note:'field 여덟 개 = 38 byte, 그 다음부터 data',
     why:'FIL_PAGE_DATA = 38 이다. 페이지 종류가 무엇이든 이 38바이트의 배치는 같다 — 그래서 어떤 페이지든 헤더를 먼저 읽을 수 있다.',
     key:'폭을 보면 무게가 보인다 — <em>LSN 과 FLUSH_LSN 이 각각 8바이트</em>로 절반 가까이를 쓴다. 나머지 여섯 필드를 합쳐도 22바이트다.',
     ref:'storage/innobase/include/fil0fil.h', sym:'fil_page_get_type',
@@ -401,7 +401,7 @@ const SCENES = [
     ops:{ op:{ set:{ '데이터 시작':'오프셋 38|green' } } } },
 
   { act:{ f:'fil', t:'fld', lb:'오프셋 0' },
-    note:'0 — 체크섬. 이름이 SPACE_OR_CHKSUM 인 것은 옛 형식의 흔적이다',
+    note:'0 — checksum, SPACE_OR_CHKSUM 이라는 이름은 옛 format 의 흔적',
     why:'4.0 이전에는 이 자리가 space id 였다. 형식이 바뀌면서 뜻이 바뀌었지만 이름은 둘을 다 담고 있다.',
     key:'필드 이름에 <em>역사가 남는다</em>. 자리를 옮기면 옛 파일을 못 읽으므로, 뜻만 바꾸고 이름을 늘린다.',
     ref:'storage/innobase/include/fil0fil.h', sym:'fil_page_get_type',
@@ -410,7 +410,7 @@ const SCENES = [
           fld:{ set:{ '이름':'FIL_PAGE_SPACE_OR_CHKSUM', '오프셋':'0', '크기':'4 B', '없으면':'손상 판정 불가|red' } } } },
 
   { act:{ f:'fil', t:'fld', lb:'오프셋 4' },
-    note:'4 — 이 페이지가 몇 번인지. 파일 오프셋과 서로 계산된다',
+    note:'4 — page no, file offset 과 상호 계산',
     why:'페이지 번호 × 페이지 크기 = 파일 오프셋이다. 반대로 읽은 페이지의 이 값이 기대한 번호와 다르면 잘못된 곳을 읽은 것이다.',
     key:'페이지가 <em>자기 주소를 자기 안에 갖는다</em>. 중복 같지만 이것이 오배치를 잡는 장치다.',
     ref:'storage/innobase/include/fil0fil.h', sym:'fil_page_get_type',
@@ -422,7 +422,7 @@ const SCENES = [
           hdr:{ set:{ 'FIL_PAGE_OFFSET':'5' } } } },
 
   { act:{ f:'fil', t:'fld', lb:'오프셋 8 · 12' },
-    note:'8 과 12 — 형제 포인터. 없으면 FIL_NULL 이 들어간다',
+    note:'8 · 12 — sibling pointer, 없으면 FIL_NULL',
     why:'주석이 "natural 선행자가 있으면 그 오프셋, 없으면 FIL_NULL" 이라고 말한다. BLOB 페이지에는 PREV 를 쓰지 않는다 — 단일 연결 리스트라서다.',
     key:'B-Tree 리프의 범위 스캔이 이 두 필드를 탄다. 그리고 <em>이 자리는 페이지 0 에서 다른 뜻이 된다</em> — 다음 장면의 주제다.',
     ref:'storage/innobase/include/btr0btr.h', sym:'btr_page_get_next',
@@ -435,8 +435,8 @@ const SCENES = [
           fld:{ set:{ '이름':'FIL_PAGE_PREV · FIL_PAGE_NEXT', '오프셋':'8 · 12', '크기':'4 B 씩', '없으면':'범위 스캔이 부모로 올라가야 한다' } } } },
 
   { act:{ f:'fil', t:'fld', lb:'오프셋 16' },
-    note:'16 — 이 페이지 최신 변경의 LSN. 8바이트로 가장 크다',
-    why:'복구가 이 값을 보고 재생 여부를 정한다. 페이지 LSN 이 redo 레코드보다 크면 이미 반영된 것이므로 건너뛴다.',
+    note:'16 — 최신 변경의 LSN, 8 byte 로 최대 field',
+    why:'복구가 이 값을 보고 replay 여부를 정한다. 페이지 LSN 이 redo 레코드보다 크면 이미 반영된 것이므로 건너뛴다.',
     key:'헤더에서 가장 넓은 자리가 <em>시간</em>이다. 크래시 복구의 멱등성이 이 8바이트에 걸려 있다.',
     ref:'storage/innobase/log/log0recv.cc', sym:'recv_recover_page_func',
     fact:[['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_LSN = 16;'],
@@ -448,7 +448,7 @@ const SCENES = [
           hdr:{ set:{ 'FIL_PAGE_LSN':'4,912' } } } },
 
   { act:{ f:'fil', t:'fld', lb:'오프셋 24' },
-    note:'24 — 페이지 종류. 2바이트뿐인데 이 페이지가 무엇인지 전부 정한다',
+    note:'24 — page type, 2 byte 로 page 의 정체를 전부 결정',
     why:'INDEX · UNDO_LOG · INODE · SDI · LOB 등을 구분한다. 주석은 5.1.7 이후 테이블스페이스에서는 압축되지 않은 모든 페이지에 이 값이 유효하다고 못박는다.',
     key:'2바이트가 <em>나머지 16,346바이트를 어떻게 읽을지</em>를 정한다. 헤더에서 가장 작지만 가장 강한 필드다.',
     ref:'storage/innobase/include/fil0fil.h', sym:'fil_page_type_is_index',
@@ -460,7 +460,7 @@ const SCENES = [
           hdr:{ set:{ 'FIL_PAGE_TYPE':'INDEX  (17855)' } } } },
 
   { act:{ f:'fil', t:'fld', lb:'오프셋 26 · 34' },
-    note:'26 — 대부분의 페이지에서는 쓰이지 않는다. 34 — space id',
+    note:'26 — 대부분 page 에선 미사용, 34 — space id',
     why:'FILE_FLUSH_LSN 은 시스템 테이블스페이스 첫 페이지에서만 뜻이 있다. 나머지 페이지에서는 8바이트가 비어 있다 — 그래서 다른 용도가 이 자리를 빌려 쓴다.',
     key:'헤더에 <em>비는 자리가 있다</em>는 사실이 다음 장면의 출발점이다. 34 의 space id 는 페이지가 어느 테이블스페이스 것인지를 스스로 증명한다.',
     ref:'storage/innobase/include/fil0fil.h', sym:'fil_page_get_type',
@@ -473,7 +473,7 @@ const SCENES = [
           fld:{ set:{ '이름':'FILE_FLUSH_LSN · SPACE_ID', '오프셋':'26 · 34', '크기':'8 B · 4 B', '없으면':'페이지가 어느 파일 것인지 모른다' } } } },
 
   { look:{ fil:true, op:true },
-    note:'정리 — 38바이트가 페이지의 신분증이다',
+    note:'정리 — 38 byte 가 page 의 신분증',
     why:'자기 번호(4) · 자기 파일(34) · 자기 종류(24) · 자기 시각(16) · 자기 무결성(0). 내용을 읽지 않고도 이 페이지가 무엇이고 온전한지 판정할 수 있다.',
     key:'이 다섯 개가 <em>자기 서술</em>을 만든다. 그래서 InnoDB 는 파일 어디를 읽어도 그것이 무엇인지 알 수 있다 — 별도의 인덱스나 목록이 필요 없다.',
     ref:'storage/innobase/include/fil0fil.h', sym:'fil_page_get_type',
@@ -482,15 +482,15 @@ const SCENES = [
   ],
 },
 {
-  num:'04b', tab:'같은 자리 다른 뜻', title:'헤더의 같은 바이트가 문맥에 따라 다른 것이 된다',
-  sub:'오프셋 8·12 와 26 은 페이지 종류에 따라 뜻이 바뀐다',
+  num:'04b', tab:'Overloaded Bytes', title:'Overloaded Header Bytes: Same Offset, Different Meaning',
+  sub:'offset 8 · 12 와 26 — page type 에 따라 의미가 바뀐다',
   cast:['op','fil','fld'],
   vsLabel:'A  ·  보통 INDEX 페이지', pair:'04bv',
   knobs:[
     ['innodb_page_size','16 KB','헤더 배치는 페이지 크기와 무관하게 같다'],
     ['innodb_compression_level','6','압축을 쓰면 26 부터가 압축 서술자가 된다']],
   watch:[
-    ['hexdump -C  *.ibd | head -3','파일 첫 페이지의 오프셋 8·12 는 형제 포인터가 아니다'],
+    ['hexdump -C  *.ibd | head -3','파일 첫 페이지의 오프셋 8·12 는 sibling pointer 가 아니다'],
     ['I_S.INNODB_TABLESPACES','SERVER_VERSION · SPACE_VERSION — 페이지 0 의 그 자리에서 읽은 값']],
   links:[['04a','필드 하나씩 보기'],['10','페이지 타입이 해석을 정한다'],['11','trailer 도 같은 이야기다']],
   init:{
@@ -511,7 +511,7 @@ const SCENES = [
     "The file usually starts with a fixed-size header and may end with a fixed-size trailer" ],
   steps:[
   { look:{ fil:['PREV','NEXT'] },
-    note:'8 과 12 는 형제 포인터다 — B-Tree 리프를 잇는다',
+    note:'8 · 12 = sibling pointer — B-Tree leaf 연결',
     why:'같은 레벨의 이전·다음 페이지 번호가 들어간다. 없으면 FIL_NULL 이다.',
     key:'이 해석은 <em>이 페이지가 트리 노드일 때</em>만 성립한다. 트리 노드가 아니면 형제라는 개념 자체가 없다.',
     ref:'storage/innobase/include/btr0btr.h', sym:'btr_page_get_next',
@@ -520,7 +520,7 @@ const SCENES = [
           fld:{ set:{ '오프셋 8':'FIL_PAGE_PREV', '오프셋 12':'FIL_PAGE_NEXT', '오프셋 26':'안 씀' } } } },
 
   { look:{ fil:['FLUSH_LSN'] },
-    note:'26 의 8바이트는 이 페이지에서 비어 있다',
+    note:'26 의 8 byte — 이 page 에선 비어 있다',
     why:'FILE_FLUSH_LSN 은 시스템 테이블스페이스 첫 페이지에서만 뜻이 있다. 다른 페이지에서는 쓰이지 않는다.',
     key:'헤더에 <em>8바이트가 놀고 있다</em>. 형식을 바꾸지 않고 새 정보를 넣을 자리가 여기다.',
     ref:'storage/innobase/include/fil0fil.h', sym:'fil_page_get_type',
@@ -528,7 +528,7 @@ const SCENES = [
     ops:{ op:{ set:{ '오프셋 26':'비어 있다|green' } } } },
 
   { act:{ f:'fil', t:'fld', lb:'압축 페이지라면' },
-    note:'압축 페이지에서는 그 8바이트가 다섯 필드로 쪼개진다',
+    note:'compressed page — 같은 8 byte 가 field 다섯으로 분할',
     why:'주석이 그대로 말한다 — 페이지 타입이 FIL_PAGE_COMPRESSED 면 FIL_PAGE_FILE_FLUSH_LSN 에서 시작하는 8바이트를 이렇게 나눈다: VERSION 1B · ALGORITHM 1B · ORIGINAL_TYPE 2B · ORIGINAL_SIZE 2B · COMPRESS_SIZE 2B.',
     key:'1+1+2+2+2 = 8 — <em>빈 자리에 정확히 들어맞는다</em>. 헤더 길이를 늘리지 않고 압축을 얹은 방법이다.',
     ref:'storage/innobase/include/fil0fil.h', sym:'fil_page_get_type',
@@ -547,7 +547,7 @@ const SCENES = [
           op:{ set:{ '페이지':'FIL_PAGE_COMPRESSED', '오프셋 26':'압축 서술자 5필드|gold' } } } },
 
   { look:{ fil:true },
-    note:'그리고 R-tree 페이지에서는 같은 자리가 분할 시퀀스 번호다',
+    note:'R-tree page — 같은 자리가 split sequence number',
     why:'FIL_RTREE_SPLIT_SEQ_NUM 이 FIL_PAGE_FILE_FLUSH_LSN 과 같은 값으로 정의된다. 주석도 "overloads" 라는 낱말을 쓴다.',
     key:'같은 8바이트가 <em>세 가지</em>다 — 시스템 첫 페이지의 flush LSN, 압축 서술자, R-tree 분할 번호. 무엇인지는 <em>오프셋 24 의 타입</em>이 정한다.',
     ref:'storage/innobase/include/fil0fil.h', sym:'fil_page_type_is_index',
@@ -560,7 +560,7 @@ const SCENES = [
 },
 {
   num:'04bv', tab:'—', hidden:true, vsLabel:'B  ·  페이지 0  (테이블스페이스 첫 페이지)',
-  title:'헤더의 같은 바이트가 문맥에 따라 다른 것이 된다', sub:'페이지 0 에서는 8·12 가 형제가 아니라 버전이다',
+  title:'Page 0: Offsets 8 and 12 Become Version Fields', sub:'page 0 에선 8 · 12 가 sibling 이 아니라 version',
   cast:['op','fil','fld'],
   knobs:[
     ['innodb_page_size','16 KB','헤더 배치는 페이지 크기와 무관하게 같다'],
@@ -587,7 +587,7 @@ const SCENES = [
     "The file usually starts with a fixed-size header and may end with a fixed-size trailer" ],
   steps:[
   { look:{ fil:['SRV_VER','SPC_VER'] },
-    note:'8 과 12 는 서버 버전과 space 버전이다 — 형제가 아니다',
+    note:'8 · 12 = server version · space version — sibling 아님',
     why:'FIL_PAGE_SRV_VERSION 과 FIL_PAGE_SPACE_VERSION 이 각각 8 과 12 로 정의된다. 주석이 "페이지 0 에서는 서버 버전 ID" 라고 못박는다.',
     key:'페이지 0 은 트리 노드가 아니므로 형제가 없다. <em>쓰이지 않을 자리를 다른 것이 차지했다</em>.',
     ref:'storage/innobase/include/fsp0fsp.h', sym:'fsp_is_system_tablespace',
@@ -598,7 +598,7 @@ const SCENES = [
           fld:{ set:{ '오프셋 8':'FIL_PAGE_SRV_VERSION', '오프셋 12':'FIL_PAGE_SPACE_VERSION', '오프셋 26':'flush LSN' } } } },
 
   { look:{ fil:['FLUSH_LSN'] },
-    note:'26 은 여기서 실제로 쓰인다 — 시스템 테이블스페이스 첫 페이지',
+    note:'26 — 여기선 실사용, system tablespace 첫 page',
     why:'주석: "시스템 테이블스페이스의 첫 페이지에만 정의된다". A 에서 비어 있던 8바이트가 여기서는 값을 갖는다.',
     key:'같은 오프셋을 두고 A 는 <em>비었고</em> B 는 <em>찼다</em>. 어느 쪽인지는 이 페이지가 어디 있는지가 정한다.',
     ref:'storage/innobase/include/fil0fil.h', sym:'fil_page_get_type',
@@ -606,7 +606,7 @@ const SCENES = [
     ops:{ op:{ set:{ '오프셋 26':'FILE_FLUSH_LSN  ·  값 있음|gold' } } } },
 
   { look:{ fil:true },
-    note:'그래서 헤더를 읽으려면 이 페이지가 무엇인지 먼저 알아야 한다',
+    note:'그래서 header 해석엔 page type 이 선행',
     why:'페이지 번호가 0 인지, 타입이 압축인지, R-tree 인지에 따라 같은 바이트의 뜻이 바뀐다.',
     key:'닭과 달걀처럼 보이지만 아니다 — <em>번호(4)와 타입(24)은 언제나 같은 뜻</em>이고, 그 둘이 나머지 해석을 정한다.',
     ref:'storage/innobase/include/fil0fil.h', sym:'fil_page_type_is_index',
@@ -615,7 +615,7 @@ const SCENES = [
     beat:1 },
 
   { look:{ fil:['CHKSUM'] },
-    note:'변하지 않는 것 — 0 의 체크섬과 34 의 space id',
+    note:'불변 — 0 의 checksum, 34 의 space id',
     why:'어느 페이지든 이 두 자리는 같은 뜻이다. 그래서 타입을 모르는 상태에서도 무결성과 소속을 확인할 수 있다.',
     key:'해석이 문맥에 달렸어도 <em>검증에 필요한 것은 문맥과 무관</em>하다. 그것이 이 배치의 설계다.',
     ref:'storage/innobase/buf/checksum.cc', sym:'BlockReporter::is_corrupted',
@@ -625,8 +625,8 @@ const SCENES = [
   ],
 },
 {
-  num:'05', tab:'고정 배치', title:'키·값·포인터를 그냥 이어 붙였을 때의 문제',
-  sub:'Bayer 원논문의 배치와 그 한계',
+  num:'05', tab:'Fixed Layout', title:'Fixed-Size Layout: Where the Naive Format Breaks',
+  sub:'Bayer 원논문의 배치와 그 한계 — insert 는 shift, varlen 은 불가',
   cast:['op','pg','cells','dir'],
   vsLabel:'A  ·  고정 크기 삼중항  (원논문)', pair:'05v',
   knobs:[
@@ -654,14 +654,14 @@ const SCENES = [
     "It doesn't allow managing or accessing variable-size records efficiently" ],
   steps:[
   { look:{ pg:true },
-    note:'모든 항목이 같은 크기라 오프셋을 곱셈으로 구한다',
+    note:'모든 entry 가 동일 크기 — offset 은 곱셈',
     why:'n 번째 키의 위치가 헤더 + n × 항목 크기다. 조회 테이블도 포인터도 필요 없다.',
     key:'가장 단순한 배치다. 그리고 <em>고정 크기라는 전제</em> 위에서만 성립한다.',
     ref:'storage/innobase/include/page0page.h', sym:'page_rec_get_next',
     beat:1 },
 
   { act:{ f:'op', t:'pg', lb:'가운데에 k=15 를 넣는다' },
-    note:'가운데에 넣으려면 뒤의 것을 전부 밀어야 한다',
+    note:'가운데 insert — 뒤의 entry 를 전부 shift',
     why:'키 순서를 유지해야 하므로 k₂·k₃ 를 오른쪽으로 옮기고 그 자리에 k=15 를 놓는다.',
     key:'책이 지적한 첫 단점이다 — <em>맨 오른쪽이 아닌 곳에 넣으면 원소를 재배치해야 한다</em>. 페이지가 클수록 비싸진다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_insert_rec_low',
@@ -672,7 +672,7 @@ const SCENES = [
           op:{ set:{ '가운데 삽입':'뒤 전부 이동|red' } } } },
 
   { look:{ cells:true },
-    note:'그리고 가변 길이를 담을 방법이 없다',
+    note:'variable-length 를 담을 방법 없음',
     why:'오프셋을 곱셈으로 구하는 전제가 깨진다. 문자열 하나가 길어지면 이후 모든 오프셋이 틀어진다.',
     key:'책의 두 번째 단점이다 — <em>가변 크기 레코드를 효율적으로 다루지 못하고 고정 크기에만 통한다</em>.',
     ref:'storage/innobase/rem/rec.cc', sym:'rec_get_offsets',
@@ -681,14 +681,14 @@ const SCENES = [
           op:{ set:{ '가변 길이':'불가 · 오프셋 붕괴|red' } } } },
 
   { look:{ cells:true },
-    note:'고정 크기라면 이진 탐색이 공짜다 — 그것이 이 배치의 유일한 장점이다',
+    note:'고정 크기라 binary search 는 공짜 — 이 배치의 유일한 장점',
     why:'항목 폭이 같으면 i 번째 주소가 base + i × width 로 나온다. 그래서 정렬만 유지하면 이진 탐색을 그대로 쓸 수 있다. InnoDB 가 이 장점을 버리지 않으려고 슬롯 배열을 따로 둔다 — 슬롯은 폭이 2 로 고정이므로 그 배열 안에서는 이진 탐색이 성립한다.',
     key:'InnoDB 의 선택은 <em>고정 크기를 포기한 것이 아니라 옮긴 것</em>이다. 데이터는 가변으로 두고, <em>탐색에 쓰는 배열만</em> 고정 폭으로 남긴다.',
     ref:'storage/innobase/include/page0page.h', sym:'PAGE_DIR_SLOT_SIZE',
     fact:[['storage/innobase/include/page0page.h','constexpr uint32_t PAGE_DIR_SLOT_SIZE = 2;']] },
 
   { look:{ dir:true, op:true },
-    note:'해법의 방향 — 위치와 순서를 분리한다',
+    note:'해법의 방향 — 위치와 순서를 분리',
     why:'셀은 놓인 자리에 그대로 두고, 순서는 따로 관리하는 포인터 배열이 갖는다.',
     key:'그러면 삽입이 <em>포인터만 옮기는 일</em>이 된다. 셀은 움직이지 않는다. 그것이 슬롯 페이지다 — <em>V 로 나란히</em>.',
     beat:1 },
@@ -697,7 +697,7 @@ const SCENES = [
 {
   num:'05v', tab:'—', hidden:true,
   vsLabel:'B  ·  슬롯 페이지  (InnoDB)',
-  title:'키·값·포인터를 그냥 이어 붙였을 때의 문제', sub:'슬롯 배치는 셀을 움직이지 않는다',
+  title:'Slotted Pages: Cells Stay Put, Slots Move', sub:'slotted page 는 cell 을 움직이지 않는다',
   cast:['op','pg','cells','dir'],
   knobs:[
     ['innodb_page_size','16 KB','어느 배치든 담아야 하는 용량']],
@@ -729,14 +729,14 @@ const SCENES = [
     "Store variable-size records with a minimal overhead" ],
   steps:[
   { look:{ dir:true, cells:true },
-    note:'셀은 삽입 순서로 놓이고, 슬롯은 키 순서로 정렬돼 있다',
+    note:'cell 은 insert 순, slot 은 key 순 정렬',
     why:'셀 0·1·2 는 들어온 순서다(10·30·20). 슬롯은 그것을 키 순서로 가리킨다(10·20·30).',
     key:'두 순서가 <em>분리됐다</em>. 이 분리가 3장 페이지 배치의 핵심이고, 이후 모든 이득이 여기서 나온다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_search_with_match',
     beat:1 },
 
   { act:{ f:'op', t:'dir', lb:'가운데에 k=15 를 넣는다' },
-    note:'셀은 빈 곳에 그냥 붙이고, 슬롯 배열만 한 칸 밀어 끼운다',
+    note:'cell 은 free space 에 append, slot array 만 한 칸 shift',
     why:'새 셀은 셀 영역의 다음 자리에 append 한다. 슬롯은 10 과 20 사이에 하나 삽입하므로 그 뒤 두 개를 옮긴다.',
     key:'옮기는 것이 <em>2바이트 슬롯</em>이지 레코드 전체가 아니다. 고정 배치에서는 레코드를 옮겨야 했다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_insert_rec_low',
@@ -752,7 +752,7 @@ const SCENES = [
           op:{ set:{ '가운데 삽입':'슬롯 2바이트만 이동|green' } } } },
 
   { look:{ cells:true },
-    note:'가변 길이도 문제가 안 된다',
+    note:'variable-length 도 무문제',
     why:'셀 크기가 달라도 슬롯이 정확한 오프셋을 가리킨다. 오프셋을 곱셈으로 구하지 않으므로 붕괴할 것이 없다.',
     key:'책이 정리한 세 요구 중 두 개가 여기서 충족된다 — <em>최소 오버헤드로 가변 크기 저장</em>, 그리고 <em>정확한 위치를 몰라도 참조</em>.',
     ref:'storage/innobase/rem/rec.cc', sym:'rec_get_offsets',
@@ -761,7 +761,7 @@ const SCENES = [
           op:{ set:{ '가변 길이':'가능 · 슬롯이 오프셋을 안다|green' } } } },
 
   { look:{ dir:true },
-    note:'슬롯 배열은 페이지 끝에서 거꾸로 자란다',
+    note:'slot array 는 page 끝에서 역방향 성장',
     why:'PAGE_DIR 은 FIL_PAGE_DATA_END 와 같은 값으로 정의된다 — 즉 슬롯 배열의 기준점은 페이지 끝(trailer 앞)이다. 셀은 앞에서 뒤로, 슬롯은 뒤에서 앞으로 자라 가운데서 만난다. 둘이 만나면 그 페이지가 꽉 찬 것이다.',
     key:'같은 페이지 안에서 <em>두 방향으로 자라는 두 영역</em>이 공간을 나눠 쓴다. "얼마나 남았나" 를 한 뺄셈으로 알 수 있고, 09 장면의 조각화(fragmentation)도 이 구조 위에서 이야기된다.',
     ref:'storage/innobase/include/page0page.h', sym:'PAGE_DIR',
@@ -769,7 +769,7 @@ const SCENES = [
           ['storage/innobase/include/page0types.h','constexpr uint32_t PAGE_N_DIR_SLOTS = 0;']] },
 
   { look:{ pg:true, op:true },
-    note:'대가는 슬롯 배열이다 — 셀마다 2바이트',
+    note:'대가 — cell 마다 2-byte slot',
     why:'책이 "슬롯 페이지가 물리는 유일한 오버헤드는 오프셋을 담은 포인터 배열" 이라고 한 그것이다.',
     key:'InnoDB 의 <em>PAGE_DIR_SLOT_SIZE = 2</em>. 다만 InnoDB 는 슬롯을 레코드마다 두지 않고 <em>4~8개마다 하나</em>만 둔다 — 06 에서 본다.',
     ref:'storage/innobase/include/page0page.h', sym:'PAGE_DIR_SLOT_MAX_N_OWNED',
@@ -780,8 +780,8 @@ const SCENES = [
   ],
 },
 {
-  num:'06', tab:'슬롯 페이지', title:'InnoDB 는 슬롯을 레코드마다 두지 않는다',
-  sub:'4~8개마다 하나 — 책의 설계에서 한 걸음 더',
+  num:'06', tab:'Slotted Page', title:'Sparse Page Directory: One Slot per 4–8 Records',
+  sub:'4~8 record 마다 slot 하나 — 책의 설계에서 한 걸음 더',
   cast:['op','pg','dir','cells','hdr'],
   knobs:[
     ['innodb_page_size','16 KB','슬롯 배열과 셀이 만나면 꽉 찬 것']],
@@ -811,14 +811,14 @@ const SCENES = [
     "Space reclamation" ],
   steps:[
   { look:{ hdr:true },
-    note:'페이지 헤더에 슬롯 수와 힙 최상단이 있다',
+    note:'page header — slot 수와 heap top',
     why:'PAGE_N_DIR_SLOTS 는 오프셋 0, PAGE_HEAP_TOP 은 2, PAGE_FREE 는 6, PAGE_GARBAGE 는 8 이다.',
     key:'PAGE_FREE 와 PAGE_GARBAGE 가 책이 말한 <em>SQLite 의 freeblock 포인터와 총 가용 바이트</em>와 정확히 같은 짝이다 — 09 에서 쓴다.',
     ref:'storage/innobase/page/page.ic', sym:'page_header_get_field',
     beat:1 },
 
   { act:{ f:'op', t:'dir', lb:'슬롯을 만든다' },
-    note:'레코드 16개에 슬롯이 4개뿐이다',
+    note:'record 16개에 slot 4개',
     why:'InnoDB 는 슬롯 하나가 레코드 4~8개를 소유한다. PAGE_DIR_SLOT_MIN_N_OWNED = 4, MAX = 8.',
     key:'책의 설계는 <em>셀마다 포인터 하나</em>다. InnoDB 는 그 배열을 1/4~1/8 로 줄였다 — 오버헤드를 더 깎은 것이다.',
     ref:'storage/innobase/include/page0page.h', sym:'page_dir_get_nth_slot',
@@ -831,7 +831,7 @@ const SCENES = [
           op:{ set:{ '슬롯 수':'4  (레코드 16개)|gold' } } } },
 
   { act:{ f:'dir', t:'cells', lb:'k=45 를 찾는다' },
-    note:'슬롯으로 이진 탐색해 구간을 좁히고, 그 안은 순차로 훑는다',
+    note:'slot 으로 binary search 해 구간 축소, 구간 안은 linear scan',
     why:'슬롯 4개를 이진 탐색해 후보 구간을 찾고, 그 구간의 레코드 4~8개를 next 포인터로 따라간다.',
     key:'그래서 <em>완전한 이진 탐색이 아니다</em>. 슬롯까지는 log₂, 그 안은 선형. 소유 개수를 4~8로 묶어 둔 이유가 이 선형 구간을 짧게 유지하는 것이다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_search_with_match',
@@ -841,22 +841,22 @@ const SCENES = [
           op:{ set:{ '탐색':'슬롯 이진 + 구간 선형|green' } } } },
 
   { look:{ pg:['i·s'] },
-    note:'그리고 경계 레코드 두 개가 항상 있다',
+    note:'경계 record 둘이 항상 존재 — infimum · supremum',
     why:'infimum 은 모든 키보다 작고 supremum 은 모든 키보다 크다. 실제 데이터가 아니라 표식이다.',
     key:'덕분에 순회 코드에 <em>경계 검사가 없다</em>. 첫 레코드 앞과 마지막 뒤가 항상 존재하므로 널 검사가 사라진다.',
     ref:'storage/innobase/include/page0page.h', sym:'page_get_infimum_rec',
     beat:1 },
 
   { look:{ pg:true, op:true },
-    note:'정리 — 셀은 앞에서, 슬롯은 뒤에서 자라 가운데서 만난다',
+    note:'정리 — cell 은 앞에서, slot 은 뒤에서 자라 가운데서 만난다',
     why:'PAGE_HEAP_TOP 이 셀의 경계, PAGE_DIR 이 슬롯의 경계다. 둘 사이가 남은 공간이다.',
     key:'책의 그림은 슬롯을 왼쪽·셀을 오른쪽에 둔다. InnoDB 는 <em>반대</em>다 — 셀이 앞, 슬롯이 뒤. 방향은 관례이고 성질은 같다.',
     beat:1 },
   ],
 },
 {
-  num:'06a', tab:'페이지 헤더', title:'FIL 헤더가 끝난 자리에서 이어진다',
-  sub:'12필드 36바이트 · 그리고 디렉터리는 반대쪽 끝에서 거꾸로 쌓인다',
+  num:'06a', tab:'Page Header', title:'INDEX Page Header: 36 Bytes & a Directory Growing Backward',
+  sub:'12 field 36 byte — directory 는 반대쪽 끝에서 역방향으로',
   cast:['op','phd','fsp','fins','addr','dir'],
   knobs:[
     ['innodb_page_size','16 KB','디렉터리 시작 주소가 이 값에서 역산된다'],
@@ -896,7 +896,7 @@ const SCENES = [
     "Space reclamation" ],
   steps:[
   { act:{ f:'op', t:'addr', lb:'38 에서 이어진다' },
-    note:'PAGE_HEADER 는 FIL 헤더가 끝나는 자리다 — 오프셋 38',
+    note:'PAGE_HEADER 는 FIL header 의 끝 — offset 38',
     why:'PAGE_HEADER = FSEG_PAGE_DATA 이고 FSEG_PAGE_DATA = FIL_PAGE_DATA = 38 이다. 상수 세 개가 같은 값을 가리킨다.',
     key:'세 층이 <em>같은 숫자를 서로 다른 이름으로</em> 부른다. 층마다 자기 이름으로 경계를 말하지만 자리는 하나다.',
     ref:'storage/innobase/page/page.ic', sym:'page_header_get_field',
@@ -907,7 +907,7 @@ const SCENES = [
           addr:{ set:{ 'PAGE_HEADER':'38' } } } },
 
   { look:{ phd:true, fsp:true, fins:true },
-    note:'12필드가 36바이트를 채운다 — 2바이트 아홉 개, 8바이트 둘, 2바이트 하나',
+    note:'12 field = 36 byte — 2-byte 아홉, 8-byte 둘, 2-byte 하나',
     why:'앞 18바이트에 2바이트짜리 아홉 개가 들어간다 — 옆 목록이 그 아홉 개다. 그 뒤 MAX_TRX_ID 8바이트, LEVEL 2바이트, INDEX_ID 8바이트로 36이 된다.',
     key:'폭을 보면 <em>8바이트 둘이 절반</em>을 쓴다. 트랜잭션 id 와 인덱스 id 는 좁힐 수 없는 값이라 그렇다.',
     ref:'storage/innobase/page/page.ic', sym:'page_header_get_field',
@@ -918,7 +918,7 @@ const SCENES = [
     beat:1 },
 
   { look:{ fins:true },
-    note:'뒤쪽 세 필드는 따로 쓰이지 않는다 — 한 조건으로 함께 읽힌다',
+    note:'마지막 세 field 는 단독으로 안 쓰인다 — 한 조건으로 함께 read',
     why:'page_cur_search_with_match 가 잎 페이지에서 PAGE_CUR_LE 로 찾을 때, N_DIRECTION 이 3 보다 크고 LAST_INSERT 가 있고 DIRECTION 이 PAGE_RIGHT 이면 page_cur_try_search_shortcut 을 먼저 시도한다. 세 필드가 &&로 이어진 하나의 관문이다.',
     key:'그래서 이 셋은 <em>통계가 아니라 캐시</em>다. "오른쪽으로만 네 번 넘게 들어왔다" 를 기억해 두고, 다음 삽입은 이진 탐색을 건너뛰고 그 자리부터 본다 — 오름차순 키 삽입이 빠른 이유가 여기 있다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_search_with_match',
@@ -929,7 +929,7 @@ const SCENES = [
     beat:1 },
 
   { act:{ f:'phd', t:'addr', lb:'+4 의 비트 15' },
-    note:'PAGE_N_HEAP 은 레코드 수인데, 최상위 비트가 형식 플래그다',
+    note:'PAGE_N_HEAP — record 수, MSB 는 format flag',
     why:'주석 그대로다 — "number of records in the heap, bit 15=flag: new-style compact page format". 15비트가 개수, 1비트가 형식이다.',
     key:'04b 의 이야기가 여기서도 반복된다 — <em>한 필드에 두 가지</em>. 다만 이번엔 문맥이 아니라 비트로 나눈다.',
     ref:'storage/innobase/page/page.ic', sym:'page_header_get_field',
@@ -938,7 +938,7 @@ const SCENES = [
           phd:{ set:{ '2B × 9':{ id:'2B × 9', sz:18, tag:'hdr', sub:'+0 ~ +17  이 안의 +4 가 그것' } } } } },
 
   { act:{ f:'phd', t:'addr', lb:'+36 부터 FSEG 둘' },
-    note:'헤더 뒤에 파일 세그먼트 헤더가 두 개 붙는다 — 루트 페이지에만 의미가 있다',
+    note:'뒤에 file segment header 둘 — root page 에서만 의미',
     why:'PAGE_BTR_SEG_LEAF = 36, PAGE_BTR_SEG_TOP = 36 + FSEG_HEADER_SIZE 이고 FSEG_HEADER_SIZE = 10 이다. 주석은 "B-tree 의 루트 페이지에만 정의된다" 고 못박는다.',
     key:'그리고 이 자리도 문맥에 따라 다른 것이 된다 — <em>ibuf 트리 루트에서는 자유 목록 기점</em>이고, 자유 목록에 든 페이지에서는 그 목록의 노드다.',
     ref:'storage/innobase/page/page.ic', sym:'page_header_get_field',
@@ -953,7 +953,7 @@ const SCENES = [
           op:{ set:{ '데이터 시작':'94' } } } },
 
   { act:{ f:'addr', t:'dir', lb:'94 다음의 두 레코드' },
-    note:'94 부터 실제 레코드인데, 첫 둘은 항상 infimum 과 supremum 이다',
+    note:'94 부터 실제 record — 첫 둘은 항상 infimum · supremum',
     why:'PAGE_NEW_INFIMUM = PAGE_DATA + REC_N_NEW_EXTRA_BYTES, PAGE_NEW_SUPREMUM = PAGE_DATA + 2×REC_N_NEW_EXTRA_BYTES + 8. COMPACT 형식에서 99 와 112 다.',
     key:'경계가 <em>개념이 아니라 실제 레코드</em>다. 그래서 슬롯 0 은 언제나 infimum 을 가리키고, 마지막 슬롯은 supremum 을 가리킨다 — 빈 페이지에도 슬롯이 둘 있다.',
     ref:'storage/innobase/include/page0page.h', sym:'page_get_infimum_rec',
@@ -965,7 +965,7 @@ const SCENES = [
             { id:'슬롯 n', tag:'ok', sub:'→ supremum (112)' }] } } },
 
   { act:{ f:'dir', t:'addr', lb:'반대쪽 끝에서' },
-    note:'디렉터리는 페이지 끝에서 trailer 8바이트를 뺀 자리부터 거꾸로 자란다',
+    note:'directory — page 끝에서 trailer 8 byte 를 뺀 자리부터 역방향',
     why:'슬롯 n 의 주소가 page + (UNIV_PAGE_SIZE − PAGE_DIR − (n+1) × PAGE_DIR_SLOT_SIZE) 다. PAGE_DIR = FIL_PAGE_DATA_END = 8 이므로 trailer 바로 앞이다.',
     key:'그래서 슬롯 번호가 커질수록 <em>주소는 작아진다</em>. 헤더는 앞에서, 디렉터리는 뒤에서 — 둘이 만나면 그 페이지는 꽉 찬 것이다.',
     ref:'storage/innobase/include/page0page.h', sym:'page_dir_get_nth_slot',
@@ -975,7 +975,7 @@ const SCENES = [
     ops:{ addr:{ set:{ '디렉터리 시작':'16384 − 8 − 2(n+1)|gold' } } } },
 
   { act:{ f:'dir', t:'op', lb:'소유 개수는 어디에' },
-    note:'슬롯은 오프셋만 갖는다 — "몇 개를 소유하나" 는 레코드가 들고 있다',
+    note:'slot 은 offset 만 — 소유 record 수는 record 쪽이 보유',
     why:'rec_get_n_owned_new 가 레코드 헤더에서 읽는다. 각 그룹의 마지막 레코드에 그 그룹의 개수가 적혀 있다.',
     key:'슬롯이 2바이트인 이유가 이것이다 — <em>오프셋만 담으니 2바이트로 끝난다</em>. 소유 개수를 슬롯에 넣었다면 배열이 더 커졌다.',
     ref:'storage/innobase/include/rem0rec.h', sym:'rec_get_n_owned_new',
@@ -984,7 +984,7 @@ const SCENES = [
     ops:{ op:{ set:{ '페이지':'p:5  INDEX  ·  슬롯 2B = 오프셋뿐|green' } } } },
 
   { look:{ phd:true, addr:true },
-    note:'정리 — 한 페이지의 주소 지도가 완성됐다',
+    note:'정리 — page 하나의 address map 완성',
     why:'0 FIL 헤더 38 · 38 페이지 헤더 36 · 74 FSEG 20 · 94 데이터 · 99 infimum · 112 supremum · 끝−8 부터 디렉터리 역방향 · 끝 8바이트 trailer.',
     key:'전부 <em>상수 덧셈</em>이다. 어떤 페이지를 열어도 계산 없이 자리를 안다 — 그것이 고정 오프셋 설계가 사는 이유다.',
     ref:'storage/innobase/page/page.ic', sym:'page_header_get_field',
@@ -993,8 +993,8 @@ const SCENES = [
   ],
 },
 {
-  num:'07', tab:'셀 배치', title:'키 셀과 키-값 셀',
-  sub:'책의 두 종류 — InnoDB 도 정확히 둘이다',
+  num:'07', tab:'Cell Layout', title:'Cell Layout: Key Cells vs. Key-Value Cells',
+  sub:'책의 두 종류 — InnoDB 도 정확히 둘, node pointer record 와 leaf record',
   cast:['op','rec','cells','bits'],
   knobs:[
     ['innodb_default_row_format','dynamic','키-값 셀의 실제 배치를 정한다'],
@@ -1015,7 +1015,7 @@ const SCENES = [
     "Cell offsets are page-local" ],
   steps:[
   { act:{ f:'op', t:'rec', lb:'키 셀 (internal 노드)' },
-    note:'키 셀은 분리 키(separator key)와 자식 페이지 번호만 담는다',
+    note:'key cell — separator key 와 child page no 만',
     why:'책의 목록: 셀 종류(페이지 메타데이터에서 추론) · 키 크기 · 자식 페이지 ID · 키 바이트.',
     key:'값이 없다 — 이것이 B+-Tree 다. internal 노드가 값을 안 담으므로 <em>더 많은 키가 들어가고 fan-out 이 커진다</em>.',
     ref:'storage/innobase/rem/rec.cc', sym:'rec_get_offsets',
@@ -1026,14 +1026,14 @@ const SCENES = [
           op:{ set:{ '셀 종류':'키 셀', '레벨':'internal', '담는 것':'키 + 자식 포인터' } } } },
 
   { look:{ rec:['자식 page_id'] },
-    note:'파일 오프셋이 아니라 페이지 번호를 담는다',
+    note:'file offset 이 아니라 page no',
     why:'페이지 크기가 고정이고 버퍼 관리자가 번호를 실제 오프셋으로 옮겨 준다. 번호는 더 작은 정수로 충분하다.',
     key:'책이 짚는 구분이다 — <em>페이지 ID 는 파일 전체 기준, 셀 오프셋은 페이지 안 기준</em>. 후자는 더 작은 정수라 표현이 조밀해진다.',
     ref:'storage/innobase/include/buf0buf.h', sym:'buf_page_get_gen',
     beat:1 },
 
   { act:{ f:'op', t:'rec', lb:'키-값 셀 (leaf 노드)' },
-    note:'키-값 셀은 자식 포인터 대신 데이터 레코드를 담는다',
+    note:'key-value cell — child pointer 대신 data record',
     why:'책의 목록: 셀 종류 · 키 크기 · 값 크기 · 키 바이트 · 데이터 레코드 바이트.',
     key:'구조가 <em>거의 같다</em>. 자식 page_id 자리에 value_size 가 오고 뒤에 레코드가 붙는다 — 그래서 같은 코드로 다룰 수 있다.',
     ref:'storage/innobase/rem/rec.cc', sym:'rec_get_offsets',
@@ -1046,7 +1046,7 @@ const SCENES = [
           op:{ set:{ '셀 종류':'키-값 셀', '레벨':'leaf', '담는 것':'키 + 데이터 레코드' } } } },
 
   { act:{ f:'rec', t:'bits', lb:'셀 종류는 페이지가 안다' },
-    note:'셀마다 종류를 적지 않는다 — 페이지 안의 셀은 모두 같은 종류다',
+    note:'cell 마다 type 을 적지 않는다 — page 안 cell 은 전부 같은 종류',
     why:'책의 가정이다: 페이지 안의 셀은 균일하다. 그러니 메타데이터를 페이지 수준에 한 번만 적는다.',
     key:'InnoDB 도 같다 — <em>FIL_PAGE_TYPE 과 PAGE_LEVEL</em> 로 안다. 레코드 하나하나에 "나는 키 셀" 이라고 적으면 그만큼이 낭비다.',
     ref:'storage/innobase/include/btr0btr.ic', sym:'btr_page_get_level',
@@ -1057,15 +1057,15 @@ const SCENES = [
             { id:'레코드 플래그', tag:'clean', sub:'삭제 표시 · 최소 레코드' }] } } },
 
   { look:{ rec:true, op:true },
-    note:'고정 크기 필드를 앞에 모으는 이유',
+    note:'fixed-size field 를 앞에 모으는 이유',
     why:'앞쪽은 정적 오프셋으로 접근하고, 가변 부분만 계산한다. 책이 "꼭 필요한 것은 아니지만 오프셋 계산을 단순하게 한다" 고 한 그것이다.',
     key:'InnoDB 는 여기서 한 발 더 간다 — 가변 길이 목록을 <em>레코드 원점 앞으로</em> 밀어내서, 원점 뒤는 완전히 고정 오프셋이 된다(02 참고).',
     beat:1 },
   ],
 },
 {
-  num:'07a', tab:'레코드 헤더', title:'레코드 헤더는 원점보다 앞에 있다',
-  sub:'5바이트에 다섯 값이 비트로 겹쳐 든다 — 그리고 오프셋이 음수 방향이다',
+  num:'07a', tab:'Record Header', title:'Record Header: Five Bytes Before the Origin',
+  sub:'5 byte 에 다섯 값이 bit 로 packing — offset 은 음수 방향',
   cast:['op','rhd','rdat','bit5'],
   knobs:[
     ['innodb_default_row_format','dynamic','COMPACT 계열이라 extra 가 5바이트다'],
@@ -1110,7 +1110,7 @@ const SCENES = [
      숨은 컬럼)은 두 형식에서 같으므로 물려받는다. */
   vary:{ knob:'innodb_default_row_format', base:'dynamic', alt:{
     'redundant':{
-      2:{ note:'6바이트다 — 그리고 담는 것이 다르다',
+      2:{ note:'6 byte — 담는 것도 다르다',
           why:'REC_N_OLD_EXTRA_BYTES 가 6 이다. COMPACT 계열의 5바이트와 한 바이트 차이인데, 그 한 바이트가 아니라 배치 전체가 다르다 — REDUNDANT 는 필드 개수를 헤더에 적고, 오프셋이 1바이트인지 2바이트인지도 비트 하나로 표시한다.',
           key:'그래서 REDUNDANT 레코드는 <em>스스로 자기 필드 수를 안다</em>. COMPACT 은 그것을 인덱스 정의에서 가져온다 — 바이트를 아낀 대신 레코드만 보고는 해석할 수 없게 됐다.',
           ref:'storage/innobase/rem/rec.h', sym:'REC_N_OLD_EXTRA_BYTES',
@@ -1130,7 +1130,7 @@ const SCENES = [
                             'next':{ id:'next', sz:2, tag:'gold', sub:'−3 −2' } },
                       add:[{ id:'n_f', sz:1, tag:'gold', sub:'−1 · 필드 수 + short' }] } } },
 
-      4:{ note:'status 3비트가 없다 — 그 자리에 필드 수가 있다',
+      4:{ note:'status 3 bit 없음 — 그 자리에 field 수',
           why:'REC_NEW_STATUS 는 COMPACT 계열에만 있다. REDUNDANT 에서 이 레코드가 무엇인지(ORDINARY·NODE_PTR·INFIMUM·SUPREMUM)는 별도 필드가 아니라 문맥과 info bits 로 판별한다.',
           key:'같은 정보를 <em>다른 방식으로 담는다</em>. 어느 쪽이 더 낫다기보다, 형식을 바꾸면 해석 코드가 갈라진다는 것이 요점이다 — rec_get_* 함수가 new 와 old 로 쌍을 이루는 이유.',
           ref:'storage/innobase/rem/rec.h', sym:'REC_OLD_N_FIELDS',
@@ -1139,7 +1139,7 @@ const SCENES = [
           ops:{ bit5:{ set:{ 'n_fields':{ tag:'x', sub:'10비트 · 이 레코드의 필드 수' } } },
                 rhd:{ set:{ '◆':{ id:'◆', sz:1, tag:'hdr', sub:'원점 · status 없음' } } } } },
 
-      6:{ note:'널 비트맵이 없다 — NULL 은 오프셋 안의 비트 하나다',
+      6:{ note:'null bitmap 없음 — NULL 은 offset 안의 bit 하나',
           why:'REDUNDANT 는 필드마다 시작 오프셋을 적고, 그 오프셋의 최상위 비트를 SQL NULL 표시로 쓴다. 1바이트 오프셋이면 0x80, 2바이트면 0x8000 이다. 주석이 그렇게 적는다.',
           key:'그래서 nullable 컬럼이 많아도 <em>비트맵이 커지지 않는다</em> — 대신 모든 필드가 오프셋 값을 하나씩 갖는다. COMPACT 은 반대로 거래했다 : 오프셋은 가변 길이 필드만, NULL 은 비트맵으로.',
           ref:'storage/innobase/rem/rec.h', sym:'REC_1BYTE_SQL_NULL_MASK',
@@ -1152,7 +1152,7 @@ const SCENES = [
                 op:{ set:{ '원점 기준':'−6 ‥ −1  ·  널 비트맵 없음' } } } },
 
       7:{ look:{ rhd:true, op:true },
-          note:'정리 — 같은 행이 형식에 따라 다른 바이트가 된다',
+          note:'정리 — 같은 row 가 format 따라 다른 byte',
           why:'컬럼도 값도 같은데 extra 는 5 에서 6 으로, 널 표시는 비트맵에서 오프셋의 비트로, 필드 수는 인덱스 정의에서 레코드 안으로 옮겨갔다.',
           key:'그래서 행 형식은 <em>한번 정하면 그 테이블에 박힌다</em>. 옛 형식을 계속 읽을 수 있어야 하므로 InnoDB 는 두 해석 경로를 영구히 들고 간다 — 10 장면이 그 이야기다.',
           ref:'storage/innobase/rem/rec.h', sym:'REC_N_OLD_EXTRA_BYTES',
@@ -1162,7 +1162,7 @@ const SCENES = [
   } },
   steps:[
   { look:{ rhd:true, rdat:true, op:true },
-    note:'슬롯이 가리키는 곳은 레코드의 시작이 아니라 "원점" 이다',
+    note:'slot 이 가리키는 곳 — record 의 시작이 아니라 origin',
     why:'원점 앞쪽(음수 오프셋)에 헤더가 있고 뒤쪽에 데이터가 있다. 그래서 헤더는 왼쪽으로, 데이터는 오른쪽으로 읽는다.',
     key:'상수 이름이 이미 그렇게 말한다 — <em>REC_NEXT = 2 는 "원점에서 2바이트 앞"</em>이라는 뜻이다. 오프셋이 거리이지 위치가 아니다.',
     ref:'storage/innobase/rem/rec.cc', sym:'rec_get_offsets',
@@ -1171,7 +1171,7 @@ const SCENES = [
     ops:{ op:{ set:{ 'extra 바이트':'5  (COMPACT)|green', '원점 기준':'헤더는 앞 · 데이터는 뒤' } } } },
 
   { act:{ f:'rhd', t:'bit5', lb:'5바이트를 풀어본다' },
-    note:'5바이트에 값이 다섯 개 들어 있다 — 비트로 겹쳐서',
+    note:'5 byte 에 값 다섯 — bit 로 packing',
     why:'앞 3바이트에 info bits(4비트) · n_owned(4비트) · heap_no(13비트) · status(3비트) 가 들어가고, 뒤 2바이트가 next 오프셋이다.',
     key:'소스가 <em>static_assert 로 증명</em>해 둔다 — 네 마스크를 XOR 하면 정확히 0xFFFFFF, 즉 3바이트가 빈틈없이 덮인다. 낭비된 비트가 없다.',
     ref:'storage/innobase/include/rem0rec.h', sym:'rec_get_n_owned_new',
@@ -1186,7 +1186,7 @@ const SCENES = [
           op:{ set:{ '원점 기준':'3바이트에 네 값 + 2바이트 next|gold' } } } },
 
   { act:{ f:'bit5', t:'op', lb:'info bits 4개' },
-    note:'info bits 의 네 비트가 각각 한 가지를 뜻한다',
+    note:'info bits 4 bit — 각각 한 가지 의미',
     why:'0x10 MIN_REC(레벨 왼쪽 끝의 첫 레코드) · 0x20 DELETED(삭제 표시) · 0x40 VERSION · 0x80 INSTANT(instant ADD COLUMN 이후 삽입·갱신).',
     key:'<em>삭제가 비트 하나</em>다. 그래서 DELETE 가 레코드를 지우지 않고 이 비트만 켠다 — MVCC 가 과거를 읽을 수 있는 이유이고, 09 의 조각화(fragmentation)가 생기는 이유다.',
     ref:'storage/innobase/include/rem0rec.h', sym:'rec_get_deleted_flag',
@@ -1198,7 +1198,7 @@ const SCENES = [
           op:{ set:{ '레코드':'(id=20, c=200)  ·  DELETED 비트로 삭제|red' } } } },
 
   { act:{ f:'bit5', t:'rhd', lb:'status 3비트' },
-    note:'status 3비트가 이 레코드가 무엇인지 정한다 — 값은 넷뿐이다',
+    note:'status 3 bit — record 종류 결정, 값은 넷뿐',
     why:'ORDINARY 0 · NODE_PTR 1 · INFIMUM 2 · SUPREMUM 3. 경계 레코드가 별도 구조가 아니라 같은 형식의 레코드이고, 비리프의 자식 포인터도 그렇다.',
     key:'그래서 <em>페이지 안의 모든 것이 같은 형식</em>이다. infimum·supremum·자식 포인터·사용자 행이 한 가지 코드로 다뤄진다.',
     ref:'storage/innobase/rem/rec.h', sym:'REC_STATUS_ORDINARY',
@@ -1210,7 +1210,7 @@ const SCENES = [
           rhd:{ set:{ '◆':{ id:'◆', sz:1, tag:'gold', sub:'원점 · ORDINARY' } } } } },
 
   { act:{ f:'rdat', t:'op', lb:'원점 뒤 13바이트' },
-    note:'클러스터 인덱스 레코드에는 숨은 컬럼 두 개가 먼저 온다',
+    note:'clustered index record — hidden column 둘',
     why:'DB_TRX_ID 6바이트, DB_ROLL_PTR 7바이트. 소스가 static_assert 로 그 길이를 못박는다.',
     key:'행마다 <em>13바이트가 MVCC 값</em>이다. 컬럼 두 개짜리 좁은 테이블에서는 이것이 데이터보다 클 수 있다 — 좁은 테이블이 생각보다 안 좁은 이유.',
     ref:'storage/innobase/rem/rec.cc', sym:'rec_get_offsets',
@@ -1221,7 +1221,7 @@ const SCENES = [
           op:{ set:{ 'extra 바이트':'5 + 숨은 컬럼 13 = 18 B|red' } } } },
 
   { act:{ f:'rhd', t:'op', lb:'원점 앞의 가변 길이' },
-    note:'가변 길이 필드의 길이와 널 비트맵은 헤더보다 더 앞에 있다 — 역순으로',
+    note:'varlen length 와 null bitmap — header 보다 더 앞, 역순',
     why:'널 비트맵은 nullable 컬럼 수를 8로 나눈 만큼, 가변 길이 배열은 필드마다 1~2바이트다. 둘 다 원점에서 더 멀어지는 방향으로 놓인다.',
     key:'그래서 레코드를 해석하려면 <em>왼쪽으로 거슬러 올라가며</em> 읽는다. rec_get_offsets 가 그 일을 한 번에 해서 오프셋 배열로 만들어 준다 — 이후 코드는 다시 파싱하지 않는다.',
     ref:'storage/innobase/rem/rec.cc', sym:'rec_get_offsets',
@@ -1229,7 +1229,7 @@ const SCENES = [
                       '널':{ id:'널', sz:1, tag:'gold', sub:'nullable 2개 → 1B' } } } } },
 
   { look:{ rhd:true, rdat:true, op:true },
-    note:'정리 — 06a 의 슬롯이 가리킨 지점이 여기였다',
+    note:'정리 — 06a 의 slot 이 가리킨 지점이 여기',
     why:'슬롯 2바이트가 원점 오프셋을 담고, 원점 앞 5바이트에 다섯 값이 겹쳐 있고, 그 앞에 가변 길이 정보가, 뒤에 숨은 컬럼과 값이 있다.',
     key:'페이지에서 레코드까지 <em>한 줄로 내려왔다</em> — 파일(04) → FIL 헤더(04a) → 페이지 헤더(06a) → 슬롯(06) → 이 레코드. 아래로 더 가면 컬럼 하나의 바이트 순서(01)다.',
     ref:'storage/innobase/rem/rec.cc', sym:'rec_get_offsets',
@@ -1238,8 +1238,8 @@ const SCENES = [
   ],
 },
 {
-  num:'08', tab:'Tom·Leslie·Ron', title:'삽입 순서와 정렬 순서를 따로 둔다',
-  sub:'책의 예를 그대로 — 셀은 append, 슬롯은 정렬',
+  num:'08', tab:'Tom · Leslie · Ron', title:'Insertion Order vs. Key Order: Tom, Leslie & Ron',
+  sub:'책의 예 그대로 — cell 은 append, slot 은 sorted',
   cast:['op','pg','cells','dir'],
   knobs:[
     ['innodb_page_size','16 KB','슬롯과 셀이 만나면 분할이다']],
@@ -1262,7 +1262,7 @@ const SCENES = [
     "pointers after the insertion point are shifted to the right" ],
   steps:[
   { act:{ f:'op', t:'cells', lb:'Tom 추가' },
-    note:'Tom 을 넣는다 — 셀 영역 앞쪽에 붙인다',
+    note:'Tom insert — cell 영역 앞쪽에 append',
     why:'빈 공간의 시작(PAGE_HEAP_TOP)에 그냥 append 한다. 어디에 놓을지 고민하지 않는다.',
     key:'삽입이 <em>append</em> 다. 이것이 슬롯 배치의 첫째 이득이다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_insert_rec_low',
@@ -1273,7 +1273,7 @@ const SCENES = [
           op:{ set:{ '삽입 순서':'Tom', '정렬 순서':'Tom' } } } },
 
   { act:{ f:'op', t:'cells', lb:'Leslie 추가' },
-    note:'Leslie 를 넣는다 — 셀은 Tom 뒤에, 슬롯은 Tom 앞에',
+    note:'Leslie — cell 은 Tom 뒤, slot 은 Tom 앞',
     why:'알파벳으로 Leslie < Tom 이다. 셀은 삽입 순서대로 Tom 다음에 놓이지만 슬롯은 Leslie 를 먼저 가리켜야 한다.',
     key:'두 순서가 <em>여기서 처음 어긋난다</em>. 책의 그림 3-7 이 보여주는 상태다 — 셀은 삽입 순서, 오프셋은 재정렬.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_insert_rec_low',
@@ -1286,7 +1286,7 @@ const SCENES = [
                      '옮긴 바이트':'2  (슬롯 하나)' } } } },
 
   { act:{ f:'op', t:'dir', lb:'Ron 추가' },
-    note:'Ron 을 넣는다 — 슬롯 배열의 가운데에 끼워야 한다',
+    note:'Ron — slot array 가운데에 끼워 넣기',
     why:'Leslie < Ron < Tom 이다. 셀은 또 append 지만, 슬롯은 삽입 지점 뒤쪽을 오른쪽으로 밀어 자리를 만든다.',
     key:'밀리는 것이 <em>2바이트 슬롯 하나</em>다. 고정 배치였다면 Tom 레코드 전체를 옮겨야 했다 — 05 와 비교되는 지점.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_insert_rec_low',
@@ -1300,13 +1300,13 @@ const SCENES = [
                      '정렬 순서':'Leslie · Ron · Tom|green', '옮긴 바이트':'4  (슬롯 둘)' } } } },
 
   { look:{ cells:true, dir:true },
-    note:'셀은 한 번도 움직이지 않았다',
+    note:'cell 은 한 번도 이동하지 않았다',
     why:'세 번의 삽입에서 옮긴 것은 슬롯 2바이트 두 개, 총 4바이트다. 레코드 본문은 그대로다.',
     key:'페이지 밖에서 셀을 <em>슬롯 번호로만</em> 참조하므로, 셀이 어디 있는지는 페이지 내부 사정이다. 책이 말한 "동적 배치" 다.',
     beat:1 },
 
   { look:{ dir:true },
-    note:'그래서 슬롯 배열에 이진 탐색을 걸 수 있다',
+    note:'그래서 slot array 에 binary search 가능',
     why:'슬롯이 키 순서로 정렬돼 있으므로 이진 탐색이 성립한다. 셀 순서는 상관없다.',
     key:'InnoDB 는 여기에 하나 더 얹는다 — 슬롯이 <em>레코드 4~8개를 소유</em>하므로 배열이 더 짧다(06). 대신 구간 안은 선형이다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_search_with_match',
@@ -1314,7 +1314,7 @@ const SCENES = [
   ],
 },
 {
-  num:'09', tab:'조각화', title:'지운 자리를 다시 쓰는 법',
+  num:'09', tab:'Fragmentation', title:'Fragmentation: Free Lists, PAGE_FREE & PAGE_GARBAGE',
   sub:'availability list — InnoDB 의 PAGE_FREE 와 PAGE_GARBAGE',
   cast:['op','pg','freeL','hdr','cells'],
   knobs:[
@@ -1349,7 +1349,7 @@ const SCENES = [
     "we have to create an overflow" ],
   steps:[
   { act:{ f:'op', t:'cells', lb:'B 를 지운다' },
-    note:'셀을 실제로 지우지 않는다 — 삭제 표시만 붙이고 가용 목록에 넣는다',
+    note:'cell 을 실제로 지우지 않는다 — delete mark 후 availability list 로',
     why:'책: 항목을 지워도 실제 셀을 없애고 뒤를 당겨오지 않는다. 삭제로 표시하고 그 오프셋과 크기를 가용 목록에 적는다.',
     key:'옮기지 않는 이유가 있다 — <em>페이지 밖에서 오프셋을 참조</em>하고 있을 수 있다. 당겨오면 그 참조가 다 틀어진다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_delete_rec',
@@ -1361,14 +1361,14 @@ const SCENES = [
           op:{ set:{ '작업':'B 삭제', '가용 조각':'1' } } } },
 
   { look:{ hdr:true },
-    note:'InnoDB 는 이 두 개를 페이지 헤더에 둔다',
+    note:'InnoDB 는 이 둘을 page header 에',
     why:'PAGE_FREE(오프셋 6)는 삭제된 레코드들의 연결 리스트 머리, PAGE_GARBAGE(오프셋 8)는 회수 가능한 총 바이트다.',
     key:'책은 SQLite 가 <em>freeblock 포인터와 총 가용 바이트</em>를 헤더에 둔다고 말한다. InnoDB 는 이름만 다르고 같은 짝이다.',
     ref:'storage/innobase/page/page.ic', sym:'page_header_get_field',
     beat:1 },
 
   { act:{ f:'op', t:'freeL', lb:'새 셀 D (1.5KB) 를 넣는다' },
-    note:'먼저 가용 목록을 본다 — 들어갈 조각이 있으면 거기 쓴다',
+    note:'availability list 먼저 — 맞는 조각이 있으면 재사용',
     why:'2KB 조각에 1.5KB 가 들어간다. 남는 0.5KB 는 너무 작아 다른 셀을 못 담을 수 있다.',
     key:'책의 두 전략 — <em>first fit</em> 은 처음 맞는 곳에 넣어 남은 조각이 쓸모없어질 수 있고, <em>best fit</em> 은 남는 것이 가장 작은 곳을 찾는다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_insert_rec_low',
@@ -1379,7 +1379,7 @@ const SCENES = [
           op:{ set:{ '작업':'D 삽입 (first fit)', '가용 조각':'1 · 0.5 KB' } } } },
 
   { act:{ f:'op', t:'pg', lb:'조각이 쌓였다 → 정리(defrag)' },
-    note:'연속 공간이 부족하지만 조각을 합치면 충분할 때, 페이지를 다시 쓴다',
+    note:'연속 공간 부족, 조각 합은 충분 — page reorganize',
     why:'살아있는 셀만 읽어 앞쪽부터 다시 쓴다. 슬롯 오프셋도 함께 갱신한다.',
     key:'InnoDB 의 그 함수가 <em>btr_page_reorganize</em> 다. 08 에서 본 삽입은 셀을 안 옮겼지만, 정리는 <em>일부러 다 옮긴다</em>.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_page_reorganize',
@@ -1394,7 +1394,7 @@ const SCENES = [
           op:{ set:{ '작업':'페이지 재구성', '가용 조각':'0|green', '연속 최대':'5 KB|green' } } } },
 
   { look:{ op:true, hdr:true },
-    note:'정리해도 안 들어가면 오버플로 페이지로 보낸다',
+    note:'그래도 안 들어가면 overflow page 로',
     why:'책: 조각 정리 후에도 공간이 부족하면 오버플로 페이지를 만들어야 한다.',
     key:'InnoDB 에서는 <em>off-page 저장</em>이다. 레코드에 남는 20바이트(FIELD_REF_SIZE)는 값의 앞부분이 아니라 <em>참조</em>다 — 공간 id · 첫 페이지 번호 · 오프셋 · 전체 길이. DYNAMIC 은 이 20바이트만 남기고, COMPACT 는 앞 768바이트를 함께 남긴다.',
     ref:'storage/innobase/lob/lob0lob.cc', sym:'btr_store_big_rec_extern_fields',
@@ -1405,8 +1405,8 @@ const SCENES = [
   ],
 },
 {
-  num:'10', tab:'버전', title:'파일 형식이 바뀌면 어떻게 알아보나',
-  sub:'파일명 · 별도 파일 · 헤더 · 매직 넘버',
+  num:'10', tab:'Versioning', title:'Format Versioning: Magic Numbers, Page Types & FSP Flags',
+  sub:'filename · 별도 파일 · header · magic number — 책의 네 방식과 InnoDB 의 선택',
   cast:['op','file','ver','hdr'],
   knobs:[
     ['innodb_default_row_format','dynamic','새로 만드는 테이블의 형식 — 옛 형식도 읽을 수 있어야 한다'],
@@ -1415,7 +1415,7 @@ const SCENES = [
     ['I_S.INNODB_TABLES','ROW_FORMAT · SPACE_TYPE — 어느 형식으로 만들어졌나'],
     ['I_S.INNODB_TABLESPACES','FLAG — 페이지 크기와 형식 비트가 들어 있다'],
     ['hexdump -C  *.ibd','오프셋 24 의 FIL_PAGE_TYPE 이 페이지 종류를 알려준다']],
-  links:[['04','헤더는 어디에 있나'],['11','체크섬도 형식에 달려 있다'],['07','행 형식이 셀 배치를 정한다']],
+  links:[['04','헤더는 어디에 있나'],['11','checksum 도 형식에 달려 있다'],['07','행 형식이 셀 배치를 정한다']],
   init:{
     op:{ kv:{ '형식 알기':'—', '지원 형식':'Redundant · Compact · Dynamic · Compressed' } },
     file:{ items:[
@@ -1432,7 +1432,7 @@ const SCENES = [
     "magic numbers" ],
   steps:[
   { look:{ ver:true },
-    note:'책이 든 네 가지 방식 — 파일명 · 별도 파일 · 헤더 · 매직 넘버',
+    note:'책의 네 방식 — filename · 별도 파일 · header · magic number',
     why:'Cassandra 는 파일명 접두어(na-·ma-), PostgreSQL 은 PG_VERSION 파일, 그 밖에 인덱스 파일 헤더나 매직 넘버.',
     key:'파일명 방식의 장점이 명확하다 — <em>열어보지 않고 안다</em>. 대가는 파일명이 형식의 일부가 되는 것.',
     ref:'storage/innobase/include/fsp0fsp.ic', sym:'fsp_flags_is_valid',
@@ -1440,7 +1440,7 @@ const SCENES = [
     ops:{ ver:{ set:{ '방식':'네 가지 중 선택', '어디에':'파일명 · 별도 파일 · 헤더 · 매직' } } } },
 
   { act:{ f:'op', t:'file', lb:'InnoDB : 헤더 방식' },
-    note:'InnoDB 는 헤더에 넣는다 — 파일명은 테이블 이름이다',
+    note:'InnoDB 는 header — filename 은 table 이름',
     why:'첫 페이지(FSP_HDR)의 FLAG 필드에 페이지 크기와 행 형식 비트가 들어 있다. 파일명은 형식과 무관하다.',
     key:'그래서 <em>테이블 이름을 바꿔도 형식 정보가 안 깨진다</em>. Cassandra 방식은 파일명을 함부로 못 바꾼다.',
     ref:'storage/innobase/include/fsp0fsp.ic', sym:'fsp_flags_is_valid',
@@ -1449,7 +1449,7 @@ const SCENES = [
           op:{ set:{ '형식 알기':'첫 페이지를 읽어서' } } } },
 
   { look:{ ver:true },
-    note:'버전은 0번 페이지에만 있다 — 그것도 남의 자리를 빌려 쓴다',
+    note:'version 은 page 0 에만 — 그것도 남의 자리를 차용',
     why:'FIL_PAGE_SRV_VERSION 은 8, FIL_PAGE_SPACE_VERSION 은 12 다. 그 오프셋은 원래 FIL_PAGE_PREV(8)·FIL_PAGE_NEXT(12), 즉 형제 페이지 포인터 자리다. 0번 페이지에는 형제가 없으므로 그 8바이트를 버전 두 개로 다시 쓴다.',
     key:'헤더는 <em>고정 배치이면서도 낭비하지 않는다</em>. 같은 오프셋이 페이지 종류에 따라 다른 뜻이 되는 것이 InnoDB 헤더의 기본 수법이고, 04b 장면이 그 목록이다.',
     ref:'storage/innobase/include/fil0types.h', sym:'FIL_PAGE_SRV_VERSION',
@@ -1458,7 +1458,7 @@ const SCENES = [
           ['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_PREV = 8;']] },
 
   { act:{ f:'file', t:'hdr', lb:'페이지마다 종류도 적혀 있다' },
-    note:'그리고 페이지 하나하나가 자기 종류를 갖는다 — FIL_PAGE_TYPE',
+    note:'page 마다 자기 type — FIL_PAGE_TYPE',
     why:'오프셋 24 의 2바이트다. INDEX · UNDO_LOG · INODE · SDI · LOB 등을 구분한다.',
     key:'책이 말한 <em>매직 넘버</em>의 역할을 겸한다. 엉뚱한 페이지를 읽으면 타입이 안 맞아 바로 드러난다.',
     ref:'storage/innobase/include/fil0fil.h', sym:'fil_page_type_is_index',
@@ -1466,21 +1466,21 @@ const SCENES = [
     ops:{ hdr:{ set:{ 'FIL_PAGE_TYPE':'FIL_PAGE_INDEX  (17855)|green' } } } },
 
   { look:{ hdr:true },
-    note:'페이지 종류 값 자체가 매직 넘버다 — 작은 일련번호가 아니다',
+    note:'page type 값 자체가 magic number — 작은 일련번호가 아니다',
     why:'FIL_PAGE_INDEX 는 17855(0x45BF)다. 1, 2, 3 처럼 세지 않는다. 손상된 페이지나 다른 형식의 파일에서 우연히 그 두 바이트가 나올 확률을 낮추려는 선택이고, fil_page_type_is_index 는 그 값과 SDI·RTREE 를 함께 본다.',
     key:'책이 든 네 방식 중 <em>헤더와 매직 넘버를 동시에</em> 쓰는 셈이다. 그래서 hexdump 로 <em>45 bf</em> 를 찾으면 인덱스 페이지의 시작을 눈으로 셀 수 있다.',
     ref:'storage/innobase/include/fil0fil.h', sym:'FIL_PAGE_INDEX',
     fact:[['storage/innobase/include/fil0fil.h','constexpr page_type_t FIL_PAGE_INDEX = 17855;']] },
 
   { look:{ ver:true },
-    note:'페이지 크기·행 형식은 0번 페이지의 플래그 한 워드에 비트로 접혀 있다',
+    note:'page size · row format — page 0 의 flag word 하나에 bit 로 packing',
     why:'테이블스페이스 플래그는 FSP_SPACE_FLAGS 한 워드이고, 그 안에 페이지 크기(FSP_FLAGS_WIDTH_PAGE_SSIZE)·압축 여부·행 형식이 폭이 정해진 비트 구간으로 들어간다. fsp_flags_is_valid 가 그 조합이 성립하는지 검사한다.',
     key:'버전 판별이 <em>한 숫자로 끝나지 않는다</em>. "이 파일이 몇 버전인가" 가 아니라 "이 조합이 지금 코드로 읽히는가" 를 묻는 구조다 — 03 장면의 비트 접기가 여기서도 쓰인다.',
     ref:'storage/innobase/include/fsp0types.h', sym:'FSP_FLAGS_WIDTH_PAGE_SSIZE',
     fact:[['storage/innobase/include/fsp0types.h','FSP_FLAGS_WIDTH_PAGE_SSIZE']] },
 
   { look:{ op:true },
-    note:'여러 형식을 동시에 지원해야 한다',
+    note:'여러 format 의 동시 지원이 필요',
     why:'책: 어느 storage 엔진 버전이든 하나 이상의 직렬화 형식을 지원해야 한다 — 현재 것과 하위 호환용 옛 것들.',
     key:'InnoDB 는 <em>Redundant · Compact · Dynamic · Compressed</em> 네 가지를 읽는다. 새로 만드는 것만 Dynamic 이다.',
     ref:'storage/innobase/rem/rec.cc', sym:'rec_get_offsets',
@@ -1488,14 +1488,14 @@ const SCENES = [
   ],
 },
 {
-  num:'11', tab:'체크섬', title:'같은 값을 머리와 꼬리에 두 번 쓴다',
-  sub:'책은 헤더라고 말한다 — InnoDB 는 두 곳이다',
+  num:'11', tab:'Checksums', title:'Page Checksums: CRC32 at Both Ends of Every Page',
+  sub:'책은 header 라고 말한다 — InnoDB 는 header 와 trailer 두 곳',
   cast:['op','pg','sum','file'],
   knobs:[
     ['innodb_checksum_algorithm','crc32','crc32 · innodb · none, 그리고 각각의 strict_ 변종'],
-    ['innodb_page_size','16 KB','체크섬을 계산하는 범위']],
+    ['innodb_page_size','16 KB','checksum 을 계산하는 범위']],
   watch:[
-    ['SHOW GLOBAL STATUS','Innodb_pages_read 대 에러 로그의 체크섬 불일치 메시지'],
+    ['SHOW GLOBAL STATUS','Innodb_pages_read 대 에러 로그의 checksum 불일치 메시지'],
     ['에러 로그','Database page corruption on disk or a failed file read'],
     ['innochecksum','서버를 끄고 .ibd 를 직접 검사하는 도구']],
   links:[['04','trailer 가 왜 페이지마다 있나'],['10','형식에 따라 알고리즘이 다르다'],['09','손상된 페이지는 버린다']],
@@ -1509,7 +1509,7 @@ const SCENES = [
   vary:{ knob:'innodb_checksum_algorithm', base:'crc32', order:['none','strict_crc32'], alt:{
     'none':{
       2:{ act:{ f:'op', t:'pg', lb:'계산하지 않는다' },
-          note:'계산을 건너뛰고 그 자리에 정해진 값을 넣는다',
+          note:'계산 skip — 그 자리에 고정값',
           why:'buf_flush_init_for_writing 이 checksum 변수를 BUF_NO_CHECKSUM_MAGIC 으로 초기화하고, 이 값에서는 그것을 덮어쓰지 않는다. 0xDEADBEEF 다.',
           key:'그 4바이트가 비는 것이 아니라 <em>약속된 값으로 채워진다</em>. 나중에 이 페이지를 읽는 쪽이 "체크섬이 없다" 를 알아볼 수 있어야 하기 때문이다.',
           ref:'storage/innobase/buf/buf0flu.cc', sym:'buf_flush_init_for_writing',
@@ -1519,7 +1519,7 @@ const SCENES = [
                 op:{ set:{ '알고리즘':'none|red', '결과':'계산 생략' } } } },
 
       3:{ act:{ f:'pg', t:'sum', lb:'꼬리에도 같은 값' },
-          note:'trailer 앞 4바이트에도 같은 0xDEADBEEF 가 들어간다',
+          note:'trailer 앞 4 byte 에도 같은 0xDEADBEEF',
           why:'덮어쓰는 코드는 같다 — mach_write_to_4 에 넘기는 checksum 변수의 값만 달라졌다. LSN 을 먼저 쓰고 앞 4바이트를 덮는 순서도 그대로다.',
           key:'그래서 뒤 4바이트의 <em>LSN 하위 절반은 여전히 남는다</em>. 이것이 다음 스텝에서 중요해진다.',
           ref:'storage/innobase/buf/buf0flu.cc', sym:'buf_flush_init_for_writing',
@@ -1531,9 +1531,9 @@ const SCENES = [
                 pg:{ set:{ '8B':{ sub:'0xDEADBEEF + LSN 하위' } } } } },
 
       4:{ act:{ f:'file', t:'sum', lb:'찢어진 쓰기는 여전히 잡힌다' },
-          note:'체크섬 비교는 건너뛰지만, 검사가 하나 먼저 있다',
+          note:'checksum 비교는 skip — 단, 선행 검사가 하나 있다',
           why:'is_corrupted 는 먼저 헤더 LSN 의 하위 절반과 trailer 뒤 4바이트를 memcmp 로 비교한다 — 이 검사는 알고리즘과 무관하다. 그것을 통과한 뒤에야 알고리즘을 보고, none 이면 곧장 false 로 돌아간다.',
-          key:'그래서 none 이 없애는 것은 <em>찢어진 쓰기 탐지가 아니라 비트 부패 탐지</em>다. 페이지 절반만 기록된 것은 LSN 이 어긋나 잡히고, 본문 한 비트가 뒤집힌 것은 아무도 모른다.',
+          key:'그래서 none 이 없애는 것은 <em>torn write 탐지가 아니라 비트 부패 탐지</em>다. 페이지 절반만 기록된 것은 LSN 이 어긋나 잡히고, 본문 한 비트가 뒤집힌 것은 아무도 모른다.',
           ref:'storage/innobase/buf/checksum.cc', sym:'BlockReporter::is_corrupted',
           fact:[['storage/innobase/buf/checksum.cc','of page do not match */'],
                 ['storage/innobase/buf/checksum.cc','if (srv_checksum_algorithm == SRV_CHECKSUM_ALGORITHM_NONE ||']],
@@ -1543,7 +1543,7 @@ const SCENES = [
                 op:{ set:{ '검사 범위':'LSN 8바이트만', '결과':'통과  (본문은 검사 안 함)|red' } } } },
 
       5:{ look:{ sum:true, op:true },
-          note:'끄는 것이 지우는 것은 아니다 — 무엇이 남는지 알아야 한다',
+          note:'off 는 제거가 아니다 — 무엇이 남는지 알아야 한다',
           why:'두 검사가 한 함수에 있어서 하나를 끄면 둘 다 꺼진 것처럼 읽힌다. 실제로는 순서가 정해져 있고 앞의 것은 설정과 무관하다.',
           key:'설정 하나를 껐을 때 <em>정확히 무엇이 꺼졌는지</em>는 코드의 순서를 봐야 알 수 있다. 문서의 이름만 보면 "무결성 검사를 껐다" 로 읽힌다.',
           ref:'storage/innobase/buf/checksum.cc', sym:'BlockReporter::is_corrupted',
@@ -1551,7 +1551,7 @@ const SCENES = [
     },
     'strict_crc32':{
       4:{ act:{ f:'file', t:'sum', lb:'남의 알고리즘 페이지를 만나면' },
-          note:'예전에 innodb 알고리즘으로 쓰인 페이지를 읽는다',
+          note:'옛 innodb algorithm 으로 쓰인 page 를 read',
           why:'crc32 로 검증해 실패하고, 이어서 innodb 로 검증해 성공한다. 그 자리에서 curr_algo 가 STRICT_CRC32 인지 보고 page_warn_strict_checksum 을 부른다 — 그리고 false 를 돌려준다. 즉 손상이 아니라고 판정한다.',
           key:'strict 는 <em>거부하지 않는다 — 경고한다</em>. ib::warn 한 줄이 에러 로그에 남고 페이지는 그대로 쓰인다.',
           ref:'storage/innobase/buf/checksum.cc', sym:'BlockReporter::is_corrupted',
@@ -1564,7 +1564,7 @@ const SCENES = [
                 op:{ set:{ '알고리즘':'strict_crc32', '결과':'에러 로그에 경고 1줄|gold' } } } },
 
       5:{ look:{ op:true, sum:true },
-          note:'헤더 주석과 코드가 같은 말을 하지 않는다',
+          note:'header 주석과 code 의 불일치',
           why:'열거값 주석은 strict_crc32 를 "Write crc32, allow crc32 when reading" 이라고 적는다. 읽을 때 crc32 만 허용한다고 읽히지만, 코드는 innodb 와 none 으로 쓰인 페이지도 경고와 함께 통과시킨다.',
           key:'그래서 strict 가 주는 것은 거부가 아니라 <em>알림</em>이다. 알고리즘을 옮기는 중인 파일을 찾아내는 도구로는 쓸모가 있고, 옛 페이지를 막아 주기를 기대하면 어긋난다.',
           ref:'storage/innobase/include/buf0types.h', sym:'srv_checksum_algorithm_t',
@@ -1588,14 +1588,14 @@ const SCENES = [
     "we know that corruption has occurred and we should not use the data that was read" ],
   steps:[
   { look:{ op:true },
-    note:'체크섬 · CRC · 암호 해시는 다른 것이다',
-    why:'체크섬은 XOR·합산이라 여러 비트 오류를 놓친다. CRC 는 연속된 비트가 망가진 것(버스트 오류)을 잡는다.',
+    note:'checksum · CRC · cryptographic hash — 서로 다른 것',
+    why:'checksum 은 XOR·합산이라 여러 비트 오류를 놓친다. CRC 는 연속된 비트가 망가진 것(버스트 오류)을 잡는다.',
     key:'책의 경고 — <em>비암호 해시와 CRC 로 위조를 검사하지 말 것</em>. 목적이 의도적 변경이 아니라 우연한 손상 탐지다.',
     ref:'storage/innobase/include/buf0checksum.h', sym:'buf_calc_page_crc32',
     beat:1 },
 
   { act:{ f:'op', t:'pg', lb:'쓰기 전에 계산한다' },
-    note:'페이지를 내려쓰기 직전에 CRC32 를 구해 오프셋 0 에 넣는다',
+    note:'page flush 직전 CRC32 계산 → offset 0',
     why:'FIL_PAGE_SPACE_OR_CHKSUM 이 오프셋 0 이다. 이름이 SPACE_OR_ 인 것은 옛 형식에서 이 자리가 space id 였기 때문이다.',
     key:'기본값이 <em>crc32</em> 다 — 하드웨어 명령을 쓸 수 있어 빠르고 버스트 오류를 잡는다.',
     ref:'storage/innobase/include/buf0checksum.h', sym:'buf_calc_page_crc32',
@@ -1603,9 +1603,9 @@ const SCENES = [
           op:{ set:{ '결과':'계산 완료' } } } },
 
   { act:{ f:'pg', t:'sum', lb:'꼬리에도 같은 값을' },
-    note:'trailer 8바이트에 LSN 을 먼저 쓰고, 그 앞 4바이트를 체크섬으로 덮어쓴다',
-    why:'mach_write_to_8 로 trailer 전체에 LSN 을 넣은 뒤 mach_write_to_4 로 앞 4바이트를 체크섬으로 덮는다. 그래서 뒤 4바이트에 LSN 의 하위 절반이 남는다.',
-    key:'왜 두 번 쓰나 — <em>찢어진 쓰기를 잡기 위해서다</em>. 머리만 기록되고 꼬리가 안 갔으면 두 값이 다르다.',
+    note:'trailer 8 byte — LSN 을 먼저 쓰고, 앞 4 byte 를 checksum 으로 overwrite',
+    why:'mach_write_to_8 로 trailer 전체에 LSN 을 넣은 뒤 mach_write_to_4 로 앞 4바이트를 checksum 으로 덮는다. 그래서 뒤 4바이트에 LSN 의 하위 절반이 남는다.',
+    key:'왜 두 번 쓰나 — <em>torn write 를 잡기 위해서다</em>. 머리만 기록되고 꼬리가 안 갔으면 두 값이 다르다.',
     ref:'storage/innobase/buf/buf0flu.cc', sym:'buf_flush_init_for_writing',
     fact:['mach_write_to_8(page + UNIV_PAGE_SIZE - FIL_PAGE_END_LSN_OLD_CHKSUM, newest_lsn);',
            'mach_write_to_4(page + UNIV_PAGE_SIZE - FIL_PAGE_END_LSN_OLD_CHKSUM, checksum);'],
@@ -1614,9 +1614,9 @@ const SCENES = [
           pg:{ set:{ '8B':{ sub:'체크섬 + LSN 하위' } } } } },
 
   { act:{ f:'file', t:'sum', lb:'읽을 때 다시 계산해 비교' },
-    note:'읽을 때 계산해 저장된 값과 비교한다 — 다르면 그 페이지를 쓰지 않는다',
-    why:'검사가 둘이다 — 헤더 LSN 의 하위 절반과 trailer 뒤 4바이트를 memcmp 로 비교하고, 오프셋 0 의 체크섬과 trailer 앞 4바이트를 비교한다.',
-    key:'그리고 <em>파일 전체가 아니라 페이지 하나만 버린다</em>. 그것이 체크섬을 페이지 단위로 두는 이유다.',
+    note:'read 시 재계산 후 비교 — 불일치면 그 page 를 쓰지 않는다',
+    why:'검사가 둘이다 — 헤더 LSN 의 하위 절반과 trailer 뒤 4바이트를 memcmp 로 비교하고, 오프셋 0 의 checksum 과 trailer 앞 4바이트를 비교한다.',
+    key:'그리고 <em>파일 전체가 아니라 페이지 하나만 버린다</em>. 그것이 checksum 을 페이지 단위로 두는 이유다.',
     ref:'storage/innobase/buf/checksum.cc', sym:'BlockReporter::is_corrupted',
     fact:['Stored log sequence numbers at the start and the end of page do not match',
            'const auto checksum_field2 = mach_read_from_4( m_read_buf + m_page_size.logical() - FIL_PAGE_END_LSN_OLD_CHKSUM);'],
@@ -1626,7 +1626,7 @@ const SCENES = [
           op:{ set:{ '결과':'페이지 폐기 · 에러 로그|red' } } } },
 
   { look:{ pg:true, sum:true },
-    note:'3장 정리 — 바이트에서 파일까지 한 줄로 올라왔다',
+    note:'3장 정리 — byte 에서 file 까지 한 줄로',
     why:'원시 타입 → 가변 길이 → 셀 → 슬롯 페이지 → 파일 → 무결성. 각 층이 아래 층의 제약 위에 세워진다.',
     key:'그리고 각 층마다 책이 <em>선택지를 제시</em>했고 InnoDB 가 <em>하나를 고른</em> 것을 봤다. 다음 장은 이 배치 위에서 B-Tree 를 실제로 구현하는 이야기다.',
     beat:1 },

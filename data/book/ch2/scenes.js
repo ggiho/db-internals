@@ -4,8 +4,8 @@
    책의 도판과 문장을 옮기지 않는다 — 개념을 다시 그리고 문장은 내가 쓴다. */
 const SCENES = [
 {
-  num:'01', tab:'BST', title:'이진 탐색 트리는 왜 균형이 필요한가',
-  sub:'같은 데이터, 넣는 순서만 다르면 높이가 N 이 된다',
+  num:'01', tab:'BST', title:'Binary Search Trees: Why Balance Matters',
+  sub:'같은 데이터도 insert 순서만 다르면 height 가 N — 균형은 rotation 으로',
   cast:['op','bst','cost'],
   knobs:[
     ['—','—','2장 이 절은 특정 구현이 아니라 자료구조 일반을 다룬다']],
@@ -21,7 +21,7 @@ const SCENES = [
     "Balanced trees give us an average",
     "unbalanced trees have a worst-case complexity" ],
   steps:[
-  { note:'무작위 순서로 넣으면 트리가 대체로 균형을 유지한다',
+  { note:'random insert — 대체로 balanced',
     why:'각 노드는 왼쪽에 자기보다 작은 것, 오른쪽에 큰 것을 둔다. 값이 골고루 섞여 오면 양쪽이 비슷하게 자란다.',
     key:'평균 높이가 <em>log₂ N</em> 이다. 8개면 3, 백만 개면 20. 이 자체는 문제가 아니다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_page_split_and_insert',
@@ -31,7 +31,7 @@ const SCENES = [
             { id:'2', lvl:1, keys:'1 · 3', fill:.5 }, { id:'6', lvl:1, keys:'5 · 7', fill:.5 } ] } } },
 
   { act:{ f:'op', t:'bst', lb:'이번엔 정렬된 순서로' },
-    note:'같은 7개를 오름차순으로 넣으면 트리가 한쪽으로만 자란다',
+    note:'같은 7개를 오름차순 insert — 한쪽으로만 성장',
     why:'1 을 넣고 2 를 넣으면 오른쪽, 3 도 오른쪽… 새 값이 언제나 가장 큰 값이므로 오른쪽 자식만 생긴다.',
     key:'연결 리스트가 된다. 높이가 <em>N</em> 이고 탐색이 O(N) 이다 — 트리를 쓴 이유가 사라진다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_page_get_split_rec_to_right',
@@ -44,13 +44,13 @@ const SCENES = [
             { id:'…', lvl:3, keys:'7 까지', fill:.5 } ] } } },
 
   { look:{ bst:true, cost:true },
-    note:'이것이 병리적(pathological) 트리다 — 같은 데이터, 다른 순서',
+    note:'pathological tree — 같은 데이터, 다른 순서',
     why:'자료구조가 나쁜 것이 아니라 입력 순서에 취약한 것이다. 그리고 실제 데이터는 정렬돼 들어오는 일이 흔하다.',
     key:'AUTO_INCREMENT 주키가 바로 <em>정렬된 입력</em>이다. 그래서 균형을 유지하는 장치가 필수다.',
     beat:1 },
 
   { act:{ f:'bst', t:'bst', lb:'회전으로 균형을 되돌린다' },
-    note:'회전 — 부모와 자식을 바꿔 한쪽으로 쏠린 높이를 줄인다',
+    note:'rotation — parent 와 child 를 교체해 skew 를 줄인다',
     why:'2 를 위로 올리고 1 을 왼쪽, 3 을 오른쪽에 둔다. 키 순서 불변식은 그대로 유지된다.',
     key:'회전 한 번에 <em>포인터 세 개</em>가 바뀐다. 메모리에서는 싸지만 디스크에서는 이 포인터들이 다른 페이지에 흩어져 있다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_page_reorganize',
@@ -60,15 +60,15 @@ const SCENES = [
           op:{ set:{ '트리 높이':'3|green', '최악 탐색':'3 회|green' } } } },
 
   { look:{ cost:true, op:true },
-    note:'메모리에서는 이것으로 끝난다. 디스크에서는 여기서 문제가 시작된다',
+    note:'메모리라면 여기서 끝 — 디스크에선 여기서 문제가 시작된다',
     why:'회전이 자주 일어나고, 매번 포인터를 고쳐야 한다. 그 포인터들이 서로 다른 디스크 페이지에 있으면 쓰기가 여러 번 발생한다.',
     key:'다음 장면의 주제다 — <em>fan-out 2 라는 것 자체가</em> 디스크에서 읽기를 몇 배로 만든다.',
     beat:1 },
   ],
 },
 {
-  num:'02', tab:'디스크', title:'fan-out 이 2 면 디스크 읽기가 몇 배가 되는가',
-  sub:'높이가 곧 시크 횟수다',
+  num:'02', tab:'Disk I/O', title:'Fan-out 2 on Disk: Height Becomes Seek Count',
+  sub:'height = seek 횟수 — key 하나를 위해 block 하나를 통째로 읽는다',
   cast:['op','bst','cost','io','blk'],
   knobs:[
     ['innodb_page_size','16 KB','한 노드가 담을 수 있는 키 수를 결정한다 — 곧 fan-out']],
@@ -95,26 +95,26 @@ const SCENES = [
     "there's no guarantee that a newly created node is written close to its parent" ],
   steps:[
   { look:{ blk:true },
-    note:'노드 하나가 키 하나뿐인데 블록 하나를 다 읽어야 한다',
+    note:'node 당 key 하나 — 그래도 block 하나를 통째로 read',
     why:'디스크의 최소 전송 단위가 블록이다. 키 하나를 보려고 16KB 를 읽고 그중 수십 바이트만 쓴다.',
     key:'이게 <em>지역성 없음</em>의 실제 모습이다. 자식 포인터를 따라가면 또 다른 블록이고, 또 하나를 통째로 읽는다.',
     ref:'storage/innobase/buf/buf0buf.cc', sym:'buf_page_get_gen',
     beat:1 },
 
   { act:{ f:'bst', t:'io', lb:'루트 → 리프 20 단계' },
-    note:'백만 개에서 리프까지 20 단계. 단계마다 블록 하나',
+    note:'1M keys → leaf 까지 20 level, level 마다 block 하나',
     why:'높이가 log₂(1,000,000) ≈ 20 이다. 각 단계에서 다음 노드가 어느 블록에 있는지 알 수 없으므로 매번 새로 읽는다.',
     key:'비교는 20 번이지만 <em>블록 전송도 20 번</em>이다. 이 둘이 같은 것이 문제의 핵심이다.',
     ref:'storage/innobase/btr/btr0cur.cc', sym:'btr_cur_search_to_nth_level',
     ops:{ io:{ set:{ '시크':'20|red', '읽은 바이트':'320 KB|red' } } } },
 
   { look:{ cost:true, io:true },
-    note:'키 하나를 찾으려고 320KB 를 읽었다',
+    note:'key 하나에 320KB read',
     why:'20 × 16KB. 실제로 필요한 데이터는 수백 바이트다.',
     key:'해결 방향이 여기서 나온다 — <em>블록 하나에 키를 많이 담으면</em> 단계 수가 줄고, 읽은 바이트 중 쓰는 비율이 올라간다.',
     beat:1 },
 
-  { note:'그리고 균형 유지 비용이 여기에 겹친다',
+  { note:'여기에 rebalancing 비용이 겹친다',
     why:'회전이 일어나면 포인터 세 개를 고치는데, 그 노드들이 서로 다른 블록에 있으면 블록 세 개를 읽고 세 개를 쓴다.',
     key:'fan-out 이 낮으면 <em>회전이 자주</em> 일어난다. 노드가 작아서 금방 차기 때문이다. 비용이 곱해진다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_page_reorganize',
@@ -122,19 +122,19 @@ const SCENES = [
           io:{ set:{ '시크':'26|red' } } } },
 
   { look:{ op:true, blk:true },
-    note:'필요한 성질 두 개 — 높은 fan-out, 낮은 높이',
+    note:'필요한 성질 둘 — high fan-out, low height',
     why:'둘은 반비례한다. 한 노드가 자식을 많이 가지면 같은 항목 수를 담는 데 필요한 레벨이 줄어든다.',
     key:'그리고 <em>블록 크기가 fan-out 의 상한</em>이다. 16KB 에 들어가는 만큼만 자식을 가질 수 있다. 자료구조가 매체에 맞춰진다.',
     beat:1 },
   ],
 },
 {
-  num:'03', tab:'HDD·SSD', title:'매체가 알고리즘을 정한다',
-  sub:'같은 "디스크"인데 비싼 것이 서로 다르다',
+  num:'03', tab:'HDD · SSD', title:'Storage Media: HDD Seeks vs. SSD Erase Blocks',
+  sub:'같은 "디스크" 라도 비싼 연산이 다르다 — HDD 는 positioning',
   cast:['op','hdd','ftl','io'],
   vsLabel:'A  ·  HDD  (회전 디스크)', pair:'03v',
   knobs:[
-    ['innodb_flush_neighbors','0','HDD 에서 인접 페이지를 함께 내려써 시크를 아낀다. 8.4 기본은 0(끔)'],
+    ['innodb_flush_neighbors','0','HDD 에서 인접 페이지를 함께 flush 해 시크를 아낀다. 8.4 기본은 0(끔)'],
     ['innodb_io_capacity','10000','매체의 IOPS 를 알려주는 값 — HDD 와 SSD 에서 자릿수가 다르다'],
     ['innodb_random_read_ahead','OFF','임의 접근 패턴을 보고 미리 읽는다']],
   watch:[
@@ -153,7 +153,7 @@ const SCENES = [
     "Sector sizes typically range from 512 bytes to 4 Kb" ],
   steps:[
   { look:{ hdd:true },
-    note:'HDD — 비싼 것은 헤드를 옮기는 일이다',
+    note:'HDD — 비용의 본체는 head movement',
     why:'디스크가 돌고 헤드가 목표 트랙으로 움직여야 한다. 그 뒤 연속된 바이트를 읽는 것은 상대적으로 싸다.',
     key:'그래서 알고리즘이 <em>순차 접근을 모으는 방향</em>으로 설계됐다. 전통 알고리즘 대부분이 이 전제에서 나왔다.',
     ref:'storage/innobase/os/os0file.cc', sym:'os_file_read_func',
@@ -161,20 +161,20 @@ const SCENES = [
     ops:{ io:{ set:{ '작업':'임의 읽기 20회', '비용':'시크 20회 · 각 ~10ms|red' } } } },
 
   { act:{ f:'io', t:'hdd', lb:'순차로 바꾸면' },
-    note:'같은 20블록을 연속으로 읽으면 시크는 한 번이다',
+    note:'같은 20 block 도 sequential 이면 seek 1회',
     why:'헤드를 한 번 위치시킨 뒤 그대로 읽어 나간다.',
     key:'B-Tree 가 노드를 <em>연속된 블록에</em> 두려 하는 이유다. fan-out 을 올리는 것과 같은 목적이다.',
     ref:'storage/innobase/os/os0file.cc', sym:'os_file_read_func',
     ops:{ io:{ set:{ '작업':'순차 읽기 20블록', '비용':'시크 1회|green' } } } },
 
-  { note:'섹터가 최소 단위다 — 1바이트를 원해도 섹터 하나가 온다',
+  { note:'sector 가 최소 단위 — 1 byte 를 원해도 sector 단위 전송',
     why:'512B 에서 4KB 사이다. 운영체제의 블록 장치 추상화가 이것을 다시 블록 단위로 감싼다.',
     key:'그래서 <em>바이트 단위 접근이라는 것이 없다</em>. 자료구조가 이 사실 위에 세워진다.',
     ref:'storage/innobase/include/os0file.h', sym:'os_file_read',
     look:{ op:true },
     beat:1 },
 
-  { note:'그리고 제자리 갱신이 가능하다 — 이것이 SSD 와 갈리는 지점이다',
+  { note:'in-place update 가능 — SSD 와 갈리는 지점',
     why:'HDD 는 같은 섹터에 다시 쓸 수 있다. B-Tree 의 in-place update 가 자연스럽다.',
     key:'다음 장면에서 볼 SSD 는 <em>지우지 않고는 다시 쓸 수 없다</em>. 같은 자료구조가 다른 비용을 낸다.',
     ref:'storage/innobase/os/os0file.cc', sym:'os_file_write_func',
@@ -182,7 +182,7 @@ const SCENES = [
           io:{ set:{ '작업':'p:5 제자리 갱신', '비용':'시크 1회 + 쓰기' } } } },
 
   { look:{ hdd:true, io:true },
-    note:'정리 — HDD 에서는 "위치잡기를 줄여라" 가 전부다',
+    note:'정리 — HDD 의 원칙은 positioning 최소화',
     why:'순차로 모으고, 한 번 위치시킨 뒤 많이 읽고, 인접한 것을 함께 처리한다.',
     key:'B-Tree 의 설계 결정 대부분이 이 문장에서 나온다. <em>V 를 눌러 SSD 와 나란히</em> 보면 무엇이 달라지는지 보인다.',
     beat:1 },
@@ -191,7 +191,7 @@ const SCENES = [
 {
   num:'03v', tab:'—', hidden:true,
   vsLabel:'B  ·  SSD  (플래시)',
-  title:'매체가 알고리즘을 정한다', sub:'SSD 에서는 비싼 것이 다르다',
+  title:'SSD: Page Writes, Block Erases & the FTL', sub:'SSD 에선 비싼 연산이 다르다 — erase 단위가 write 단위보다 크다',
   cast:['op','ssd','ftl','io'],
   knobs:[
     ['innodb_flush_neighbors','0','SSD 에서는 인접 페이지를 모으는 이득이 작아 8.4 기본이 0 이다'],
@@ -216,7 +216,7 @@ const SCENES = [
     "its effects may negatively impact write performance" ],
   steps:[
   { look:{ ssd:true },
-    note:'SSD — 헤드가 없으니 임의 읽기가 순차와 거의 같다',
+    note:'SSD — head 가 없으니 random read ≈ sequential',
     why:'셀에서 바로 읽는다. 프리페치와 내부 병렬성 때문에 약간의 차이는 남지만 자릿수가 다르지 않다.',
     key:'그래서 "순차로 모아라" 는 압력이 <em>읽기에서는 약해진다</em>. 하지만 쓰기에서는 새 압력이 생긴다.',
     ref:'storage/innobase/os/os0file.cc', sym:'os_file_read_func',
@@ -224,7 +224,7 @@ const SCENES = [
     ops:{ io:{ set:{ '작업':'임의 읽기 20회', '비용':'순차와 거의 같다|green' } } } },
 
   { act:{ f:'io', t:'ssd', lb:'쓰려면 빈 셀이 필요하다' },
-    note:'쓸 수 있는 최소 단위는 페이지지만, 지울 수 있는 최소 단위는 블록이다',
+    note:'write 최소 단위 = page, erase 최소 단위 = block',
     why:'이미 쓴 셀에 덮어쓸 수 없다. 지운 뒤에만 쓸 수 있고, 지우기는 페이지가 아니라 블록 단위다.',
     key:'그래서 <em>제자리 갱신이라는 것이 없다</em>. 논리적으로 제자리에 쓴 것처럼 보여도 물리적으로는 다른 곳에 쓰인다.',
     ref:'storage/innobase/os/os0file.cc', sym:'os_file_write_func',
@@ -232,7 +232,7 @@ const SCENES = [
           io:{ set:{ '작업':'p:5 갱신', '비용':'다른 페이지에 쓰고 재매핑|gold' } } } },
 
   { act:{ f:'ssd', t:'ftl', lb:'FTL 이 매핑을 고친다' },
-    note:'Flash Translation Layer 가 페이지 ID 를 물리 위치로 옮긴다',
+    note:'FTL — page ID 를 physical location 으로 mapping',
     why:'옛 페이지는 버려진 것으로 표시되고 새 위치가 매핑에 기록된다. 상위 계층은 이것을 모른다.',
     key:'InnoDB 가 보는 "제자리 쓰기" 는 <em>FTL 이 만든 환상</em>이다. 그 아래에서는 append-only 로 동작한다.',
     ref:'storage/innobase/os/os0file.cc', sym:'os_file_write_func',
@@ -240,7 +240,7 @@ const SCENES = [
     ops:{ ftl:{ set:{ '블록 A':{ tag:'x', sub:'살아있는 3 · 버려진 6' } } } } },
 
   { act:{ f:'ftl', t:'ssd', lb:'가비지 컬렉션 : 살아있는 페이지를 옮기고 블록을 지운다' },
-    note:'블록을 지우려면 살아있는 페이지를 먼저 다른 곳으로 옮겨야 한다',
+    note:'block erase 전 live page 를 relocate — garbage collection',
     why:'블록 A 에 살아있는 페이지 3개가 남아 있으면 그것을 블록 B 로 옮기고 매핑을 고친 뒤 A 를 지운다.',
     key:'이 옮기기가 <em>쓰기 증폭</em>이다. 애플리케이션이 1을 썼는데 실제로는 여러 배가 쓰인다. 임의·비정렬 쓰기에서 특히 나쁘다.',
     ref:'storage/innobase/buf/buf0dblwr.cc', sym:'buf_dblwr_t::write',
@@ -250,15 +250,15 @@ const SCENES = [
           io:{ set:{ '비용':'쓰기 증폭|red' } } } },
 
   { look:{ ssd:true, ftl:true },
-    note:'정리 — SSD 에서는 "전체 블록을 쓰고, 같은 블록의 쓰기를 모아라"',
+    note:'정리 — SSD 의 원칙은 block 단위 write, 같은 block 의 write 를 모은다',
     why:'읽기의 순차성 압력은 줄고, 쓰기의 정렬·묶음 압력이 늘었다.',
     key:'같은 B-Tree 가 매체에 따라 <em>다른 비용 구조</em>를 갖는다. 뒤 장들의 버퍼링·불변성 논의가 여기서 출발한다.',
     beat:1 },
   ],
 },
 {
-  num:'04', tab:'블록', title:'포인터 하나를 따라가려 블록 하나를 읽는다',
-  sub:'두 매체가 공유하는 유일한 제약',
+  num:'04', tab:'Blocks', title:'Block-Oriented I/O: One Pointer Hop, One Block Read',
+  sub:'두 매체가 공유하는 유일한 제약 — 전송 단위는 block',
   cast:['op','blk','node','io'],
   knobs:[
     ['innodb_page_size','16 KB','노드 하나의 크기. fan-out 과 낭비율을 동시에 결정한다'],
@@ -281,16 +281,16 @@ const SCENES = [
     "Some B-Tree variants also have sibling node pointers, most often on the leaf level" ],
   steps:[
   { look:{ blk:true },
-    note:'블록은 헤더부터 시작한다 — 여기에 형제 포인터가 있다',
+    note:'block 은 header 부터 — sibling pointer 가 여기에',
     why:'InnoDB 페이지 헤더의 고정 위치에 FIL_PAGE_PREV(오프셋 8)와 FIL_PAGE_NEXT(오프셋 12)가 있다.',
-    key:'책은 형제 포인터를 "일부 변종이, 주로 리프에" 둔다고 말한다. InnoDB 는 <em>모든 페이지 헤더에</em> 갖는다 — 레벨과 무관하게.',
+    key:'책은 sibling pointer 를 "일부 변종이, 주로 리프에" 둔다고 말한다. InnoDB 는 <em>모든 페이지 헤더에</em> 갖는다 — 레벨과 무관하게.',
     ref:'storage/innobase/include/btr0btr.h', sym:'btr_page_get_next',
     fact:[['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_PREV = 8;'],
            ['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_NEXT = 12;']],
     beat:1 },
 
   { act:{ f:'op', t:'blk', lb:'키 42 를 담는다' },
-    note:'키를 채워 넣는다. 블록 하나에 수백 개가 들어간다',
+    note:'key 를 채운다 — block 하나에 수백 개',
     why:'키와 레코드가 헤더 뒤부터 쌓인다. 16KB 에서 헤더와 여유를 빼면 대부분이 데이터다.',
     key:'이것이 fan-out 이다. 노드 하나가 자식 <em>수백 개</em>를 가리킬 수 있다 — BST 의 2 와 비교된다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_insert_rec_low',
@@ -301,7 +301,7 @@ const SCENES = [
           op:{ set:{ '쓴 바이트 비율':'약 94%|green' } } } },
 
   { act:{ f:'blk', t:'io', lb:'42 를 찾으려 블록을 읽는다' },
-    note:'블록 하나를 읽으면 그 안의 370개 키를 모두 갖게 된다',
+    note:'block 하나 read = 그 안의 key 370개 확보',
     why:'전송 단위가 블록이므로 어차피 다 온다. 그 안에서는 메모리 이진 탐색이다.',
     key:'BST 는 블록을 읽어 키 <em>하나</em>를 얻었다. B-Tree 는 같은 한 번으로 <em>370개</em>를 얻는다. 같은 I/O, 다른 수확.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_search_with_match',
@@ -310,7 +310,7 @@ const SCENES = [
           io:{ set:{ '누적 전송':'16 KB' } } } },
 
   { look:{ blk:true },
-    note:'그 블록 크기는 리터럴이 아니라 시프트로 정의된다',
+    note:'block size 는 literal 이 아니라 shift 로 정의',
     why:'UNIV_PAGE_SIZE_DEF 는 1 << UNIV_PAGE_SIZE_SHIFT_DEF 이고 그 시프트가 14 다. 즉 16384 라는 수가 코드에 적혀 있는 것이 아니라 2의 거듭제곱임이 정의에 박혀 있다. 페이지 안의 오프셋 계산이 나눗셈 대신 비트 연산으로 끝나는 이유다.',
     key:'16KB 는 <em>고른 숫자가 아니라 2^14</em>다. 그래서 innodb_page_size 로 바꿀 수 있는 값도 4K·8K·16K·32K·64K — 전부 2의 거듭제곱뿐이다.',
     ref:'storage/innobase/include/univ.i', sym:'UNIV_PAGE_SIZE_SHIFT_DEF',
@@ -318,7 +318,7 @@ const SCENES = [
           ['storage/innobase/include/univ.i','constexpr uint32_t UNIV_PAGE_SIZE_DEF = 1 << UNIV_PAGE_SIZE_SHIFT_DEF;']] },
 
   { look:{ blk:['여유'] },
-    note:'여유를 남기는 것이 낭비가 아니다',
+    note:'free space 확보는 낭비가 아니다',
     why:'미래의 삽입이 이 자리에 들어가면 분할이 일어나지 않는다. 분할은 블록 두 개를 쓰고 부모까지 고치는 일이다.',
     key:'책은 점유율이 "50% 까지 내려갈 수 있다" 고 말한다. 낮은 점유율은 <em>분할을 미루는 값</em>이다 — 공짜가 아니라 교환이다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_page_split_and_insert',
@@ -326,8 +326,8 @@ const SCENES = [
   ],
 },
 {
-  num:'05', tab:'fan-out', title:'fan-out 을 올리면 높이가 내려간다',
-  sub:'같은 백만 개, 20단계에서 3단계로',
+  num:'05', tab:'Fan-out', title:'High Fan-out: From 20 Levels to 3',
+  sub:'같은 1M keys — height 20 에서 3 으로',
   cast:['op','bst','bt','cost','io'],
   vsLabel:'A  ·  B-TREE  (fan-out 371)', pair:'05v',
   knobs:[
@@ -353,7 +353,7 @@ const SCENES = [
     "the logarithm base is 2, since searching a key inside each node is done using binary search" ],
   steps:[
   { look:{ op:true },
-    note:'371 은 소스에 있는 수가 아니다 — 가정에서 나온 수다',
+    note:'371 은 source 의 수가 아니다 — 가정에서 나온 수',
     why:'페이지는 16,384바이트(UNIV_PAGE_SIZE_DEF = 1 << 14)이고 그중 FIL 헤더 38바이트와 trailer 8바이트는 데이터가 아니다. 남는 약 16,300바이트를 노드 포인터 레코드 하나당 약 44바이트로 나누면 370 남짓이 된다. 즉 371 은 레코드 크기를 44바이트로 가정했을 때의 수다.',
     key:'이 장면의 모든 수(371배·3레벨·144KB)가 그 가정 위에 있다. 실제 fan-out 은 <em>키 길이와 행 형식이 정한다</em> — 긴 문자열 키를 쓰면 100 아래로 떨어지고, 그러면 같은 데이터가 4~5레벨이 된다. 소스에 fan-out 상수는 없다.',
     ref:'storage/innobase/include/univ.i', sym:'UNIV_PAGE_SIZE_DEF',
@@ -362,14 +362,14 @@ const SCENES = [
           ['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_DATA_END = 8;']] },
 
   { look:{ bt:true, op:true },
-    note:'노드 하나가 자식 371개를 가리킨다 — 3레벨로 백만 개를 덮는다',
+    note:'node 하나 → child 371 — 3 level 로 1M 커버',
     why:'371³ ≈ 5,100만. 백만 개는 3레벨로 충분하다. 레벨마다 블록 하나씩 읽으면 3번이다.',
     key:'책은 이것을 도서관 목록실에 비유한다 — 서랍장, 선반, 서랍, 카드. <em>단계마다 범위가 371배 좁아진다</em>.',
     ref:'storage/innobase/btr/btr0cur.cc', sym:'btr_cur_search_to_nth_level',
     beat:1 },
 
   { act:{ f:'bt', t:'io', lb:'루트 → internal → leaf' },
-    note:'블록 전송 3회. BST 는 같은 데이터에 20회였다',
+    note:'block transfer 3회 — BST 는 20회',
     why:'전송 횟수의 로그 밑이 2 에서 371 로 바뀌었다. 밑이 커지면 지수가 작아진다.',
     key:'그런데 비교 횟수는 크게 줄지 않는다 — 약 27회다. <em>전송과 비교가 분리됐다</em>는 것이 이 구조의 핵심이다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_search_with_match',
@@ -377,19 +377,19 @@ const SCENES = [
     ops:{ io:{ set:{ '누적 전송':'48 KB|green', '시크':'3|green' } } } },
 
   { look:{ cost:true },
-    note:'전송은 log₃₇₁ M, 비교는 log₂ M — 로그의 밑이 다르다',
+    note:'transfer 는 log₃₇₁ M, comparison 은 log₂ M — log 의 밑이 다르다',
     why:'레벨을 내려갈 때 탐색 공간이 371배 줄고, 노드 안 이진 탐색에서는 매 비교마다 절반이 줄어든다.',
     key:'비교는 메모리 안에서 일어나므로 <em>거의 공짜</em>다. 줄여야 할 것은 전송이었고, 그것이 20에서 3이 됐다.',
     beat:1 },
 
-  { note:'그리고 균형 유지가 드물어진다',
+  { note:'rebalancing 빈도도 급감',
     why:'노드가 커서 잘 안 찬다. 370개가 차야 분할이 일어나므로 BST 처럼 삽입마다 회전할 일이 없다.',
     key:'fan-out 이 <em>두 가지를 동시에</em> 해결한다 — 높이도 낮추고 구조 변경 빈도도 낮춘다. 책이 B-Tree 를 두 문제의 답으로 제시하는 이유.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_page_split_and_insert',
     ops:{ op:{ set:{ 'fan-out':'371  ← 두 문제를 한 번에|green' } } } },
 
   { look:{ bt:['root'] },
-    note:'상위 레벨은 작다 — 루트와 internal 을 합쳐 9블록, 144KB 남짓',
+    note:'상위 level 은 작다 — root + internal 9 block, 약 144KB',
     why:'리프 2,700블록을 fan-out 371 로 덮는 데 internal 은 8개면 된다. 그 위에 루트 하나다. 상위 전체가 144KB 라 항상 buffer pool 에 남는다.',
     key:'그래서 실제 조회는 <em>디스크를 한 번만</em> 만지는 일이 많다. 3단계 중 앞 2단계가 메모리 히트다.',
     beat:1 },
@@ -398,7 +398,7 @@ const SCENES = [
 {
   num:'05v', tab:'—', hidden:true,
   vsLabel:'B  ·  BINARY TREE  (fan-out 2)',
-  title:'fan-out 을 올리면 높이가 내려간다', sub:'같은 백만 개를 fan-out 2 로',
+  title:'Fan-out 2: The Same Million Keys, a Far Taller Tree', sub:'같은 1M keys 를 fan-out 2 로',
   cast:['op','bst','bt','cost','io'],
   knobs:[
     ['innodb_page_size','16 KB','fan-out 2 에서는 이 16KB 중 거의 전부가 낭비된다'],
@@ -422,21 +422,21 @@ const SCENES = [
     "as many disk seeks as comparisons" ],
   steps:[
   { look:{ op:true },
-    note:'이쪽 수는 가정이 필요 없다 — fan-out 2 는 정의다',
+    note:'이쪽은 가정 불필요 — fan-out 2 는 정의',
     why:'이진 탐색 트리는 자식이 둘이라는 것이 구조의 정의다. 레코드 크기나 페이지 크기와 무관하다. 그래서 log₂(백만) ≈ 20 이라는 수는 가정 없이 나온다.',
     key:'왼쪽(A)의 371 은 <em>레코드 크기를 가정해야 나오는 수</em>이고, 오른쪽의 2 는 <em>가정이 필요 없는 수</em>다. 그런데도 결론이 3레벨 대 20레벨로 갈린다 — 가정을 넉넉히 잡아 fan-out 을 100 으로 낮춰도 여전히 3~4레벨이다.',
     ref:'storage/innobase/include/univ.i', sym:'UNIV_PAGE_SIZE_DEF',
     fact:[['storage/innobase/include/univ.i','constexpr uint32_t UNIV_PAGE_SIZE_DEF = 1 << UNIV_PAGE_SIZE_SHIFT_DEF;']] },
 
   { look:{ bst:true, op:true },
-    note:'노드 하나가 자식 2개 — 백만 개를 덮으려면 20레벨이 필요하다',
+    note:'node 하나 → child 2 — 1M 커버에 20 level',
     why:'2²⁰ ≈ 백만. 레벨마다 블록 하나를 읽으면 20번이다.',
     key:'같은 도서관 비유로 치면 서랍을 <em>스무 번</em> 여는 것이다. 매번 다른 방으로 걸어가야 한다.',
     ref:'storage/innobase/btr/btr0cur.cc', sym:'btr_cur_search_to_nth_level',
     beat:1 },
 
   { act:{ f:'bst', t:'io', lb:'20단계 하강' },
-    note:'블록 전송 20회 · 320KB. 필요한 데이터는 수백 바이트다',
+    note:'block transfer 20회 · 320KB — 필요한 데이터는 수백 byte',
     why:'레벨마다 16KB 를 읽어 키 하나만 쓴다. 나머지는 버린다.',
     key:'전송과 비교가 <em>같은 수</em>다 — 이 구조에서는 둘을 분리할 방법이 없다. 노드가 키 하나뿐이기 때문이다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_search_with_match',
@@ -444,35 +444,35 @@ const SCENES = [
     ops:{ io:{ set:{ '누적 전송':'320 KB|red', '시크':'20|red' } } } },
 
   { look:{ cost:true },
-    note:'전송 20 · 비교 20 — 로그의 밑이 둘 다 2 다',
+    note:'transfer 20 · comparison 20 — log 의 밑이 둘 다 2',
     why:'레벨을 내려갈 때 탐색 공간이 2배 줄고, 노드 안에는 비교할 것이 하나뿐이다.',
     key:'B-Tree 는 비교를 <em>메모리로 밀어넣어</em> 전송을 3으로 줄였다. 여기서는 밀어넣을 곳이 없다.',
     beat:1 },
 
-  { note:'그리고 균형 유지가 삽입마다 일어난다',
+  { note:'rebalancing 이 insert 마다',
     why:'노드가 키 하나로 즉시 차므로 삽입마다 새 노드를 만들고, 회전이 자주 필요하다.',
     key:'회전 한 번이 포인터 세 개, 곧 <em>블록 세 개의 읽기와 쓰기</em>다. fan-out 이 낮으면 이 일이 자주 일어난다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_page_reorganize',
     ops:{ op:{ set:{ 'fan-out':'2  ← 두 문제의 근원|red' } } } },
 
   { look:{ bst:['root'] },
-    note:'상위 레벨만도 크다 — 리프 직전까지 약 50만 블록',
+    note:'상위 level 만도 거대 — leaf 직전까지 약 50만 block',
     why:'항목 100만 개 중 리프가 50만이고, 그 위 내부 노드가 나머지 50만이다. 가장 깊은 내부 레벨 하나만 해도 2^18 = 26만이다. 상위를 캐시한다는 전략이 성립하지 않는다.',
     key:'B-Tree 쪽은 상위 9블록(144KB)이 항상 메모리에 있었다. 여기서는 <em>매 조회가 디스크로 간다</em>.',
     beat:1 },
   ],
 },
 {
-  num:'06', tab:'분리 키', title:'분리 키는 범위를 나눈다',
-  sub:'Kᵢ₋₁ ≤ Kₛ < Kᵢ — 이 한 줄이 트리 전체를 지탱한다',
+  num:'06', tab:'Separator Keys', title:'Separator Keys: Partitioning the Key Space',
+  sub:'Kᵢ₋₁ ≤ Kₛ < Kᵢ — 이 invariant 하나가 tree 전체를 지탱한다',
   cast:['op','bt','sep','node'],
   knobs:[
     ['innodb_page_size','16 KB','한 노드에 담기는 분리 키 수'],
     ['innodb_online_alter_log_max_size','128 MB','인덱스를 새로 만들 때 정렬된 순서로 채운다']],
   watch:[
     ['I_S.INNODB_INDEXES','인덱스별 루트 페이지 번호(PAGE_NO)와 레벨'],
-    ['SHOW ENGINE INNODB STATUS','ROW OPERATIONS 절 : 범위 스캔이 형제 포인터를 타는 흔적']],
-  links:[['04','형제 포인터는 페이지 헤더에 있다'],['07','이 불변식으로 하강한다'],['08','분할이 이 불변식을 유지한다']],
+    ['SHOW ENGINE INNODB STATUS','ROW OPERATIONS 절 : 범위 스캔이 sibling pointer 를 타는 흔적']],
+  links:[['04','sibling pointer 는 페이지 헤더에 있다'],['07','이 불변식으로 하강한다'],['08','분할이 이 불변식을 유지한다']],
   init:{
     op:{ kv:{ '노드':'internal 하나', '분리 키':'20 · 40 · 60', '자식 포인터':'4' } },
     bt:{ items:[
@@ -492,7 +492,7 @@ const SCENES = [
     "The first pointer in the node points to the subtree holding items less than the first key" ],
   steps:[
   { look:{ sep:true },
-    note:'키 세 개가 수직선을 네 구간으로 나눈다',
+    note:'key 셋이 수직선을 네 구간으로 분할',
     why:'첫 포인터는 첫 키보다 작은 것, 마지막 포인터는 마지막 키 이상인 것을 가리킨다. 가운데는 두 키 사이다.',
     key:'키가 N 개면 포인터는 <em>N+1</em> 개다. 이 하나 차이가 트리 전체 구조의 근거다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_search_with_match',
@@ -504,7 +504,7 @@ const SCENES = [
       { id:'s3', from:60, to:80, kind:'next', lb:'c3  ≥ 60',    row:1 }] } } } },
 
   { act:{ f:'op', t:'sep', lb:'키 45 를 찾는다' },
-    note:'45 는 40 이상 60 미만 → 세 번째 포인터를 따라간다',
+    note:'45 — 40 이상 60 미만 → 세 번째 pointer',
     why:'노드 안에서 이진 탐색으로 45보다 큰 첫 분리 키(60)를 찾고, 그 앞 포인터를 고른다.',
     key:'하강은 <em>불변식을 한 번 적용하는 것</em>이다. 레벨마다 같은 판정을 반복하면 리프에 닿는다.',
     ref:'storage/innobase/btr/btr0cur.cc', sym:'btr_cur_search_to_nth_level',
@@ -513,20 +513,20 @@ const SCENES = [
           op:{ set:{ '노드':'c2 로 하강|green' } } } },
 
   { look:{ sep:true },
-    note:'분리 키는 데이터가 아니다 — 경계일 뿐이다',
+    note:'separator key 는 data 가 아니라 boundary',
     why:'내부 노드의 항목은 (분리 키, 자식 포인터) 짝이고 그 키가 실제 행을 가리킬 필요가 없다. InnoDB 는 이런 항목을 노드 포인터 레코드로 따로 구분한다 — REC_STATUS_NODE_PTR 이 그것이다.',
     key:'그래서 <em>분리 키는 지워진 행의 것이어도 상관없다</em>. 경계로서 유효하면 남겨 둔다 — 11 장면에서 분리 키를 아래로 내리는 이야기가 이 성질 위에 있다.',
     ref:'storage/innobase/rem/rec.h', sym:'REC_STATUS_NODE_PTR',
     fact:[['storage/innobase/rem/rec.h','REC_STATUS_NODE_PTR']] },
 
   { look:{ node:true },
-    note:'리프 레벨에는 형제 포인터가 있다 — 범위 스캔이 부모로 안 올라간다',
+    note:'leaf level 의 sibling pointer — range scan 이 parent 로 안 올라간다',
     why:'FIL_PAGE_NEXT 를 따라 다음 리프로 바로 간다. 양방향이라 역순 순회도 된다.',
     key:'책은 이것을 "일부 변종이, 주로 리프 레벨에" 둔다고 말한다. InnoDB 는 <em>모든 레벨의 페이지 헤더에</em> 둔다.',
     ref:'storage/innobase/include/btr0btr.h', sym:'btr_page_get_next',
     beat:1 },
 
-  { note:'그리고 B-Tree 가 아니라 B+-Tree 다',
+  { note:'B-Tree 가 아니라 B+-Tree',
     why:'값이 리프에만 있다. internal 노드는 분리 키만 갖는다. 그래서 internal 이 더 많은 키를 담고 fan-out 이 커진다.',
     key:'책도 짚는다 — MySQL InnoDB 는 자기 B+-Tree 구현을 <em>그냥 B-tree 라고 부른다</em>. 이 문서의 이름도 그래서 B-TREE 다.',
     ref:'storage/innobase/include/btr0btr.ic', sym:'btr_page_get_level',
@@ -535,8 +535,8 @@ const SCENES = [
   ],
 },
 {
-  num:'07', tab:'조회', title:'전송을 줄이고 비교는 메모리로 밀어넣는다',
-  sub:'루트에서 리프까지 한 번의 하강',
+  num:'07', tab:'Lookup', title:'Point Lookup: Fewer Transfers, In-Memory Comparisons',
+  sub:'root → leaf 단일 descent — transfer 는 줄이고 comparison 은 메모리로',
   cast:['op','bt','node','cost','io'],
   knobs:[
     ['innodb_adaptive_hash_index','ON','자주 찾는 지점을 해시로 건너뛴다 — 하강 자체를 생략'],
@@ -561,7 +561,7 @@ const SCENES = [
     "iteration starts from the closest found key-value pair" ],
   steps:[
   { act:{ f:'op', t:'bt', lb:'루트를 읽는다' },
-    note:'루트 블록을 읽는다 — 거의 항상 buffer pool 에 있다',
+    note:'root block read — 거의 항상 buffer pool 에 상주',
     why:'모든 조회가 루트를 지나므로 LRU 의 young 구간에 상주한다. 논리 읽기는 발생하지만 물리 읽기는 아니다.',
     key:'그래서 <em>논리 읽기와 물리 읽기를 따로 세는</em> 지표가 있다. 둘의 비율이 곧 적중률이다.',
     ref:'storage/innobase/buf/buf0buf.cc', sym:'buf_page_get_gen',
@@ -571,7 +571,7 @@ const SCENES = [
           bt:{ set:{ 'root':{ keys:'| 20 | 40 | 60 |  ← 읽음', fill:.6 } } } } },
 
   { act:{ f:'bt', t:'node', lb:'노드 안 이진 탐색' },
-    note:'블록 안에서 45보다 큰 첫 키를 찾는다 — 디스크가 아니라 메모리 연산',
+    note:'block 내에서 45 보다 큰 첫 key 탐색 — disk 가 아니라 memory 연산',
     why:'page_cur_search_with_match 가 슬롯 디렉터리를 이진 탐색한다. 370개면 약 9번 비교다.',
     key:'이 비교는 <em>블록 전송을 늘리지 않는다</em>. 이미 손에 있는 16KB 안에서 끝난다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_search_with_match',
@@ -582,7 +582,7 @@ const SCENES = [
           cost:{ set:{ '비교 횟수':'9' } } } },
 
   { act:{ f:'bt', t:'bt', lb:'internal 로 하강' },
-    note:'40 ≤ 45 < 60 → 세 번째 포인터. 다음 블록을 읽는다',
+    note:'40 ≤ 45 < 60 → 세 번째 pointer, 다음 block read',
     why:'같은 판정을 한 레벨 아래에서 반복한다. 범위가 371배 좁아졌다.',
     key:'레벨마다 <em>범위가 좁아지고 정밀해진다</em>. 책의 표현대로 거친 눈금에서 시작해 세밀한 눈금으로 내려간다.',
     ref:'storage/innobase/btr/btr0cur.cc', sym:'btr_cur_search_to_nth_level',
@@ -592,7 +592,7 @@ const SCENES = [
           bt:{ set:{ 'internal':{ keys:'| 44 | 48 | 52 |  ← 읽음', fill:.6 } } } } },
 
   { act:{ f:'bt', t:'bt', lb:'leaf 도달' },
-    note:'리프에서 45 를 찾았다. 전송 3회, 비교 27회',
+    note:'leaf 에서 45 hit — transfer 3, comparison 27',
     why:'44 ≤ 45 < 48 → 첫 포인터. 리프 블록을 읽고 그 안에서 45를 찾는다.',
     key:'전송 3, 비교 27. 백만 개에서 <em>디스크는 세 번만</em> 만졌고 그중 두 번은 메모리 히트였다.',
     ref:'storage/innobase/btr/btr0cur.cc', sym:'btr_cur_search_to_nth_level',
@@ -603,7 +603,7 @@ const SCENES = [
           bt:{ set:{ 'leaf':{ keys:'44 [45] 46 47', fill:.7 } } } } },
 
   { act:{ f:'node', t:'op', lb:'범위 스캔이면 형제로 계속' },
-    note:'점 조회는 여기서 끝난다. 범위 조회는 형제 포인터를 타고 이어진다',
+    note:'point lookup 은 여기서 끝 — range scan 은 sibling pointer 로 계속',
     why:'45 ~ 200 을 원하면 이 리프를 다 읽고 FIL_PAGE_NEXT 로 다음 리프로 간다. 부모로 돌아가지 않는다.',
     key:'그래서 범위 스캔이 <em>레벨 수와 무관하게</em> 리프를 훑는 비용만 낸다. 하강은 한 번뿐이다.',
     ref:'storage/innobase/include/btr0btr.h', sym:'btr_page_get_next',
@@ -613,8 +613,8 @@ const SCENES = [
   ],
 },
 {
-  num:'08', tab:'리프 분할', title:'리프가 넘치면 4단계로 쪼갠다',
-  sub:'책이 네 단계로 정리한 것 — 그리고 InnoDB 가 다르게 하는 한 곳',
+  num:'08', tab:'Leaf Split', title:'Leaf Splits: The Book\'s Four Steps vs. InnoDB',
+  sub:'책의 4단계 절차 — 그리고 InnoDB 가 다르게 하는 한 곳, split point',
   cast:['op','bt','node','blk'],
   knobs:[
     ['innodb_fill_factor','100','구축 시 채움률. 낮추면 분할을 미룰 여유가 생긴다'],
@@ -645,14 +645,14 @@ const SCENES = [
     "split point (also called the midpoint)" ],
   steps:[
   { look:{ blk:true, node:true },
-    note:'11 을 넣을 자리가 없다 — 오버플로우',
+    note:'11 을 넣을 자리가 없다 — overflow',
     why:'책의 조건: 리프가 최대 N 개의 키·값을 담을 수 있고 하나 더 넣으면 N 을 넘길 때 분할한다.',
     key:'분할은 <em>삽입의 부작용</em>이다. 삽입하려다 자리가 없어서 구조를 바꾸는 것이다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_page_split_and_insert',
     beat:1 },
 
   { act:{ f:'op', t:'bt', lb:'1단계 · 새 노드 할당' },
-    note:'책의 1단계 — 새 노드를 만든다',
+    note:'책 1단계 — 새 node 할당',
     why:'빈 블록을 하나 얻는다. 아직 아무것도 옮기지 않았다.',
     key:'이 시점에 <em>블록 하나가 새로 쓰인다</em>. 분할의 비용은 여기서 시작한다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_page_alloc_low',
@@ -661,7 +661,7 @@ const SCENES = [
           node:{ add:[{ id:'leaf R', tag:'clean', sub:'방금 할당' }] } } },
 
   { act:{ f:'bt', t:'bt', lb:'2단계 · 절반을 옮긴다' },
-    note:'책의 2단계 — 분할점 이후를 새 노드로 옮긴다',
+    note:'책 2단계 — split point 이후를 새 node 로 이동',
     why:'책은 분할점을 midpoint 라고 부른다. 가운데에서 선을 긋고 뒤쪽을 새 노드로 보낸다.',
     key:'여기가 InnoDB 와 갈리는 지점이다. 책은 <em>가운데</em>라고 하지만 InnoDB 는 삽입 방향을 먼저 본다 — 다음 스텝.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_page_split_and_insert',
@@ -674,7 +674,7 @@ const SCENES = [
           op:{ set:{ '단계':'2 · 절반 이동|gold' } } } },
 
   { look:{ bt:['leaf L','leaf R'] },
-    note:'책은 midpoint, InnoDB 는 삽입 방향을 본다',
+    note:'책은 midpoint, InnoDB 는 insert 방향을 본다',
     why:'페이지 헤더의 PAGE_DIRECTION 과 PAGE_N_DIRECTION 에 최근 삽입이 계속 오른쪽이었는지가 기록돼 있다. 그러면 가운데가 아니라 삽입 지점에서 쪼갠다.',
     key:'코드는 <em>새 레코드 자리에서 쪼갠다</em> — 왼쪽은 기존 레코드를 전부 지키고 오른쪽이 새 레코드 하나로 시작한다. 그 결과 순차 적재의 밀도가 <em>15/16 ≈ 94%</em> 로 수렴한다(매뉴얼의 값이다). 가운데 분할이면 50% 에서 시작한다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_page_get_split_rec_to_right',
@@ -684,8 +684,8 @@ const SCENES = [
     beat:1 },
 
   { act:{ f:'op', t:'bt', lb:'3단계 · 11 을 넣는다' },
-    note:'책의 3단계 — 두 노드 중 맞는 쪽에 새 키를 넣는다',
-    why:'승격된 키(10)보다 작으면 왼쪽, 크거나 같으면 오른쪽이다. 11 은 10 보다 크므로 오른쪽이다.',
+    note:'책 3단계 — 맞는 쪽 node 에 새 key insert',
+    why:'promote 된 키(10)보다 작으면 왼쪽, 크거나 같으면 오른쪽이다. 11 은 10 보다 크므로 오른쪽이다.',
     key:'판정 근거가 <em>분리 키(separator key) 불변식</em>이다. 06 에서 본 그 한 줄이 여기서 쓰인다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_insert_rec_low',
     ops:{ bt:{ set:{ 'leaf R':{ keys:'10 [11] 12 13', fill:.67 } } },
@@ -693,9 +693,9 @@ const SCENES = [
           op:{ set:{ '단계':'3 · 키 삽입|gold' } } } },
 
   { act:{ f:'bt', t:'bt', lb:'4단계 · 부모에 분리 키를 올린다' },
-    note:'책의 4단계 — 부모에 분리 키와 새 노드 포인터를 추가한다',
-    why:'새 노드의 첫 키(10)가 부모로 승격된다. 이제 부모는 20 외에 10 도 갖는다.',
-    key:'승격이 <em>부모를 한 칸 채운다</em>. 부모에 자리가 있으면 여기서 끝이고, 없으면 위로 전파된다 — 09 의 주제.',
+    note:'책 4단계 — parent 에 separator key 와 새 node pointer 추가',
+    why:'새 노드의 첫 키(10)가 부모로 promote 된다. 이제 부모는 20 외에 10 도 갖는다.',
+    key:'promotion 이 <em>부모를 한 칸 채운다</em>. 부모에 자리가 있으면 여기서 끝이고, 없으면 위로 전파된다 — 09 의 주제.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_insert_on_non_leaf_level',
     beat:1,
     ops:{ bt:{ set:{ 'parent':{ keys:'| 10 | 20 |', fill:.5 } } },
@@ -703,15 +703,15 @@ const SCENES = [
           node:{ set:{ 'leaf L':{ tag:'ok', sub:'PREV/NEXT 로 R 과 연결' } } } } },
 
   { look:{ op:true, node:true },
-    note:'정리 — 블록 두 개를 쓰고 부모 하나를 고쳤다',
+    note:'정리 — block 2개 write, parent 1개 수정',
     why:'왼쪽 리프, 새 리프, 부모. 삽입 하나가 쓰기 세 개가 됐다.',
     key:'그래서 분할을 <em>미루는 것에 값이 있다</em>. 노드에 여유를 남기는 이유가 이 세 번의 쓰기를 피하는 것이다.',
     beat:1 },
   ],
 },
 {
-  num:'09', tab:'루트 분할', title:'전파가 루트에 닿으면 트리가 자란다',
-  sub:'높이가 바뀌는 유일한 두 순간 중 하나',
+  num:'09', tab:'Root Split', title:'Root Splits: How a B+-Tree Grows Taller',
+  sub:'height 가 바뀌는 단 두 순간 중 하나 — split 이 root 까지 전파될 때',
   cast:['op','bt','node','cost'],
   knobs:[
     ['innodb_page_size','16 KB','루트가 담는 분리 키 수 — 언제 높이가 자라는지를 정한다'],
@@ -735,15 +735,15 @@ const SCENES = [
     "the tree only grows horizontally" ],
   steps:[
   { look:{ node:true, bt:['root'] },
-    note:'리프 분할이 올린 키를 받을 자리가 부모에도 없다',
+    note:'leaf split 이 올린 key — parent 에도 자리가 없다',
     why:'비리프 노드의 조건: N+1 개의 포인터를 담을 수 있고 하나 더 넣으면 넘칠 때 분할한다.',
     key:'비리프 분할은 언제나 <em>아래에서 올라온 결과</em>다. 스스로 넘치는 일이 없다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_page_split_and_insert',
     beat:1 },
 
   { act:{ f:'bt', t:'bt', lb:'internal 을 쪼갠다' },
-    note:'비리프 분할 — N/2+1 부터를 새 노드로 옮기고 분할점 키를 위로 올린다',
-    why:'리프와 다른 점 하나: 승격되는 키가 새 노드에 남지 않고 부모로 올라간다. 그 자리를 포인터가 대신한다.',
+    note:'non-leaf split — N/2+1 부터 새 node 로, split point key 는 위로 promote',
+    why:'리프와 다른 점 하나: promote 되는 키가 새 노드에 남지 않고 부모로 올라간다. 그 자리를 포인터가 대신한다.',
     key:'리프 분할은 키를 <em>복사</em>하고, 비리프 분할은 <em>이동</em>한다. 값이 리프에만 있는 B+-Tree 의 성질 때문이다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_page_split_and_insert',
     ops:{ bt:{ set:{ 'internal':{ keys:'| 10 | 20 |', fill:.5 } },
@@ -752,14 +752,14 @@ const SCENES = [
           cost:{ set:{ '쓴 블록':'2' } } } },
 
   { look:{ bt:['root'] },
-    note:'그런데 루트도 꽉 찼다. 위로 올릴 곳이 없다',
+    note:'root 도 full — 올릴 곳이 없다',
     why:'전파가 루트에 닿았다. 루트는 부모가 없으므로 다른 방법이 필요하다.',
     key:'여기가 <em>트리 높이가 바뀌는 순간</em>이다. 리프와 내부 레벨에서는 트리가 옆으로만 자란다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_root_raise_and_insert',
     beat:1 },
 
   { act:{ f:'bt', t:'bt', lb:'새 루트를 만들고 옛 루트를 내린다' },
-    note:'새 루트를 만든다 — 옛 루트는 자식으로 강등되고 높이가 1 늘어난다',
+    note:'새 root 생성 — 옛 root 는 child 로 demote, height +1',
     why:'옛 루트의 내용을 새 노드로 옮기고, 새 루트에는 분할점 키 하나만 남긴다. 옛 루트와 그 형제가 새 루트의 자식이 된다.',
     key:'InnoDB 에서 <em>루트의 페이지 번호는 바뀌지 않는다</em>. 내용을 자식으로 옮기고 껍데기를 재사용한다 — dictionary 를 고칠 필요가 없다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_root_raise_and_insert',
@@ -771,15 +771,15 @@ const SCENES = [
           cost:{ set:{ '쓴 블록':'4', '높이 변화':'2 → 3|gold' } } } },
 
   { look:{ cost:true, op:true },
-    note:'삽입 하나가 블록 다섯 개를 썼고 트리가 한 단 깊어졌다',
+    note:'insert 하나에 block 5개 write, tree 한 단 deeper',
     why:'리프 두 개, internal 두 개, 루트. 최악의 경우다.',
     key:'그리고 이제 <em>모든 조회가 한 단계 더</em> 내려간다. 백만 개에서 3레벨이면 fan-out 이 커서 이 일이 드물다 — 그것이 fan-out 의 값이다.',
     beat:1 },
   ],
 },
 {
-  num:'10', tab:'리프 병합', title:'너무 비면 형제와 합친다',
-  sub:'책은 "임계값" 이라고만 말한다 — InnoDB 는 50%, 인덱스별 설정',
+  num:'10', tab:'Leaf Merge', title:'Leaf Merges: Underflow & MERGE_THRESHOLD',
+  sub:'책은 "threshold" 라고만 — InnoDB 는 50%, index 별 설정',
   cast:['op','bt','node','blk'],
   knobs:[
     ['innodb_page_size','16 KB','병합 판정의 기준 용량'],
@@ -810,14 +810,14 @@ const SCENES = [
     "Copy all elements from the right node to the left one" ],
   steps:[
   { look:{ blk:true },
-    note:'16 을 지우면 이 블록에 키가 하나 남는다',
+    note:'16 delete → 이 block 엔 key 하나만 잔존',
     why:'16KB 를 차지하면서 키 하나를 담는다. 02 에서 본 BST 의 낭비와 같은 모습이다.',
     key:'이것이 <em>언더플로우</em>다. 삭제 자체는 싸지만 남은 구조가 비효율이 된다.',
     ref:'storage/innobase/btr/btr0cur.cc', sym:'btr_cur_pessimistic_delete',
     beat:1 },
 
   { act:{ f:'op', t:'bt', lb:'16 삭제' },
-    note:'키를 지운다 — 아직 병합은 아니다',
+    note:'key 삭제 — 아직 merge 아님',
     why:'삭제는 리프를 찾아 항목을 제거하는 것으로 끝난다. 병합 여부는 그다음 판정이다.',
     key:'InnoDB 는 실제로 지우지 않고 <em>delete-mark</em> 를 먼저 붙인다. MVCC 때문에 과거를 읽는 쪽이 남아 있을 수 있다.',
     ref:'storage/innobase/btr/btr0cur.cc', sym:'btr_cur_del_mark_set_clust_rec',
@@ -828,7 +828,7 @@ const SCENES = [
           op:{ set:{ '대상 리프':'키 1개|red' } } } },
 
   { look:{ node:true },
-    note:'두 형제를 합치면 한 블록에 들어간다 — 병합 조건 성립',
+    note:'두 sibling 을 합치면 한 block 에 수용 — merge 조건 성립',
     why:'책의 조건: 리프가 최대 N 개를 담고, 이웃 두 노드의 합이 N 이하면 합친다. 2+1=3 ≤ 6 이다.',
     key:'책은 임계값을 이름 없이 말한다. InnoDB 는 <em>merge_threshold 기본 50</em> 이고, 판정은 데이터 크기가 <em>16KB × 50 / 100 = 8KB</em> 아래로 떨어졌는지로 한다. 인덱스마다 바꿀 수 있다.',
     ref:'storage/innobase/include/btr0cur.ic', sym:'btr_cur_compress_recommendation',
@@ -836,7 +836,7 @@ const SCENES = [
     beat:1 },
 
   { act:{ f:'bt', t:'bt', lb:'1단계 · 오른쪽을 왼쪽으로 옮긴다' },
-    note:'책의 1단계 — 오른쪽 노드의 항목을 왼쪽으로 복사한다',
+    note:'책 1단계 — 오른쪽 node 의 entry 를 왼쪽으로 copy',
     why:'키 순서가 유지되는 방향이면 어느 쪽으로 옮겨도 된다. 보통 오른쪽에서 왼쪽으로 옮긴다.',
     key:'InnoDB 의 판정 함수 이름이 <em>btr_compress</em> 다 — 압축이 아니라 "페이지를 합쳐 조인다" 는 뜻이다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_compress',
@@ -848,7 +848,7 @@ const SCENES = [
                        'leaf R':{ tag:'x', sub:'비었다 · 제거 대상' } } } } },
 
   { act:{ f:'bt', t:'bt', lb:'2·3단계 · 부모에서 포인터를 빼고 노드를 없앤다' },
-    note:'책의 2·3단계 — 부모에서 오른쪽 포인터를 제거하고 빈 노드를 반납한다',
+    note:'책 2·3단계 — parent 에서 오른쪽 pointer 제거, 빈 node 반납',
     why:'부모의 분리 키 15 도 함께 사라진다. 이제 왼쪽 리프 하나가 그 범위를 다 맡는다.',
     key:'부모의 키가 하나 줄었다. 부모도 임계값 아래로 내려가면 <em>병합이 위로 전파</em>된다 — 11 의 주제.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_compress',
@@ -861,7 +861,7 @@ const SCENES = [
           op:{ set:{ '대상 리프':'병합 완료|green' } } } },
 
   { look:{ blk:true },
-    note:'"너무 비었다" 의 기준은 코드에 식으로 있다',
+    note:'"너무 비었다" 의 기준 — code 에 수식으로',
     why:'BTR_CUR_PAGE_COMPRESS_LIMIT(index) 는 (UNIV_PAGE_SIZE × index->merge_threshold) / 100 이다. merge_threshold 기본값은 DICT_INDEX_MERGE_THRESHOLD_DEFAULT = 50 이므로 16KB × 50 / 100 = 8192바이트다. 주석이 그대로 말한다 — 비관적 삭제(pessimistic delete)에서 페이지 데이터 크기가 이 한계 아래로 떨어지면 이웃과 병합을 시도한다.',
     key:'절반이라는 기준은 <em>인덱스마다 바꿀 수 있다</em>. merge_threshold 는 인덱스 속성이므로, 삭제가 많은 인덱스만 문턱을 낮춰 병합을 덜 하게 만들 수 있다.',
     ref:'storage/innobase/include/btr0cur.h', sym:'BTR_CUR_PAGE_COMPRESS_LIMIT',
@@ -869,15 +869,15 @@ const SCENES = [
           ['storage/innobase/include/dict0mem.h','constexpr uint32_t DICT_INDEX_MERGE_THRESHOLD_DEFAULT = 50;']] },
 
   { look:{ blk:true, op:true },
-    note:'블록 하나를 반납했다 — 그런데 InnoDB 는 이걸 잘 안 한다',
+    note:'block 하나 반납 — 그러나 InnoDB 는 이걸 잘 하지 않는다',
     why:'MERGE_THRESHOLD 가 50% 라 어지간히 비어야 병합한다. 그래서 삭제가 많은 테이블은 페이지가 헐거운 채로 남는다.',
     key:'그것이 <em>Data_free</em> 로 보이는 값이다. 되돌리려면 인덱스를 재구축해야 한다 — 09 온라인 DDL 이 하는 일.',
     beat:1 },
   ],
 },
 {
-  num:'11', tab:'비리프 병합', title:'분리 키를 아래로 내린다',
-  sub:'승격의 반대 — demote',
+  num:'11', tab:'Non-leaf Merge', title:'Non-leaf Merges: Demoting Separators & Shrinking the Tree',
+  sub:'promote 의 역 — separator 를 아래로 demote',
   cast:['op','bt','node','cost'],
   knobs:[
     ['innodb_page_size','16 KB','병합 판정의 기준 용량'],
@@ -903,7 +903,7 @@ const SCENES = [
     "merges can propagate all the way to the root level" ],
   steps:[
   { look:{ node:true },
-    note:'아래에서 페이지가 사라져 두 internal 이 모두 헐거워졌다',
+    note:'하위 page 소멸로 두 internal 이 모두 underfull',
     why:'리프 병합이 부모의 포인터를 하나씩 없앴다. 비리프 병합은 언제나 아래에서 전파된 결과다.',
     key:'포인터가 하나 줄면 키도 하나 줄어든다. <em>키 N 개에 포인터 N+1 개</em>라는 불변식이 유지되어야 하기 때문이다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_compress',
@@ -911,14 +911,14 @@ const SCENES = [
     beat:1 },
 
   { look:{ bt:['root'] },
-    note:'두 internal 을 합치려면 부모의 분리 키가 필요하다',
+    note:'두 internal 을 합치려면 parent 의 separator 가 필요',
     why:'왼쪽은 40 미만, 오른쪽은 40 이상을 맡고 있다. 그냥 붙이면 그 경계 정보가 사라진다.',
-    key:'그래서 부모의 키 40 을 <em>아래로 내린다</em>. 리프 병합에는 없던 단계다 — 분할의 승격과 정확히 반대.',
+    key:'그래서 부모의 키 40 을 <em>아래로 내린다</em>. 리프 병합에는 없던 단계다 — 분할의 promotion 과 정확히 반대.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_compress',
     beat:1 },
 
   { act:{ f:'bt', t:'bt', lb:'분리 키 40 을 아래로 (demote)' },
-    note:'부모의 40 이 합쳐진 노드 안으로 내려간다',
+    note:'parent 의 40 이 merged node 안으로 demote',
     why:'왼쪽의 10, 내려온 40, 오른쪽의 60 이 한 노드에 순서대로 놓인다. 포인터도 함께 합쳐진다.',
     key:'분할에서 키가 <em>위로</em> 갔고 병합에서는 <em>아래로</em> 온다. 두 연산이 서로의 역이라는 것이 여기서 보인다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_compress',
@@ -931,14 +931,14 @@ const SCENES = [
           op:{ set:{ '전파':'internal → root|gold' } } } },
 
   { look:{ bt:['root'] },
-    note:'루트에 키가 없고 자식이 하나뿐이다 — 이 레벨은 쓸모가 없다',
+    note:'root 에 key 없음, child 하나뿐 — 이 level 은 무용',
     why:'루트가 아무것도 나누지 않는다. 하강할 때 판정 없이 그냥 내려가는 레벨이 하나 생긴 것이다.',
     key:'높이가 바뀌는 <em>두 번째 순간</em>이다. 09 에서는 루트 분할로 늘었고 여기서는 병합으로 줄어든다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_lift_page_up',
     beat:1 },
 
   { act:{ f:'bt', t:'bt', lb:'자식을 루트로 끌어올린다' },
-    note:'합쳐진 노드가 루트가 되고 트리가 한 단 얕아진다',
+    note:'merged node 가 새 root — tree 한 단 shallower',
     why:'옛 루트의 껍데기에 자식 내용을 옮긴다. 여기서도 루트의 페이지 번호는 그대로다.',
     key:'분할과 병합이 <em>같은 껍데기를 재사용</em>한다. 루트 번호가 고정이라 dictionary 는 어느 쪽에도 관여하지 않는다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_lift_page_up',
@@ -950,7 +950,7 @@ const SCENES = [
           cost:{ set:{ '쓴 블록':'3', '높이 변화':'3 → 2|green' } } } },
 
   { look:{ op:true, cost:true },
-    note:'2장 정리 — 분할과 병합이 균형을 유지하는 전부다',
+    note:'2장 정리 — split 과 merge 가 balance 유지의 전부',
     why:'삽입이 넘치면 쪼개 위로 올리고, 삭제가 비우면 합쳐 아래로 내린다. 높이는 루트에서만 바뀐다.',
     key:'그리고 이 모든 것이 <em>블록이 최소 단위</em>라는 사실 하나에서 나왔다. 다음 장은 그 블록 안을 어떻게 배치하는지를 다룬다.',
     beat:1 },

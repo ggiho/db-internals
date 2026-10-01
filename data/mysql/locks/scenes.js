@@ -3,8 +3,8 @@
    "무엇이 무엇을 막나" 는 이 주제에서 표 그 자체가 답이다. */
 const SCENES = [
 {
-  num:'01', tab:'두 층', title:'락은 두 층에서 잡힌다',
-  sub:'서버가 테이블 이름을 잠그고, 그 다음 InnoDB 가 테이블과 행을 잠근다',
+  num:'01', tab:'Two Layers', title:'Two Lock Layers: Server MDL & InnoDB Table/Row Locks',
+  sub:'server 가 table name 에 MDL, 그 다음 InnoDB 가 table 과 row 에 lock — 셋 다 commit 까지 유지',
   cast:['ses','stmt','mdl','tl','rl','row'],
   knobs:[
     ['innodb_lock_wait_timeout','50','InnoDB 행 락을 기다리는 초 — MDL 대기는 이것이 아니다'],
@@ -13,7 +13,7 @@ const SCENES = [
     ['P_S.metadata_locks','서버 층(MDL)에서 무엇이 잡혔나 — OBJECT_NAME · LOCK_TYPE · LOCK_STATUS'],
     ['P_S.data_locks','InnoDB 층에서 무엇이 잡혔나 — LOCK_TYPE 이 TABLE 인가 RECORD 인가'],
     ['SHOW ENGINE INNODB STATUS','TRANSACTIONS 절 : 이 트랜잭션이 쥔 락 수']],
-  links:[['03','테이블 락은 왜 IS·IX 인가'],['04','무엇이 무엇을 막나'],['10','MDL 은 9단계다']],
+  links:[['03','테이블 락은 왜 IS·IX 인가'],['04','무엇이 무엇을 막나'],['10','MDL 은 10단계다']],
   init:{
     ses:{ kv:{ 'trx':'—', '격리 수준':'REPEATABLE READ', '쥔 락':'0' } },
     stmt:{ kv:{ 'SQL':'—', '단계':'대기' } },
@@ -27,7 +27,7 @@ const SCENES = [
   },
   steps:[
   { look:{ stmt:true },
-    note:'문장을 파싱하면 THR_LOCK 종류가 정해지고, 거기서 MDL 종류가 유도된다',
+    note:'parse → THR_LOCK type 결정 → 그로부터 MDL type 유도',
     why:'mdl_type_for_dml 은 THR_LOCK 종류 하나를 받아 MDL 종류를 돌려주는 한 줄 함수다. 갈래는 셋이다 — TL_WRITE_ALLOW_WRITE 이상이면 쓰기 계열, 그중 TL_WRITE_LOW_PRIORITY 만 MDL_SHARED_WRITE_LOW_PRIO 로 빠지고, 나머지 쓰기는 MDL_SHARED_WRITE, 그 아래는 전부 MDL_SHARED_READ 다.',
     key:'락의 종류는 <em>문장을 보고 미리 정해진다</em> — 실행 중에 협상하는 것이 아니다. UPDATE 는 이 시점에 이미 <em>SHARED_WRITE</em> 로 확정됐고, 그래서 뒤에 무엇과 부딪힐지도 이미 결정됐다.',
     ref:'sql/table.h', sym:'mdl_type_for_dml',
@@ -37,7 +37,7 @@ const SCENES = [
     ops:{ stmt:{ set:{ 'SQL':'UPDATE t SET c=1 WHERE id=20', '단계':'파싱  ·  MDL 종류 결정' } } } },
 
   { act:{ f:'stmt', t:'mdl', lb:'파서보다 먼저 — 테이블을 열려면 MDL' },
-    note:'UPDATE t SET c=1 WHERE id=20 — 첫 락은 행이 아니라 테이블 이름에 걸린다',
+    note:'UPDATE t SET c=1 WHERE id=20 — 첫 lock 은 row 가 아니라 table name 에',
     why:'open_tables 가 테이블을 열기 전에 MDL 을 얻는다. 쓰기 문장이므로 MDL_SHARED_WRITE 다. 아직 InnoDB 는 호출되지도 않았다.',
     key:'많은 사람이 락을 <em>행 락</em>부터 떠올리지만, 순서상 먼저 잡히는 것은 <em>테이블 이름에 걸리는 MDL</em> 이다. ALTER 가 막히는 사고는 대부분 이 층에서 벌어진다.',
     ref:'sql/sql_base.cc', sym:'open_tables',
@@ -47,7 +47,7 @@ const SCENES = [
           mdl:{ del:['(비었다)'], add:[{ id:'trx 71  ·  t', tag:'hold', sub:'SHARED_WRITE  ·  획득' }] } } },
 
   { look:{ mdl:true },
-    note:'같은 락을 이미 쥐고 있으면 새로 잡지 않는다 — 먼저 티켓을 찾는다',
+    note:'보유 ticket 부터 탐색 — 이미 있으면 재사용',
     why:'MDL_context::find_ticket 이 이 컨텍스트가 이미 가진 티켓 목록을 훑는다. 같은 객체에 대해 요청한 것보다 강하거나 같은 티켓이 있으면 그것을 재사용한다. 같은 테이블을 두 번 언급하는 문장이 락을 두 번 잡지 않는 이유다.',
     key:'MDL 은 <em>세는 것이 아니라 찾는 것</em>이다. 재귀적으로 같은 테이블을 여는 문장(자기 조인, 트리거)에서도 티켓은 하나로 끝난다.',
     ref:'sql/mdl.cc', sym:'MDL_context::find_ticket',
@@ -55,18 +55,18 @@ const SCENES = [
     ops:{ stmt:{ set:{ '단계':'티켓 조회' } } } },
 
   { look:{ mdl:true },
-    note:'없으면 새로 요청한다 — 줄 수 있는지는 10×10 표가 정한다',
-    why:'MDL_lock::can_grant_lock 이 이미 부여된 락들과 요청을 비교한다. 판정표는 코드에 박힌 비트마스크 배열이고, MDL 종류가 아홉이므로 표는 10×10 이다. 이 시점에는 다른 세션이 없으니 즉시 부여된다.',
-    key:'MDL 이 막히는 사고는 <em>이 표 한 칸</em>으로 설명된다 — 10 장면에서 아홉 단계와 그 표를 통째로 본다.',
+    note:'없으면 신규 요청 — grant 여부는 10×10 matrix 가 판정',
+    why:'MDL_lock::can_grant_lock 이 이미 부여된 락들과 요청을 비교한다. 판정표는 코드에 박힌 비트마스크 배열이고, 객체 락에 쓰는 MDL 종류가 열이므로 표는 10×10 이다. 이 시점에는 다른 세션이 없으니 즉시 부여된다.',
+    key:'MDL 이 막히는 사고는 <em>이 표 한 칸</em>으로 설명된다 — 10 장면에서 열 단계와 그 표를 통째로 본다.',
     ref:'sql/mdl.cc', sym:'MDL_lock::can_grant_lock',
     fact:[['sql/mdl.cc','bool MDL_lock::can_grant_lock(']],
     ops:{ stmt:{ set:{ '단계':'MDL 부여 판정' } },
           mdl:{ set:{ 'trx 71  ·  t':{ tag:'hold', sub:'SHARED_WRITE  ·  즉시 부여' } } } } },
 
   { act:{ f:'mdl', t:'tl', lb:'InnoDB 에 들어와서 테이블 락' },
-    note:'InnoDB 는 테이블에 의도(intention) 락을 먼저 잡는다',
+    note:'InnoDB — table 에 intention lock 먼저',
     why:'행을 고칠 것이므로 LOCK_IX 다. "이 테이블 안에서 배타 락을 잡을 생각이 있다"는 선언이고, 다른 IX 와는 호환된다.',
-    key:'의도 락(intention lock)은 <em>행 락을 막지 않는다</em>. 오직 <em>테이블 전체를 잠그려는 쪽</em>(LOCK TABLES 의 S·X)과 부딪히게 만드는 장치다.',
+    key:'intention lock 은 <em>행 락을 막지 않는다</em>. 오직 <em>테이블 전체를 잠그려는 쪽</em>(LOCK TABLES 의 S·X)과 부딪히게 만드는 장치다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_table',
     fact:[['storage/innobase/include/lock0types.h','LOCK_IS = 0,'],
           ['storage/innobase/include/lock0types.h','LOCK_IX,']],
@@ -75,7 +75,7 @@ const SCENES = [
           ses:{ set:{ '쥔 락':'1  (테이블)' } } } },
 
   { look:{ tl:true },
-    note:'테이블 락도 중복을 먼저 확인한다 — 다만 기준이 호환이 아니라 강도다',
+    note:'table lock 도 중복 확인 먼저 — 기준은 compatibility 가 아니라 strength',
     why:'lock_table_has 는 이 트랜잭션이 그 테이블에 이미 요청한 것보다 강하거나 같은 락을 쥐고 있는지 본다. 여기 쓰이는 표는 호환 행렬이 아니라 강도 행렬이다 — 두 표는 다르고, 대상도 테이블 락뿐이다.',
     key:'같은 다섯 모드에 <em>표가 두 장</em> 있다. 호환 표는 "남과 부딪히나", 강도 표는 "내가 이미 더 센 것을 쥐었나" 를 답한다. 4 장면에서 두 표를 나란히 놓는다.',
     ref:'storage/innobase/include/lock0priv.ic', sym:'lock_table_has',
@@ -84,7 +84,7 @@ const SCENES = [
     ops:{ stmt:{ set:{ '단계':'테이블 락 중복 확인' } } } },
 
   { act:{ f:'tl', t:'row', lb:'인덱스에서 행을 찾는다' },
-    note:'행 락은 찾은 뒤에 잡는다 — 어디를 잠글지는 탐색 결과가 정한다',
+    note:'row lock 은 탐색 후 — 잠글 위치는 search 결과가 정한다',
     why:'row_search_mvcc 가 클러스터 인덱스를 훑어 id=20 에 닿는다. 잠글 대상은 "행" 이 아니라 그 인덱스 레코드다. 그래서 어떤 인덱스로 찾았는지가 무엇이 잠기는지를 바꾼다.',
     key:'락은 <em>행이 아니라 인덱스 레코드</em>에 걸린다. WHERE 가 인덱스를 못 쓰면 훑은 것마다 잠기고 — 6 장면이 그 경우다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'row_search_mvcc',
@@ -93,7 +93,7 @@ const SCENES = [
           row:{ set:{ 'id=20':{ sub:'c=200  ·  찾음' } } } } },
 
   { act:{ f:'tl', t:'rl', lb:'행을 찾아서 X' },
-    note:'그리고 고칠 행 하나에 배타 락',
+    note:'고칠 row 하나에 X',
     why:'클러스터 인덱스에서 id=20 을 찾아 LOCK_X 를 잡는다. 행 락은 S 아니면 X 두 가지뿐이다 — IS·IX 는 테이블에만 쓴다.',
     key:'소스가 못박아 둔 사실이다 — <em>행에는 S 나 X 만</em>, <em>테이블에는 보통 IS 나 IX</em>. 이 구분이 다음 장면들의 전제다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_clust_rec_modify_check_and_lock',
@@ -105,7 +105,7 @@ const SCENES = [
           stmt:{ set:{ '단계':'행 수정' } } } },
 
   { look:{ rl:true },
-    note:'행 락에는 모드만 있는 것이 아니라 범위가 함께 붙는다',
+    note:'row lock 은 mode 에 범위 flag 가 붙는다',
     why:'lock_rec_lock 에 넘기는 모드는 LOCK_X 같은 모드 하나가 아니라 범위 비트가 OR 된 값이다. LOCK_ORDINARY 는 0(레코드와 그 앞 갭), LOCK_GAP 은 512, LOCK_REC_NOT_GAP 은 1024 다. 유일 인덱스로 한 행을 짚었으므로 여기서는 갭이 필요 없다.',
     key:'같은 <em>X 락</em>이라도 범위가 다르면 막는 것이 다르다. 팬텀을 막는 것은 모드가 아니라 <em>갭 비트</em>다 — 07 장면의 INSERT 가 그 지점이다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_lock',
@@ -114,15 +114,15 @@ const SCENES = [
     ops:{ rl:{ set:{ 'id=20':{ tag:'x', sub:'LOCK_X  |  REC_NOT_GAP' } } } } },
 
   { look:{ rl:true, row:true },
-    note:'자기가 방금 만든 행은 락 없이도 잠긴 셈이다 — 남이 물어볼 때만 실물이 된다',
-    why:'행의 DB_TRX_ID 가 살아 있는 트랜잭션이면 그것 자체가 배타 락과 같은 효과다(암시적 락). 락 구조체를 만들지 않으므로 공짜다. 다른 트랜잭션이 그 행을 잠그려 할 때 lock_rec_convert_impl_to_expl 이 그 자리에서 명시적 락으로 바꿔 준다.',
+    note:'방금 만든 row 는 implicit lock — 남이 물을 때만 explicit 으로 전환',
+    why:'행의 DB_TRX_ID 가 살아 있는 트랜잭션이면 그것 자체가 X lock 과 같은 효과다(암시적 락). 락 구조체를 만들지 않으므로 공짜다. 다른 트랜잭션이 그 행을 잠그려 할 때 lock_rec_convert_impl_to_expl 이 그 자리에서 명시적 락으로 바꿔 준다.',
     key:'그래서 <em>대량 INSERT 가 락 메모리를 먹지 않는다</em>. P_S.data_locks 에 안 보이는 락이 실제로는 있는 상태이고, 경쟁이 생기는 순간에만 표에 나타난다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_convert_impl_to_expl',
     fact:[['storage/innobase/lock/lock0lock.cc','lock_rec_convert_impl_to_expl(']],
     ops:{ ses:{ set:{ '쥔 락':'2  (테이블 1 · 행 1 명시적)' } } } },
 
   { look:{ ses:true, mdl:true, tl:true, rl:true },
-    note:'커밋할 때까지 셋 다 유지된다 — 수명이 같다는 것이 요점이다',
+    note:'commit 까지 셋 다 유지 — 수명이 같다는 것이 요점',
     why:'셋 다 트랜잭션이 끝날 때 풀린다 — MDL 의 지속 기간도 MDL_TRANSACTION 이다. 문장이 끝나는 것으로는 아무것도 안 풀린다.',
     key:'그래서 <em>커밋하지 않은 채 놔둔 세션</em>이 ALTER 를 막는다. 행을 하나도 안 건드렸어도 테이블을 열었다는 사실만으로 MDL 을 쥐고 있다 — 11 장면에서 그 경로를 본다.',
     ref:'sql/mdl.cc', sym:'MDL_context::release_transactional_locks',
@@ -132,13 +132,13 @@ const SCENES = [
   ],
 },
 {
-  num:'02', tab:'안 잡는 경우', title:'평범한 SELECT 은 행 락을 잡지 않는다',
-  sub:'읽기는 락이 아니라 스냅샷으로 해결한다 — 그것이 기본값이다',
+  num:'02', tab:'Plain SELECT', title:'Nonlocking Reads: Plain SELECT Takes No Row Locks',
+  sub:'read 는 lock 이 아니라 snapshot 으로 — consistent read 가 기본값',
   cast:['ses','stmt','mdl','tl','rl','rv','row'],
   vsLabel:'A  ·  SELECT      (락 없음)', pair:'02v',
   knobs:[
     ['innodb_lock_wait_timeout','50','락을 안 잡으면 이 값도 의미가 없다'],
-    ['transaction_isolation','REPEATABLE-READ','스냅샷 읽기가 기본이라 행 락이 필요 없다']],
+    ['transaction_isolation','REPEATABLE-READ','snapshot 읽기가 기본이라 행 락이 필요 없다']],
   watch:[
     ['P_S.data_locks','평범한 SELECT 뒤에는 이 표에 아무것도 안 생긴다'],
     ['I_S.INNODB_TRX','trx_rows_locked 가 0 인지 확인한다']],
@@ -157,7 +157,7 @@ const SCENES = [
   },
   steps:[
   { look:{ stmt:true, rl:true },
-    note:'select_lock_type 이 LOCK_NONE 이다',
+    note:'select_lock_type = LOCK_NONE',
     why:'FOR SHARE 도 FOR UPDATE 도 없으면 prebuilt 의 잠금 방식이 LOCK_NONE 으로 남는다. LOCK_NONE 은 "일관된 읽기" 를 뜻하는 표시값이다.',
     key:'락을 <em>안 잡기로 결정한 것</em>이지, 잡을 것이 없어서가 아니다. 이 결정이 MySQL 읽기 성능의 근간이다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'sel_set_rec_lock',
@@ -168,14 +168,14 @@ const SCENES = [
     ops:{ stmt:{ set:{ '잠금 방식':'LOCK_NONE  ·  일관된 읽기|green' } } } },
 
   { act:{ f:'stmt', t:'rv', lb:'락 대신 read view' },
-    note:'대신 read view 를 만든다 — 그 시점의 스냅샷',
+    note:'대신 read view 생성 — 그 시점의 snapshot',
     why:'REPEATABLE READ 에서는 첫 읽기에 read view 를 한 번 만들고 트랜잭션 내내 같은 것을 쓴다.',
     key:'읽기가 쓰기를 막지 않고 쓰기가 읽기를 막지 않는 이유가 이것이다 — <em>둘이 같은 자원을 두고 다투지 않는다</em>.',
     ref:'storage/innobase/trx/trx0trx.cc', sym:'trx_assign_read_view',
     ops:{ rv:{ set:{ 'read view':'trx 72  ·  m_low_limit=73', '보는 시점':'첫 SELECT|gold' } } } },
 
   { look:{ row:['id=20'], rl:true },
-    note:'보이지 않는 버전을 만나면 undo 를 거슬러 옛 버전을 만든다',
+    note:'invisible version → undo 를 거슬러 이전 version 재구성',
     why:'lock_clust_rec_cons_read_sees 가 이 레코드가 read view 에 보이는지 판정한다. 안 보이면 row_sel_build_prev_vers_for_mysql 이 undo 로그를 따라 그 시점의 버전을 재구성한다. 즉 읽기는 남을 기다리지 않고 과거를 만들어 읽는다.',
     key:'MVCC 가 락 없이 일관성을 주는 방법이 이것이다 — 기다리는 대신 <em>버전을 짓는다</em>. 대가는 undo 를 거슬러야 하는 비용이고, 그래서 오래된 read view 는 purge 를 막는다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_clust_rec_cons_read_sees',
@@ -183,15 +183,15 @@ const SCENES = [
           ['storage/innobase/row/row0sel.cc','row_sel_build_prev_vers_for_mysql(']] },
 
   { look:{ rl:true },
-    note:'그래서 이 경로에는 락 범위를 정하는 코드가 아예 없다',
-    why:'row_search_mvcc 는 select_lock_type != LOCK_NONE 일 때만 락 범위 계산으로 들어간다. LOCK_NONE 이면 그 블록을 지나쳐 곧바로 가시성(visibility) 판정으로 간다. 두 경로는 배타적이다.',
-    key:'같은 함수 안에서 <em>읽기와 잠금 읽기(locking read)가 갈라지는 지점</em>이 이 조건 하나다. 오른쪽(B)은 바로 그 반대편 분기로 들어간다.',
+    note:'이 경로엔 lock 범위 계산 코드 자체가 없다',
+    why:'row_search_mvcc 는 select_lock_type != LOCK_NONE 일 때만 락 범위 계산으로 들어간다. LOCK_NONE 이면 그 블록을 지나쳐 곧바로 visibility 판정으로 간다. 두 경로는 배타적이다.',
+    key:'같은 함수 안에서 <em>읽기와 locking read 가 갈라지는 지점</em>이 이 조건 하나다. 오른쪽(B)은 바로 그 반대편 분기로 들어간다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'row_search_mvcc',
     fact:[['storage/innobase/row/row0sel.cc','if (prebuilt->select_lock_type != LOCK_NONE) {'],
           ['storage/innobase/include/lock0types.h','LOCK_NONE']] },
 
   { look:{ row:true },
-    note:'행은 잠기지 않았다 — 다른 세션이 지금 이 행을 UPDATE 할 수 있다',
+    note:'row 미잠금 — 타 세션이 지금 이 row 를 UPDATE 가능',
     why:'행 락 목록이 비어 있다. 다른 트랜잭션이 같은 행에 X 를 잡는 데 아무 장애가 없다.',
     key:'테이블 락조차 없다 — <em>lock_table 은 호출되지 않는다</em>. select_lock_type 이 LOCK_NONE 이면 read view 만 만들고 그 분기를 빠져나간다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_table',
@@ -199,7 +199,7 @@ const SCENES = [
     beat:1 },
 
   { look:{ mdl:true, tl:true },
-    note:'남는 것은 MDL 하나뿐이다 — InnoDB 층에는 아무것도 없다',
+    note:'남는 것은 MDL 하나 — InnoDB 층은 비어 있다',
     why:'테이블을 열었으므로 MDL_SHARED_READ 는 트랜잭션이 끝날 때까지 유지된다. 반면 InnoDB 에는 테이블 락도 행 락도 없어서 P_S.data_locks 가 비어 있다.',
     key:'그래서 <em>SELECT 만 하는 트랜잭션도 ALTER 를 막는다</em>. 행 락 지표는 깨끗한데 DDL 이 막히는 사고의 정체가 이것이다 — 11 장면에서 그 경로를 본다.',
     ref:'sql/mdl.cc', sym:'MDL_context::acquire_lock',
@@ -210,11 +210,11 @@ const SCENES = [
 },
 {
   num:'02v', tab:'—', hidden:true, vsLabel:'B  ·  SELECT … FOR UPDATE  (X 락)',
-  title:'평범한 SELECT 은 행 락을 잡지 않는다', sub:'FOR UPDATE 를 붙이면 읽기가 쓰기처럼 잠근다',
+  title:'Locking Reads: FOR UPDATE Locks Like a Write', sub:'FOR UPDATE 를 붙이면 read 가 write 처럼 잠근다 — snapshot 대신 latest committed version',
   cast:['ses','stmt','mdl','tl','rl','rv','row'],
   knobs:[
     ['innodb_lock_wait_timeout','50','이제는 이 값이 의미를 갖는다'],
-    ['transaction_isolation','REPEATABLE-READ','FOR UPDATE 는 스냅샷이 아니라 최신 행을 읽는다']],
+    ['transaction_isolation','REPEATABLE-READ','FOR UPDATE 는 snapshot 이 아니라 최신 행을 읽는다']],
   watch:[
     ['P_S.data_locks','RECORD 행이 생긴다 — LOCK_MODE 가 X 인지 X,REC_NOT_GAP 인지'],
     ['I_S.INNODB_TRX','trx_rows_locked 가 0 이 아니다']],
@@ -233,17 +233,17 @@ const SCENES = [
   },
   steps:[
   { look:{ stmt:true, rl:true },
-    note:'select_lock_type 이 LOCK_X 로 정해진다',
+    note:'select_lock_type = LOCK_X',
     why:'FOR UPDATE 는 읽는 행마다 X 를 요청하게 만든다. 같은 SELECT 문법인데 잠금 방식만 달라진다.',
-    key:'그래서 테이블 락(table lock)도 IS 가 아니라 <em>IX</em> 다 — 배타 락을 잡을 의도가 생겼기 때문이다.',
+    key:'그래서 테이블 락(table lock)도 IS 가 아니라 <em>IX</em> 다 — X lock 을 잡을 의도가 생겼기 때문이다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'sel_set_rec_lock',
     fact:[['storage/innobase/include/lock0types.h','LOCK_X,']],
     ops:{ stmt:{ set:{ '잠금 방식':'LOCK_X  ·  행마다 배타|red' } } } },
 
   { act:{ f:'stmt', t:'rl', lb:'읽으면서 잠근다' },
-    note:'읽은 행에 X 를 건다 — 읽기가 쓰기와 같은 자원을 다툰다',
+    note:'읽은 row 에 X — read 가 write 와 같은 자원을 경합',
     why:'lock_clust_rec_read_check_and_lock 이 읽기 경로에서 락을 요청한다. 이름 그대로 "읽기용 락 검사" 다.',
-    key:'FOR UPDATE 는 <em>스냅샷을 버리고 최신 행을 본다</em>. 락을 잡으니 최신을 볼 수 있고, 최신을 보니 락이 필요하다.',
+    key:'FOR UPDATE 는 <em>snapshot 을 버리고 최신 행을 본다</em>. 락을 잡으니 최신을 볼 수 있고, 최신을 보니 락이 필요하다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_clust_rec_read_check_and_lock',
     fact:['Checks if locks of other transactions prevent an immediate read, or passing'],
     ops:{ rl:{ del:['(비었다)'], add:[{ id:'id=20', tag:'x', sub:'LOCK_X  ·  RECORD' }] },
@@ -251,9 +251,9 @@ const SCENES = [
           ses:{ set:{ '쥔 행 락':'1|red' } } } },
 
   { look:{ row:['id=20'], rl:true },
-    note:'잠금 읽기(locking read)는 스냅샷이 아니라 최신 커밋 버전을 읽는다',
-    why:'select_lock_type != LOCK_NONE 이면 가시성(visibility) 판정과 옛 버전 재구성을 하지 않는다. 그 블록은 LOCK_NONE 쪽 분기에만 있다. 잠글 대상은 과거의 사본이 아니라 지금 그 자리에 있는 레코드여야 하기 때문이다.',
-    key:'그래서 같은 트랜잭션 안에서 <em>SELECT 과 SELECT … FOR UPDATE 가 다른 값을 볼 수 있다</em>. 전자는 스냅샷, 후자는 최신이다 — 이 차이가 팬텀처럼 보이는 사고의 흔한 원인이다.',
+    note:'locking read — snapshot 이 아니라 latest committed version',
+    why:'select_lock_type != LOCK_NONE 이면 visibility 판정과 옛 버전 재구성을 하지 않는다. 그 블록은 LOCK_NONE 쪽 분기에만 있다. 잠글 대상은 과거의 사본이 아니라 지금 그 자리에 있는 레코드여야 하기 때문이다.',
+    key:'그래서 같은 트랜잭션 안에서 <em>SELECT 과 SELECT … FOR UPDATE 가 다른 값을 볼 수 있다</em>. 전자는 snapshot, 후자는 최신이다 — 이 차이가 팬텀처럼 보이는 사고의 흔한 원인이다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'row_search_mvcc',
     fact:[['storage/innobase/row/row0sel.cc','if (prebuilt->select_lock_type != LOCK_NONE) {'],
           ['storage/innobase/row/row0sel.cc','lock_clust_rec_cons_read_sees(']],
@@ -261,22 +261,22 @@ const SCENES = [
     ops:{ rv:{ set:{ 'read view':'만들지 않는다', '보는 시점':'최신 커밋 버전' } } } },
 
   { look:{ rl:true },
-    note:'그 대신 이 경로는 락의 범위를 계산한다',
+    note:'대신 이 경로는 lock 범위를 계산',
     why:'row_compare_row_to_range 가 이 행이 범위 안에 들 수 있는지, 그 앞 갭이 범위와 겹칠 수 있는지를 본다. 둘 다면 LOCK_ORDINARY, 행만이면 LOCK_REC_NOT_GAP, 갭만이면 LOCK_GAP 이다.',
-    key:'갭 락(gap lock)은 걸까 말까를 <em>즉흥적으로 정하지 않는다</em> — 이 비교 하나가 세 값 중 하나를 고른다. 유일 인덱스로 한 건을 짚으면 갭이 필요 없어 REC_NOT_GAP 이 된다.',
+    key:'gap lock 은 걸까 말까를 <em>즉흥적으로 정하지 않는다</em> — 이 비교 하나가 세 값 중 하나를 고른다. 유일 인덱스로 한 건을 짚으면 갭이 필요 없어 REC_NOT_GAP 이 된다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'row_compare_row_to_range',
     fact:[['storage/innobase/row/row0sel.cc','row_compare_row_to_range('],
           ['storage/innobase/row/row0sel.cc','lock_type = LOCK_REC_NOT_GAP;']] },
 
   { look:{ rl:true },
-    note:'이제 다른 세션의 UPDATE 는 여기서 멈춘다',
+    note:'타 세션 UPDATE 는 여기서 block',
     why:'X 는 어떤 것과도 호환되지 않는다. 같은 행에 S 든 X 든 요청하면 대기한다.',
     key:'A 와 B 의 차이는 문장 끝의 <em>세 단어</em>뿐인데, 동시성 성질이 정반대가 된다.',
     ref:'storage/innobase/include/lock0priv.h', sym:'lock_mode_compatible',
     beat:1 },
 
   { look:{ mdl:true, tl:true },
-    note:'MDL 도 A 와 다르다 — SHARED_READ 가 아니라 SHARED_WRITE 다',
+    note:'MDL 도 다르다 — SHARED_READ 가 아니라 SHARED_WRITE',
     why:'FOR UPDATE 는 파싱 단계에서 thr_lock_type 을 TL_WRITE 로 만들고, mdl_type_for_dml 은 TL_WRITE_ALLOW_WRITE 이상이면 MDL_SHARED_WRITE 를 준다. FOR SHARE 는 TL_READ_WITH_SHARED_LOCKS 라서 그 아래이고 SHARED_READ 로 남는다.',
     key:'두 층이 <em>같은 뿌리에서</em> 갈린다 — 잠금 강도가 먼저 정해지고, 그것이 MDL 타입과 InnoDB 락 모드를 각각 결정한다.',
     ref:'sql/table.h', sym:'mdl_type_for_dml',
@@ -290,8 +290,8 @@ const SCENES = [
   ],
 },
 {
-  num:'03', tab:'테이블 락', title:'테이블 락은 대개 의도를 표시할 뿐이다',
-  sub:'IS · IX 는 자리를 잡는 표시이고, S · X 는 LOCK TABLES 에서만 나온다',
+  num:'03', tab:'Table Locks', title:'Intention Locks: IS/IX vs. Table-Level S/X',
+  sub:'IS · IX 는 자리 표시일 뿐 — table 자체의 S · X 는 LOCK TABLES 에서만',
   cast:['ses','stmt','tl','rl','row'],
   knobs:[
     ['innodb_table_locks','ON','LOCK TABLES 가 InnoDB 테이블 락까지 요청하게 한다'],
@@ -311,17 +311,17 @@ const SCENES = [
   },
   steps:[
   { look:{ stmt:true },
-    note:'평범한 SELECT 은 테이블 락도 잡지 않는다 — 코드가 그 자리에서 빠져나간다',
+    note:'plain SELECT — table lock 도 없음, 그 자리에서 early return',
     why:'row_search_mvcc 안에 select_lock_type == LOCK_NONE 이면 테이블 락 요청을 건너뛰는 분기가 있다. 즉 잠금 없는 읽기는 InnoDB 층에서 락을 하나도 만들지 않는다. MDL 은 이미 잡혀 있지만 그것은 서버 층이다.',
-    key:'"SELECT 은 IS 를 잡는다" 는 말은 <em>잠금 읽기(locking read)일 때만</em> 맞다. 평범한 SELECT 은 <em>테이블에도 행에도</em> 아무것도 남기지 않는다 — 02 장면이 그 경우다.',
+    key:'"SELECT 은 IS 를 잡는다" 는 말은 <em>locking read 일 때만</em> 맞다. 평범한 SELECT 은 <em>테이블에도 행에도</em> 아무것도 남기지 않는다 — 02 장면이 그 경우다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'row_search_mvcc',
     fact:[['storage/innobase/include/lock0types.h','LOCK_NONE'],
           ['storage/innobase/row/row0sel.cc','prebuilt->select_lock_type']] },
 
   { act:{ f:'stmt', t:'tl', lb:'읽기 → IS' },
-    note:'SELECT … FOR SHARE 는 테이블에 IS 를 잡는다',
+    note:'SELECT … FOR SHARE → table 에 IS',
     why:'행에 S 를 잡을 의도이므로 테이블에는 의도 공유(LOCK_IS)를 남긴다. 값이 0 인 것은 우연이 아니라 열거의 시작이다.',
-    key:'의도 락(intention lock)은 <em>행 락의 예고편</em>이다. 테이블 전체를 잠그려는 쪽이 이것만 보고 "안에 누가 있다" 를 알 수 있다.',
+    key:'intention lock 은 <em>행 락의 예고편</em>이다. 테이블 전체를 잠그려는 쪽이 이것만 보고 "안에 누가 있다" 를 알 수 있다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_table',
     fact:[['storage/innobase/include/lock0types.h','LOCK_IS = 0,'],
           ['storage/innobase/include/lock0types.h','intention shared'],
@@ -331,7 +331,7 @@ const SCENES = [
           ses:{ set:{ '문장':'FOR SHARE', '테이블 락':'IS' } } } },
 
   { act:{ f:'stmt', t:'tl', lb:'쓰기 → IX' },
-    note:'UPDATE · DELETE · INSERT · FOR UPDATE 는 IX 를 잡는다',
+    note:'UPDATE · DELETE · INSERT · FOR UPDATE → IX',
     why:'행에 X 를 잡을 의도이므로 의도 배타(LOCK_IX)다. 같은 IX 끼리는 호환되므로 두 세션이 서로 다른 행을 동시에 고칠 수 있다.',
     key:'IX 끼리 호환된다는 것이 <em>행 단위 동시성의 조건</em>이다. 여기서 막히면 행 락은 볼 기회조차 없다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_table',
@@ -344,7 +344,7 @@ const SCENES = [
           row:{ set:{ 'id=20':{ tag:'x', sub:'c=1  ·  잠김' } } } } },
 
   { look:{ tl:true },
-    note:'IS 냐 IX 냐는 삼항식 한 줄이 정한다',
+    note:'IS / IX 분기 — 삼항식 한 줄',
     why:'row_search_mvcc 는 테이블 락을 요청할 때 select_lock_type == LOCK_S ? LOCK_IS : LOCK_IX 를 넘긴다. 읽기 잠금이면 IS, 그 밖(즉 LOCK_X)이면 IX 다. 판단할 것이 더 없다 — 문장 종류가 아니라 앞서 정해진 락 종류 하나만 본다.',
     key:'테이블 락의 정체는 <em>추론이 아니라 한 줄</em>이다. SELECT ... FOR SHARE 는 IS, FOR UPDATE·UPDATE·DELETE 는 IX 로 간다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'row_search_mvcc',
@@ -352,7 +352,7 @@ const SCENES = [
           ['storage/innobase/include/lock0types.h','LOCK_IS = 0,']] },
 
   { act:{ f:'stmt', t:'tl', lb:'LOCK TABLES → S 또는 X' },
-    note:'테이블 자체에 S · X 가 걸리는 것은 LOCK TABLES 뿐이다',
+    note:'테이블 단위 S · X 를 거는 유일한 경로 — LOCK TABLES',
     why:'소스 주석이 그렇게 못박아 둔다 — "S or X table locks are only acquired for LOCK TABLES".',
     key:'그래서 평범한 워크로드에서 <em>테이블 S·X 를 볼 일이 없다</em>. 보인다면 누군가 LOCK TABLES 를 썼거나 DDL 경로다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_table',
@@ -362,15 +362,15 @@ const SCENES = [
           ses:{ set:{ '문장':'LOCK TABLES WRITE', '테이블 락':'X|red' } } } },
 
   { look:{ tl:true },
-    note:'그래서 테이블 전체를 잠그려는 쪽이 의도 락과 부딪힌다',
+    note:'그래서 table 전체를 잠그려는 쪽이 intention lock 과 충돌',
     why:'lock_table_other_has_incompatible 이 그 테이블의 다른 락들을 훑어 요청과 호환되지 않는 것을 찾는다. IX 끼리는 호환이므로 여러 세션이 동시에 각자 행을 고칠 수 있다. 막히는 것은 LOCK TABLES 가 요청하는 S·X 다.',
-    key:'의도 락의 존재 이유가 이것이다 — <em>행 단위 동시성은 열어 두고</em> 테이블 전체를 잠그려는 시도만 정확히 막는다. 04 장면의 호환 표가 그 규칙 전부다.',
+    key:'intention lock 의 존재 이유가 이것이다 — <em>행 단위 동시성은 열어 두고</em> 테이블 전체를 잠그려는 시도만 정확히 막는다. 04 장면의 호환 표가 그 규칙 전부다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_table_other_has_incompatible',
     fact:[['storage/innobase/include/lock0priv.h','lock_compatibility_matrix']] },
 
   { look:{ tl:true, ses:true },
-    note:'그리고 AUTO_INCREMENT 를 위한 다섯 번째 모드가 있다',
-    why:'LOCK_AUTO_INC 는 카운터를 잠근다. 소스는 그 이유를 문장 단위 binlog 때문이라고 적는다 — 재생할 때 같은 번호가 나와야 하기 때문이다.',
+    note:'다섯 번째 mode — AUTO_INC',
+    why:'LOCK_AUTO_INC 는 카운터를 잠근다. 소스는 그 이유를 문장 단위 binlog 때문이라고 적는다 — replay 할 때 같은 번호가 나와야 하기 때문이다.',
     key:'락 모드가 다섯 개인 것은 설계 미학이 아니라 <em>복제 형식 때문에 생긴 자리</em>다. innodb_autoinc_lock_mode 로 그 강도를 바꾼다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_table',
     fact:[['storage/innobase/include/lock0types.h','LOCK_AUTO_INC,'],
@@ -380,8 +380,8 @@ const SCENES = [
   ],
 },
 {
-  num:'04', tab:'호환 행렬', title:'무엇이 무엇을 막는가',
-  sub:'소스가 주석에 표로 갖고 있다 — 그 표가 곧 답이다',
+  num:'04', tab:'Compatibility', title:'Lock Compatibility: The 5×5 Matrix & the Strength Table',
+  sub:'source 주석의 표가 곧 답 — compatibility 는 남과의 관계, strength 는 나 자신과의 관계',
   cast:['stmt','cmx','smx'],
   knobs:[
     ['—','—','이 표는 설정으로 바꿀 수 없다 — 코드에 박힌 상수 배열이다']],
@@ -412,7 +412,7 @@ const SCENES = [
   },
   steps:[
   { look:{ cmx:true },
-    note:'5×5 표 하나가 InnoDB 락 충돌 규칙의 전부다',
+    note:'5×5 matrix 하나 — InnoDB lock conflict rule 의 전부',
     why:'lock_mode_compatible 은 이 배열을 한 번 읽는 것 말고 아무것도 하지 않는다. 판정 로직이 아니라 표다.',
     key:'대각선을 보면 규칙이 읽힌다 — <em>X 와 AI 는 자기 자신과도 충돌한다</em>. IS·IX·S 는 같은 모드끼리 공존한다. 그 차이가 동시성의 경계다.',
     ref:'storage/innobase/include/lock0priv.h', sym:'lock_compatibility_matrix',
@@ -421,7 +421,7 @@ const SCENES = [
     beat:1 },
 
   { act:{ f:'cmx', t:'stmt', lb:'IX / IX  →  허용' },
-    note:'두 세션이 서로 다른 행을 동시에 고친다 — 테이블 층에서 안 막힌다',
+    note:'두 세션이 서로 다른 row 를 동시 수정 — table 층에서 충돌 없음',
     why:'IX 와 IX 가 호환되므로 테이블 락(table lock) 단계를 둘 다 통과하고, 그 다음 행 락(row lock)에서 각자 다른 행을 잡는다.',
     key:'이것이 <em>행 단위 동시성이 실제로 성립하는 자리</em>다. 테이블 층이 여기서 막으면 아래는 볼 것도 없다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_table_other_has_incompatible',
@@ -429,7 +429,7 @@ const SCENES = [
           stmt:{ set:{ '이미 걸린 락':'IX  (trx 81 · UPDATE)', '새 요청':'IX  (trx 82 · UPDATE)', '결과':'허용|green' } } } },
 
   { act:{ f:'cmx', t:'stmt', lb:'IX / S  →  막힘' },
-    note:'LOCK TABLES … READ 가 걸려 있으면 UPDATE 가 테이블 층에서 막힌다',
+    note:'LOCK TABLES … READ 보유 시 UPDATE 는 table 층에서 block',
     why:'S 는 테이블 전체를 읽기용으로 잠근 상태다. IX 는 "안에서 뭘 고치겠다" 는 선언이므로 함께 설 수 없다.',
     key:'행을 하나도 건드리기 전에 막힌다. <em>어느 행이냐는 무관하다</em> — 테이블 층에서 이미 끝났다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_table_other_has_incompatible',
@@ -437,7 +437,7 @@ const SCENES = [
           stmt:{ set:{ '이미 걸린 락':'S  (LOCK TABLES t READ)', '새 요청':'IX  (UPDATE)', '결과':'막힘 · 대기|red' } } } },
 
   { act:{ f:'cmx', t:'stmt', lb:'AI / AI  →  막힘' },
-    note:'AUTO_INC 끼리는 호환되지 않는다 — 두 INSERT 가 카운터에서 줄을 선다',
+    note:'AUTO_INC 끼리는 비호환 — 두 INSERT 가 counter 에서 serialize',
     why:'AI 행은 IS·IX 와만 호환되고 S·X·AI 셋을 막는다. 카운터는 하나뿐이므로 번호를 받는 순간은 직렬화된다.',
     key:'다만 기본값이 <em>innodb_autoinc_lock_mode=2</em> 이고, 그 모드는 이름 그대로 AUTOINC_NO_LOCKING 이다 — 테이블 락을 잡지 않고 mutex 만 쓴다. 이 행이 실제로 문제가 되는 것은 모드 0·1 에서다.',
     ref:'storage/innobase/handler/ha_innodb.cc', sym:'ha_innobase::innobase_lock_autoinc',
@@ -447,7 +447,7 @@ const SCENES = [
           stmt:{ set:{ '이미 걸린 락':'AI  (trx 83 · INSERT)', '새 요청':'AI  (trx 84 · INSERT)', '결과':'막힘 · 카운터에서 줄|red' } } } },
 
   { act:{ f:'cmx', t:'smx', lb:'두 번째 표 — 강도' },
-    note:'표가 하나 더 있다. 호환이 아니라 강도를 본다',
+    note:'두 번째 표 — compatibility 가 아니라 strength',
     why:'lock_strength_matrix 는 "행이 열보다 강하거나 같은가" 를 답한다. X 행은 전부 + 다 — X 는 무엇보다 강하다.',
     key:'이 표는 충돌 판정이 아니라 <em>중복 요청을 걸러내는 데</em> 쓰인다. 이미 강한 락을 쥐고 있으면 약한 락은 새로 만들지 않는다.',
     ref:'storage/innobase/include/lock0priv.h', sym:'lock_strength_matrix',
@@ -457,7 +457,7 @@ const SCENES = [
           stmt:{ set:{ '이미 걸린 락':'X', '새 요청':'S  (같은 행)', '결과':'새로 안 잡는다 · 이미 충분|gold' } } } },
 
   { look:{ smx:true },
-    note:'이 표를 쓰는 곳은 테이블 락이다 — 이미 IX 를 쥐었으면 IS 를 새로 안 만든다',
+    note:'strength 표의 사용처 — table lock, IX 보유 시 IS 신규 생성 skip',
     why:'lock_table_has 가 이 표를 쓴다. trx 가 쥔 락을 훑되 LOCK_TABLE 인 것만 보고, 요청보다 강한 것이 있으면 그대로 통과시킨다. 행 락의 중복 판정은 lock_rec_has_expl 이 따로 하며 정밀 모드를 직접 비교한다.',
     key:'두 표의 역할이 다르다 — <em>호환 표는 남과의 관계</em>, <em>강도 표는 나 자신과의 관계</em>다. 다만 강도 표가 도는 곳은 테이블 층이다.',
     ref:'storage/innobase/include/lock0priv.ic', sym:'lock_table_has',
@@ -469,8 +469,8 @@ const SCENES = [
   ],
 },
 {
-  num:'05', tab:'UPDATE', title:'secondary 로 찾아도 락은 클러스터에 걸린다',
-  sub:'인덱스를 경유하면 락이 두 곳에 생긴다',
+  num:'05', tab:'Secondary → PK', title:'Secondary Index Updates: Two Locks per Row',
+  sub:'secondary 를 경유하면 lock 이 두 곳에 — secondary record 와 clustered record',
   cast:['stmt','rl','sec','row'],
   knobs:[
     ['—','—','이 동작은 설정이 아니라 인덱스 구조가 정한다']],
@@ -492,7 +492,7 @@ const SCENES = [
   },
   steps:[
   { look:{ stmt:true },
-    note:'무엇을 잠글지는 문장이 아니라 select_lock_type 이 정한다',
+    note:'무엇을 잠글지는 statement 가 아니라 select_lock_type',
     why:'InnoDB 는 행을 훑을 때마다 prebuilt->select_lock_type 을 본다. 평범한 SELECT 면 LOCK_NONE 이라 아무것도 잡지 않고, UPDATE 는 LOCK_X 로 들어온다. 그 값 하나가 이 장면 전체를 결정한다.',
     key:'같은 탐색 코드가 <em>읽기와 쓰기를 함께</em> 처리한다. 차이는 코드 경로가 아니라 <em>넘겨받은 락 종류</em> 하나다 — 02 장면의 SELECT 가 아무것도 남기지 않는 이유도 같다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'sel_set_rec_lock',
@@ -501,7 +501,7 @@ const SCENES = [
     ops:{ stmt:{ set:{ '경로':'select_lock_type = LOCK_X' } } } },
 
   { act:{ f:'stmt', t:'sec', lb:'먼저 secondary 에서 찾는다' },
-    note:'idx_c 에서 c=200 레코드를 찾고, 거기에도 락을 잡는다',
+    note:'idx_c 에서 c=200 record 탐색 — 여기에도 lock',
     why:'secondary 레코드 자체가 잠금 대상이다. 다른 세션이 같은 인덱스 항목을 지나가려 할 때 여기서 만난다.',
     key:'인덱스 항목은 <em>행의 사본이 아니라 별도의 잠금 단위</em>다. 그래서 같은 UPDATE 가 락을 두 개 남긴다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_sec_rec_read_check_and_lock',
@@ -510,15 +510,15 @@ const SCENES = [
           rl:{ del:['(비었다)'], add:[{ id:'idx_c  c=200', tag:'x', sub:'SECONDARY  ·  X' }] } } },
 
   { look:{ sec:true },
-    note:'secondary 레코드만 보고는 이 행이 보이는지 알 수 없다',
-    why:'secondary 인덱스 레코드에는 DB_TRX_ID 가 없다. 그래서 가시성(visibility)을 판정하려면 클러스터 인덱스를 봐야 하고, 값이 정말 맞는지도 row_sel_sec_rec_is_for_clust_rec 로 다시 확인한다.',
+    note:'secondary record 만으론 visibility 판정 불가',
+    why:'secondary 인덱스 레코드에는 DB_TRX_ID 가 없다. 그래서 visibility 를 판정하려면 클러스터 인덱스를 봐야 하고, 값이 정말 맞는지도 row_sel_sec_rec_is_for_clust_rec 로 다시 확인한다.',
     key:'secondary 조회가 클러스터를 반드시 한 번 더 방문하는 이유는 <em>값을 가져오기 위해서만이 아니다</em> — 그 레코드가 이 트랜잭션에 보이는지를 거기서만 알 수 있다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'row_sel_sec_rec_is_for_clust_rec',
     fact:[['storage/innobase/row/row0sel.cc','row_sel_sec_rec_is_for_clust_rec(']],
     ops:{ stmt:{ set:{ '경로':'idx_c → PRIMARY  (가시성 확인)' } } } },
 
   { look:{ sec:true, rl:true },
-    note:'읽기로 지나갈 때와 고칠 때가 서로 다른 함수를 탄다',
+    note:'read 로 지나갈 때와 modify 할 때 — 다른 함수 경로',
     why:'secondary 레코드를 잠글 때는 lock_sec_rec_read_check_and_lock 이고, 클러스터를 고칠 때는 lock_clust_rec_modify_check_and_lock 이다. secondary 쪽에는 modify 짝이 없다 — secondary 는 갱신이 아니라 삭제 표시 후 재삽입으로 바뀌기 때문이다.',
     key:'함수 이름이 구조를 말한다 — <em>secondary 는 읽고 잠그기만</em> 하고, 값이 바뀌면 <em>지우고 다시 넣는다</em>. 그래서 인덱스 갱신은 락이 두 배로 붙는다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_sec_rec_read_check_and_lock',
@@ -527,7 +527,7 @@ const SCENES = [
     ops:{ stmt:{ set:{ '락 수':'1  (secondary 읽기 락)' } } } },
 
   { act:{ f:'sec', t:'row', lb:'포인터를 따라 클러스터로' },
-    note:'secondary 가 가리키는 PK 로 클러스터 인덱스를 다시 찾아 X 를 잡는다',
+    note:'secondary 의 PK 로 clustered index 재탐색 → X',
     why:'실제 값(v)은 클러스터 인덱스에만 있다. 고치려면 그 레코드에 X 가 필요하다.',
     key:'이것이 <em>secondary 조회가 두 번 찾는</em> 이유이고, 락이 두 곳에 생기는 이유다. 커버링 인덱스면 두 번째 방문이 없다 — 읽기일 때만.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_clust_rec_modify_check_and_lock',
@@ -536,15 +536,15 @@ const SCENES = [
           stmt:{ set:{ '락 수':'2  (인덱스 1 · 행 1)|red' } } } },
 
   { look:{ row:true },
-    note:'자기가 잠근 행은 락 구조체 없이도 잠긴 셈이다',
-    why:'클러스터 레코드의 DB_TRX_ID 가 이 트랜잭션이면 그것 자체가 배타 락과 같다(암시적 락). 다른 트랜잭션이 그 행을 잠그려 할 때 lock_rec_convert_impl_to_expl 이 그 자리에서 명시적 락으로 바꾼다.',
+    note:'자기 row 는 lock struct 없이도 잠긴 셈 — implicit lock',
+    why:'클러스터 레코드의 DB_TRX_ID 가 이 트랜잭션이면 그것 자체가 X lock 과 같다(암시적 락). 다른 트랜잭션이 그 행을 잠그려 할 때 lock_rec_convert_impl_to_expl 이 그 자리에서 명시적 락으로 바꾼다.',
     key:'그래서 <em>P_S.data_locks 에 안 보이는 락</em>이 실제로는 존재한다. 경쟁이 생기는 순간에만 표에 나타난다 — 대량 UPDATE 가 락 메모리를 덜 먹는 이유다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_convert_impl_to_expl',
     fact:[['storage/innobase/lock/lock0lock.cc','lock_rec_convert_impl_to_expl(']],
     ops:{ row:{ set:{ 'id=20':{ tag:'x', sub:'c=200 · v=9  ·  암시적 X' } } } } },
 
   { act:{ f:'row', t:'sec', lb:'값이 바뀐 인덱스는 다시 손본다' },
-    note:'인덱스 키가 바뀌었는지 먼저 보고, 바뀌었으면 그 인덱스도 갱신한다',
+    note:'index key 변경 여부 확인 → 바뀌었으면 그 index 도 갱신',
     why:'row_upd_changes_ord_field_binary 가 이번 UPDATE 가 그 인덱스의 키를 건드리는지 판정한다. 건드리면 row_upd_sec_index_entry 로 옛 항목을 삭제 표시하고 새 항목을 넣는다 — 그 과정에서 또 락이 붙는다. 여기서는 v 만 바뀌었으므로 idx_c 의 키는 그대로다.',
     key:'인덱스가 많아도 <em>키가 바뀐 인덱스만</em> 다시 손본다. "인덱스 개수만큼 락이 곱해진다" 는 말은 정확하지 않다 — 곱해지는 것은 <em>키가 바뀐 인덱스 수</em>다.',
     ref:'storage/innobase/row/row0upd.cc', sym:'row_upd_sec_index_entry',
@@ -553,7 +553,7 @@ const SCENES = [
     ops:{ stmt:{ set:{ '경로':'idx_c 키 불변 → 재삽입 없음' } } } },
 
   { look:{ rl:true },
-    note:'그래서 P_S.data_locks 에 같은 문장이 두 줄로 보인다',
+    note:'그래서 P_S.data_locks 에 같은 statement 가 두 줄',
     why:'INDEX_NAME 이 idx_c 인 줄과 PRIMARY 인 줄이 따로 잡힌다. 둘 다 RECORD 락이다.',
     key:'락은 <em>지나간 인덱스마다</em> 생긴다 — 모든 인덱스가 아니라 조회에 쓴 인덱스와 클러스터, 그리고 값이 바뀌어 갱신되는 인덱스다. 그래서 인덱스가 많아지면 쓰기의 락 비용도 따라 늘어난다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_lock',
@@ -561,8 +561,8 @@ const SCENES = [
   ],
 },
 {
-  num:'06', tab:'인덱스가 없으면', title:'같은 UPDATE 가 한 행을 잠그거나 전부를 잠근다',
-  sub:'무엇을 잠그는지는 조건이 아니라 접근 경로가 정한다',
+  num:'06', tab:'No Index', title:'Access Path Decides Locks: Index Lookup vs. Full Scan',
+  sub:'무엇을 잠글지는 WHERE 조건이 아니라 access path 가 정한다',
   cast:['stmt','idx','rl','row'],
   vsLabel:'A  ·  인덱스가 있다  (idx_c)', pair:'06v',
   knobs:[
@@ -583,21 +583,21 @@ const SCENES = [
   },
   steps:[
   { look:{ stmt:true, idx:true },
-    note:'인덱스를 타므로 c=200 항목으로 바로 내려간다',
+    note:'index 사용 — c=200 entry 로 직행',
     why:'EXPLAIN 의 type=ref 다. B+tree 를 하강해 해당 항목만 방문한다.',
     key:'락은 <em>방문한 것에만</em> 걸린다. 그래서 접근 경로가 곧 락 범위다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'sel_set_rec_lock',
     beat:1 },
 
   { look:{ stmt:true, idx:true },
-    note:'훑을 대상이 정해지면 그 하나하나에 락 요청이 붙는다',
+    note:'scan 대상 확정 → 각각에 lock 요청',
     why:'row_search_mvcc 는 레코드를 하나 볼 때마다 sel_set_rec_lock 을 호출한다. 즉 락은 "결과 행" 이 아니라 "훑은 레코드" 마다 요청된다. 무엇을 훑을지가 곧 무엇이 잠길지다.',
     key:'인덱스가 있으면 훑는 대상이 <em>한 건</em>이다. 그래서 락 요청도 한 번뿐이다 — 오른쪽(B)과 갈리는 지점이 바로 여기다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'sel_set_rec_lock',
     fact:[['storage/innobase/row/row0sel.cc','sel_set_rec_lock']] },
 
   { act:{ f:'idx', t:'rl', lb:'방문한 하나에만' },
-    note:'행 하나를 스캔하고 하나를 잠근다',
+    note:'1 row scan, 1 row lock',
     why:'조건에 맞는 행이 하나이고 방문한 행도 하나다. 둘이 같은 것은 인덱스가 있을 때뿐이다.',
     key:'스캔한 행 수와 잠긴 행 수가 <em>같다</em> — 이것이 정상적인 상태다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_clust_rec_modify_check_and_lock',
@@ -607,7 +607,7 @@ const SCENES = [
           stmt:{ set:{ '스캔한 행':'1', '잠긴 행':'1|green' } } } },
 
   { look:{ rl:true },
-    note:'맞지 않은 행이 없으니 놓아줄 것도 없다',
+    note:'non-matching row 가 없으니 release 할 것도 없음',
     why:'ha_innobase::unlock_row 은 "WHERE 에 맞지 않은 행의 락을 놓아주는" 함수다. 다만 아무 때나 놓지 않는다 — trx->releases_non_matching_rows() 가 참일 때만이다. 여기서는 훑은 것이 곧 맞는 행 하나라서 이 함수가 할 일이 없다.',
     key:'인덱스가 있으면 이 함수는 <em>등장하지 않는다</em>. 다음 스텝의 격리 수준 분기도 결과를 바꾸지 못한다 — 오른쪽(B)에서는 그것이 전부를 바꾼다.',
     ref:'storage/innobase/handler/ha_innodb.cc', sym:'ha_innobase::unlock_row',
@@ -615,7 +615,7 @@ const SCENES = [
           ['storage/innobase/include/trx0trx.h','bool releases_non_matching_rows() const { return skip_gap_locks(); }']] },
 
   { look:{ stmt:true },
-    note:'그 판정은 격리 수준 네 가지의 분기 하나로 끝난다',
+    note:'판정은 isolation level 네 갈래 분기 하나',
     why:'releases_non_matching_rows() 는 skip_gap_locks() 를 그대로 돌려준다. 그 안은 switch 하나다 — READ UNCOMMITTED·READ COMMITTED 는 true, REPEATABLE READ·SERIALIZABLE 은 false. 기본 격리 수준이 REPEATABLE READ 이므로 기본값에서는 놓아주지 않는다.',
     key:'그래서 <em>인덱스가 있으면 격리 수준과 무관</em>하게 한 행만 잠긴다. 설정으로 고칠 문제가 아니라는 뜻이다.',
     ref:'storage/innobase/include/trx0trx.h', sym:'skip_gap_locks',
@@ -624,7 +624,7 @@ const SCENES = [
           ['storage/innobase/include/trx0trx.h','case REPEATABLE_READ:']] },
 
   { look:{ row:true, rl:true },
-    note:'다른 두 행은 자유롭다 — 다른 세션이 지금 고칠 수 있다',
+    note:'나머지 두 row 는 free — 타 세션이 지금 수정 가능',
     why:'id=10 과 id=30 에는 아무 락이 없다.',
     key:'행 단위 잠금이 <em>실제로 행 단위로 작동한 경우</em>다. B 를 보면 이것이 보장이 아니라 조건임을 알 수 있다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_lock',
@@ -633,7 +633,7 @@ const SCENES = [
 },
 {
   num:'06v', tab:'—', hidden:true, vsLabel:'B  ·  인덱스가 없다  (전체 스캔)',
-  title:'같은 UPDATE 가 한 행을 잠그거나 전부를 잠근다', sub:'조건이 인덱스를 못 타면 지나간 모든 행이 잠긴다',
+  title:'Full Scan: Every Row Visited Gets Locked', sub:'조건이 index 를 못 타면 scan 이 지나간 모든 row 가 잠긴다',
   cast:['stmt','idx','rl','row'],
   knobs:[
     ['innodb_lock_wait_timeout','50','전부 잠긴 뒤에는 다른 세션이 이 시간을 다 쓴다']],
@@ -653,21 +653,21 @@ const SCENES = [
   },
   steps:[
   { look:{ stmt:true, idx:true },
-    note:'c 에 인덱스가 없으니 클러스터 인덱스를 처음부터 훑는다',
+    note:'c 에 index 없음 — clustered index full scan',
     why:'EXPLAIN 의 type=ALL 이다. 조건 판정은 행을 읽은 뒤에야 할 수 있다.',
     key:'조건을 <em>판정하려면 먼저 읽어야</em> 하고, 읽으려면 잠가야 한다. 순서가 이 문제의 원인이다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'sel_set_rec_lock',
     beat:1 },
 
   { look:{ stmt:true, idx:true },
-    note:'훑을 대상이 정해지면 그 하나하나에 락 요청이 붙는다',
+    note:'scan 대상 확정 → 각각에 lock 요청',
     why:'row_search_mvcc 는 레코드를 하나 볼 때마다 sel_set_rec_lock 을 호출한다. 즉 락은 "결과 행" 이 아니라 "훑은 레코드" 마다 요청된다. 무엇을 훑을지가 곧 무엇이 잠길지다.',
     key:'인덱스가 없으면 훑는 대상이 <em>테이블 전부</em>다. 락 요청도 행 수만큼 나간다 — 왼쪽(A)과 코드는 같고 훑는 범위만 다르다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'sel_set_rec_lock',
     fact:[['storage/innobase/row/row0sel.cc','sel_set_rec_lock']] },
 
   { act:{ f:'idx', t:'rl', lb:'지나가는 모든 행에' },
-    note:'세 행을 다 스캔하고 세 행을 다 잠근다 — 조건에 맞는 것은 하나인데',
+    note:'3 row scan, 3 row lock — 매칭은 하나뿐',
     why:'스캔 중에 만나는 레코드마다 X 를 요청한다. 조건에 안 맞아도 이미 잠근 뒤다.',
     key:'같은 SQL, 같은 데이터, 같은 결과인데 <em>잠긴 행이 1 개가 아니라 3 개</em>다. 100만 행이면 100만 개다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_clust_rec_modify_check_and_lock',
@@ -682,7 +682,7 @@ const SCENES = [
           stmt:{ set:{ '스캔한 행':'3', '잠긴 행':'3|red' } } } },
 
   { look:{ rl:true },
-    note:'맞지 않은 행의 락은 놓아줄 수 있다 — 다만 조건이 붙는다',
+    note:'non-matching row 의 lock 은 release 가능 — 단, 조건부',
     why:'ha_innobase::unlock_row 은 "WHERE 에 맞지 않은 행의 락을 놓아주는" 함수다. 다만 아무 때나 놓지 않는다 — trx->releases_non_matching_rows() 가 참일 때만이다. 전체 스캔은 맞지 않은 행도 다 훑었으므로 놓아줄 대상이 많다. 그러나 기본 격리 수준에서는 이 함수가 아무것도 놓지 않는다.',
     key:'"전체 스캔이 테이블을 잠근다" 는 말은 <em>기본 격리 수준에서만</em> 정확하다. READ COMMITTED 로 내리면 맞지 않은 행은 풀린다 — 대가는 팬텀이다.',
     ref:'storage/innobase/handler/ha_innodb.cc', sym:'ha_innobase::unlock_row',
@@ -690,7 +690,7 @@ const SCENES = [
           ['storage/innobase/include/trx0trx.h','bool releases_non_matching_rows() const { return skip_gap_locks(); }']] },
 
   { look:{ stmt:true },
-    note:'그 판정은 격리 수준 네 가지의 분기 하나로 끝난다',
+    note:'판정은 isolation level 네 갈래 분기 하나',
     why:'releases_non_matching_rows() 는 skip_gap_locks() 를 그대로 돌려준다. 그 안은 switch 하나다 — READ UNCOMMITTED·READ COMMITTED 는 true, REPEATABLE READ·SERIALIZABLE 은 false. 기본 격리 수준이 REPEATABLE READ 이므로 기본값에서는 놓아주지 않는다.',
     key:'그래서 같은 SQL 이 <em>격리 수준에 따라 세 행을 잠그거나 한 행만 잠근다</em>. 인덱스를 못 만들 때 쓰는 마지막 수단이 이 분기다.',
     ref:'storage/innobase/include/trx0trx.h', sym:'skip_gap_locks',
@@ -699,7 +699,7 @@ const SCENES = [
           ['storage/innobase/include/trx0trx.h','case REPEATABLE_READ:']] },
 
   { look:{ row:true, rl:true },
-    note:'조건에 안 맞은 행의 락도 커밋까지 유지된다',
+    note:'non-matching row 의 lock 도 commit 까지 유지',
     why:'unlock_row 의 주석이 그대로 말한다 — 조건에 맞지 않은 행의 락을 놓는 것이 목적이고, 높은 격리 수준에서는 아무 일도 하지 않는다.',
     key:'그래서 이 사고는 <em>격리 수준으로 완화</em>되고 <em>인덱스로 해결</em>된다. 완화와 해결을 구분해야 한다.',
     ref:'storage/innobase/handler/ha_innodb.cc', sym:'ha_innobase::unlock_row',
@@ -709,16 +709,16 @@ const SCENES = [
   ],
 },
 {
-  num:'07', tab:'INSERT', title:'INSERT 는 세 가지를 잠근다',
-  sub:'들어갈 자리 · 새 행 · 그리고 유니크 검사에서 만난 남의 행',
+  num:'07', tab:'INSERT', title:'INSERT Locking: Insert Intention & Duplicate Checks',
+  sub:'insert 위치의 gap · 새 row · unique check 에서 만난 타인의 row — 세 곳',
   cast:['stmt','idx','rl','row'],
   knobs:[
     ['innodb_autoinc_lock_mode','2','모드 0·1 이면 테이블 AI 락이 하나 더 붙는다'],
-    ['innodb_lock_wait_timeout','50','삽입 의도가 갭 락에 막히면 이 시간을 기다린다']],
+    ['innodb_lock_wait_timeout','50','삽입 의도가 gap lock 에 막히면 이 시간을 기다린다']],
   watch:[
     ['P_S.data_locks','LOCK_MODE 에 X,INSERT_INTENTION 이 보인다'],
     ['SHOW ENGINE INNODB STATUS','LATEST DETECTED DEADLOCK 절에 삽입 의도가 자주 등장한다']],
-  links:[['04','INSERT_INTENTION 은 갭 락과 부딪힌다'],['03','AI 락'],['08','외래키가 있으면 하나 더']],
+  links:[['04','INSERT_INTENTION 은 gap lock 과 부딪힌다'],['03','AI 락'],['08','외래키가 있으면 하나 더']],
 
   /* 모드를 낮추면 이 장면의 락 수가 처음부터 하나 더 많다 — 테이블 AUTO_INC 락이
      붙기 때문이다. 1스텝이 세 모드를 설명하지만, 설명과 재생은 다르다.
@@ -727,7 +727,7 @@ const SCENES = [
      락 수를 세는 스텝(2·4·6)은 ops 만 덮는다. 세지 않으면 화면의 숫자가 거짓이 된다. */
   vary:{ knob:'innodb_autoinc_lock_mode', base:'2', order:['1','0'], alt:{
     '1':{
-      1:{ note:'모드 1 은 평온할 때 2 와 같다 — 그런데 지금은 평온하지 않다',
+      1:{ note:'mode 1 — 무경합이면 2 와 동일, 지금은 경합 중',
           why:'단순 INSERT·REPLACE 면 mutex 만 잡고 끝내려 한다. 그러나 그 전에 ib_table->count_by_mode[LOCK_AUTO_INC] 를 확인한다 — 다른 트랜잭션이 이미 테이블 AI 락을 쥐고 있는지다. 지금 다른 세션이 INSERT … SELECT 를 돌리는 중이라 그 값이 0 이 아니다.',
           key:'그래서 모드 1 은 <em>조건부로 모드 0 이 된다</em>. 같은 설정, 같은 문장인데 옆 세션이 무엇을 하는지에 따라 락이 달라진다.',
           ref:'storage/innobase/handler/ha_innodb.cc', sym:'ha_innobase::innobase_lock_autoinc',
@@ -747,7 +747,7 @@ const SCENES = [
       6:{ ops:{ rl:{ add:[{ id:'uk  c=250', tag:'hold', sub:'LOCK_S  ·  중복 검사' }] },
                 stmt:{ set:{ '단계':'유니크 검사', '락 수':'3  (+ 암묵적)|red' } } } },
       8:{ look:{ rl:true, stmt:true },
-          note:'정리 — 기다린 이유가 내 문장에도, 내 설정에도 없다',
+          note:'정리 — 대기 원인은 내 statement 에도 내 설정에도 없다',
           why:'모드 1 은 문서상 "연속(consecutive)" 이라 불리지만, 그 보장은 문장 하나가 받아 가는 번호가 끊기지 않는다는 뜻이고, 그 대가로 남이 AI 락을 쥔 동안 기다릴 수 있다는 것이 이 자리다.',
           key:'설정 하나를 읽고 동작을 예측할 수 없는 경우다 — <em>옆 세션의 문장 종류</em>가 내 락에 들어온다. 재현되지 않는 지연의 한 종류가 여기서 나온다.',
           ref:'storage/innobase/handler/ha_innodb.cc', sym:'ha_innobase::innobase_lock_autoinc',
@@ -759,9 +759,9 @@ const SCENES = [
     },
     '0':{
       1:{ act:{ f:'stmt', t:'rl', lb:'테이블에 AUTO_INC 락' },
-          note:'모드 0 은 언제나 테이블 AI 락을 잡는다',
+          note:'mode 0 — 항상 table-level AUTO_INC lock',
           why:'AUTOINC_OLD_STYLE_LOCKING 은 row_lock_table_autoinc_for_mysql 로 테이블 단위 LOCK_AUTO_INC 를 잡는다. 옆 세션의 사정을 보지 않는다 — 조건 없이 잡는다.',
-          key:'이 모드가 주는 것은 <em>문장 단위 binlog 에서의 재현성</em>이다. 같은 문장을 재생하면 같은 번호가 나온다. 대가는 AUTO_INCREMENT 테이블에 대한 INSERT 가 사실상 직렬화된다는 것.',
+          key:'이 모드가 주는 것은 <em>문장 단위 binlog 에서의 재현성</em>이다. 같은 문장을 replay 하면 같은 번호가 나온다. 대가는 AUTO_INCREMENT 테이블에 대한 INSERT 가 사실상 직렬화된다는 것.',
           ref:'storage/innobase/handler/ha_innodb.cc', sym:'ha_innobase::innobase_lock_autoinc',
           fact:[['storage/innobase/handler/ha_innodb.cc','static const long AUTOINC_OLD_STYLE_LOCKING = 0;'],
                 ['storage/innobase/handler/ha_innodb.cc','error = row_lock_table_autoinc_for_mysql(m_prebuilt);']],
@@ -778,7 +778,7 @@ const SCENES = [
       6:{ ops:{ rl:{ add:[{ id:'uk  c=250', tag:'hold', sub:'LOCK_S  ·  중복 검사' }] },
                 stmt:{ set:{ '단계':'유니크 검사', '락 수':'3  (+ 암묵적)|red' } } } },
       8:{ look:{ rl:true, stmt:true },
-          note:'정리 — 평온한 INSERT 에도 P_S 에 한 줄이 남는다',
+          note:'정리 — 무경합 INSERT 에도 P_S 에 한 줄',
           why:'기본 모드에서는 충돌이 없으면 표에 아무것도 안 남았다. 여기서는 AI 락이 조건 없이 잡히므로 LOCK_TYPE=TABLE · LOCK_MODE=AUTO_INC 한 줄이 항상 보인다.',
           key:'그래서 04 장면의 호환 표에서 AUTO_INC 행을 실제로 만나는 것은 <em>모드를 낮췄을 때뿐</em>이다. 기본값에서는 그 행이 있어도 쓰이지 않는다.',
           ref:'storage/innobase/handler/ha_innodb.cc', sym:'ha_innobase::innobase_lock_autoinc',
@@ -798,7 +798,7 @@ const SCENES = [
   },
   steps:[
   { look:{ stmt:true },
-    note:'AUTO_INCREMENT 가 있으면 값을 먼저 받아 온다 — 그 방식이 모드로 갈린다',
+    note:'AUTO_INCREMENT 값 선확보 — 방식은 lock mode 로 갈린다',
     why:'innobase_lock_autoinc 가 innodb_autoinc_lock_mode 를 본다. 기본값 2(interleaved)는 AUTOINC_NO_LOCKING 이라 테이블 AI 락을 잡지 않고 mutex 만 쓴다. 모드 0·1 은 LOCK_AUTO_INC 를 테이블에 잡고 그것이 문장 끝까지 유지된다.',
     key:'AI 락은 다섯 모드 중 유일하게 <em>트랜잭션이 아니라 문장</em> 단위로 풀린다. 기본 모드에서는 아예 잡히지 않으므로 04 장면의 호환 표에서 AI 행을 볼 일은 모드를 낮췄을 때뿐이다.',
     ref:'storage/innobase/handler/ha_innodb.cc', sym:'ha_innobase::innobase_lock_autoinc',
@@ -806,9 +806,9 @@ const SCENES = [
           ['storage/innobase/include/lock0types.h','LOCK_AUTO_INC']] },
 
   { act:{ f:'stmt', t:'idx', lb:'들어갈 자리를 확인한다' },
-    note:'먼저 삽입 지점의 갭에 "삽입 의도" 를 요청한다',
+    note:'insert 위치의 gap 에 insert intention 요청',
     why:'lock_rec_insert_check_and_lock 이 삽입 지점 다음 레코드에 LOCK_INSERT_INTENTION 을 요청한다. 값이 아니라 빈 자리를 대상으로 한다.',
-    key:'삽입 의도는 <em>다른 삽입 의도와는 호환된다</em>. 하지만 갭 락과는 부딪힌다 — 그것이 INSERT 교착(deadlock)의 단골 원인이다.',
+    key:'삽입 의도는 <em>다른 삽입 의도와는 호환된다</em>. 하지만 gap lock 과는 부딪힌다 — 그것이 INSERT deadlock 의 단골 원인이다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_insert_check_and_lock',
     fact:[['storage/innobase/include/lock0lock.h','constexpr uint32_t LOCK_INSERT_INTENTION = 2048;']],
     ops:{ stmt:{ set:{ '단계':'삽입 지점 확인', '락 수':'1' } },
@@ -816,15 +816,15 @@ const SCENES = [
           rl:{ del:['(비었다)'], add:[{ id:'갭 (200,300)', tag:'wait', sub:'X,INSERT_INTENTION' }] } } },
 
   { look:{ idx:true },
-    note:'"삽입 의도" 는 모드가 아니라 비트다 — 갭 락과 부딪히기 위한 장치다',
+    note:'insert intention 은 mode 가 아니라 flag bit — gap lock 과 충돌하기 위한 장치',
     why:'LOCK_INSERT_INTENTION 은 2048 이고 모드에 OR 되어 넘어간다. 삽입 의도끼리는 서로 부딪히지 않는다 — 같은 갭에 여러 세션이 동시에 넣을 수 있다. 부딪히는 상대는 그 갭을 쥔 LOCK_GAP(512) 이다.',
-    key:'그래서 <em>INSERT 가 기다리는 상대는 행 락(row lock)이 아니라 갭 락</em>이다. 남이 범위를 잠근 사이에 그 범위로 넣으려 하면 여기서 멈춘다 — 팬텀을 막는 대가가 정확히 이 지점이다.',
+    key:'그래서 <em>INSERT 가 기다리는 상대는 행 락(row lock)이 아니라 gap lock</em>이다. 남이 범위를 잠근 사이에 그 범위로 넣으려 하면 여기서 멈춘다 — 팬텀을 막는 대가가 정확히 이 지점이다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_insert_check_and_lock',
     fact:[['storage/innobase/include/lock0lock.h','constexpr uint32_t LOCK_INSERT_INTENTION = 2048;'],
           ['storage/innobase/include/lock0lock.h','constexpr uint32_t LOCK_GAP = 512;']] },
 
   { act:{ f:'idx', t:'row', lb:'새 행 자체' },
-    note:'행을 쓰고, 그 행에는 암묵적으로 배타 락이 생긴다',
+    note:'row write — 그 row 엔 implicit X',
     why:'새 레코드에는 이 트랜잭션의 trx id 가 박혀 있다. 별도 락 객체를 만들지 않고 그 사실만으로 배타적이다 — 암묵적 락이다.',
     key:'그래서 <em>P_S 에 안 보이는 락</em>이 있다. 다른 세션이 이 행을 건드리려 할 때 비로소 명시적 락으로 바뀐다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_convert_impl_to_expl',
@@ -833,16 +833,16 @@ const SCENES = [
           stmt:{ set:{ '단계':'행 삽입', '락 수':'1  (+ 암묵적)' } } } },
 
   { look:{ row:true, rl:true },
-    note:'새 행에는 락 구조체가 생기지 않는다 — 자기 것이므로 이미 잠긴 셈이다',
-    why:'방금 쓴 레코드의 DB_TRX_ID 는 이 트랜잭션이다. 그 사실만으로 배타 락과 같은 효과라서 lock 구조체를 만들지 않는다. 남이 그 행을 잠그려 할 때 lock_rec_convert_impl_to_expl 이 비로소 실물로 바꾼다.',
+    note:'새 row 엔 lock struct 없음 — 자기 것이라 이미 잠긴 셈',
+    why:'방금 쓴 레코드의 DB_TRX_ID 는 이 트랜잭션이다. 그 사실만으로 X lock 과 같은 효과라서 lock 구조체를 만들지 않는다. 남이 그 행을 잠그려 할 때 lock_rec_convert_impl_to_expl 이 비로소 실물로 바꾼다.',
     key:'그래서 <em>백만 건 INSERT 가 락 메모리를 먹지 않는다</em>. P_S.data_locks 가 조용한 것이 락이 없다는 뜻은 아니다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_convert_impl_to_expl',
     fact:[['storage/innobase/lock/lock0lock.cc','lock_rec_convert_impl_to_expl(']] },
 
   { act:{ f:'stmt', t:'rl', lb:'유니크 검사 → 남의 행에 S' },
-    note:'유니크 인덱스가 있으면 중복 검사에서 다른 행을 잠근다 — 보통 S, 갱신할 작정이면 X',
+    note:'unique index 면 duplicate check 에서 타 row 잠금 — 보통 S, update 의도면 X',
     why:'row_ins_scan_sec_index_for_duplicate 가 후보 레코드에 S 를 요청한다. 단 REPLACE · LOAD DATA REPLACE · INSERT … ON DUPLICATE KEY UPDATE 는 그 행을 고칠 작정이므로 처음부터 X 를 잡는다.',
-    key:'INSERT 가 <em>남의 행을 잠근다</em>는 것이 의외의 지점이다. 두 세션이 같은 유니크 값을 동시에 넣으면 여기서 교착이 나고, ON DUPLICATE KEY UPDATE 는 X 라서 더 쉽게 난다.',
+    key:'INSERT 가 <em>남의 행을 잠근다</em>는 것이 의외의 지점이다. 두 세션이 같은 유니크 값을 동시에 넣으면 여기서 deadlock 이 나고, ON DUPLICATE KEY UPDATE 는 X 라서 더 쉽게 난다.',
     ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_scan_sec_index_for_duplicate',
     fact:['Set shared locks on possible duplicate records.',
           'X-lock for duplicates ( REPLACE, LOAD DATAFILE REPLACE, INSERT ON'],
@@ -850,16 +850,16 @@ const SCENES = [
           stmt:{ set:{ '단계':'유니크 검사', '락 수':'2  (+ 암묵적)|red' } } } },
 
   { look:{ rl:true },
-    note:'중복이면 문장은 실패하지만, 그 사이 잡은 락은 남는다',
+    note:'duplicate → statement 실패, 그 사이 잡은 lock 은 잔존',
     why:'row_ins_scan_sec_index_for_duplicate 가 유니크 인덱스를 훑다 충돌을 찾으면 DB_DUPLICATE_KEY 를 돌려준다. 문장은 되돌아가지만 훑는 동안 잡은 락은 트랜잭션이 끝날 때까지 유지된다.',
-    key:'실패한 INSERT 가 <em>락을 남긴다</em>. 두 세션이 서로 다른 순서로 같은 키를 넣으려 하면 각자 남긴 락을 서로 기다리게 되고, 그것이 교착으로 자란다 — lock_wait_build_wait_for_graph 가 그 고리를 찾는다.',
+    key:'실패한 INSERT 가 <em>락을 남긴다</em>. 두 세션이 서로 다른 순서로 같은 키를 넣으려 하면 각자 남긴 락을 서로 기다리게 되고, 그것이 deadlock 으로 자란다 — lock_wait_build_wait_for_graph 가 그 고리를 찾는다.',
     ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_scan_sec_index_for_duplicate',
     fact:[['storage/innobase/row/row0ins.cc','DB_DUPLICATE_KEY'],
           ['storage/innobase/lock/lock0wait.cc','lock_wait_build_wait_for_graph(']] },
 
   { look:{ rl:true, stmt:true },
-    note:'정리 — INSERT 가 건드리는 자리는 셋이지만, 남는 락은 상황에 따라 다르다',
-    why:'후속 레코드에 아무 락이 없으면 삽입 의도 락(intention lock)은 만들어지지도 않는다 — 충돌할 때만 대기 락으로 생긴다. 새 행의 X 는 암묵적이라 P_S 에 없고, 유니크 후보의 S 는 유니크 인덱스가 있을 때만이다.',
+    note:'정리 — 건드리는 자리는 셋, 남는 lock 은 상황 따라',
+    why:'후속 레코드에 아무 락이 없으면 insert intention lock 은 만들어지지도 않는다 — 충돌할 때만 대기 락으로 생긴다. 새 행의 X 는 암묵적이라 P_S 에 없고, 유니크 후보의 S 는 유니크 인덱스가 있을 때만이다.',
     key:'"INSERT 는 잠글 것이 없다" 는 직관이 틀린 이유는 <em>없는 자리와 남의 행까지</em> 대상이 된다는 것이다. 다만 평온한 경우에는 P_S 에 한 줄도 안 남는다 — 없는 것과 안 보이는 것을 구분해야 한다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_insert_check_and_lock',
     fact:['if (!lock_rec_has_any(lock_sys->rec_hash, block->get_page_id(), heap_no)) {',
@@ -868,8 +868,8 @@ const SCENES = [
   ],
 },
 {
-  num:'08', tab:'외래키', title:'자식에 넣으면 부모가 잠긴다',
-  sub:'참조 무결성은 부모 행에 공유 락으로 지켜진다',
+  num:'08', tab:'Foreign Keys', title:'Foreign Key Checks: Shared Locks on the Parent Row',
+  sub:'참조 무결성은 parent row 의 S lock 으로 — child trx 가 끝날 때까지',
   cast:['stmt','rl','row','sec'],
   knobs:[
     ['foreign_key_checks','ON','끄면 이 락이 사라진다 — 무결성과 함께'],
@@ -885,7 +885,7 @@ const SCENES = [
      여기서는 고아 행이 실제로 만들어지고 부모가 지워지는 것까지 본다. */
   vary:{ knob:'foreign_key_checks', base:'ON', alt:{
     'OFF':{
-      1:{ note:'검사가 시작되지도 않는다',
+      1:{ note:'check 자체가 시작되지 않는다',
           why:'row_ins_check_foreign_constraints 가 trx->check_foreigns 를 먼저 본다. false 면 부모 인덱스를 열기 전에 DB_SUCCESS 로 돌아간다.',
           key:'끄는 것은 검사를 <em>느슨하게</em> 하는 것이 아니라 <em>하지 않는</em> 것이다. 그래서 부모가 있는지도 모른 채 통과한다.',
           ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_check_foreign_constraints',
@@ -894,7 +894,7 @@ const SCENES = [
           ops:{ stmt:{ set:{ '검사':'건너뜀|red' } } } },
 
       2:{ act:{ f:'stmt', t:'sec', lb:'부모 없는 값도 들어간다' },
-          note:'없는 부모를 가리키는 행을 넣어도 받아들인다',
+          note:'없는 parent 를 가리키는 row 도 수락',
           why:'DB_NO_REFERENCED_ROW 를 낼 자리까지 가지 않는다. 자식 테이블에 값을 쓰는 평범한 INSERT 와 구별되지 않는다.',
           key:'이 순간 만들어진 것이 <em>고아 행</em>이다. 제약이 선언돼 있는데 그것을 어긴 행이 테이블에 있다.',
           ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_check_foreign_constraint',
@@ -903,7 +903,7 @@ const SCENES = [
                       add:[{ id:'child pid=99', tag:'x', sub:'부모 없음  ·  고아' }] },
                 stmt:{ set:{ 'SQL':'INSERT INTO child(pid) VALUES(99)', '락 수':'1' } } } },
 
-      3:{ note:'부모 행에는 아무 락도 걸리지 않는다',
+      3:{ note:'parent row 에 lock 없음',
           why:'잠그는 코드는 검사 안에 있다. 검사를 건너뛰었으므로 부모 인덱스를 읽지도 않았다. 자식 행의 암묵적 X 하나만 남는다.',
           key:'대량 적재에서 끄는 이유가 이것이다 — <em>부모 쪽 락이 통째로 사라진다</em>. 부모 테이블의 동시성이 자식 적재에 영향받지 않는다.',
           ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_check_foreign_constraint',
@@ -912,7 +912,7 @@ const SCENES = [
                 stmt:{ set:{ 'SQL':'INSERT INTO child(pid) VALUES(20)', '검사':'건너뜀', '락 수':'2' } } } },
 
       4:{ act:{ f:'stmt', t:'row', lb:'다른 세션 : DELETE parent id=20' },
-          note:'막던 것이 없으므로 부모가 지워진다',
+          note:'막을 것이 없으니 parent 삭제 성공',
           why:'S 락이 없으니 X 요청이 호환 표에서 걸릴 상대가 없다. DELETE 는 즉시 성공한다.',
           key:'방금 넣은 자식이 <em>가리키는 부모가 사라진다</em>. 기본값에서 이 DELETE 를 막아 주던 것이 그 S 락이었다.',
           ref:'storage/innobase/include/lock0priv.h', sym:'lock_mode_compatible',
@@ -920,7 +920,7 @@ const SCENES = [
           ops:{ row:{ set:{ 'parent id=20':{ tag:'free', sub:'삭제됨  ·  참조가 남아 있는데' } } },
                 sec:{ set:{ 'child pid=20':{ tag:'x', sub:'부모가 사라짐  ·  고아' } } } } },
 
-      5:{ note:'반대 방향도 검사하지 않는다 — CASCADE 도 돌지 않는다',
+      5:{ note:'역방향 check 도 없음 — CASCADE 미실행',
           why:'같은 플래그를 부모 쪽 경로도 본다. DB_ROW_IS_REFERENCED 로 막지 않고, ON DELETE CASCADE 가 걸려 있어도 자식을 따라가지 않는다.',
           key:'CASCADE 를 믿고 설계했다면 여기서 <em>조용히 배신당한다</em>. 정리해 줄 것으로 기대한 코드가 아예 실행되지 않는다.',
           ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_foreign_check_on_constraint',
@@ -928,7 +928,7 @@ const SCENES = [
           look:{ sec:true, row:true } },
 
       6:{ look:{ stmt:true, sec:true },
-          note:'다시 켜도 이미 들어간 고아는 검사되지 않는다',
+          note:'다시 켜도 기존 orphan 은 재검사되지 않는다',
           why:'이 플래그는 앞으로의 문장에만 걸린다. 적재 중에 만들어진 위반을 서버가 뒤늦게 찾아 주지는 않는다.',
           key:'그래서 끄고 적재하는 방식은 <em>데이터가 맞다는 것을 사람이 보증한다</em>는 뜻이다. 보증하지 못하면 켜는 순간이 아니라 훨씬 뒤에 이상한 결과로 드러난다.',
           ref:'storage/innobase/handler/ha_innodb.cc', sym:'innobase_trx_init',
@@ -947,7 +947,7 @@ const SCENES = [
   },
   steps:[
   { act:{ f:'stmt', t:'row', lb:'부모가 있는지 확인' },
-    note:'자식을 넣기 전에 부모 행 id=20 이 있는지 본다',
+    note:'child insert 전 parent id=20 존재 확인',
     why:'row_ins_check_foreign_constraint 가 부모 인덱스를 찾아 해당 레코드를 확인한다.',
     key:'확인만으로는 부족하다 — 확인한 다음 순간 부모가 삭제되면 무결성이 깨진다. 그래서 <em>확인하고 잠근다</em>.',
     ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_check_foreign_constraint',
@@ -955,14 +955,14 @@ const SCENES = [
     ops:{ stmt:{ set:{ '검사':'부모 존재 확인' } } } },
 
   { look:{ row:true },
-    note:'부모가 없으면 삽입이 거부된다 — 확인과 잠금이 같은 함수에서 난다',
+    note:'parent 없음 → insert 거부, 확인과 잠금이 같은 함수',
     why:'row_ins_check_foreign_constraint 가 부모 인덱스를 찾아 짝을 못 찾으면 DB_NO_REFERENCED_ROW 를 돌려준다. 찾으면 그 레코드를 잠근 채로 통과시킨다 — 확인만 하고 놓아주면 확인과 삽입 사이에 부모가 지워질 수 있다.',
     key:'그래서 외래키는 <em>부모 쪽 동시성을 깎는다</em>. 자식에 넣는 동안 부모 행은 지울 수 없다.',
     ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_check_foreign_constraint',
     fact:[['storage/innobase/row/row0ins.cc','DB_NO_REFERENCED_ROW']] },
 
   { act:{ f:'row', t:'rl', lb:'부모 행에 S' },
-    note:'부모 행에 공유 락을 잡는다 — 자식 트랜잭션이 끝날 때까지',
+    note:'parent row 에 S — child trx 종료까지',
     why:'S 를 잡아두면 다른 세션이 이 부모를 DELETE·UPDATE 하려 할 때(X 요청) 막힌다. S 와 X 는 호환되지 않는다.',
     key:'그래서 <em>자식 테이블에만 쓴 트랜잭션이 부모 테이블의 쓰기를 막는다</em>. 락이 테이블 경계를 넘어간다.',
     ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_check_foreign_constraint',
@@ -972,14 +972,14 @@ const SCENES = [
           stmt:{ set:{ '검사':'부모 잠금 완료', '락 수':'2' } } } },
 
   { look:{ rl:true, row:true },
-    note:'이 순간 다른 세션의 DELETE FROM parent WHERE id=20 은 막힌다',
+    note:'이 순간 타 세션 DELETE FROM parent WHERE id=20 은 block',
     why:'DELETE 는 X 를 요청하고, 이미 S 가 걸려 있으므로 호환 표에서 막힌다.',
     key:'대량 자식 INSERT 가 부모 갱신을 멈춰 세우는 경로가 이것이다. 원인이 <em>다른 테이블</em>에 있어서 찾기 어렵다.',
     ref:'storage/innobase/include/lock0priv.h', sym:'lock_mode_compatible',
     beat:1 },
 
   { look:{ rl:true },
-    note:'반대 방향도 있다 — 부모를 지우려 할 때 자식이 있는지 본다',
+    note:'역방향 — parent 삭제 시 child 존재 확인',
     why:'같은 검사가 반대로도 돈다. 부모를 지우거나 키를 고치려 하면 자식 쪽을 훑고, 참조가 살아 있으면 DB_ROW_IS_REFERENCED 로 막는다. ON DELETE CASCADE 가 걸려 있으면 막지 않고 row_ins_foreign_check_on_constraint 가 자식 행들을 따라가 함께 처리한다.',
     key:'CASCADE 는 편리한 대신 <em>락이 어디까지 번질지 문장만 보고는 알 수 없다</em>. 자식의 자식까지 따라가므로 지우는 행 하나가 수천 행을 잠글 수 있다.',
     ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_foreign_check_on_constraint',
@@ -987,7 +987,7 @@ const SCENES = [
           ['storage/innobase/row/row0ins.cc','row_ins_foreign_check_on_constraint']] },
 
   { look:{ stmt:true },
-    note:'foreign_key_checks=OFF 는 이 락을 없애지만 무결성도 없앤다',
+    note:'foreign_key_checks=OFF — lock 도 무결성도 사라진다',
     why:'검사를 건너뛰면 부모를 찾지도, 잠그지도 않는다. 대량 적재에서 쓰는 이유가 이것이다.',
     key:'락을 없애는 설정은 대개 <em>보장을 없애는 설정</em>이다. 무엇을 포기하는지 알고 끄는 것과 모르고 끄는 것의 차이.',
     ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_check_foreign_constraint',
@@ -995,8 +995,8 @@ const SCENES = [
   ],
 },
 {
-  num:'09', tab:'S 와 X 요청', title:'읽기가 락을 요청하는 네 가지 방법',
-  sub:'FOR SHARE · FOR UPDATE · 그리고 기다리지 않는 두 가지 선택',
+  num:'09', tab:'NOWAIT · SKIP', title:'Locking Reads: FOR SHARE, NOWAIT & SKIP LOCKED',
+  sub:'FOR SHARE · FOR UPDATE · 그리고 대기하지 않는 두 가지 선택',
   cast:['stmt','rl','row','wait'],
   knobs:[
     ['innodb_lock_wait_timeout','50','NOWAIT 는 이 값을 0 처럼 만든다'],
@@ -1015,7 +1015,7 @@ const SCENES = [
   },
   steps:[
   { act:{ f:'stmt', t:'rl', lb:'FOR SHARE → S' },
-    note:'FOR SHARE 는 S 를 요청한다 — 다른 S 와는 공존한다',
+    note:'FOR SHARE → S 요청, 타 S 와 공존',
     why:'select_lock_type 이 LOCK_S 가 된다. S 끼리는 호환되므로 여러 세션이 같은 행을 함께 읽고 잠글 수 있다.',
     key:'용도는 <em>내가 읽은 값이 트랜잭션 동안 안 바뀌게</em> 하는 것이다. 쓰기를 막되 읽기는 허용한다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'sel_set_rec_lock',
@@ -1025,7 +1025,7 @@ const SCENES = [
           row:{ set:{ 'id=10':{ tag:'hold', sub:'c=100  ·  S' } } } } },
 
   { act:{ f:'stmt', t:'wait', lb:'X 가 쥔 행에 요청하면' },
-    note:'trx 90 이 X 로 쥔 id=20 에 S 를 요청하면 기다린다',
+    note:'trx 90 이 X 보유한 id=20 에 S 요청 → wait',
     why:'X 는 무엇과도 호환되지 않는다. 요청은 큐에 들어가고 innodb_lock_wait_timeout 만큼 기다린다.',
     key:'기다리는 것이 <em>기본 전략</em>이다. 대개 옳지만, 사용자 요청을 붙잡고 있는 경로에서는 최악일 수 있다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_lock',
@@ -1034,7 +1034,7 @@ const SCENES = [
                  edge:{ add:[{ id:'e1', from:'trx 91', to:'trx 90', lb:'대기' }] } } } },
 
   { act:{ f:'stmt', t:'stmt', lb:'NOWAIT → 즉시 실패' },
-    note:'NOWAIT 는 기다리지 않고 바로 에러를 낸다',
+    note:'NOWAIT — 대기 없이 즉시 error',
     why:'SELECT_NOWAIT 는 락을 못 잡으면 즉시 반환한다. 소스의 주석이 "return immediately if row is locked" 다.',
     key:'실패를 <em>빠르게 받아 재시도를 애플리케이션이 정하는</em> 방식이다. 대기 큐가 길어지는 것을 막는다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'sel_set_rec_lock',
@@ -1044,7 +1044,7 @@ const SCENES = [
           wait:{ del:['trx 91'], edge:{ del:['e1'] } } } },
 
   { act:{ f:'stmt', t:'row', lb:'SKIP LOCKED → 건너뛴다' },
-    note:'SKIP LOCKED 는 잠긴 행을 결과에서 빼버린다',
+    note:'SKIP LOCKED — 잠긴 row 를 결과에서 제외',
     why:'SELECT_SKIP_LOCKED 는 그 행을 건너뛰고 다음으로 간다 — "skip the row if row is locked".',
     key:'결과가 <em>달라진다</em>는 점이 중요하다. 에러가 아니라 다른 답을 준다 — 작업 큐를 여러 워커가 나눠 가질 때 쓰는 도구다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'sel_set_rec_lock',
@@ -1054,7 +1054,7 @@ const SCENES = [
           row:{ set:{ 'id=20':{ tag:'free', sub:'결과에서 제외됨' } } } } },
 
   { look:{ stmt:true },
-    note:'셋의 차이는 "막혔을 때 무엇을 할 것인가" 다',
+    note:'셋의 차이 — conflict 시 무엇을 하는가',
     why:'같은 X 요청이고 같은 충돌인데, 기다리기·에러·건너뛰기 세 갈래로 갈린다.',
     key:'락 설계에서 고르는 것은 대개 <em>충돌 확률</em>이 아니라 <em>충돌했을 때의 행동</em>이다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'row_search_mvcc',
@@ -1062,8 +1062,8 @@ const SCENES = [
   ],
 },
 {
-  num:'10', tab:'MDL 9단', title:'서버 층의 락은 아홉 단계다',
-  sub:'소스가 주석에 표로 그려 둔 것 — 이 표가 ALTER 대기의 규칙이다',
+  num:'10', tab:'MDL Matrix', title:'MDL Compatibility: Ten Lock Types, One Matrix',
+  sub:'source 주석의 matrix 가 곧 ALTER 대기의 규칙 — 행 = 요청, 열 = granted',
   cast:['stmt','mdlm'],
   knobs:[
     ['lock_wait_timeout','31536000','MDL 대기 시간 — 기본이 1년이라 사실상 무한이다'],
@@ -1092,7 +1092,7 @@ const SCENES = [
   },
   steps:[
   { look:{ mdlm:true },
-    note:'InnoDB 는 5×5, MDL 은 10×10 이다',
+    note:'InnoDB 는 5×5, MDL 은 10×10',
     why:'S · SH · SR · SW · SWLP · SU · SRO · SNW · SNRW · X. 읽기와 쓰기 사이가 여러 단계로 쪼개져 있다.',
     key:'단계가 많은 이유는 <em>온라인 DDL</em> 이다. "읽기는 허용하되 쓰기는 막는다" 같은 중간 상태가 필요해서 늘어났다.',
     ref:'sql/mdl.cc', sym:'MDL_lock::can_grant_lock',
@@ -1101,7 +1101,7 @@ const SCENES = [
     beat:1 },
 
   { act:{ f:'mdlm', t:'stmt', lb:'SR / SW  →  허용' },
-    note:'평범한 읽기와 쓰기는 서로를 막지 않는다',
+    note:'plain read · write 는 상호 비충돌',
     why:'SELECT 은 SHARED_READ, UPDATE 는 SHARED_WRITE 다. 표에서 교차점이 + 이므로 둘은 공존한다.',
     key:'그래서 <em>정상 워크로드는 이 층을 의식하지 않는다</em>. 문제는 DDL 이 끼어들 때만 드러난다.',
     ref:'sql/sql_base.cc', sym:'open_tables',
@@ -1109,7 +1109,7 @@ const SCENES = [
           stmt:{ set:{ '문장':'SELECT (SR) vs UPDATE (SW)', '요청 타입':'SHARED_READ', '이미 걸린 것':'SHARED_WRITE', '결과':'허용|green' } } } },
 
   { act:{ f:'mdlm', t:'stmt', lb:'X / SR  →  막힘' },
-    note:'ALTER 의 마지막 단계(X)는 읽기 하나에도 막힌다',
+    note:'ALTER 의 최종 단계(X) — read 하나에도 block',
     why:'X 행은 전부 - 다. 어떤 락이 걸려 있어도 X 는 들어갈 수 없다.',
     key:'X 행이 전부 막힘이라는 것이 <em>온라인 DDL 도 결국 배타 구간이 필요한</em> 이유다. 짧게 만들 수는 있어도 없앨 수는 없다.',
     ref:'sql/mdl.cc', sym:'MDL_lock::can_grant_lock',
@@ -1117,7 +1117,7 @@ const SCENES = [
           stmt:{ set:{ '문장':'ALTER 커밋 단계 (X) vs SELECT (SR)', '요청 타입':'EXCLUSIVE', '이미 걸린 것':'SHARED_READ', '결과':'막힘 · 대기|red' } } } },
 
   { act:{ f:'mdlm', t:'stmt', lb:'SNRW / SR  →  막힘' },
-    note:'LOCK TABLES … WRITE 는 SNRW 다 — 읽기까지 막는다',
+    note:'LOCK TABLES … WRITE = SNRW — read 까지 차단',
     why:'SNRW(SHARED_NO_READ_WRITE) 행은 S 와 SH 만 허용한다. SR 열이 - 이므로 평범한 SELECT 도 막힌다.',
     key:'이름이 규칙을 담고 있다 — <em>NO_READ_WRITE</em> 는 "남의 읽기도 쓰기도 없다" 는 뜻이다. 단계 이름을 읽으면 표를 외울 필요가 없다.',
     ref:'sql/mdl.cc', sym:'MDL_lock::can_grant_lock',
@@ -1125,17 +1125,17 @@ const SCENES = [
           stmt:{ set:{ '문장':'LOCK TABLES WRITE (SNRW) vs SELECT (SR)', '요청 타입':'SHARED_NO_READ_WRITE', '이미 걸린 것':'SHARED_READ  (남의 SELECT)', '결과':'막힘 · 읽기까지 막는다|red' } } } },
 
   { act:{ f:'mdlm', t:'stmt', lb:'SU / SU  →  막힘' },
-    note:'SU 는 자기 자신과 부딪힌다 — 두 ALTER 가 동시에 못 간다',
+    note:'SU 는 자기 자신과 충돌 — 두 ALTER 동시 진행 불가',
     why:'SU(SHARED_UPGRADABLE)는 "나중에 X 로 올릴 것" 이라는 예약이다. 예약은 하나만 가능해야 한다.',
-    key:'승격 예약이 겹치면 <em>둘 다 X 를 기다리며 영원히 못 올라간다</em>. 그래서 예약 단계에서 미리 직렬화한다.',
+    key:'upgrade 예약이 겹치면 <em>둘 다 X 를 기다리며 영원히 못 올라간다</em>. 그래서 예약 단계에서 미리 직렬화한다.',
     ref:'sql/mdl.cc', sym:'MDL_context::upgrade_shared_lock',
     ops:{ mdlm:{ on:['SU/SU'], dim:['SU/S','SU/SH','SU/SR','SU/SW','SU/SWLP','SU/SU','SU/SRO','SU/SNW','SU/SNRW','SU/X'] },
           stmt:{ set:{ '문장':'ALTER (SU) vs 다른 ALTER (SU)', '요청 타입':'SHARED_UPGRADABLE', '이미 걸린 것':'SHARED_UPGRADABLE  (다른 ALTER)', '결과':'막힘 · 예약은 하나뿐|red' } } } },
   ],
 },
 {
-  num:'11', tab:'ALTER 가 막히는 길', title:'커밋하지 않은 SELECT 하나가 뒤의 전부를 막는다',
-  sub:'MDL 큐가 FIFO 라서, 막힌 것 뒤에 있는 것까지 막힌다',
+  num:'11', tab:'MDL Pile-up', title:'MDL Pile-up: An Idle Transaction Stalls the Queue',
+  sub:'pending X 는 추월 불가 — 그 뒤의 호환 요청까지 queue 에 묶인다',
   cast:['ses','mdl','stmt','ps'],
   knobs:[
     ['lock_wait_timeout','31536000','ALTER 는 사실상 무한히 기다린다 — 사고가 오래 지속되는 이유'],
@@ -1153,7 +1153,7 @@ const SCENES = [
   },
   steps:[
   { look:{ ses:true, mdl:true },
-    note:'세션 하나가 SELECT 만 하고 커밋을 안 했다 — 행 락(row lock)은 하나도 없다',
+    note:'SELECT 후 미커밋 세션 — row lock 은 하나도 없다',
     why:'BEGIN; SELECT … ; 그리고 그대로 방치. 행 락은 없지만 MDL_SHARED_READ 는 트랜잭션이 끝날 때까지 쥔다.',
     key:'여기가 시작점이다. <em>행 락이 없으니 P_S.data_locks 는 깨끗하다</em> — 그래서 원인을 엉뚱한 곳에서 찾는다.',
     ref:'sql/mdl.cc', sym:'MDL_context::acquire_lock',
@@ -1161,7 +1161,7 @@ const SCENES = [
     beat:1 },
 
   { act:{ f:'stmt', t:'mdl', lb:'ALTER 가 들어온다' },
-    note:'ALTER TABLE 이 X 를 요청하고 큐 뒤에 선다',
+    note:'ALTER TABLE — X 요청, queue 에 대기',
     why:'X 는 아무것과도 호환되지 않으므로 SHARED_READ 가 풀릴 때까지 기다린다. lock_wait_timeout 의 기본값이 LONG_TIMEOUT 이고 그것이 1년이다.',
     key:'ALTER 가 <em>조용히</em> 기다린다는 점이 위험하다. 에러도 없고 진행 표시도 없다.',
     ref:'sql/mdl.cc', sym:'MDL_lock::can_grant_lock',
@@ -1172,7 +1172,7 @@ const SCENES = [
           stmt:{ set:{ '진행 중':'ALTER 대기', '대기 중':'1', '증상':'ALTER 가 안 끝난다' } } } },
 
   { act:{ f:'stmt', t:'mdl', lb:'그 뒤의 SELECT 까지' },
-    note:'그 뒤에 온 평범한 SELECT 도 막힌다 — 큐가 FIFO 다',
+    note:'뒤에 온 plain SELECT 도 block — pending X 추월 불가',
     why:'SR 은 앞의 SR 과는 호환되지만, 큐 앞에 있는 X 를 앞지를 수 없다. 앞지르기를 허용하면 X 가 영원히 못 들어간다.',
     key:'이것이 <em>사고가 폭발하는 순간</em>이다. 원인은 10분 전 SELECT 하나인데, 증상은 "테이블 전체가 안 읽힌다" 로 나타난다.',
     ref:'sql/mdl.cc', sym:'MDL_lock::can_grant_lock',
@@ -1181,7 +1181,7 @@ const SCENES = [
           stmt:{ set:{ '대기 중':'2  그리고 계속 쌓인다|red', '증상':'테이블 전체가 멈춤|red' } } } },
 
   { act:{ f:'mdl', t:'ps', lb:'원인을 찾는 순서' },
-    note:'P_S 에서 GRANTED 를 쥔 쪽을 찾는다 — PENDING 을 보면 안 된다',
+    note:'P_S 에서 GRANTED 보유자를 찾는다 — PENDING 은 증상일 뿐',
     why:'PENDING 은 피해자 목록이다. 원인은 같은 OBJECT_NAME 에 대해 LOCK_STATUS=GRANTED 인 행들이다 — SR 은 서로 호환되므로 여럿일 수 있고, 그 전부가 풀려야 X 가 들어간다.',
     key:'현장에서 자주 틀리는 지점이다 — <em>가장 오래 기다린 것</em>이 아니라 <em>기다리지 않고 쥔 것</em>이 원인이다.',
     ref:'sql/mdl.cc', sym:'MDL_context::find_ticket',
@@ -1190,7 +1190,7 @@ const SCENES = [
             { id:'threads', tag:'clean', sub:'PROCESSLIST_ID 로 KILL 대상' }] } } },
 
   { look:{ ses:true, mdl:true, stmt:true },
-    note:'해결은 원인 세션을 끝내는 것뿐이다 — ALTER 를 죽여도 안 풀린다',
+    note:'해법은 원인 세션 종료뿐 — ALTER kill 은 뒤를 풀어 줄 뿐, 재시도하면 재발',
     why:'ALTER 를 KILL 하면 그 뒤 SELECT 들은 풀리지만, 다시 ALTER 를 하면 같은 일이 반복된다.',
     key:'예방은 <em>DDL 전에 오래된 트랜잭션이 없는지 확인</em>하는 것이다. 이 층은 행 락 지표로는 보이지 않으므로 따로 봐야 한다.',
     ref:'sql/mdl.cc', sym:'MDL_context::release_transactional_locks',
@@ -1198,8 +1198,8 @@ const SCENES = [
   ],
 },
 {
-  num:'12', tab:'보는 법', title:'지금까지 본 모든 것을 서버에서 확인한다',
-  sub:'두 층을 두 표로 본다 — metadata_locks 와 data_locks',
+  num:'12', tab:'Observability', title:'Lock Diagnostics: metadata_locks & data_locks',
+  sub:'두 층을 두 표로 — metadata_locks 와 data_locks',
   cast:['stmt','ps','mdl','rl'],
   knobs:[
     ['performance_schema','ON','metadata_locks 계측기는 setup_instruments 에서 확인이 필요할 수 있다']],
@@ -1219,7 +1219,7 @@ const SCENES = [
   },
   steps:[
   { act:{ f:'stmt', t:'ps', lb:'"누가 이 테이블을 붙잡고 있나"' },
-    note:'테이블 이름 단위의 문제면 metadata_locks 를 본다',
+    note:'table name 단위 문제 → metadata_locks',
     why:'ALTER 나 DROP 이 안 끝날 때, 또는 SELECT 이 Waiting for table metadata lock 일 때. 행 락(row lock) 표에는 아무것도 없다.',
     key:'두 표를 <em>증상으로 갈라 쓴다</em> — 테이블이 안 열리면 MDL, 특정 행이 안 되면 data_locks.',
     ref:'sql/mdl.cc', sym:'MDL_context::acquire_lock',
@@ -1227,7 +1227,7 @@ const SCENES = [
           ps:{ del:['(비었다)'], add:[{ id:'metadata_locks', tag:'hold', sub:'LOCK_STATUS 로 원인·피해자 구분' }] } } },
 
   { act:{ f:'stmt', t:'rl', lb:'"어떤 모드로 잠겼나"' },
-    note:'행 단위 문제면 data_locks 의 LOCK_MODE 를 04 장면의 표에서 찾는다',
+    note:'row 단위 문제 → data_locks.LOCK_MODE 를 04 의 표로 해석',
     why:'LOCK_MODE 가 X 인지 X,REC_NOT_GAP 인지 X,GAP 인지가 곧 무엇을 막는지다. INDEX_NAME 은 어느 인덱스에 걸렸는지를 알려준다.',
     key:'LOCK_MODE 문자열이 <em>05·06·07 에서 본 그림의 이름</em>이다. 표를 알면 문자열만 보고 상황을 복원할 수 있다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_lock',
@@ -1235,31 +1235,31 @@ const SCENES = [
           ps:{ add:[{ id:'data_locks', tag:'x', sub:'LOCK_MODE · INDEX_NAME · LOCK_DATA' }] } } },
 
   { act:{ f:'stmt', t:'ps', lb:'"누가 누구를 막았나"' },
-    note:'기다림은 영원하지 않다 — 둘 중 하나로 끝난다',
+    note:'대기는 영원하지 않다 — 둘 중 하나로 종료',
     why:'대기 중인 트랜잭션은 lock_wait_check_and_cancel 이 주기적으로 본다. innodb_lock_wait_timeout(기본 50초)을 넘기면 DB_LOCK_WAIT_TIMEOUT 으로 취소하고, 고리가 발견되면 DB_DEADLOCK 으로 한쪽을 죽인다. 전자는 시간이, 후자는 그래프가 결정한다.',
-    key:'"멈췄다" 를 볼 때 먼저 가릴 것은 <em>둘 중 어느 쪽인가</em>다. 타임아웃은 <em>기다린 쪽</em>이 실패하고, 교착(deadlock)은 InnoDB 가 <em>희생자를 고른다</em> — 내 문장이 죄가 없어도 죽을 수 있다.',
+    key:'"멈췄다" 를 볼 때 먼저 가릴 것은 <em>둘 중 어느 쪽인가</em>다. 타임아웃은 <em>기다린 쪽</em>이 실패하고, deadlock 은 InnoDB 가 <em>희생자를 고른다</em> — 내 문장이 죄가 없어도 죽을 수 있다.',
     ref:'storage/innobase/lock/lock0wait.cc', sym:'lock_wait_check_and_cancel',
     fact:[['storage/innobase/lock/lock0wait.cc','lock_wait_check_and_cancel('],
           ['storage/innobase/lock/lock0wait.cc','DB_LOCK_WAIT_TIMEOUT'],
           ['storage/innobase/lock/lock0wait.cc','DB_DEADLOCK']] },
 
   { look:{ ps:true },
-    note:'대기 관계는 data_lock_waits 가 짝으로 알려준다',
+    note:'대기 관계 — data_lock_waits 가 pair 로 제시',
     why:'REQUESTING 과 BLOCKING 두 컬럼이 있어서 조인 없이 관계를 읽을 수 있다. 09 장면에서 본 wait-for 그래프가 이 표다.',
-    key:'교착 조사는 여기서 시작한다 — <em>사이클을 사람이 찾지 않고</em> 표에서 짝을 이어붙이면 된다.',
+    key:'deadlock 조사는 여기서 시작한다 — <em>사이클을 사람이 찾지 않고</em> 표에서 짝을 이어붙이면 된다.',
     ref:'storage/innobase/lock/lock0wait.cc', sym:'lock_wait_build_wait_for_graph',
     ops:{ ps:{ add:[{ id:'data_lock_waits', tag:'wait', sub:'REQUESTING ↔ BLOCKING' }] },
           stmt:{ set:{ '알고 싶은 것':'누가 누구를 기다리나', '볼 표':'P_S.data_lock_waits|gold' } } } },
 
   { look:{ ps:true, stmt:true },
-    note:'교착은 지나가면 사라진다 — 남기려면 켜 두어야 한다',
-    why:'InnoDB 는 마지막 교착 하나만 SHOW ENGINE INNODB STATUS 에 보관한다. srv_print_all_deadlocks(innodb_print_all_deadlocks, 기본 OFF)를 켜면 모든 교착을 에러 로그에 남긴다. 락 목록 전체를 상태 출력에 넣으려면 innodb_status_output_locks 도 기본 OFF 다.',
-    key:'사후 조사를 하려면 <em>사고 전에 켜 두어야</em> 한다. 둘 다 기본값이 OFF 라서, 처음 겪는 교착은 대개 증거가 없다.',
+    note:'deadlock 기록은 휘발 — 남기려면 미리 켜 둔다',
+    why:'InnoDB 는 마지막 deadlock 하나만 SHOW ENGINE INNODB STATUS 에 보관한다. srv_print_all_deadlocks(innodb_print_all_deadlocks, 기본 OFF)를 켜면 모든 deadlock 을 에러 로그에 남긴다. 락 목록 전체를 상태 출력에 넣으려면 innodb_status_output_locks 도 기본 OFF 다.',
+    key:'사후 조사를 하려면 <em>사고 전에 켜 두어야</em> 한다. 둘 다 기본값이 OFF 라서, 처음 겪는 deadlock 은 대개 증거가 없다.',
     ref:'storage/innobase/lock/lock0wait.cc', sym:'lock_wait_build_wait_for_graph',
     fact:[['storage/innobase/lock/lock0lock.cc','srv_print_all_deadlocks']] },
 
   { look:{ ps:true },
-    note:'정리 — 층을 알면 표가 정해지고, 표를 알면 모드가 읽힌다',
+    note:'정리 — 층을 알면 표가, 표를 알면 mode 가 읽힌다',
     why:'MDL(테이블 이름) → metadata_locks. InnoDB 테이블·행 → data_locks. 대기 관계 → data_lock_waits.',
     key:'이 덱의 전체가 한 줄로 압축된다 — <em>락은 두 층에서 잡히고, 각 층은 자기 표를 갖는다</em>.',
     ref:'sql/mdl.cc', sym:'MDL_context::acquire_lock',

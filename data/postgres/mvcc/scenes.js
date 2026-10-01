@@ -2,8 +2,8 @@
    PG 는 가시성을 튜플이 스스로 들고 있으므로, 헤더를 읽는 것이 곧 MVCC 를 읽는 것이다. */
 const SCENES = [
 {
-  num:'01', tab:'튜플 헤더', title:'가시성 정보는 튜플 헤더에 있다',
-  sub:'23바이트 헤더에 누가 넣었고 누가 지웠는지 — 그리고 NULL 과 열 수까지 적혀 있다',
+  num:'01', tab:'Tuple Header', title:'Tuple Header: Visibility Lives in the Row',
+  sub:'23 바이트 헤더에 xmin · xmax · cid · ctid — NULL bitmap 과 natts 까지 튜플이 자기 메타데이터를 든다',
   cast:['op','tup','hdr'],
   knobs:[
     ['—','—','이 구조는 설정이 아니라 저장 형식이 정한다']],
@@ -18,9 +18,9 @@ const SCENES = [
   },
   steps:[
   { act:{ f:'op', t:'tup', lb:'INSERT' },
-    note:'INSERT 는 튜플을 하나 쓰고 t_xmin 에 자기 XID 를 적는다',
+    note:'INSERT — t_xmin 에 자기 XID 를 stamp',
     why:'HeapTupleFields 의 첫 필드가 t_xmin 이고 주석이 "inserting xact ID" 다. 즉 "누가 이 행을 만들었나" 가 행 자신에 적힌다 — 별도 버전 저장소가 없다.',
-    key:'InnoDB 는 행에 <em>DB_TRX_ID + 롤백 포인터</em>를 두고 옛 버전을 undo 에 보관한다. PG 는 <em>옛 버전도 같은 힙에</em> 둔다 — 그 차이가 이 덱 전체를 만든다.',
+    key:'InnoDB 는 행에 <em>DB_TRX_ID + 롤백 포인터</em>를 두고 옛 버전을 undo 에 보관한다. PG 는 <em>옛 버전도 같은 heap 에</em> 둔다 — 그 차이가 이 덱 전체를 만든다.',
     ref:'src/include/access/htup_details.h', sym:'HeapTupleFields',
     fact:[['src/include/access/htup_details.h','TransactionId t_xmin;'],
           ['src/include/access/htup_details.h','inserting xact ID']],
@@ -33,7 +33,7 @@ const SCENES = [
                       't_infomask2':'열 2' } } } },
 
   { look:{ hdr:true },
-    note:'t_xmax 는 두 가지 일을 한다 — 삭제와 행 락(row lock)',
+    note:'t_xmax 는 겸용 — delete 와 row lock (HEAP_XMAX_LOCK_ONLY)',
     why:'주석이 "deleting or locking xact ID" 다. 삭제도 여기에, 행 락도 여기에 쓴다. 둘을 구분하는 것은 별도 필드가 아니라 infomask 의 HEAP_XMAX_LOCK_ONLY(0x0080) 비트다.',
     key:'InnoDB 는 행 락을 <em>메모리의 락 구조체</em>로 만든다. PG 는 <em>행 락만 튜플에 적는다</em> — 그래서 행 락은 아무리 많아도 메모리를 안 먹지만, 대신 락을 잡으면 그 페이지가 더러워진다. 테이블·객체 락은 PG 도 공유 메모리 표에 두고 그것은 넘칠 수 있다(max_locks_per_transaction 기본 64) — locks 덱에서 본다.',
     ref:'src/include/access/htup_details.h', sym:'HeapTupleFields',
@@ -41,7 +41,7 @@ const SCENES = [
           ['src/include/access/htup_details.h','#define HEAP_XMAX_LOCK_ONLY']] },
 
   { look:{ hdr:true },
-    note:'다섯 값을 세 칸에 담는다 — cmin · cmax 가 t_cid 한 칸을 나눠 쓴다',
+    note:'virtual field 5개 → physical field 3개 : cmin · cmax 는 한 슬롯을 공유',
     why:'주석이 "Xmin · Cmin · Xmax · Cmax · Xvac 다섯 가상 필드를 물리 필드 셋에 담는다" 고 적는다. cmin · cmax(같은 트랜잭션 안의 명령 번호)는 넣은 · 지운 트랜잭션이 도는 동안만 뜻이 있으므로 한 칸이면 된다. 같은 트랜잭션이 넣고 지우면 둘을 한 번호(combo CID)로 적고, 그 뜻은 그 백엔드의 메모리만 안다 — HEAP_COMBOCID 비트가 그 표시다.',
     key:'같은 트랜잭션 안에서 "이 명령 뒤에 넣은 행은 이 명령에게 안 보인다" 를 이 칸이 판정한다 — 그래서 <em>UPDATE 가 자기가 방금 넣은 행을 다시 고치지 않는다</em>.',
     ref:'src/include/access/htup_details.h', sym:'HeapTupleFields',
@@ -51,7 +51,7 @@ const SCENES = [
     ops:{ hdr:{ set:{ 't_cid':'0  ·  cmin — 이 트랜잭션의 첫 명령' } } } },
 
   { look:{ hdr:true },
-    note:'헤더는 23바이트다 — 소스가 그 자리에 적어 두었다',
+    note:'헤더 = 23 바이트 — 소스 주석이 그 자리에 박아 두었다',
     why:'HeapTupleHeaderData 의 t_hoff 다음에 /* ^ - 23 bytes - ^ */ 주석이 있다. t_choice(xmin·xmax·cid) 12 + t_ctid 6 + t_infomask2 2 + t_infomask 2 + t_hoff 1 = 23 이다. 그 뒤로 NULL 비트맵과 데이터가 붙는다.',
     key:'행 하나가 <em>최소 23바이트의 판정 정보</em>를 들고 다닌다. 좁은 테이블에서는 이것이 데이터보다 클 수 있다 — MVCC 를 튜플 안에 두는 값이다.',
     ref:'src/include/access/htup_details.h', sym:'SizeofHeapTupleHeader',
@@ -59,7 +59,7 @@ const SCENES = [
           ['src/include/access/htup_details.h','#define SizeofHeapTupleHeader']] },
 
   { look:{ hdr:true, tup:true },
-    note:'NULL 은 자리를 차지하지 않는다 — 헤더 뒤의 비트 하나다',
+    note:'NULL 은 데이터 영역 0 바이트 — 헤더 뒤 bitmap 의 1 bit',
     why:'t_infomask 에 HEAP_HASNULL(0x0001)이 켜지면 23바이트 헤더 바로 뒤에 NULL 비트맵이 붙는다 — 주석이 튜플의 순서를 "고정 필드, NULL 비트맵(HASNULL 이면), 정렬 패딩, 사용자 데이터" 로 적는다. c 는 NULL 이므로 데이터 영역에 아무것도 쓰지 않는다.',
     key:'NULL 이 하나라도 있으면 <em>열 수만큼의 비트</em>가 붙고, NULL 인 열은 <em>0 바이트</em>다. InnoDB 의 COMPACT 행도 NULL 비트맵을 둔다 — 여기서는 그것이 튜플 헤더의 일부다.',
     ref:'src/include/access/htup_details.h', sym:'HeapTupleHeaderData',
@@ -69,7 +69,7 @@ const SCENES = [
     ops:{ tup:{ set:{ '튜플 A':{ sub:'v=1 · c=NULL  ·  c 는 비트 하나' } } } } },
 
   { act:{ f:'op', t:'hdr', lb:'ADD COLUMN' },
-    note:'열 수도 튜플이 들고 있다 — 그래서 열을 더해도 옛 튜플을 고치지 않는다',
+    note:'natts 를 튜플이 든다 — ADD COLUMN 이 옛 튜플을 rewrite 하지 않는 이유',
     why:'t_infomask2 의 아래 11비트가 열 수다. 읽을 때 heap_getattr 는 원하는 열 번호가 그 튜플의 열 수보다 크면 튜플을 보지 않고 getmissingattr 로 간다 — "저장된 기본값을 돌려주고, 없으면 NULL". ADD COLUMN ... DEFAULT 5 는 그 기본값을 카탈로그에 적을 뿐 이 튜플에 손대지 않는다.',
     key:'InnoDB 의 INSTANT ADD COLUMN 과 같은 생각이다 — <em>옛 행은 그대로 두고 읽을 때 채운다</em>. 그래서 큰 테이블에 열을 더해도 즉시 끝난다(기본값이 volatile 이 아닐 때).',
     ref:'src/include/access/htup_details.h', sym:'heap_getattr',
@@ -82,7 +82,7 @@ const SCENES = [
           tup:{ set:{ '튜플 A':{ sub:'v=1 · c=NULL  ·  d 는 읽을 때 5 로 채운다' } } } } },
 
   { look:{ hdr:true },
-    note:'t_ctid 는 자기 자신을 가리키다가, 갱신되면 다음 버전을 가리킨다',
+    note:'t_ctid — 자기 TID 에서 시작해 UPDATE 뒤 newer version 을 가리킨다',
     why:'주석이 "current TID of this or newer tuple" 이다. 갱신 전에는 자기 TID 이고, UPDATE 뒤에는 새 튜플의 TID 가 된다. 그래서 옛 튜플에서 새 튜플로 따라갈 수 있다.',
     key:'이 포인터가 <em>갱신 사슬</em>이다. InnoDB 의 롤백 포인터가 <em>과거로</em> 가는 반면, PG 의 ctid 는 <em>미래로</em> 간다 — 방향이 반대다.',
     ref:'src/include/access/htup_details.h', sym:'HeapTupleHeaderData',
@@ -91,14 +91,14 @@ const SCENES = [
   ],
 },
 {
-  num:'02', tab:'누가 보는가', title:'스냅샷이 튜플을 판정한다',
-  sub:'스냅샷은 시간을, pg_xact 는 결과를 답한다 — 그리고 읽은 쪽이 그 결과를 튜플에 적어 둔다',
+  num:'02', tab:'Visibility', title:'MVCC Visibility: Snapshots, pg_xact & Hint Bits',
+  sub:'snapshot 은 시점을, pg_xact 는 결과를 답한다 — 판정 결과는 reader 가 hint bit 로 캐시한다',
   cast:['op','sn','tup','hdr'],
   /* 이야기의 숫자 : 읽는 쪽의 스냅샷은 xmin 103 · xmax 106 · 진행 중 [103, 104].
      튜플 A 는 오래전 커밋된 100 이 넣었고, 튜플 B 는 스냅샷을 잡을 때 돌고 있던 104 가 넣었다. */
   knobs:[
-    ['—','—','판정은 설정이 아니라 스냅샷과 헤더가 정한다'],
-    ['wal_log_hints','off','켜면 — 또는 데이터 체크섬이 켜져 있으면 — 힌트 비트가 WAL 에 페이지 전체를 남길 수 있다'],
+    ['—','—','판정은 설정이 아니라 snapshot 과 헤더가 정한다'],
+    ['wal_log_hints','off','켜면 — 또는 데이터 checksum 이 켜져 있으면 — 힌트 비트가 WAL 에 페이지 전체를 남길 수 있다'],
     ['data_checksums','on','18 의 initdb 가 기본으로 켠다 — 읽기 전용이다, 끄려면 initdb --no-data-checksums'] ],
   watch:[
     ['pg_stat_user_tables','읽기만 했는데 페이지가 더러워지면 여기 통계가 움직인다'],
@@ -115,8 +115,8 @@ const SCENES = [
   },
   steps:[
   { look:{ op:true, sn:true },
-    note:'스냅샷은 세 값이다 — xmin, xmax, 그리고 그 사이에서 돌고 있던 XID 목록',
-    why:'GetSnapshotData 가 ProcArray 를 훑어 채운다. SnapshotData 의 주석 그대로 xmin 보다 작은 XID 는 모두 보이고, xmax 이상은 모두 안 보인다. 그 사이에서 스냅샷을 잡을 때 돌고 있던 것만 xip[] 에 적는다 — 여기서는 103 과 104 다.',
+    note:'snapshot = xmin · xmax · xip[] — 그 사이 in-progress XID 목록',
+    why:'GetSnapshotData 가 ProcArray 를 훑어 채운다. SnapshotData 의 주석 그대로 xmin 보다 작은 XID 는 모두 보이고, xmax 이상은 모두 안 보인다. 그 사이에서 snapshot 을 잡을 때 돌고 있던 것만 xip[] 에 적는다 — 여기서는 103 과 104 다.',
     key:'InnoDB 의 read view 와 같은 모양이다(up limit · low limit · 목록). 다른 것은 그 판정을 <em>튜플마다, 튜플의 헤더로</em> 한다는 것이다.',
     ref:'src/include/utils/snapshot.h', sym:'SnapshotData',
     fact:['all XID < xmin are visible to me',
@@ -126,17 +126,17 @@ const SCENES = [
           op:{ set:{ '스냅샷':'xmin 103 · xmax 106' } } } },
 
   { act:{ f:'op', t:'tup', lb:'스냅샷으로 판정' },
-    note:'판정은 튜플마다 헤더의 xmin · xmax 를 이 스냅샷과 비교하는 것이다',
-    why:'HeapTupleSatisfiesMVCC 가 그 일을 한다. t_xmin 을 넣은 트랜잭션이 내 스냅샷 기준으로 끝났는지, t_xmax 를 적은 쪽이 끝났는지를 보고 이 튜플이 보이는지 정한다.',
-    key:'InnoDB 는 read view 로 판정하고 안 보이면 <em>undo 를 거슬러 옛 버전을 만든다</em>. PG 는 만들 필요가 없다 — <em>옛 버전이 이미 힙에 있다</em>.',
+    note:'HeapTupleSatisfiesMVCC — 튜플마다 헤더의 xmin · xmax 를 snapshot 과 대조',
+    why:'HeapTupleSatisfiesMVCC 가 그 일을 한다. t_xmin 을 넣은 트랜잭션이 내 snapshot 기준으로 끝났는지, t_xmax 를 적은 쪽이 끝났는지를 보고 이 튜플이 보이는지 정한다.',
+    key:'InnoDB 는 read view 로 판정하고 안 보이면 <em>undo 를 거슬러 옛 버전을 만든다</em>. PG 는 만들 필요가 없다 — <em>옛 버전이 이미 heap 에 있다</em>.',
     ref:'src/backend/access/heap/heapam_visibility.c', sym:'HeapTupleSatisfiesMVCC',
     fact:[['src/backend/access/heap/heapam_visibility.c','See SNAPSHOT_MVCC\'s definition for the intended behaviour.']],
     ops:{ op:{ set:{ '판정':'튜플마다 헤더를 본다' } } } },
 
   { look:{ hdr:true, sn:true },
-    note:'튜플 A 의 xmin 100 은 스냅샷 xmin 103 보다 작다 — 끝났다는 것까지만 안다',
+    note:'튜플 A : xmin 100 < snapshot xmin 103 — 끝났다는 것까지만 안다',
     why:'XidInMVCCSnapshot 의 첫 판정이 "xmin 보다 작은 XID 는 진행 중이 아니다" 다. 그러나 끝났다는 것은 커밋이거나 롤백이다. 그래서 HeapTupleSatisfiesMVCC 는 이어서 TransactionIdDidCommit 으로 pg_xact 를 본다 — 커밋이면 보이고, 아니면 "중단됐거나 죽었다" 로 안 보인다.',
-    key:'스냅샷은 <em>시간</em>을, pg_xact 는 <em>결과</em>를 답한다. 둘을 다 물어야 판정이 끝난다.',
+    key:'snapshot 은 <em>시간</em>을, pg_xact 는 <em>결과</em>를 답한다. 둘을 다 물어야 판정이 끝난다.',
     ref:'src/backend/access/heap/heapam_visibility.c', sym:'HeapTupleSatisfiesMVCC',
     fact:['else if (TransactionIdDidCommit(HeapTupleHeaderGetRawXmin(tuple)))',
           'it must have aborted or crashed',
@@ -145,7 +145,7 @@ const SCENES = [
           tup:{ set:{ '튜플 A':{ sub:'xmin 100 · xmax 0  ·  보인다' } } } } },
 
   { look:{ hdr:true },
-    note:'판정 결과를 헤더에 적어 둔다 — 다음 사람이 다시 계산하지 않게',
+    note:'판정 결과를 hint bit 로 캐시 — 다음 판정은 pg_xact 를 건너뛴다',
     why:'HEAP_XMIN_COMMITTED(0x0100) 를 켜 두면 다음 판정은 그 비트만 보고 끝난다. 안 켜 두면 매번 트랜잭션 상태를 다시 확인해야 하고, 주석이 그 비용을 "고트래픽 공유 구조에 접근해야 해서 경합을 만든다" 고 적는다.',
     key:'그래서 <em>SELECT 만 해도 페이지가 더러워진다</em>. InnoDB 에 대응물이 없는 현상이고, 대량 적재 직후 첫 조회가 유난히 느린 이유이기도 하다.',
     ref:'src/backend/access/heap/heapam_visibility.c', sym:'HeapTupleSatisfiesMVCC',
@@ -154,7 +154,7 @@ const SCENES = [
     ops:{ hdr:{ set:{ 't_infomask':'XMIN_COMMITTED', '힌트':'적어 둠  ·  페이지 더러워짐' } } } },
 
   { look:{ hdr:true },
-    note:'누가 적는가 — 처음 그 사실을 볼 수 있게 된 사람이다',
+    note:'hint bit 를 쓰는 쪽 — 처음 그 사실을 볼 수 있게 된 reader',
     why:'주석이 그대로 말한다 : 힌트 비트는 "그 트랜잭션이 끝난 것으로 보이는 스냅샷을 가진 첫 방문자" 가 갱신한다. 즉 쓰기 담당이 따로 없고, 읽는 쪽이 그때그때 남긴다.',
     key:'판정 비용이 <em>첫 독자에게 몰린다</em>. 그래서 같은 조회를 두 번 하면 두 번째가 빠르고, 그 차이를 캐시 효과로 착각하기 쉽다.',
     ref:'src/backend/access/heap/heapam_visibility.c', sym:'HeapTupleSatisfiesMVCC',
@@ -162,7 +162,7 @@ const SCENES = [
     beat:1 },
 
   { look:{ tup:true, sn:true },
-    note:'튜플 B 의 xmin 104 는 xip 에 있다 — 커밋했는지 묻지도 않고 안 보인다',
+    note:'튜플 B : xmin 104 ∈ xip — pg_xact 조회 없이 invisible',
     why:'XidInMVCCSnapshot 이 104 를 xip[] 에서 찾으면 "진행 중" 이다. HeapTupleSatisfiesMVCC 는 그 자리에서 false 를 돌려주고 pg_xact 를 보지 않는다 — 결과를 모르니 힌트도 적지 않는다.',
     key:'같은 페이지의 두 튜플이 <em>다른 이유로</em> 판정된다 — A 는 결과로 보이고, B 는 시간으로 안 보인다.',
     ref:'src/backend/access/heap/heapam_visibility.c', sym:'HeapTupleSatisfiesMVCC',
@@ -172,9 +172,9 @@ const SCENES = [
           op:{ set:{ '판정':'튜플 B — 진행 중 → 안 보인다' } } } },
 
   { look:{ tup:true },
-    note:'104 가 커밋하고 다른 세션이 B 에 힌트를 적어도 — 이 스냅샷에는 여전히 안 보인다',
+    note:'B 에 XMIN_COMMITTED 가 박혀도 — 이 snapshot 에선 여전히 invisible',
     why:'XMIN_COMMITTED 가 켜진 튜플은 pg_xact 를 건너뛴다. 그래도 코드는 한 번 더 묻는다 — 주석이 "xmin 은 커밋됐지만 우리 스냅샷에서도 그런지는 모른다" 다. XidInMVCCSnapshot 이 104 를 여전히 xip 에서 찾으므로 "아직 진행 중으로 본다".',
-    key:'힌트 비트는 <em>결과</em>만 기억한다. <em>누구에게 보이는가</em>는 매번 스냅샷이 정한다 — 그래서 힌트 하나를 모든 스냅샷이 함께 써도 안전하다.',
+    key:'힌트 비트는 <em>결과</em>만 기억한다. <em>누구에게 보이는가</em>는 매번 snapshot 이 정한다 — 그래서 힌트 하나를 모든 snapshot 이 함께 써도 안전하다.',
     ref:'src/backend/access/heap/heapam_visibility.c', sym:'HeapTupleSatisfiesMVCC',
     fact:['xmin is committed, but maybe not according to our snapshot',
           'treat as still in progress'],
@@ -182,8 +182,8 @@ const SCENES = [
     ops:{ tup:{ set:{ '튜플 B':{ tag:'hold', sub:'xmin 104 · XMIN_COMMITTED  ·  이 스냅샷에는 여전히 안 보인다' } } } } },
 
   { look:{ hdr:true },
-    note:'18 은 데이터 체크섬이 기본이다 — 힌트 비트 하나가 WAL 에 페이지 전체를 남길 수 있다',
-    why:'MarkBufferDirtyHint 는 XLogHintBitIsNeeded() — 체크섬이 켜져 있거나 wal_log_hints — 이면 "찢어진 쓰기로부터 힌트를 지키려고" 그 페이지의 full page image 를 WAL 에 쓴다. checkpoint 뒤 그 페이지의 첫 변경일 때만이다. 18 의 initdb 는 체크섬을 기본으로 켠다.',
+    note:'18 은 data checksums 기본 — hint bit 하나가 FPI 를 WAL 에 남길 수 있다',
+    why:'MarkBufferDirtyHint 는 XLogHintBitIsNeeded() — checksum 이 켜져 있거나 wal_log_hints — 이면 "찢어진 쓰기로부터 힌트를 지키려고" 그 페이지의 full page image 를 WAL 에 쓴다. checkpoint 뒤 그 페이지의 첫 변경일 때만이다. 18 의 initdb 는 checksum 을 기본으로 켠다.',
     key:'<em>SELECT 가 WAL 을 쓴다</em>. 대량 적재 뒤 첫 조회는 페이지마다 full page image 를 남길 수 있다 — 조회만 했는데 WAL 이 느는 이유다.',
     ref:'src/backend/storage/buffer/bufmgr.c', sym:'MarkBufferDirtyHint',
     fact:['If we need to protect hint bit updates from torn writes, WAL-log a',
@@ -194,8 +194,8 @@ const SCENES = [
   ],
 },
 {
-  num:'03', tab:'죽은 튜플', title:'지운 튜플은 그 자리에 남는다',
-  sub:'그래서 파일이 줄지 않고, 치우는 일이 따로 필요해진다 — 먼저 읽는 쪽이 페이지 안에서 치운다',
+  num:'03', tab:'Pruning', title:'Dead Tuples & On-Access Pruning',
+  sub:'out-of-place update 는 dead tuple 을 남긴다 — 1차 정리는 그 페이지를 다음에 읽는 backend 몫',
   cast:['op','tup','hdr','ph'],
   /* 갱신하는 열 k 에 인덱스가 있다 — 그래야 HOT(07 장면)가 아니라서 옛 튜플이 LP_DEAD 로 남는다.
      페이지는 8KB 에 빈 공간 700 바이트(8.5%) — 즉시 정리의 문턱 819 바이트(10%)보다 작다. */
@@ -215,9 +215,9 @@ const SCENES = [
   },
   steps:[
   { act:{ f:'op', t:'tup', lb:'UPDATE' },
-    note:'UPDATE 는 고치지 않는다 — 새 튜플을 쓰고 옛것에 xmax 를 적는다',
-    why:'heap_update 는 새 버전을 삽입하고 옛 튜플의 t_xmax 에 자기 XID 를 넣는다. 옛 튜플은 지워지지 않는다 — 아직 그것을 봐야 하는 스냅샷이 있을 수 있기 때문이다.',
-    key:'그래서 UPDATE 한 번에 <em>튜플이 하나 늘어난다</em>. InnoDB 는 행을 제자리에서 고치고 옛 값을 undo 에 두므로 힙이 커지지 않는다 — 여기서 두 엔진의 파일 크기 곡선이 갈린다.',
+    note:'UPDATE 는 in-place 가 아니다 — 새 튜플을 append, 옛 튜플엔 xmax',
+    why:'heap_update 는 새 버전을 삽입하고 옛 튜플의 t_xmax 에 자기 XID 를 넣는다. 옛 튜플은 지워지지 않는다 — 아직 그것을 봐야 하는 snapshot 이 있을 수 있기 때문이다.',
+    key:'그래서 UPDATE 한 번에 <em>튜플이 하나 늘어난다</em>. InnoDB 는 행을 제자리에서 고치고 옛 값을 undo 에 두므로 heap 이 커지지 않는다 — 여기서 두 엔진의 파일 크기 곡선이 갈린다.',
     ref:'src/backend/access/heap/heapam.c', sym:'heap_update',
     fact:[['src/include/access/htup_details.h','#define HEAP_UPDATED']],
     ops:{ op:{ set:{ 'SQL':'UPDATE t SET k=2  (k 에 인덱스)', '단계':'새 튜플 삽입', '죽은 튜플':'1' } },
@@ -227,7 +227,7 @@ const SCENES = [
           ph:{ set:{ '빈 공간':'700 B  (8.5%)', 'line pointer':'1 : 튜플 A  ·  2 : 튜플 B' } } } },
 
   { look:{ ph:true },
-    note:'UPDATE 가 페이지 헤더에 표시를 남긴다 — "여기 치울 것이 생길지 모른다"',
+    note:'PageSetPrunable — 헤더 pd_prune_xid 에 prune 후보 표시',
     why:'heap_update 는 끝에서 PageSetPrunable(page, xid) 를 부른다. 페이지 헤더의 pd_prune_xid 는 주석 그대로 "이 페이지에서 치울 수 있을지 모르는 튜플의 가장 오래된 XID" 이고, 더 오래된 것이 오면 그것으로 바꾼다.',
     key:'다음에 이 페이지를 읽는 쪽은 <em>헤더의 한 칸만 보고</em> 치울지 말지 정한다 — 튜플을 다 훑지 않는다.',
     ref:'src/backend/access/heap/heapam.c', sym:'heap_update',
@@ -236,15 +236,15 @@ const SCENES = [
     ops:{ ph:{ set:{ 'pd_prune_xid':'110' } } } },
 
   { look:{ tup:true, ph:true },
-    note:'죽은 튜플은 아무도 안 볼 때 비로소 치울 수 있다',
-    why:'판정 기준은 "이 트랜잭션보다 오래된 스냅샷이 남아 있는가" 다 — heap_page_prune_opt 는 pd_prune_xid 가 모든 세션에게 지워도 되는 XID 인지(GlobalVisTestIsRemovableXid) 먼저 본다. 그래서 오래 열린 트랜잭션 하나가 정리를 막는다 — 그 스냅샷이 옛 버전을 아직 볼 수 있기 때문이다.',
-    key:'PG 의 부풀음(bloat)은 <em>쓰기량이 아니라 가장 오래된 스냅샷</em>이 만든다. 유휴 상태로 열려 있는 트랜잭션이 디스크를 먹는 구조다.',
+    note:'removable 판정 — GlobalVisTest horizon 밖이어야 prune 가능',
+    why:'판정 기준은 "이 트랜잭션보다 오래된 스냅샷이 남아 있는가" 다 — heap_page_prune_opt 는 pd_prune_xid 가 모든 세션에게 지워도 되는 XID 인지(GlobalVisTestIsRemovableXid) 먼저 본다. 그래서 오래 열린 트랜잭션 하나가 정리를 막는다 — 그 snapshot 이 옛 버전을 아직 볼 수 있기 때문이다.',
+    key:'PG 의 부풀음(bloat)은 <em>쓰기량이 아니라 가장 오래된 snapshot</em>이 만든다. 유휴 상태로 열려 있는 트랜잭션이 디스크를 먹는 구조다.',
     ref:'src/backend/access/heap/pruneheap.c', sym:'heap_page_prune_opt',
     fact:['if (!GlobalVisTestIsRemovableXid(vistest, prune_xid))',
           ['src/backend/access/heap/pruneheap.c','Note: this is called quite often.']] },
 
   { look:{ ph:true },
-    note:'넉넉한 페이지는 건드리지 않는다 — 문턱은 fillfactor 와 10% 중 큰 쪽',
+    note:'free space 가 넉넉하면 skip — 문턱은 max(fillfactor, 10%)',
     why:'주석이 두 경우를 적는다 : 앞의 UPDATE 가 새 버전을 둘 자리를 못 찾았을 때, 또는 빈 공간이 fillfactor 목표보다 작을 때 — "10% 보다 작지는 않게". 8KB 페이지면 819 바이트다. 이 페이지는 700 바이트라 치운다.',
     key:'공간이 넉넉한 페이지는 <em>죽은 튜플이 있어도 그대로</em> 둔다 — 읽는 김에 치우는 비용은 필요할 때만 낸다.',
     ref:'src/backend/access/heap/pruneheap.c', sym:'heap_page_prune_opt',
@@ -253,14 +253,14 @@ const SCENES = [
     ops:{ ph:{ set:{ '빈 공간':'700 B < 819 B  →  치운다' } } } },
 
   { look:{ ph:true },
-    note:'기다리지 않는다 — 페이지를 혼자 쥘 수 없으면 그냥 돌아간다',
-    why:'정리하려면 그 버퍼를 다른 누구도 핀하지 않은 상태로 배타 락을 쥐어야 한다. ConditionalLockBufferForCleanup 이 그것을 기다리지 않고 한 번만 시도하고, 못 얻으면 heap_page_prune_opt 는 아무것도 하지 않고 돌아간다.',
+    note:'non-blocking — cleanup lock 을 즉시 못 얻으면 포기',
+    why:'정리하려면 그 버퍼를 다른 누구도 핀하지 않은 상태로 X lock 을 쥐어야 한다. ConditionalLockBufferForCleanup 이 그것을 기다리지 않고 한 번만 시도하고, 못 얻으면 heap_page_prune_opt 는 아무것도 하지 않고 돌아간다.',
     key:'즉시 정리는 <em>읽는 김에 하는 최선 노력</em>이다. 누가 그 페이지를 쥐고 있으면 다음 방문자에게 넘긴다 — 조회가 정리 때문에 멈추는 일은 없다.',
     ref:'src/backend/access/heap/pruneheap.c', sym:'heap_page_prune_opt',
     fact:['if (!ConditionalLockBufferForCleanup(buffer))'] },
 
   { look:{ tup:true, ph:true, op:true },
-    note:'치운 자리 — 튜플의 공간은 돌아오고, line pointer 는 LP_DEAD 로 남는다',
+    note:'회수 결과 — tuple storage 는 반환, line pointer 는 LP_DEAD 로 잔존',
     why:'인덱스가 아직 튜플 A 의 TID 를 가리킨다. line pointer 까지 없애면 그 번호를 새 튜플이 받아 인덱스가 엉뚱한 행을 가리키게 된다. 그래서 즉시 정리는 저장 공간만 되찾고 4바이트 line pointer 를 LP_DEAD 로 둔다 — 인덱스에서 지우고 자리를 풀어 주는 것은 VACUUM 이다. 통계도 그래서 LP_DEAD 로 둔 것은 빼고 센다.',
     key:'"자리만 남은 죽은 튜플" 이 생긴다 — 공간은 돌아왔지만 <em>VACUUM 없이는 그 번호를 다시 못 쓴다</em>.',
     ref:'src/backend/access/heap/pruneheap.c', sym:'heap_page_prune_opt',
@@ -273,14 +273,14 @@ const SCENES = [
           op:{ set:{ '단계':'즉시 정리 끝' } } } },
 
   { look:{ ph:true },
-    note:'되찾은 공간은 FSM 에 알리지 않는다 — 이 페이지의 다음 UPDATE 가 쓰게',
+    note:'회수 공간은 FSM 미등록 — 같은 페이지의 다음 UPDATE 몫 (HOT 조건)',
     why:'주석이 이유를 적는다 : 관계없는 UPDATE · INSERT 가 이 공간을 가져가지 않게 여기서는 FSM 을 고치지 않는다 — "그 공간은 이 페이지에 대한 UPDATE 가 다시 써야 한다".',
     key:'다음 UPDATE 가 <em>같은 페이지에 새 버전을 둘 자리</em>를 남겨 두는 것이다 — 07 장면 HOT 의 조건이 바로 그것이다.',
     ref:'src/backend/access/heap/pruneheap.c', sym:'heap_page_prune_opt',
     fact:['free space should be reused by UPDATEs to *this* page.'] },
 
   { look:{ tup:true, op:true },
-    note:'그래서 정리에 두 층이 있다 — 페이지 안 즉시 정리(pruning)와 VACUUM',
+    note:'정리는 두 층 — on-access pruning 과 VACUUM',
     why:'heap_page_prune_opt 는 페이지를 만질 때 그 페이지 안에서 값싸게 치울 수 있으면 바로 치운다. 주석이 "꽤 자주 불린다 — 치울 게 없으면 빨리 빠져나오는 것이 중요하다" 고 적는다. 그것으로 부족한 것 — 인덱스 항목과 LP_DEAD 자리 — 은 VACUUM 이 맡는다.',
     key:'즉시 정리가 <em>보통의 경우를 흡수</em>하고 VACUUM 이 <em>나머지를 맡는다</em>. "VACUUM 이 돌기 전까지 공간이 안 돌아온다" 는 말은 절반만 맞다.',
     ref:'src/backend/access/heap/pruneheap.c', sym:'heap_page_prune_opt',
@@ -289,8 +289,8 @@ const SCENES = [
   ],
 },
 {
-  num:'04', tab:'VACUUM', title:'VACUUM 은 두 번 훑는다',
-  sub:'힙을 훑어 죽은 것을 모으고, 인덱스를 지운 뒤에야 힙에서 지운다 — 파일은 끝쪽이 비었을 때만 준다',
+  num:'04', tab:'VACUUM', title:'Lazy VACUUM: Heap Scan, Index Vacuum, Heap Vacuum',
+  sub:'dead TID 수집 → index 정리 → heap 회수, 순서는 바꿀 수 없다 — 파일 반환은 tail truncation 뿐',
   cast:['vac','tup','idx'],
   knobs:[
     ['maintenance_work_mem','64MB','죽은 TID 를 담는 그릇 — 작으면 인덱스를 여러 바퀴 돈다'],
@@ -313,7 +313,7 @@ const SCENES = [
   },
   steps:[
   { act:{ f:'vac', t:'tup', lb:'1단계 · 힙을 훑는다' },
-    note:'먼저 힙을 훑어 지울 수 있는 튜플의 위치를 모은다',
+    note:'phase 1 — heap scan 으로 dead TID 를 TidStore 에 수집',
     why:'lazy_scan_heap 이 페이지를 하나씩 보며 죽은 튜플의 TID 를 모은다 — 03 장면의 즉시 정리가 LP_DEAD 로 남긴 자리도 여기 들어간다. 아직 아무것도 지우지 않는다 — 인덱스가 그 TID 들을 아직 가리키고 있기 때문이다. 모으는 그릇은 TidStore 이고, 크기는 maintenance_work_mem 이다(autovacuum 이면 autovacuum_work_mem 이 따로 있을 때 그것).',
     key:'지우기 전에 <em>목록을 만든다</em>. 그 목록이 그릇에 다 안 담기면 VACUUM 은 도중에 멈추고 한 바퀴를 돌아야 한다 — 다음 스텝.',
     ref:'src/backend/access/heap/vacuumlazy.c', sym:'lazy_scan_heap',
@@ -322,7 +322,7 @@ const SCENES = [
     ops:{ vac:{ set:{ '단계':'힙 스캔  ·  TID 수집', '그릇':'maintenance_work_mem 64MB' } } } },
 
   { look:{ vac:true },
-    note:'그릇이 차면 스캔을 멈추고 한 바퀴 돈다 — 인덱스와 힙을 지운 뒤 스캔을 이어 간다',
+    note:'TidStore 가 maintenance_work_mem 을 넘으면 — 멈추고 index · heap 한 cycle',
     why:'lazy_scan_heap 은 페이지를 볼 때마다 TidStore 가 쓰는 메모리를 본다. 한도를 넘으면 주석 그대로 "멈추고 한 바퀴 정리한 뒤" 그 페이지로 돌아온다 — 그 한 바퀴가 모든 인덱스를 훑는다.',
     key:'그릇이 작으면 <em>모든 인덱스를 여러 번</em> 훑는다 — 비용이 인덱스 수 × 바퀴 수로 는다. pg_stat_progress_vacuum 의 index_vacuum_count 가 그 바퀴 수다.',
     ref:'src/backend/access/heap/vacuumlazy.c', sym:'lazy_scan_heap',
@@ -332,8 +332,8 @@ const SCENES = [
     ops:{ vac:{ set:{ '인덱스 바퀴':'1  ·  그릇이 찰 때마다 하나 더' } } } },
 
   { look:{ vac:true, idx:true },
-    note:'인덱스로 가기 전에 묻는다 — 건너뛸 만큼 적은가',
-    why:'lazy_vacuum 은 LP_DEAD 가 하나라도 있는 페이지가 테이블의 2% 미만이고 TID 가 32MB 미만이면 이번엔 인덱스 정리와 힙 회수를 건너뛴다 — "거의 0 이면 0 으로 친다". 여기는 한 페이지 중 한 페이지라 건너뛰지 않는다.',
+    note:'bypass 판정 — LP_DEAD 페이지 < 2% · TID < 32MB 면 index 단계 skip',
+    why:'lazy_vacuum 은 LP_DEAD 가 하나라도 있는 페이지가 테이블의 2% 미만이고 TID 가 32MB 미만이면 이번엔 인덱스 정리와 heap 회수를 건너뛴다 — "거의 0 이면 0 으로 친다". 여기는 한 페이지 중 한 페이지라 건너뛰지 않는다.',
     key:'건너뛴 LP_DEAD 는 다음 VACUUM 까지 남는다 — 그동안 그 페이지는 <em>all-visible 이 될 수 없다</em>(05 장면). 기준을 LP_DEAD 의 수가 아니라 그것이 든 페이지 수로 잡는 이유가 이것이다.',
     ref:'src/backend/access/heap/vacuumlazy.c', sym:'lazy_vacuum',
     fact:['i.e. 2% of rel_pages',
@@ -342,8 +342,8 @@ const SCENES = [
     ops:{ vac:{ set:{ '단계':'건너뛸까 — 1 / 1 페이지 ≥ 2% → 아니다' } } } },
 
   { act:{ f:'vac', t:'idx', lb:'2단계 · 인덱스를 먼저 지운다' },
-    note:'그 다음 인덱스에서 그 TID 를 가리키는 항목을 지운다',
-    why:'lazy_vacuum_all_indexes 가 인덱스마다 한 번씩 TidStore 에 든 TID 를 찾아 지운다. 순서를 뒤집을 수 없다. 힙에서 먼저 지우면 그 자리에 새 튜플이 들어올 수 있고, 그러면 아직 남아 있는 인덱스 항목이 엉뚱한 행을 가리킨다.',
+    note:'phase 2 — 모든 index 에서 해당 TID 엔트리 삭제',
+    why:'lazy_vacuum_all_indexes 가 인덱스마다 한 번씩 TidStore 에 든 TID 를 찾아 지운다. 순서를 뒤집을 수 없다. heap 에서 먼저 지우면 그 자리에 새 튜플이 들어올 수 있고, 그러면 아직 남아 있는 인덱스 항목이 엉뚱한 행을 가리킨다.',
     key:'그래서 <em>인덱스가 많으면 VACUUM 이 비싸진다</em> — 인덱스마다 한 번씩 훑어야 한다. 03 에서 본 "정리가 공짜가 아니다" 의 실체가 이 단계다.',
     ref:'src/backend/access/heap/vacuumlazy.c', sym:'lazy_vacuum_all_indexes',
     fact:['for (int idx = 0; idx < vacrel->nindexes; idx++)'],
@@ -351,7 +351,7 @@ const SCENES = [
           vac:{ set:{ '단계':'인덱스 정리' } } } },
 
   { act:{ f:'vac', t:'tup', lb:'3단계 · 힙에서 지운다' },
-    note:'인덱스가 깨끗해진 뒤에야 힙의 자리를 비운다',
+    note:'phase 3 — index 정리 뒤에야 heap line pointer 를 LP_UNUSED 로',
     why:'이제 그 TID 를 가리키는 것이 없으므로 lazy_vacuum_heap_page 가 line pointer 를 LP_UNUSED 로 바꾼다 — 그 번호를 새 튜플이 받을 수 있다. 공간은 페이지 안에서 재사용되지만 파일이 줄지는 않는다.',
     key:'VACUUM 은 <em>공간을 재사용 가능하게 만들 뿐</em> 파일을 돌려주지 않는다. "VACUUM 했는데 디스크가 안 줄었다" 는 오해가 여기서 온다 — 돌려주는 것은 VACUUM FULL 이고 그것은 테이블을 새로 쓴다.',
     ref:'src/backend/access/heap/vacuumlazy.c', sym:'lazy_vacuum_heap_page',
@@ -361,8 +361,8 @@ const SCENES = [
     beat:1 },
 
   { look:{ vac:true },
-    note:'파일은 끝쪽 빈 페이지만 잘라 돌려준다 — 그것도 테이블을 잠깐 혼자 쥘 수 있을 때',
-    why:'should_attempt_truncation 은 끝쪽에 빈 페이지가 1000 개 이상이거나 파일의 1/16 이상일 때만 자르려 한다. 자르려면 테이블 전체의 배타 락이 필요한데, 주석이 "못 얻으면 기다리지 않고 포기한다 — 다른 세션을 막고 싶지 않고 교착도 피하려고" 라 적는다. 18 은 이것을 vacuum_truncate 설정으로 끌 수 있다.',
+    note:'tail truncation — 끝쪽 빈 페이지만, AccessExclusiveLock 을 즉시 얻을 때만',
+    why:'should_attempt_truncation 은 끝쪽에 빈 페이지가 1000 개 이상이거나 파일의 1/16 이상일 때만 자르려 한다. 자르려면 테이블에 AccessExclusiveLock 이 필요한데, 주석이 "못 얻으면 기다리지 않고 포기한다 — 다른 세션을 막고 싶지 않고 교착도 피하려고" 라 적는다. 18 은 이것을 vacuum_truncate 설정으로 끌 수 있다.',
     key:'VACUUM 이 디스크를 돌려주는 것은 <em>끝쪽이 비었을 때</em>뿐이다. 가운데가 빈 테이블은 VACUUM 으로는 줄지 않는다 — 공간은 그 테이블의 다음 쓰기가 다시 쓴다.',
     ref:'src/backend/access/heap/vacuumlazy.c', sym:'should_attempt_truncation',
     fact:['possibly_freeable >= vacrel->rel_pages / REL_TRUNCATE_FRACTION))',
@@ -373,8 +373,8 @@ const SCENES = [
   ],
 },
 {
-  num:'05', tab:'VISIBILITY MAP', title:'페이지 하나를 2비트로 요약한다',
-  sub:'그 2비트가 VACUUM 을 건너뛰게 하고 인덱스만 읽는 조회를 가능하게 한다 — 켜는 것은 VACUUM 뿐이다',
+  num:'05', tab:'Visibility Map', title:'Visibility Map: Two Bits per Heap Page',
+  sub:'ALL_VISIBLE · ALL_FROZEN — VACUUM skip 과 index-only scan 의 근거, set 은 VACUUM 만 한다',
   cast:['op','vm','tup'],
   knobs:[
     ['autovacuum_vacuum_insert_threshold','1000','삽입만 하는 테이블도 이만큼(+ 비율) 쌓이면 VACUUM 한다 — 비트를 켜려고'],
@@ -394,8 +394,8 @@ const SCENES = [
   },
   steps:[
   { look:{ vm:true },
-    note:'페이지마다 두 비트다 — 그 이상은 없다',
-    why:'BITS_PER_HEAPBLOCK 이 2 이고 VISIBILITYMAP_ALL_VISIBLE 이 0x01, VISIBILITYMAP_ALL_FROZEN 이 0x02 다. 즉 8KB 페이지 하나의 상태가 2비트로 요약된다 — 맵 자체가 힙의 1/32768 크기다.',
+    note:'페이지당 2 bit — ALL_VISIBLE · ALL_FROZEN',
+    why:'BITS_PER_HEAPBLOCK 이 2 이고 VISIBILITYMAP_ALL_VISIBLE 이 0x01, VISIBILITYMAP_ALL_FROZEN 이 0x02 다. 즉 8KB 페이지 하나의 상태가 2비트로 요약된다 — 맵 자체가 heap 의 1/32768 크기다.',
     key:'요약이 <em>극단적으로 작기 때문에</em> 맵 전체가 메모리에 머문다. 그래서 이 두 비트를 보는 것이 페이지를 읽는 것보다 압도적으로 싸다.',
     ref:'src/include/access/visibilitymapdefs.h', sym:'BITS_PER_HEAPBLOCK',
     fact:[['src/include/access/visibilitymapdefs.h','#define BITS_PER_HEAPBLOCK 2'],
@@ -403,7 +403,7 @@ const SCENES = [
           ['src/include/access/visibilitymapdefs.h','#define VISIBILITYMAP_ALL_FROZEN']] },
 
   { look:{ vm:true },
-    note:'비트는 보수적이다 — 켜져 있으면 참이고, 꺼져 있으면 모른다',
+    note:'conservative — set 이면 참, clear 면 unknown · set 할 때 WAL 을 남긴다',
     why:'주석 그대로 "비트가 켜져 있으면 그 조건이 참임을 안다. 꺼져 있으면 참일 수도 아닐 수도 있다". 켜는 것은 페이지의 모든 튜플이 모두에게 보인다고 확인한 VACUUM 이다. 호출하는 쪽이 먼저 페이지 헤더의 PD_ALL_VISIBLE 을 켜고, 맵의 비트를 켜면서 WAL 을 쓴다.',
     key:'두 곳에 적는다 — 페이지 헤더와 맵. 크래시 뒤 둘이 어긋나면 다음 쓰기가 맵 비트를 못 끄고 <em>인덱스만 읽는 조회가 틀린 답</em>을 낸다. 그래서 힌트 같은 비트인데도 켤 때는 WAL 을 쓴다.',
     ref:'src/backend/access/heap/visibilitymap.c', sym:'visibilitymap_set',
@@ -412,8 +412,8 @@ const SCENES = [
           ['src/backend/access/heap/visibilitymap.c','When we *set* a visibility map during VACUUM, we must write WAL.']] },
 
   { act:{ f:'op', t:'vm', lb:'인덱스만 읽는 조회' },
-    note:'ALL_VISIBLE 이 켜져 있으면 힙을 아예 읽지 않는다',
-    why:'인덱스에는 가시성(visibility) 정보가 없다. 그래서 보통은 인덱스에서 TID 를 얻은 뒤 힙 튜플을 읽어 xmin·xmax 를 봐야 한다. IndexOnlyNext 는 그 TID 의 페이지가 맵에서 ALL_VISIBLE 이면 그 확인을 건너뛴다 — 아니면 주석이 "Rats" 라 적고 힙으로 간다.',
+    note:'index-only scan — ALL_VISIBLE 페이지는 heap fetch 생략',
+    why:'인덱스에는 visibility 정보가 없다. 그래서 보통은 인덱스에서 TID 를 얻은 뒤 heap 튜플을 읽어 xmin·xmax 를 봐야 한다. IndexOnlyNext 는 그 TID 의 페이지가 맵에서 ALL_VISIBLE 이면 그 확인을 건너뛴다 — 아니면 주석이 "Rats" 라 적고 heap 으로 간다.',
     key:'PG 의 인덱스만 읽는 조회는 <em>맵이 있어야 성립한다</em>. InnoDB 는 클러스터 인덱스에 행이 함께 있어 이 문제가 없다 — 대신 secondary 조회가 항상 클러스터를 한 번 더 방문한다(mysql/locks 05 장면).',
     ref:'src/backend/executor/nodeIndexonlyscan.c', sym:'IndexOnlyNext',
     fact:['if (!VM_ALL_VISIBLE(scandesc->heapRelation,',
@@ -421,8 +421,8 @@ const SCENES = [
     ops:{ op:{ set:{ 'SQL':'SELECT id FROM t WHERE id=1', '힙 접근':'없음  ·  Heap Fetches 0' } } } },
 
   { act:{ f:'tup', t:'vm', lb:'변경이 비트를 끈다' },
-    note:'그 페이지에 쓰기가 한 번 생기면 비트가 꺼진다',
-    why:'heap_insert · heap_update · heap_delete 는 PD_ALL_VISIBLE 이 켜진 페이지를 고치면 맵 비트를 지우고 페이지 헤더의 비트도 끈다. 끄는 것은 WAL 을 따로 쓰지 않는다 — 그 쓰기의 WAL 을 재생할 때 함께 꺼진다.',
+    note:'write 한 번이면 clear — PD_ALL_VISIBLE 과 VM bit 를 함께 끈다',
+    why:'heap_insert · heap_update · heap_delete 는 PD_ALL_VISIBLE 이 켜진 페이지를 고치면 맵 비트를 지우고 페이지 헤더의 비트도 끈다. 끄는 것은 WAL 을 따로 쓰지 않는다 — 그 쓰기의 WAL 을 replay 할 때 함께 꺼진다.',
     key:'비트는 <em>VACUUM 만 켤 수 있고 아무 쓰기나 끌 수 있다</em>. 그래서 자주 갱신되는 테이블에서는 인덱스만 읽는 조회가 잘 안 걸린다 — EXPLAIN 의 Heap Fetches 가 그 신호다.',
     ref:'src/backend/access/heap/heapam.c', sym:'heap_insert',
     fact:['PageClearAllVisible(page);',
@@ -432,7 +432,7 @@ const SCENES = [
     beat:1 },
 
   { look:{ vm:true },
-    note:'VACUUM 도 이 비트로 페이지를 건너뛴다 — 32 장 넘게 이어질 때만',
+    note:'VACUUM 의 page skip — ALL_VISIBLE 이 32 장 이상 연속일 때만 (readahead)',
     why:'heap_vac_scan_next_block 은 다음에 꼭 봐야 할 페이지까지 ALL_VISIBLE 이 32 장 이상 이어져야 건너뛴다. 주석이 이유를 적는다 : 차례로 읽는 동안 OS 가 미리 읽어 주므로 "한 장씩 드문드문 건너뛰는 것은 이득이 없다". 페이지 2 ~ 41 의 40 장은 건너뛴다.',
     key:'그래서 VACUUM 의 비용은 <em>테이블 크기보다 바뀐 페이지 수</em>에 가깝다 — 맵이 없던 시절에는 매번 테이블 전체를 읽었다.',
     ref:'src/backend/access/heap/vacuumlazy.c', sym:'heap_vac_scan_next_block',
@@ -443,7 +443,7 @@ const SCENES = [
     ops:{ vm:{ set:{ '페이지 2 ~ 41':{ sub:'ALL_VISIBLE  ·  40 장 ≥ 32 → VACUUM 이 건너뛴다' } } } } },
 
   { look:{ vm:true },
-    note:'ALL_FROZEN 은 테이블 전체를 훑어야 하는 VACUUM 도 건너뛰게 한다',
+    note:'ALL_FROZEN — anti-wraparound 의 전체 스캔에서도 skip',
     why:'맵 머리말이 두 비트의 뜻을 나눈다 : ALL_VISIBLE 은 "VACUUM 할 필요가 없다", ALL_FROZEN 은 "wraparound 를 막으려고 테이블 전체를 훑는 VACUUM 조차 필요 없다". ALL_FROZEN 은 ALL_VISIBLE 인 페이지에만 켤 수 있다.',
     key:'wraparound 를 막는 VACUUM 의 비용을 정하는 것이 이 비트다(06 장면) — <em>한번 얼린 페이지는 다시 안 읽는다</em>.',
     ref:'src/include/access/visibilitymapdefs.h', sym:'VISIBILITYMAP_ALL_FROZEN',
@@ -451,9 +451,9 @@ const SCENES = [
           ['src/backend/access/heap/visibilitymap.c','The all-frozen bit must be set only when the page is already all-visible.']] },
 
   { look:{ op:true, vm:true },
-    note:'삽입만 하는 테이블에도 VACUUM 이 온다 — 죽은 튜플이 없어도 비트를 켜려고',
+    note:'insert-only 테이블에도 autovacuum — dead tuple 이 아니라 VM bit 를 위해',
     why:'relation_needs_vacanalyze 는 죽은 튜플 수와 따로 삽입 수를 센다 — 1000 + 0.2 × reltuples 를 넘으면 VACUUM 한다. 18 은 거기에 얼지 않은 페이지의 비율(1 − relallfrozen / relpages)을 곱한다 — 이미 다 얼린 큰 테이블은 덜 자주 온다.',
-    key:'UPDATE · DELETE 가 없는 로그성 테이블도 VACUUM 이 비트를 켜 줘야 <em>인덱스만 읽는 조회가 힙을 안 읽는다</em>.',
+    key:'UPDATE · DELETE 가 없는 로그성 테이블도 VACUUM 이 비트를 켜 줘야 <em>인덱스만 읽는 조회가 heap 을 안 읽는다</em>.',
     ref:'src/backend/postmaster/autovacuum.c', sym:'relation_needs_vacanalyze',
     fact:['vac_ins_scale_factor * reltuples * pcnt_unfrozen;',
           '(vac_ins_base_thresh >= 0 && instuples > vacinsthresh);',
@@ -462,8 +462,8 @@ const SCENES = [
   ],
 },
 {
-  num:'06', tab:'wraparound', title:'XID 는 32비트라서 돌아온다',
-  sub:'그래서 나이를 세고, 늙은 튜플의 xmin 을 특별한 값으로 바꿔 둔다 — 늦으면 쓰기가 멈춘다',
+  num:'06', tab:'Wraparound', title:'XID Wraparound: 32-Bit Ages & Freezing',
+  sub:'XID 는 modulo-2^32 비교 — freeze 가 늦으면 데이터 손실이 아니라 write stop 으로 온다',
   cast:['xid','hdr','vac'],
   knobs:[
     ['vacuum_freeze_min_age','50000000','VACUUM 이 들른 페이지에서 이보다 늙은 xmin 을 얼린다'],
@@ -483,7 +483,7 @@ const SCENES = [
   },
   steps:[
   { look:{ xid:true },
-    note:'XID 공간은 32비트다 — 약 43억 개면 한 바퀴다',
+    note:'XID space = 32 bit — 약 43억이면 한 바퀴',
     why:'MaxTransactionId 는 0xFFFFFFFF 이고 정상 XID 는 FirstNormalTransactionId(3)부터 시작한다. 0·1·2 는 각각 Invalid·Bootstrap·Frozen 으로 예약돼 있다.',
     key:'XID 를 늘리지 않고 <em>돌려 쓰기로</em> 해결했다. 그 대가가 이 장면의 나머지 전부다 — 64비트로 넓히자는 논의가 오래 이어지는 이유다.',
     ref:'src/include/access/transam.h', sym:'MaxTransactionId',
@@ -492,7 +492,7 @@ const SCENES = [
           ['src/include/access/transam.h','#define FrozenTransactionId			((TransactionId) 2)']] },
 
   { look:{ xid:true },
-    note:'그래서 크기 비교가 아니라 나이 비교다',
+    note:'TransactionIdPrecedes — 크기가 아니라 modulo-2^32 age 비교, 유효 범위 2^31',
     why:'TransactionIdPrecedes 는 두 XID 의 차를 int32 로 보고 부호를 판단한다 — 주석이 "do a modulo-2^32 comparison" 이라고 적는다. 그래서 쓸 수 있는 범위는 앞으로 2^31, 즉 약 21억이다.',
     key:'"XID 500 이 XID 100 보다 나중" 이 항상 참이 아니다 — <em>거리가 21억을 넘으면 순서가 뒤집혀 보인다</em>. 그 지점을 넘기면 옛 데이터가 미래처럼 보여 사라진다.',
     ref:'src/backend/access/transam/transam.c', sym:'TransactionIdPrecedes',
@@ -500,7 +500,7 @@ const SCENES = [
     ops:{ xid:{ set:{ '현재 XID':'2,100,000,000', '나이':'21억  ·  위험' } } } },
 
   { look:{ xid:true },
-    note:'한계선은 셋이다 — 경고, 거부, 그리고 넘으면 안 되는 선',
+    note:'한계선 셋 — warn(4천만 전) · stop(3백만 전) · wrap limit',
     why:'SetTransactionIdLimit 이 가장 오래된 datfrozenxid 에서 2^31 떨어진 곳을 wrap 한계로 잡는다. 그보다 4천만 앞에서 경고를 찍기 시작하고, 3백만 앞에서는 새 XID 를 받는 명령을 거부한다 — 오류가 "wraparound 데이터 손실을 피하려고 새 트랜잭션 ID 를 주는 명령을 받지 않는다" 다.',
     key:'wraparound 는 데이터가 사라지기 전에 <em>쓰기가 멈추는 것</em>으로 온다. XID 를 받지 않는 읽기는 계속된다 — 그래서 사고는 "조회는 되는데 아무것도 못 쓴다" 로 보인다.',
     ref:'src/backend/access/transam/varsup.c', sym:'SetTransactionIdLimit',
@@ -512,16 +512,16 @@ const SCENES = [
     ops:{ xid:{ set:{ '한계':'datfrozenxid + 2^31  ·  경고 4천만 전  ·  거부 3백만 전' } } } },
 
   { act:{ f:'vac', t:'hdr', lb:'동결' },
-    note:'해법은 늙은 xmin 을 "동결" 표식으로 바꿔 두는 것이다',
+    note:'해법은 freeze — 오래된 xmin 을 FROZEN 표식으로',
     why:'충분히 오래된 튜플은 어차피 모두에게 보이므로 xmin 을 더 비교할 필요가 없다. heap_prepare_freeze_tuple 이 그 표식을 남기고, 표식은 HEAP_XMIN_FROZEN 이다.',
-    key:'동결된 튜플은 <em>나이 계산에서 빠진다</em>. 그래서 wraparound 를 막는 일은 곧 "동결을 제때 하는 일" 이고, 그것을 강제하는 문턱이 autovacuum_freeze_max_age = 2억이다.',
+    key:'frozen 튜플은 <em>나이 계산에서 빠진다</em>. 그래서 wraparound 를 막는 일은 곧 "동결을 제때 하는 일" 이고, 그것을 강제하는 문턱이 autovacuum_freeze_max_age = 2억이다.',
     ref:'src/backend/access/heap/heapam.c', sym:'heap_prepare_freeze_tuple',
     fact:[['src/include/access/htup_details.h','#define HEAP_XMIN_FROZEN']],
     ops:{ vac:{ set:{ '동결':'진행  ·  xmin → FROZEN' } },
           hdr:{ set:{ 't_xmin':'동결 표식', 't_infomask':'XMIN_FROZEN' } } } },
 
   { look:{ hdr:true },
-    note:'그 표식은 새 비트가 아니다 — 모순 조합을 재활용한다',
+    note:'FROZEN 은 새 bit 가 아니다 — COMMITTED | INVALID, 불가능한 조합의 재활용',
     why:'HEAP_XMIN_FROZEN 은 (HEAP_XMIN_COMMITTED | HEAP_XMIN_INVALID) 로 정의된다. 커밋됐으면서 동시에 무효라는 조합은 원래 성립할 수 없으므로, 그 쓰이지 않는 조합을 "동결" 이라는 세 번째 뜻으로 쓴다.',
     key:'비트를 하나 더 쓰지 않고 <em>불가능한 조합에 뜻을 붙였다</em>. book/ch3 04b 장면에서 InnoDB 가 같은 8바이트에 세 가지 뜻을 담은 것과 같은 수법이다 — 포맷을 늘리지 않고 기능을 더하는 방법.',
     ref:'src/include/access/htup_details.h', sym:'HEAP_XMIN_FROZEN',
@@ -531,7 +531,7 @@ const SCENES = [
     beat:1 },
 
   { look:{ vac:true, xid:true },
-    note:'얼리는 문턱도 셋이다 — 들른 김에, 테이블 전체를, 그리고 강제로',
+    note:'freeze 문턱 셋 — min_age · table_age · autovacuum_freeze_max_age',
     why:'vacuum_get_cutoffs 가 문턱을 정한다. 들른 페이지에서는 vacuum_freeze_min_age(5천만)보다 늙은 xmin 을 얼린다 — 단 autovacuum_freeze_max_age 의 절반을 넘지 않게. 테이블의 relfrozenxid 가 vacuum_freeze_table_age(1억 5천만)보다 늙으면 그 VACUUM 은 aggressive 라 ALL_VISIBLE 이라도 얼지 않은 페이지를 모두 읽는다 — 이 값은 autovacuum_freeze_max_age 의 95% 로 묶인다. 2억을 넘기면 autovacuum 이 꺼져 있어도 돈다.',
     key:'문턱이 셋인 이유는 <em>비용을 미리 나눠 내게</em> 하려는 것이다 — 95% 로 묶는 까닭을 주석이 적는다 : 밤마다 도는 VACUUM 이 강제 autovacuum 보다 먼저 얼릴 기회를 갖게. 05 장면의 ALL_FROZEN 이 그 전체 읽기에서 건너뛸 페이지를 정한다.',
     ref:'src/backend/commands/vacuum.c', sym:'vacuum_get_cutoffs',
@@ -542,7 +542,7 @@ const SCENES = [
     ops:{ vac:{ set:{ '방식':'나이 1억 5천만 초과 → aggressive — 얼지 않은 페이지 전부' } } } },
 
   { look:{ vac:true },
-    note:'18 은 평소 VACUUM 도 조금씩 미리 얼리러 간다',
+    note:'18 의 eager freeze — 평시 VACUUM 이 ALL_VISIBLE 페이지를 미리 freeze',
     why:'머리말 그대로 "보통의 VACUUM 도 건너뛸 수 있는 페이지를 얼리려고 읽을 수 있다" — ALL_VISIBLE 이지만 ALL_FROZEN 이 아닌 페이지를 일부 읽어 얼린다(eager scan). 읽었는데 못 얼린 페이지가 vacuum_max_eager_freeze_failure_rate(0.03)를 넘으면 그만둔다.',
     key:'aggressive VACUUM 이 한꺼번에 치르던 비용을 <em>평소 VACUUM 들에 나눠</em> 싣는다 — 목표가 "여러 번에 걸쳐 동결을 상각하는 것" 이라고 설정의 설명이 적는다.',
     ref:'src/backend/access/heap/vacuumlazy.c', sym:'heap_vacuum_rel',
@@ -551,8 +551,8 @@ const SCENES = [
     ops:{ vac:{ set:{ '방식':'평소 VACUUM — 얼지 않은 ALL_VISIBLE 페이지를 조금씩 미리' } } } },
 
   { look:{ vac:true, xid:true },
-    note:'마지막 방어선 — 16억을 넘기면 VACUUM 이 정리를 버리고 동결만 한다',
-    why:'lazy_check_wraparound_failsafe 는 relfrozenxid 가 vacuum_failsafe_age 보다 늙으면 failsafe 를 켠다 — 주석 그대로 이후의 인덱스 정리와 힙 회수를 건너뛰고, 파일 자르기도 건너뛰고, 처음에 걸려 있던 cost 지연도 더 걸지 않는다. 링 버퍼도 버리고 shared buffers 를 다 쓴다.',
+    note:'failsafe — 16억 초과 시 index 정리 · cost delay 를 버리고 freeze 만',
+    why:'lazy_check_wraparound_failsafe 는 relfrozenxid 가 vacuum_failsafe_age 보다 늙으면 failsafe 를 켠다 — 주석 그대로 이후의 인덱스 정리와 heap 회수를 건너뛰고, 파일 자르기도 건너뛰고, 처음에 걸려 있던 cost 지연도 더 걸지 않는다. 링 버퍼도 버리고 shared buffers 를 다 쓴다.',
     key:'<em>부풀음보다 쓰기 정지가 더 나쁘다</em>는 판단이다. 죽은 튜플은 다음 VACUUM 이 치우면 되지만, 한계선을 넘으면 데이터베이스 전체가 쓰기를 멈춘다.',
     ref:'src/backend/access/heap/vacuumlazy.c', sym:'lazy_check_wraparound_failsafe',
     fact:['VacuumFailsafeActive = true;',
@@ -564,8 +564,8 @@ const SCENES = [
   ],
 },
 {
-  num:'07', tab:'HOT', title:'인덱스를 건드리지 않는 갱신',
-  sub:'키가 안 바뀌고 같은 페이지에 자리가 있으면 인덱스는 그대로 둔다 — 사슬은 페이지 안에서 정리된다',
+  num:'07', tab:'HOT', title:'HOT Updates: Heap-Only Tuples & Redirects',
+  sub:'인덱스 키 불변 + 같은 페이지 여유 — 두 조건이면 index write 0, chain 은 페이지 안에서 prune',
   cast:['op','tup','idx','hdr'],
   knobs:[
     ['fillfactor','100','낮추면 페이지에 여유가 남아 HOT 이 걸릴 확률이 오른다'],
@@ -582,7 +582,7 @@ const SCENES = [
   },
   steps:[
   { act:{ f:'op', t:'tup', lb:'키가 아닌 열만 갱신' },
-    note:'인덱스에 들어가는 열이 안 바뀌면 인덱스는 손댈 필요가 없다',
+    note:'인덱스 키 열 불변 — index entry 는 손대지 않는다',
     why:'heap_update 는 새 버전이 같은 페이지에 들어가고(newbuf == buffer) 바뀐 열이 HOT 을 막는 인덱스의 열과 겹치지 않으면 HOT 으로 간다. 옛 튜플의 t_ctid 가 새 튜플을 가리키고, 인덱스는 옛 자리(lp 1)를 계속 가리킨다.',
     key:'인덱스가 <em>한 다리 건너</em> 새 버전에 닿는다. 그래서 인덱스 쓰기가 0 이 되고, 인덱스가 많은 테이블에서 갱신 비용이 극적으로 달라진다.',
     ref:'src/backend/access/heap/heapam.c', sym:'heap_update',
@@ -593,7 +593,7 @@ const SCENES = [
           hdr:{ set:{ 't_ctid':'→ 튜플 A′' } } } },
 
   { look:{ hdr:true, idx:true },
-    note:'두 비트가 그 사슬을 표시한다',
+    note:'HEAP_HOT_UPDATED · HEAP_ONLY_TUPLE — 두 bit 가 HOT chain 을 표시',
     why:'heap_update 가 옛 튜플에 HEAP_HOT_UPDATED(0x4000)를, 새 튜플에 HEAP_ONLY_TUPLE(0x8000)을 켠다. 후자는 "이 튜플은 힙에만 있다 — 인덱스가 직접 가리키지 않는다" 는 뜻이다.',
     key:'인덱스에서 찾아 들어온 쪽은 <em>HOT 사슬을 끝까지 따라가야</em> 한다. 사슬이 길어지면 그 추적이 비용이 되고, 그래서 같은 행을 계속 갱신하면 조회가 느려진다.',
     ref:'src/include/access/htup_details.h', sym:'HEAP_HOT_UPDATED',
@@ -603,7 +603,7 @@ const SCENES = [
     ops:{ hdr:{ set:{ 't_infomask2':'HOT_UPDATED  →  ONLY_TUPLE' } } } },
 
   { look:{ op:true, idx:true },
-    note:'요약 인덱스(BRIN)는 HOT 을 막지 않는다 — 그 열이 바뀌면 그 인덱스만 고친다',
+    note:'summarizing index(BRIN)는 HOT 을 막지 않는다 — 해당 열이 바뀌면 그 index 만 갱신',
     why:'heap_update 는 인덱스 열을 둘로 나눠 본다 — HOT 을 막는 것(B-tree 같은)과 요약하는 것(BRIN). 바뀐 열이 앞쪽과 겹치지 않으면 HOT 으로 가되, 요약 인덱스의 열이 바뀌었으면 그 인덱스는 갱신한다 — 주석이 "BRIN minmax 의 범위가 바뀐 것을 놓칠 수 있다" 고 이유를 적는다.',
     key:'인덱스의 <em>종류</em>가 HOT 을 좌우한다. 범위만 기억하는 인덱스는 새 버전이 어느 줄에 있든 상관없으므로 HOT 을 막을 이유가 없다.',
     ref:'src/backend/access/heap/heapam.c', sym:'heap_update',
@@ -612,7 +612,7 @@ const SCENES = [
           'e.g. value bound changes in BRIN minmax indexes.'] },
 
   { look:{ tup:true },
-    note:'조건은 두 개다 — 키 불변, 그리고 같은 페이지에 자리',
+    note:'HOT 조건 둘 — 키 불변, 같은 페이지의 free space',
     why:'새 버전이 같은 페이지에 들어가야 한다. 자리가 없으면 다른 페이지로 가고, 그러면 인덱스가 그 페이지를 가리켜야 하므로 HOT 이 성립하지 않는다. 그래서 fillfactor 를 낮춰 페이지에 여유를 남기는 것이 HOT 확률을 올린다 — 03 장면의 즉시 정리가 되찾은 공간을 FSM 에 안 알리는 것도 이 때문이다.',
     key:'HOT 은 <em>공간을 미리 비워 두고 사는 이득</em>이다. 04 의 VACUUM 이 비싸지는 이유가 인덱스였는데, HOT 은 애초에 인덱스를 안 건드려 그 비용을 피한다.',
     ref:'src/backend/access/heap/pruneheap.c', sym:'heap_page_prune_opt',
@@ -620,8 +620,8 @@ const SCENES = [
     beat:1 },
 
   { act:{ f:'op', t:'tup', lb:'한 번 더 갱신' },
-    note:'한 번 더 고치면 사슬이 길어진다 — 인덱스는 여전히 머리(lp 1)만 가리킨다',
-    why:'A′ 도 HOT 으로 갱신되면 A → A′ → A″ 가 된다. 인덱스로 들어온 조회는 heap_hot_search_buffer 가 lp 1 에서 시작해 HOT_UPDATED 가 켜진 동안 t_ctid 를 따라 같은 페이지 안을 걷고, 스냅샷에 보이는 버전에서 멈춘다.',
+    note:'재갱신 — chain 이 길어져도 index 는 root(lp 1)만 가리킨다',
+    why:'A′ 도 HOT 으로 갱신되면 A → A′ → A″ 가 된다. 인덱스로 들어온 조회는 heap_hot_search_buffer 가 lp 1 에서 시작해 HOT_UPDATED 가 켜진 동안 t_ctid 를 따라 같은 페이지 안을 걷고, snapshot 에 보이는 버전에서 멈춘다.',
     key:'사슬은 <em>한 페이지를 벗어나지 않는다</em> — 그래서 따라가는 비용이 페이지 하나 안의 걸음이다. 다른 페이지로 가는 순간 HOT 이 아니다.',
     ref:'src/backend/access/heap/heapam.c', sym:'heap_hot_search_buffer',
     fact:['Check to see if HOT chain continues past this tuple; if so fetch',
@@ -631,7 +631,7 @@ const SCENES = [
                 add:[{ id:'튜플 A″', tag:'dirty', sub:'v=3  ·  lp 3  ·  ONLY_TUPLE' }] } } },
 
   { look:{ tup:true, idx:true },
-    note:'사슬의 정리는 LP_DEAD 가 아니다 — 머리는 REDIRECT 가 되고 가운데는 곧바로 비운다',
+    note:'chain prune — root 는 LP_REDIRECT, 중간 버전은 즉시 LP_UNUSED',
     why:'A 와 A′ 가 아무에게도 안 보이게 되면 heap_prune_chain 이 "머리 line pointer 를 첫 살아 있는 튜플로 돌려 대고, 그 사이의 것은 비운다". lp 1 은 LP_REDIRECT → lp 3 이 되고, lp 2 는 곧바로 LP_UNUSED 다 — 인덱스가 가리키지 않는 번호라 VACUUM 을 기다릴 이유가 없다.',
     key:'03 장면에서는 인덱스가 가리키는 번호라 <em>LP_DEAD 로 남아 VACUUM 을 기다렸다</em>. HOT 사슬은 인덱스가 머리만 가리키므로 <em>즉시 정리만으로 끝난다</em> — 인덱스도, VACUUM 의 인덱스 단계도 필요 없다.',
     ref:'src/backend/access/heap/pruneheap.c', sym:'heap_prune_chain',
@@ -645,8 +645,8 @@ const SCENES = [
   ],
 },
 {
-  num:'08', tab:'격리 수준', title:'같은 행을 두 세션이 동시에 고치면',
-  sub:'READ COMMITTED 는 새 버전으로 다시 확인하고, REPEATABLE READ 는 오류로 돌려보낸다',
+  num:'08', tab:'Isolation', title:'Concurrent UPDATE: EvalPlanQual Re-check vs. Serialization Failure',
+  sub:'READ COMMITTED 는 EvalPlanQual 로 최신 버전을 재검사하고, REPEATABLE READ 는 40001 로 돌려보낸다',
   cast:['sa','sb','snap','tup','lk'],
   /* 두 수준은 ExecUpdate 의 TM_Updated 분기 한 줄에서 갈린다 : IsolationUsesXactSnapshot() 이
      참(REPEATABLE READ 이상)이면 40001 오류, 거짓이면 마지막 버전을 잠그고 EvalPlanQual.
@@ -655,17 +655,17 @@ const SCENES = [
   vary:{ knob:'transaction_isolation', base:'read committed', alt:{
     'repeatable read':{
       2:{ act:{ f:'sb', t:'snap', lb:'트랜잭션 스냅샷' },
-          note:'B 의 UPDATE 가 시작된다 — REPEATABLE READ 는 트랜잭션의 첫 문장이 잡은 스냅샷을 끝까지 쓴다',
-          why:'트랜잭션의 첫 호출에서 IsolationUsesXactSnapshot() 이 참이면 스냅샷을 복사해 FirstXactSnapshot 으로 등록한다 — 주석 : 트랜잭션 스냅샷 모드에서는 첫 스냅샷이 트랜잭션이 끝날 때까지 살아야 한다. 뒤의 문장은 그것을 그대로 돌려받는다.',
-          key:'REPEATABLE READ 의 뜻이 <em>트랜잭션 하나에 스냅샷 하나</em>다 — 그래서 7 스텝에서 길이 갈린다.',
+          note:'B 의 UPDATE 시작 — REPEATABLE READ 는 트랜잭션 첫 statement 의 snapshot 을 끝까지',
+          why:'트랜잭션의 첫 호출에서 IsolationUsesXactSnapshot() 이 참이면 snapshot 을 복사해 FirstXactSnapshot 으로 등록한다 — 주석 : 트랜잭션 snapshot 모드에서는 첫 snapshot 이 트랜잭션이 끝날 때까지 살아야 한다. 뒤의 문장은 그것을 그대로 돌려받는다.',
+          key:'REPEATABLE READ 의 뜻이 <em>트랜잭션 하나에 snapshot 하나</em>다 — 그래서 7 스텝에서 길이 갈린다.',
           ref:'src/backend/utils/time/snapmgr.c', sym:'GetTransactionSnapshot',
           fact:['FirstXactSnapshot = CurrentSnapshot;',
                 'In transaction-snapshot mode, the first snapshot must live until'],
           ops:{ sb:{ set:{ '격리':'REPEATABLE READ|gold', '문장':'UPDATE t SET v=v+1 WHERE id=1', '상태':'실행 중' } },
                 snap:{ set:{ '잡은 때':'트랜잭션 첫 문장', 'xip':'[200]', '다음 문장':'같은 것을 쓴다' } } } },
       7:{ look:{ sb:true, lk:true },
-          note:'REPEATABLE READ — 여기서 끝난다 : could not serialize access due to concurrent update',
-          why:'IsolationUsesXactSnapshot() 이 참이면 TM_Updated 를 받는 즉시 ERRCODE_T_R_SERIALIZATION_FAILURE(40001)로 오류를 낸다. B 의 스냅샷은 트랜잭션 전체의 것인데, 그 스냅샷이 모르는 버전 2 위에 쓰면 그 스냅샷의 세계와 맞지 않는 결과가 된다.',
+          note:'REPEATABLE READ — 여기서 종료 : could not serialize access due to concurrent update',
+          why:'IsolationUsesXactSnapshot() 이 참이면 TM_Updated 를 받는 즉시 ERRCODE_T_R_SERIALIZATION_FAILURE(40001)로 오류를 낸다. B 의 snapshot 은 트랜잭션 전체의 것인데, 그 snapshot 이 모르는 버전 2 위에 쓰면 그 snapshot 의 세계와 맞지 않는 결과가 된다.',
           key:'REPEATABLE READ 는 <em>기다린 끝에 실패한다</em>. 직렬화 실패는 버그가 아니라 계약이다 — 앱이 트랜잭션을 처음부터 다시 해야 한다.',
           ref:'src/backend/executor/nodeModifyTable.c', sym:'ExecUpdate',
           fact:['errmsg("could not serialize access due to concurrent update")));',
@@ -674,7 +674,7 @@ const SCENES = [
           ops:{ sb:{ set:{ '상태':'ERROR 40001 — 직렬화 실패|red' } },
                 lk:{ del:['tuple (0,1)'] } } },
       8:{ look:{ sb:true },
-          note:'B 의 트랜잭션은 통째로 롤백된다 — 앱이 처음부터 다시 해야 한다',
+          note:'B 트랜잭션 전체 rollback — 애플리케이션이 처음부터 retry',
           why:'B 가 이 트랜잭션에서 한 일은 전부 버려지고 xid 201 은 중단으로 끝난다. PG 는 이 재시도를 대신 해 주지 않는다 — 드라이버나 앱의 몫이다.',
           key:'<em>재시도 루프</em>가 REPEATABLE READ 를 쓰는 비용이다. 충돌이 잦은 행일수록 재시도가 거듭된다.',
           ref:'src/backend/access/transam/xact.c', sym:'AbortTransaction',
@@ -682,8 +682,8 @@ const SCENES = [
                 'latestXid = RecordTransactionAbort(false);'],
           ops:{ sb:{ set:{ '상태':'롤백 — 다시 해야 한다|red' } } } },
       9:{ act:{ f:'sb', t:'tup', lb:'재시도 — 새 스냅샷' },
-          note:'다시 시작한 B 는 새 스냅샷에서 v=11 을 보고 12 로 고친다',
-          why:'새 트랜잭션(xid 202)의 첫 문장이 새 스냅샷을 잡는다. A 가 커밋했으므로 버전 2(v=11)가 보이고, 이번에는 아무도 그 행을 고치고 있지 않아 기다림 없이 끝난다.',
+          note:'retry 한 B — 새 snapshot 에서 v=11 을 보고 12 로',
+          why:'새 트랜잭션(xid 202)의 첫 문장이 새 snapshot 을 잡는다. A 가 커밋했으므로 버전 2(v=11)가 보이고, 이번에는 아무도 그 행을 고치고 있지 않아 기다림 없이 끝난다.',
           key:'결과는 READ COMMITTED 와 같은 12 다. 다른 것은 <em>그 12 에 이르는 길</em> — RC 는 문장 안에서 조용히 재검사하고, RR 은 오류를 내고 앱이 되풀이한다.',
           ref:'src/backend/utils/time/snapmgr.c', sym:'GetTransactionSnapshot',
           fact:['FirstXactSnapshot = CurrentSnapshot;'],
@@ -692,8 +692,8 @@ const SCENES = [
                 tup:{ set:{ '버전 2':{ tag:'clean', sub:'v=11  ·  xmin 200 · xmax 202' } },
                       add:[{ id:'버전 3', tag:'dirty', sub:'v=12  ·  xmin 202' }] } } },
       10:{ look:{ snap:true },
-           note:'REPEATABLE READ 가 산 것 — 트랜잭션의 모든 읽기가 한 시점이다',
-           why:'B 의 트랜잭션 안에서는 몇 번을 읽어도 첫 스냅샷의 세계만 보인다. 그 세계와 맞지 않는 갱신은 쓰지 않고 오류로 돌려보낸다.',
+           note:'REPEATABLE READ 가 얻는 것 — 트랜잭션의 모든 read 가 한 시점',
+           why:'B 의 트랜잭션 안에서는 몇 번을 읽어도 첫 snapshot 의 세계만 보인다. 그 세계와 맞지 않는 갱신은 쓰지 않고 오류로 돌려보낸다.',
            key:'두 수준의 차이는 <em>누가 충돌을 처리하느냐</em>다 — RC 는 실행기가 조용히, RR 은 앱이 명시적으로.',
            ref:'src/backend/utils/time/snapmgr.c', sym:'GetTransactionSnapshot',
            fact:['if (IsolationUsesXactSnapshot())'] },
@@ -701,13 +701,13 @@ const SCENES = [
   }},
   knobs:[
     ['transaction_isolation','read committed','눌러서 repeatable read 로 바꾸면 2·7·8·9·10 스텝이 그 값대로 달라진다'],
-    ['deadlock_timeout','1s','기다림이 이만큼 길어지면 교착 검사를 한다 — 여기는 교착이 아니다'],
+    ['deadlock_timeout','1s','기다림이 이만큼 길어지면 deadlock 검사를 한다 — 여기는 deadlock 이 아니다'],
     ['lock_timeout','0','0 이 아니면 이만큼 기다리다 포기한다 — 기본은 끝까지 기다린다'] ],
   watch:[
     ['pg_locks',"locktype = 'transactionid' 에서 granted = false 인 행이 기다리는 쪽"],
     ['pg_stat_activity','wait_event 가 transactionid 면 다른 트랜잭션의 끝을 기다리는 중'],
     ['SHOW transaction_isolation','지금 트랜잭션의 격리 수준'] ],
-  links:[['02','스냅샷이 튜플을 판정한다'],['03','UPDATE 가 새 버전을 쓰는 방식']],
+  links:[['02','snapshot 이 튜플을 판정한다'],['03','UPDATE 가 새 버전을 쓰는 방식']],
   init:{
     sa:{ kv:{ 'xid':'—', '문장':'—', '상태':'—' } },
     sb:{ kv:{ '격리':'READ COMMITTED', 'xid':'—', '문장':'—', '대상':'—', '계산':'—', '상태':'—' } },
@@ -717,7 +717,7 @@ const SCENES = [
   },
   steps:[
   { act:{ f:'sa', t:'tup', lb:'UPDATE v = v + 1' },
-    note:'A 가 id=1 을 고친다 — 새 버전을 쓰고 옛 버전에 xmax 200 을 적는다',
+    note:'A 의 UPDATE — 새 버전 append, 옛 버전에 xmax 200',
     why:'heap_update 는 새 튜플(v=11)을 쓰고 옛 튜플의 xmax 에 자기 xid 를 넣는다(03 장면). 첫 쓰기에서 xid 를 받으면서 그 xid 에 대한 락을 건다 — 주석 : 트랜잭션 XID 에 락을 건다(막히지 않는다고 가정한다).',
     key:'이 xid 락이 <em>행 락 대기의 실체</em>다. PG 는 행마다 락 구조체를 두지 않고, 행을 고친 트랜잭션의 xid 를 기다린다.',
     ref:'src/backend/access/transam/xact.c', sym:'AssignTransactionId',
@@ -729,9 +729,9 @@ const SCENES = [
           lk:{ add:[{ id:'xid 200', tag:'hold', sub:'ExclusiveLock  ·  A 가 쥠' }] } } },
 
   { act:{ f:'sb', t:'snap', lb:'문장 스냅샷' },
-    note:'B 의 UPDATE 가 시작된다 — READ COMMITTED 는 문장마다 새 스냅샷을 잡는다',
-    why:'GetTransactionSnapshot 은 트랜잭션의 첫 호출이 아니면 IsolationUsesXactSnapshot() 을 보고, 거짓(READ COMMITTED)이면 매번 GetSnapshotData 로 새 스냅샷을 만든다. 지금 A(200)가 실행 중이므로 스냅샷의 xip 에 200 이 들어간다.',
-    key:'READ COMMITTED 의 뜻이 <em>문장마다 새 스냅샷</em>이다. 같은 트랜잭션의 다음 문장은 그사이 커밋된 것을 본다.',
+    note:'B 의 UPDATE 시작 — READ COMMITTED 는 statement 마다 새 snapshot',
+    why:'GetTransactionSnapshot 은 트랜잭션의 첫 호출이 아니면 IsolationUsesXactSnapshot() 을 보고, 거짓(READ COMMITTED)이면 매번 GetSnapshotData 로 새 snapshot 을 만든다. 지금 A(200)가 실행 중이므로 snapshot 의 xip 에 200 이 들어간다.',
+    key:'READ COMMITTED 의 뜻이 <em>문장마다 새 snapshot</em>이다. 같은 트랜잭션의 다음 문장은 그사이 커밋된 것을 본다.',
     ref:'src/backend/utils/time/snapmgr.c', sym:'GetTransactionSnapshot',
     fact:['if (IsolationUsesXactSnapshot())',
           ['src/include/access/xact.h','#define IsolationUsesXactSnapshot() (XactIsoLevel >= XACT_REPEATABLE_READ)']],
@@ -739,15 +739,15 @@ const SCENES = [
           snap:{ set:{ '잡은 때':'이 문장 시작', 'xip':'[200]', '다음 문장':'새로 잡는다' } } } },
 
   { look:{ snap:true, tup:true },
-    note:'B 의 스냅샷으로는 버전 1(v=10)이 보인다 — 지운 쪽(200)이 아직 실행 중이다',
-    why:'HeapTupleSatisfiesMVCC 는 xmax 가 스냅샷 기준으로 진행 중이면 그 튜플을 아직 안 지워진 것으로 본다. 버전 2 는 xmin 200 이 진행 중이라 안 보인다. 그래서 B 는 v=10 인 버전 1 을 고치려 한다.',
+    note:'B 의 snapshot 에선 버전 1(v=10)이 visible — deleter 200 이 아직 running',
+    why:'HeapTupleSatisfiesMVCC 는 xmax 가 snapshot 기준으로 진행 중이면 그 튜플을 아직 안 지워진 것으로 본다. 버전 2 는 xmin 200 이 진행 중이라 안 보인다. 그래서 B 는 v=10 인 버전 1 을 고치려 한다.',
     key:'읽기만 한다면 여기서 끝이다 — <em>v=10 을 읽고 기다리지 않는다</em>. 문제는 이것을 고치려 할 때다.',
     ref:'src/backend/access/heap/heapam_visibility.c', sym:'HeapTupleSatisfiesMVCC',
     fact:['if (XidInMVCCSnapshot(HeapTupleHeaderGetRawXmax(tuple), snapshot))'],
     ops:{ sb:{ set:{ '대상':'버전 1  (v=10)' } } } },
 
   { act:{ f:'sb', t:'lk', lb:'xid 200 을 기다린다' },
-    note:'고치려는데 xmax 200 이 아직 실행 중이다 — B 는 A 의 xid 가 끝나기를 기다린다',
+    note:'xmax 200 이 running — B 는 A 의 transactionid lock 을 대기',
     why:'heap_update 는 HeapTupleSatisfiesUpdate 가 TM_BeingModified 를 돌려주면 먼저 튜플 락을 잡고 그다음 XactLockTableWait 로 상대를 기다린다 — 주석 : 보통의 트랜잭션이 끝나기를 기다린다, 그 전에 튜플 락을 잡는다. 튜플 락은 같은 행을 기다리는 세션들의 줄 순서를 지킨다.',
     key:'pg_locks 에는 <em>행이 아니라 트랜잭션</em>이 보인다 — B 가 transactionid 200 에 ShareLock 을 청하고 기다린다. 행은 튜플 헤더의 xmax 에만 적혀 있다.',
     ref:'src/backend/access/heap/heapam.c', sym:'heap_update',
@@ -759,7 +759,7 @@ const SCENES = [
                     { id:'tuple (0,1)', tag:'hold', sub:'B 가 쥠 — 줄 순서' }] } } },
 
   { act:{ f:'sa', t:'lk', lb:'COMMIT' },
-    note:'A 가 커밋한다 — xid 200 의 락이 풀리고 B 가 깨어난다',
+    note:'A 커밋 — xid 200 의 lock 해제, B wake-up',
     why:'XactLockTableWait 는 지정한 트랜잭션이 커밋하거나 중단할 때까지 기다린다. A 가 끝나면서 자기 xid 락을 놓고, 그 락을 청하던 B 가 깨어난다.',
     key:'B 는 A 가 <em>어떻게</em> 끝났는지 아직 모른다 — 깨어난 뒤 튜플 헤더를 다시 본다.',
     ref:'src/backend/storage/lmgr/lmgr.c', sym:'XactLockTableWait',
@@ -769,7 +769,7 @@ const SCENES = [
           tup:{ set:{ '버전 2':{ tag:'clean', sub:'v=11  ·  xmin 200 커밋됨' } } } } },
 
   { look:{ tup:true, sb:true },
-    note:'다시 보니 버전 1 은 커밋된 갱신으로 지워졌고 t_ctid 가 버전 2 를 가리킨다 — TM_Updated',
+    note:'재확인 — 버전 1 은 committed update 로 삭제, t_ctid → 버전 2 (TM_Updated)',
     why:'깨어난 heap_update 는 xmax 가 그대로 200 인지 확인하고 커밋과 중단을 가린다. 중단이었다면(HEAP_XMAX_INVALID) 그대로 진행했을 것이다. 커밋이고 t_ctid 가 자기 자신이 아니므로 결과는 TM_Updated 다.',
     key:'여기까지는 <em>격리 수준과 무관</em>하다. 갈리는 것은 이 결과를 받은 실행기다.',
     ref:'src/backend/access/heap/heapam.c', sym:'heap_update',
@@ -778,7 +778,7 @@ const SCENES = [
     ops:{ sb:{ set:{ '상태':'TM_Updated — 먼저 고친 쪽이 있다' } } } },
 
   { act:{ f:'sb', t:'tup', lb:'마지막 버전을 잠근다' },
-    note:'READ COMMITTED — 오류를 내지 않고 사슬의 마지막 버전을 찾아 잠근다',
+    note:'READ COMMITTED — 에러 없이 chain 의 최신 버전을 lock',
     why:'ExecUpdate 의 TM_Updated 분기는 IsolationUsesXactSnapshot() 이 거짓이면 table_tuple_lock 을 TUPLE_LOCK_FLAG_FIND_LAST_VERSION 으로 부른다 — t_ctid 를 따라 버전 2 에 닿고 그것을 잠근다.',
     key:'이 분기가 <em>두 격리 수준이 갈리는 한 줄</em>이다. 손잡이를 눌러 repeatable read 로 바꿔 보라.',
     ref:'src/backend/executor/nodeModifyTable.c', sym:'ExecUpdate',
@@ -788,9 +788,9 @@ const SCENES = [
           sb:{ set:{ '상태':'마지막 버전으로 간다' } } } },
 
   { look:{ sb:true, tup:true },
-    note:'WHERE 를 버전 2 에 다시 돌린다 — 아직 id=1 이면 버전 2 의 값으로 새 값을 계산한다',
+    note:'EvalPlanQual — WHERE 를 버전 2 에 재평가, 통과하면 그 값으로 재계산',
     why:'EvalPlanQual 은 갱신된 버전을 READ COMMITTED 규칙으로 처리할지 확인한다. 실행기 README 가 그 뜻을 적는다 — 동시 트랜잭션이 커밋한 튜플을 가져와(필요하면 커밋을 기다린 뒤) 조건을 다시 평가하고, 맞으면 그 튜플로 새 튜플을 다시 만든다. 조건이 더는 안 맞으면 이 행을 건너뛴다.',
-    key:'그래서 <em>v = 11 + 1 = 12</em> 다. 스냅샷의 v=10 으로 계산했다면 A 의 갱신을 덮어써 11 이 됐을 것이다 — 잃어버린 갱신을 막는 것이 이 재검사다.',
+    key:'그래서 <em>v = 11 + 1 = 12</em> 다. snapshot 의 v=10 으로 계산했다면 A 의 갱신을 덮어써 11 이 됐을 것이다 — 잃어버린 갱신을 막는 것이 이 재검사다.',
     ref:'src/backend/executor/execMain.c', sym:'EvalPlanQual',
     fact:['Check the updated version of a tuple to see if we want to process it under',
           ['src/backend/executor/README','The basic idea in READ COMMITTED mode is to take the modified tuple'],
@@ -798,9 +798,9 @@ const SCENES = [
     ops:{ sb:{ set:{ '계산':'v = 11 + 1  (버전 2 기준)' } } } },
 
   { act:{ f:'sb', t:'tup', lb:'heap_update (버전 2)' },
-    note:'버전 2 위에 고친다 — 버전 3(v=12)을 쓰고 버전 2 의 xmax 에 201 을 적는다',
+    note:'버전 2 위에 write — 버전 3(v=12), 버전 2 의 xmax = 201',
     why:'EvalPlanQual 이 돌려준 튜플로 새 값을 만들고 redo_act 로 돌아가 다시 갱신한다. 이번에는 버전 2 를 이미 잠갔으므로 기다림 없이 끝난다.',
-    key:'결과는 <em>차례로 실행한 것과 같은 12</em>다. 다만 이 문장은 버전 2 만 새로 봤다 — 다른 행은 문장 시작의 스냅샷 그대로다(다음 스텝).',
+    key:'결과는 <em>차례로 실행한 것과 같은 12</em>다. 다만 이 문장은 버전 2 만 새로 봤다 — 다른 행은 문장 시작의 snapshot 그대로다(다음 스텝).',
     ref:'src/backend/executor/nodeModifyTable.c', sym:'ExecUpdate',
     fact:['goto redo_act;'],
     ops:{ tup:{ set:{ '버전 2':{ tag:'clean', sub:'v=11  ·  xmin 200 · xmax 201' } },
@@ -809,16 +809,16 @@ const SCENES = [
           lk:{ del:['tuple (0,1)'] } } },
 
   { look:{ snap:true, tup:true },
-    note:'대가 — 한 문장 안에 두 시점이 섞인다',
-    why:'재검사는 고치려던 행만 최신 버전으로 다시 읽는다. README : 스캔 노드가 현재 튜플만 — 원래의 것이거나, 갱신되어 잠긴 버전이거나 — 돌려주도록 바꿔 질의를 다시 돌린다. 이 문장이 조인이나 하위 질의로 다른 행을 봤다면 그 행들은 여전히 문장 시작의 스냅샷이다.',
+    note:'대가 — 한 statement 안에 두 시점이 섞인다',
+    why:'재검사는 고치려던 행만 최신 버전으로 다시 읽는다. README : 스캔 노드가 현재 튜플만 — 원래의 것이거나, 갱신되어 잠긴 버전이거나 — 돌려주도록 바꿔 질의를 다시 돌린다. 이 문장이 조인이나 하위 질의로 다른 행을 봤다면 그 행들은 여전히 문장 시작의 snapshot 이다.',
     key:'READ COMMITTED 는 <em>잃어버린 갱신은 막지만 일관된 한 시점은 보장하지 않는다</em>. 여러 행을 함께 판단하는 UPDATE 는 이 점을 알고 써야 한다.',
     ref:'src/backend/executor/execMain.c', sym:'EvalPlanQual',
     fact:[['src/backend/executor/README','relation scan nodes tweaked to return only the current tuples --- either']] },
 
   { look:{ sb:true, tup:true },
-    note:'정리 — InnoDB 는 같은 상황에서 두 수준 모두 기다린 뒤 최신 값에 쓴다',
+    note:'정리 — InnoDB 는 두 수준 모두 lock 대기 후 최신 값에 write',
     why:'InnoDB 의 UPDATE 는 격리 수준과 무관하게 잠그고 읽는 현재 읽기다 — 락을 기다린 뒤 가장 최근에 커밋된 행(v=11)을 읽어 12 로 고친다. 그래서 REPEATABLE READ 에서도 오류가 나지 않는다.',
-    key:'PG 의 REPEATABLE READ 는 <em>스냅샷 격리</em>이고, 스냅샷이 모르는 버전 위에는 쓰지 않는다. InnoDB 의 REPEATABLE READ 에서 UPDATE 는 스냅샷이 아니라 최신 버전을 본다 — 같은 이름, 다른 약속이다.',
+    key:'PG 의 REPEATABLE READ 는 <em>snapshot 격리</em>이고, snapshot 이 모르는 버전 위에는 쓰지 않는다. InnoDB 의 REPEATABLE READ 에서 UPDATE 는 snapshot 이 아니라 최신 버전을 본다 — 같은 이름, 다른 약속이다.',
     ref:'src/backend/executor/nodeModifyTable.c', sym:'ExecUpdate',
     fact:['could not serialize access due to concurrent update'],
     beat:1 },
