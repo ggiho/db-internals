@@ -124,7 +124,7 @@ const SCENES = [
   { look:{ tbl:['8 AccessExclusive'], stmt:true },
     note:'LOCK TABLE 모드 생략 = AccessExclusive',
     why:'문법의 opt_lock 이 비어 있으면 AccessExclusiveLock 이다 — lockdefs.h 의 8단계 주석 끝에도 "모드를 적지 않은 LOCK TABLE" 이 적혀 있다. 그래서 LOCK TABLE t; 한 줄이 그 테이블의 SELECT 까지 막는다.',
-    key:'명시적 락은 <em>모드를 적어야</em> 한다 — 쓰기만 막고 싶었다면 IN SHARE MODE(5단계)면 된다. InnoDB 의 LOCK TABLES t WRITE 는 그 세션 밖의 읽기를 막는 것과 같은 결과지만, 여기서는 아무것도 안 적은 기본값이 그렇다.',
+    key:'explicit lock 은 <em>모드를 적어야</em> 한다 — 쓰기만 막고 싶었다면 IN SHARE MODE(5단계)면 된다. InnoDB 의 LOCK TABLES t WRITE 는 그 세션 밖의 읽기를 막는 것과 같은 결과지만, 여기서는 아무것도 안 적은 기본값이 그렇다.',
     ref:'src/include/storage/lockdefs.h', sym:'AccessExclusiveLock',
     fact:['* and unqualified LOCK TABLE */',
           ['src/backend/parser/gram.y','| /*EMPTY*/						{ $$ = AccessExclusiveLock; }']],
@@ -400,7 +400,7 @@ const SCENES = [
     fact:[['src/backend/storage/lmgr/predicate.c','(2)	They must be kept in RAM for quick access.  Because of this, it'],
           ['src/backend/storage/lmgr/predicate.c','into a single coarser-grained lock.']],
     beat:1,
-    ops:{ cmp:{ set:{ '2PL':'읽기가 쓰기를 막는다 · 대기와 교착',
+    ops:{ cmp:{ set:{ '2PL':'읽기가 쓰기를 막는다 · 대기와 deadlock',
                       'SSI':'막지 않는다 · 늦은 실패와 재시도|gold' } } } },
 
   { look:{ cmp:true, stmt:true },

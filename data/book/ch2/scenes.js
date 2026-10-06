@@ -483,8 +483,8 @@ const SCENES = [
       items:[{ id:'20', v:20 }, { id:'40', v:40 }, { id:'60', v:60 }],
       spans:[] },
     node:{ items:[
-      { id:'FIL_PAGE_PREV', tag:'hold', sub:'오프셋 8 · 왼쪽 형제' },
-      { id:'FIL_PAGE_NEXT', tag:'hold', sub:'오프셋 12 · 오른쪽 형제' } ] },
+      { id:'FIL_PAGE_PREV', tag:'hold', sub:'오프셋 8 · 왼쪽 sibling' },
+      { id:'FIL_PAGE_NEXT', tag:'hold', sub:'오프셋 12 · 오른쪽 sibling' } ] },
   },
   cite:[
     "tree storage utilization can get as low as 50%",
@@ -602,7 +602,7 @@ const SCENES = [
           io:{ set:{ '논리 읽기':'3', '물리 읽기':'1' } },
           bt:{ set:{ 'leaf':{ keys:'44 [45] 46 47', fill:.7 } } } } },
 
-  { act:{ f:'node', t:'op', lb:'범위 스캔이면 형제로 계속' },
+  { act:{ f:'node', t:'op', lb:'범위 스캔이면 sibling 으로 계속' },
     note:'point lookup 은 여기서 끝 — range scan 은 sibling pointer 로 계속',
     why:'45 ~ 200 을 원하면 이 리프를 다 읽고 FIL_PAGE_NEXT 로 다음 리프로 간다. 부모로 돌아가지 않는다.',
     key:'그래서 범위 스캔이 <em>레벨 수와 무관하게</em> 리프를 훑는 비용만 낸다. 하강은 한 번뿐이다.',
@@ -699,7 +699,7 @@ const SCENES = [
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_insert_on_non_leaf_level',
     beat:1,
     ops:{ bt:{ set:{ 'parent':{ keys:'| 10 | 20 |', fill:.5 } } },
-          op:{ set:{ '단계':'4 · 부모 갱신 · 완료|green', '대상 리프':'분할됨 · 형제 둘' } },
+          op:{ set:{ '단계':'4 · 부모 갱신 · 완료|green', '대상 리프':'분할됨 · sibling 둘' } },
           node:{ set:{ 'leaf L':{ tag:'ok', sub:'PREV/NEXT 로 R 과 연결' } } } } },
 
   { look:{ op:true, node:true },
@@ -760,7 +760,7 @@ const SCENES = [
 
   { act:{ f:'bt', t:'bt', lb:'새 루트를 만들고 옛 루트를 내린다' },
     note:'새 root 생성 — 옛 root 는 child 로 demote, height +1',
-    why:'옛 루트의 내용을 새 노드로 옮기고, 새 루트에는 분할점 키 하나만 남긴다. 옛 루트와 그 형제가 새 루트의 자식이 된다.',
+    why:'옛 루트의 내용을 새 노드로 옮기고, 새 루트에는 분할점 키 하나만 남긴다. 옛 루트와 그 sibling 이 새 루트의 자식이 된다.',
     key:'InnoDB 에서 <em>루트의 페이지 번호는 바뀌지 않는다</em>. 내용을 자식으로 옮기고 껍데기를 재사용한다 — dictionary 를 고칠 필요가 없다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_root_raise_and_insert',
     beat:1,
@@ -854,7 +854,7 @@ const SCENES = [
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_compress',
     beat:1,
     ops:{ bt:{ del:['leaf R'], set:{ 'parent':{ keys:'| (키 없음) |', fill:.1 } } },
-          node:{ del:['leaf R'], set:{ 'leaf L':{ tag:'ok', sub:'3/6 · 형제 흡수 완료' } } },
+          node:{ del:['leaf R'], set:{ 'leaf L':{ tag:'ok', sub:'3/6 · sibling 흡수 완료' } } },
           blk:{ set:{ '15':{ id:'12 13 15', sz:4, tag:'', sub:'합쳐졌다' },
                       '빈 곳':{ id:'여유', sz:7, tag:'free', sub:'미래의 삽입용' } },
                 gg:undefined },

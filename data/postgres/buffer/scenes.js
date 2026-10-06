@@ -22,9 +22,9 @@ const SCENES = [
       { id:'buf 0', tag:'clean', sub:'p:3  ·  usage 3' },
       { id:'buf 1', tag:'clean', sub:'p:8  ·  usage 2' },
       { id:'buf 2', tag:'pin',   sub:'p:11  ·  usage 1  ·  핀 1' },
-      { id:'buf 3', tag:'dirty', sub:'p:17  ·  usage 0  ·  더티' },
+      { id:'buf 3', tag:'dirty', sub:'p:17  ·  usage 0  ·  dirty' },
       { id:'buf 4', tag:'clean', sub:'p:20  ·  usage 5' },
-      { id:'buf 5', tag:'dirty', sub:'p:26  ·  usage 1  ·  더티' } ] },
+      { id:'buf 5', tag:'dirty', sub:'p:26  ·  usage 1  ·  dirty' } ] },
     heap:{ items:[
       { id:'p:17', tag:'clean', sub:'옛 내용' },
       { id:'p:26', tag:'clean', sub:'옛 내용' },
@@ -96,7 +96,7 @@ const SCENES = [
           map:{ set:{ '결과':'buf 3 — 새로 넣음' } },
           be:{ set:{ '단계':'p:42 읽음' } } } },
 
-  { act:{ f:'bgw', t:'heap', lb:'바늘 앞 더티 쓰기', hot:'io' },
+  { act:{ f:'bgw', t:'heap', lb:'바늘 앞 dirty 쓰기', hot:'io' },
     note:'bgwriter — clock hand 앞에서 dirty buffer 를 미리 write',
     why:'bgwriter.c 의 머리말 : 보통의 백엔드가 dirty 공유 버퍼를 쓰지 않아도 되게 한다. BgBufferSync 는 최근 할당 속도에 bgwriter_lru_multiplier(2.0)를 곱한 만큼을 목표로, 바늘 앞의 dirty 버퍼를 한 주기에 최대 bgwriter_lru_maxpages(100)개 쓴다. 따라가지 못하면 백엔드가 직접 쓴다 — 5 스텝처럼.',
     key:'성공의 척도는 <em>백엔드가 직접 쓴 수</em>가 0 에 가까운가다. pg_stat_io 에서 client backend 의 writes 로 본다.',
@@ -104,7 +104,7 @@ const SCENES = [
     fact:['int			bgwriter_lru_maxpages = 100;',
           'double		bgwriter_lru_multiplier = 2.0;',
           ['src/backend/postmaster/bgwriter.c','to keep regular backends from having to write out dirty shared buffers']],
-    ops:{ bgw:{ set:{ '이번 주기':'더티 1개를 씀', '상태':'깨어남' } },
+    ops:{ bgw:{ set:{ '이번 주기':'dirty 1개를 씀', '상태':'깨어남' } },
           pool:{ set:{ 'buf 5':{ tag:'clean', sub:'p:26  ·  usage 1  ·  bgwriter 가 씀' } } },
           heap:{ set:{ 'p:26':{ sub:'bgwriter 가 씀' } } } } },
 
@@ -127,7 +127,7 @@ const SCENES = [
 },
 {
   num:'02', tab:'Ring Buffer', title:'Buffer Access Strategy: Bulk-Read Rings',
-  sub:'relation 이 NBuffers/4 를 넘으면 BAS_BULKREAD — 스캔이 shared_buffers 를 오염시키지 않게 ring 에 가둔다',
+  sub:'relation 이 NBuffers/4 를 넘으면 BAS_BULKREAD — 스캔이 shared_buffers 를 pollute 하지 않게 ring 에 가둔다',
   cast:['be','pool','ring','heap','cmp'],
   /* 문턱은 initscan 의 한 줄이다 : rs_nblocks > NBuffers / 4 이면 BAS_BULKREAD.
      그래서 같은 100MB 테이블이 128MB 에서는 링을 쓰고 1GB 에서는 안 쓴다 — 흐름이 갈린다.
@@ -255,7 +255,7 @@ const SCENES = [
     fact:['strategy object are intentionally not counted here.'],
     ops:{ be:{ set:{ '디스크 읽기':'매번 12,800 블록' } } } },
 
-  { act:{ f:'ring', t:'pool', lb:'더티 칸을 풀로 보냄' },
+  { act:{ f:'ring', t:'pool', lb:'dirty 칸을 풀로 보냄' },
     note:'StrategyRejectBuffer — hint bit 로 dirty 된 버퍼는 ring 에서 제외 (WAL flush 회피)',
     why:'스캔이 힌트 비트를 적으면(mvcc 02) 버퍼가 dirty 가 된다. 그 칸을 다시 쓰려면 먼저 파일에 써야 하고, 쓰려면 WAL 을 먼저 flush 해야 할 수 있다. GetVictimBuffer 는 WAL flush 가 필요하면 StrategyRejectBuffer 에게 묻고, bulkread 링은 그 칸을 비워 시계로 새 버퍼를 받는다 — 주석 : 모든 칸이 dirty 일 때 무한 루프를 막는다.',
     key:'큰 읽기가 <em>WAL fsync 를 기다리지 않게</em> 하는 장치다. 빠진 버퍼는 보통의 풀로 돌아가 나중에 bgwriter 나 checkpoint 가 쓴다.',
@@ -264,7 +264,7 @@ const SCENES = [
           'Remove the dirty buffer from the ring; necessary to prevent infinite',
           ['src/backend/storage/buffer/bufmgr.c','If using a nondefault strategy, and writing the buffer would']],
     ops:{ ring:{ set:{ '칸 1':{ tag:'clean', sub:'블록 5  ·  새로 빌린 버퍼' } } },
-          pool:{ add:[{ id:'블록 1', tag:'dirty', sub:'링에서 빠짐  ·  힌트 비트로 더티' }] } } },
+          pool:{ add:[{ id:'블록 1', tag:'dirty', sub:'링에서 빠짐  ·  힌트 비트로 dirty' }] } } },
 
   { look:{ ring:true },
     note:'ring 은 셋 — BULKREAD · BULKWRITE(COPY · CTAS) · VACUUM',

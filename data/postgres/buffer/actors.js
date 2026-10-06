@@ -2,7 +2,7 @@
 const LANES = [
   { id:'proc', lb:'프로세스', note:'백엔드 · bgwriter' },
   { id:'mem',  lb:'공유 메모리', note:'매핑 표 · 버퍼' },
-  { id:'disk', lb:'디스크', note:'힙 파일' },
+  { id:'disk', lb:'디스크', note:'heap 파일' },
 ];
 const ACTORS = {
   be:   { nm:'BACKEND',          lane:'proc', kind:'kv' },

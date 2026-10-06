@@ -132,7 +132,7 @@ const SCENES = [
           "Because the cluster volume is shared among all DB instances in your DB cluster, minimal additional work is required to replicate a copy of the data for each Aurora Replica."],
     ref:'sql/binlog.cc', sym:'MYSQL_BIN_LOG::process_flush_stage_queue',
     ops:{ wr:{ set:{ '변경 전달':'볼륨 공유' } },
-          cmp:{ set:{ 'Aurora 클러스터 내':'binlog 재생 없음', 'MySQL 복제':'binlog → relay log 재생' } } } },
+          cmp:{ set:{ 'Aurora 클러스터 내':'binlog replay 없음', 'MySQL 복제':'binlog → relay log replay' } } } },
 
   { look:{ rd:true },
     note:'lag 은 0 이 아니다 — 문서 기준 보통 100ms 미만',
@@ -158,7 +158,7 @@ const SCENES = [
     cite:["If the writer instance in a cluster becomes unavailable, Aurora automatically promotes one of the reader instances to take its place as the new writer.",
           "Promoting an Aurora Replica by failover is much faster than recreating the primary instance."],
     ref:'sql/binlog/recovery.cc', sym:'Binlog_recovery::recover',
-    ops:{ rd:{ set:{ '리더 1':{ tag:'hold', sub:'프라이머리로 승격' } } },
+    ops:{ rd:{ set:{ '리더 1':{ tag:'hold', sub:'프라이머리로 promote' } } },
           wr:{ set:{ '역할':'교체됨' } } },
     beat:1 },
   ],
@@ -175,7 +175,7 @@ const SCENES = [
     ['buffer pool 적중률','재시작 직후에도 떨어지지 않는다']],
   links:[['01','2PC 순서'],['02','compute·storage'],['03','replica'],['05','quorum 과 세그먼트']],
   init:{
-    op:{ kv:{ '상황':'예기치 않은 재시작', '재생 대상':'—' } },
+    op:{ kv:{ '상황':'예기치 않은 재시작', 'replay 대상':'—' } },
     pc:{ kv:{ '사는 곳':'DB 프로세스 안', '재시작 후':'—' } },
     vol:{ items:[{ id:'클러스터 볼륨', tag:'hold', sub:'세 AZ 에 복제' }] },
     cmp:{ kv:{ 'InnoDB 복구':'—', 'Aurora 복구':'—', 'binlog 를 켜면':'—' } },
@@ -189,8 +189,8 @@ const SCENES = [
     fact:[['storage/innobase/log/log0recv.cc','recv_recovery_on = true;'],
           ['storage/innobase/log/log0recv.cc','/* Look for the latest checkpoint */']],
     ref:'storage/innobase/log/log0recv.cc', sym:'recv_recovery_from_checkpoint_start',
-    ops:{ op:{ set:{ '재생 대상':'redo (checkpoint 이후)' } },
-          cmp:{ set:{ 'InnoDB 복구':'재생 끝날 때까지 닫힘' } } } },
+    ops:{ op:{ set:{ 'replay 대상':'redo (checkpoint 이후)' } },
+          cmp:{ set:{ 'InnoDB 복구':'replay 끝날 때까지 닫힘' } } } },
 
   { look:{ op:true, cmp:true },
     note:'Aurora — binlog 없이 병렬 thread 비동기 recovery (문서)',
@@ -198,7 +198,7 @@ const SCENES = [
     key:'"열려 있고 사용 가능하다" 는 <em>replay 를 안 한다는 말이 아니다</em>. replay 를 기다리지 않는다는 말이다 — 문서는 그 이상을 설명하지 않는다.',
     cite:["Aurora is designed to recover from an unplanned restart almost instantaneously and continue to serve your application data without the binary log. Aurora recovers asynchronously on parallel threads, so that your database is open and available immediately after an unplanned restart."],
     ref:'storage/innobase/log/log0recv.cc', sym:'recv_recovery_from_checkpoint_start',
-    ops:{ op:{ set:{ '재생 대상':'비동기 · 병렬' } },
+    ops:{ op:{ set:{ 'replay 대상':'비동기 · 병렬' } },
           cmp:{ set:{ 'Aurora 복구':'즉시 열림 · binlog 불필요' } } } },
 
   { look:{ cmp:true, op:true },
@@ -209,7 +209,7 @@ const SCENES = [
           "Aurora does not need the binary logs to replicate data within a DB cluster or to perform point-in-time restore (PITR).",
           "If you don't need the binary log for external replication (or an external binary log stream), we recommend that you set the binlog_format parameter to OFF to disable binary logging. Doing so reduces recovery time."],
     ref:'sql/binlog/recovery.cc', sym:'Binlog_recovery::recover',
-    ops:{ op:{ set:{ '재생 대상':'binlog 켜면 binlog 복구 추가' } },
+    ops:{ op:{ set:{ 'replay 대상':'binlog 켜면 binlog 복구 추가' } },
           cmp:{ set:{ 'binlog 를 켜면':'복구가 다시 느려진다' } } },
     beat:1 },
 
@@ -219,7 +219,7 @@ const SCENES = [
     key:'재시작 직후 <em>모든 읽기가 디스크로 간다</em>. 워밍업이 필요한 이유이고, 그 동안 응답이 느린 이유다.',
     fact:[['storage/innobase/buf/buf0buf.cc','buf_pool_ptr = (buf_pool_t *)ut::zalloc_withkey(']],
     ref:'storage/innobase/buf/buf0buf.cc', sym:'buf_pool_init',
-    ops:{ pc:{ set:{ '사는 곳':'DB 프로세스 힙', '재시작 후':'비어 있음 — 워밍업 필요' } } } },
+    ops:{ pc:{ set:{ '사는 곳':'DB 프로세스 heap', '재시작 후':'비어 있음 — 워밍업 필요' } } } },
 
   { look:{ pc:true, cmp:true },
     note:'Aurora — cache 를 별도 process 로 분리, restart 후에도 warm',
@@ -230,7 +230,7 @@ const SCENES = [
           "In the unlikely event of a database failure, the page cache remains in memory, which keeps current data pages \"warm\" in the page cache when the database restarts."],
     ref:'storage/innobase/buf/buf0buf.cc', sym:'buf_pool_init',
     ops:{ pc:{ set:{ '사는 곳':'DB 와 별개 프로세스', '재시작 후':'따뜻하게 남음' } },
-          cmp:{ set:{ 'InnoDB 복구':'재생 끝날 때까지 닫힘 · 캐시 비움' } } },
+          cmp:{ set:{ 'InnoDB 복구':'replay 끝날 때까지 닫힘 · 캐시 비움' } } },
     beat:1 },
 
   { look:{ vol:true },

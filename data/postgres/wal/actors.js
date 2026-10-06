@@ -2,7 +2,7 @@ const LANES = [
   /* 04 커밋 경로에서만 쓴다 — 배우가 없는 레인은 무대에 안 나온다 */
   { id:'proc', lb:'프로세스', note:'백엔드 · walwriter' },
   { id:'mem',  lb:'메모리', note:'버퍼 · WAL 버퍼' },
-  { id:'disk', lb:'디스크', note:'WAL 세그먼트 · 힙 파일' },
+  { id:'disk', lb:'디스크', note:'WAL 세그먼트 · heap 파일' },
 ];
 const ACTORS = {
   op:   { nm:'OPERATION',   lane:'mem',  kind:'kv' },

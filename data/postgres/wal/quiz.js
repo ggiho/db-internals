@@ -8,27 +8,27 @@ export const CORE = {
   '01/3': {
     q: 'WAL 에 페이지 전체 이미지(FPI)를 넣을지는 무엇으로 정하나?',
     a: 'checkpoint 이후 그 페이지의 첫 수정인가',
-    x: ['바뀐 바이트가 페이지의 절반을 넘는가', '그 페이지가 체크섬 오류를 낸 적이 있는가', 'full_page_writes 가 켜진 동안 항상 넣는다'],
+    x: ['바뀐 바이트가 페이지의 절반을 넘는가', '그 페이지가 checksum 오류를 낸 적이 있는가', 'full_page_writes 가 켜진 동안 항상 넣는다'],
   },
   '01/4': {
     q: 'checkpoint 직후에 쓰기가 몰리면 WAL 생성량은?',
     a: '몇 배로 는다 — 첫 수정마다 페이지 이미지가 붙어서',
-    x: ['줄어든다 — 더티 페이지가 방금 비워져서', '그대로다 — 레코드 크기는 변경분에만 달려서', '잠깐 멈춘다 — checkpoint 가 WAL 쓰기를 막아서'],
+    x: ['줄어든다 — dirty page 가 방금 비워져서', '그대로다 — 레코드 크기는 변경분에만 달려서', '잠깐 멈춘다 — checkpoint 가 WAL 쓰기를 막아서'],
   },
   '01/6': {
-    q: '찢어진 페이지(torn page)를 InnoDB 와 PG 는 각각 어떻게 대비하나?',
+    q: 'torn page(torn page)를 InnoDB 와 PG 는 각각 어떻게 대비하나?',
     a: 'InnoDB 는 doublewrite 버퍼, PG 는 WAL 안의 페이지 이미지',
-    x: ['둘 다 doublewrite 버퍼에 먼저 쓴다', 'InnoDB 는 redo 안의 페이지 이미지, PG 는 별도 doublewrite 버퍼', '둘 다 체크섬으로 찾아 replica 에서 받아 온다'],
+    x: ['둘 다 doublewrite 버퍼에 먼저 쓴다', 'InnoDB 는 redo 안의 페이지 이미지, PG 는 별도 doublewrite 버퍼', '둘 다 checksum 으로 찾아 replica 에서 받아 온다'],
   },
   '02/1': {
     q: '크래시 뒤 절반만 기록된 페이지 p:7 은 무엇으로 되살리나?',
     a: 'WAL 에 들어 있는 그 페이지의 온전한 이미지',
-    x: ['체크섬이 틀린 바이트를 스스로 고친다', '데이터 파일에 남은 이전 세그먼트 사본', 'doublewrite 영역에 먼저 써 둔 사본'],
+    x: ['checksum 이 틀린 바이트를 스스로 고친다', '데이터 파일에 남은 이전 세그먼트 사본', 'doublewrite 영역에 먼저 써 둔 사본'],
   },
   '02/4': {
-    q: '재생 중 p:9 의 페이지 LSN 이 레코드보다 이미 앞서 있으면?',
+    q: 'replay 중 p:9 의 페이지 LSN 이 레코드보다 이미 앞서 있으면?',
     a: '그 레코드를 건너뛴다 — 이미 반영된 변경이다',
-    x: ['덮어쓴다 — 로그가 항상 데이터보다 옳다', '복구를 멈추고 체크섬 오류로 보고한다', '그 페이지의 FPI 를 찾아 먼저 복원한다'],
+    x: ['덮어쓴다 — 로그가 항상 데이터보다 옳다', '복구를 멈추고 checksum 오류로 보고한다', '그 페이지의 FPI 를 찾아 먼저 복원한다'],
   },
   '02/6': {
     q: 'InnoDB 와 비교해 PG 크래시 복구가 읽는 자료는?',
@@ -38,7 +38,7 @@ export const CORE = {
   '03/1': {
     q: 'checkpoint 를 부르는 두 문턱은?',
     a: 'max_wal_size 만큼 쌓임, checkpoint_timeout 경과',
-    x: ['shared_buffers 가 가득 참, 커밋 수', 'wal_buffers 가 가득 참, bgwriter 주기', '더티 페이지 비율 90% 도달, checkpoint_timeout 경과'],
+    x: ['shared_buffers 가 가득 참, 커밋 수', 'wal_buffers 가 가득 참, bgwriter 주기', 'dirty page 비율 90% 도달, checkpoint_timeout 경과'],
   },
   '03/3': {
     q: 'checkpoint 가 끝날 때 하는 핵심 일은?',
@@ -48,7 +48,7 @@ export const CORE = {
   '03/4': {
     q: 'checkpoint 가 기준점을 옮긴 직후 페이지를 고치면?',
     a: '어느 페이지든 첫 수정이 되어 이미지가 붙는다',
-    x: ['방금 내려쓴 페이지만 이미지가 붙는다', '이미지는 다음 checkpoint 까지 붙지 않는다', '더티였던 적 없는 페이지만 이미지가 붙는다'],
+    x: ['방금 flush 한 페이지만 이미지가 붙는다', '이미지는 다음 checkpoint 까지 붙지 않는다', 'dirty 였던 적 없는 페이지만 이미지가 붙는다'],
   },
   '03/5': {
     q: 'checkpoint 를 자주 하면?',
@@ -58,16 +58,16 @@ export const CORE = {
   '04/6': {
     q: 'synchronous_commit=on 에서 COMMIT 이 기다리는 디스크 작업은?',
     a: '커밋 레코드 끝까지 WAL 을 쓰고 fsync',
-    x: ['바뀐 힙 페이지를 데이터 파일에 쓰기', 'pg_xact 페이지를 디스크에 쓰기', 'WAL 과 힙 페이지를 함께 fsync'],
+    x: ['바뀐 heap 페이지를 데이터 파일에 쓰기', 'pg_xact 페이지를 디스크에 쓰기', 'WAL 과 heap 페이지를 함께 fsync'],
   },
   '04/11': {
-    q: '커밋한 변경이 다른 세션의 새 스냅샷에 보이기 시작하는 때는?',
+    q: '커밋한 변경이 다른 세션의 새 snapshot 에 보이기 시작하는 때는?',
     a: 'ProcArray 에서 그 xid 가 빠진 뒤',
-    x: ['WAL fsync 가 끝난 직후', 'pg_xact 에 COMMITTED 가 적힌 직후', '힙 페이지가 디스크에 쓰인 뒤'],
+    x: ['WAL fsync 가 끝난 직후', 'pg_xact 에 COMMITTED 가 적힌 직후', 'heap 페이지가 디스크에 쓰인 뒤'],
   },
   '04/15': {
     q: 'COMMIT 응답을 받은 순간 디스크에 반드시 있는 것은?',
     a: 'UPDATE 와 COMMIT 의 WAL 레코드',
-    x: ['바뀐 힙 페이지', 'pg_xact 의 COMMITTED 표시', 'WAL 레코드와 바뀐 힙 페이지'],
+    x: ['바뀐 heap 페이지', 'pg_xact 의 COMMITTED 표시', 'WAL 레코드와 바뀐 heap 페이지'],
   },
 };

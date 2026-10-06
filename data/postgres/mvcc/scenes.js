@@ -20,7 +20,7 @@ const SCENES = [
   { act:{ f:'op', t:'tup', lb:'INSERT' },
     note:'INSERT — t_xmin 에 자기 XID 를 stamp',
     why:'HeapTupleFields 의 첫 필드가 t_xmin 이고 주석이 "inserting xact ID" 다. 즉 "누가 이 행을 만들었나" 가 행 자신에 적힌다 — 별도 버전 저장소가 없다.',
-    key:'InnoDB 는 행에 <em>DB_TRX_ID + 롤백 포인터</em>를 두고 옛 버전을 undo 에 보관한다. PG 는 <em>옛 버전도 같은 heap 에</em> 둔다 — 그 차이가 이 덱 전체를 만든다.',
+    key:'InnoDB 는 행에 <em>DB_TRX_ID + 롤백 포인터</em>를 두고 old version 을 undo 에 보관한다. PG 는 <em>old version 도 같은 heap 에</em> 둔다 — 그 차이가 이 덱 전체를 만든다.',
     ref:'src/include/access/htup_details.h', sym:'HeapTupleFields',
     fact:[['src/include/access/htup_details.h','TransactionId t_xmin;'],
           ['src/include/access/htup_details.h','inserting xact ID']],
@@ -106,7 +106,7 @@ const SCENES = [
     ['pg_stat_wal','wal_fpi — 조회만 했는데 늘면 힌트 비트가 남긴 페이지 전체다'] ],
   links:[['01','튜플 헤더'],['03','죽은 튜플'],['08','격리 수준']],
   init:{
-    op:{ kv:{ 'SQL':'SELECT * FROM t', '스냅샷':'—', '판정':'—' } },
+    op:{ kv:{ 'SQL':'SELECT * FROM t', 'snapshot':'—', '판정':'—' } },
     sn:{ kv:{ 'xmin':'—', 'xmax':'—', 'xip':'—' } },
     tup:{ items:[
       { id:'튜플 A', tag:'clean', sub:'xmin 100 · xmax 0' },
@@ -123,12 +123,12 @@ const SCENES = [
           'all XID >= xmax are invisible to me',
           '# of xact ids in xip[]'],
     ops:{ sn:{ set:{ 'xmin':'103', 'xmax':'106', 'xip':'[ 103, 104 ]' } },
-          op:{ set:{ '스냅샷':'xmin 103 · xmax 106' } } } },
+          op:{ set:{ 'snapshot':'xmin 103 · xmax 106' } } } },
 
-  { act:{ f:'op', t:'tup', lb:'스냅샷으로 판정' },
+  { act:{ f:'op', t:'tup', lb:'snapshot 으로 판정' },
     note:'HeapTupleSatisfiesMVCC — 튜플마다 헤더의 xmin · xmax 를 snapshot 과 대조',
     why:'HeapTupleSatisfiesMVCC 가 그 일을 한다. t_xmin 을 넣은 트랜잭션이 내 snapshot 기준으로 끝났는지, t_xmax 를 적은 쪽이 끝났는지를 보고 이 튜플이 보이는지 정한다.',
-    key:'InnoDB 는 read view 로 판정하고 안 보이면 <em>undo 를 거슬러 옛 버전을 만든다</em>. PG 는 만들 필요가 없다 — <em>옛 버전이 이미 heap 에 있다</em>.',
+    key:'InnoDB 는 read view 로 판정하고 안 보이면 <em>undo 를 거슬러 old version 을 만든다</em>. PG 는 만들 필요가 없다 — <em>old version 이 이미 heap 에 있다</em>.',
     ref:'src/backend/access/heap/heapam_visibility.c', sym:'HeapTupleSatisfiesMVCC',
     fact:[['src/backend/access/heap/heapam_visibility.c','See SNAPSHOT_MVCC\'s definition for the intended behaviour.']],
     ops:{ op:{ set:{ '판정':'튜플마다 헤더를 본다' } } } },
@@ -179,7 +179,7 @@ const SCENES = [
     fact:['xmin is committed, but maybe not according to our snapshot',
           'treat as still in progress'],
     beat:1,
-    ops:{ tup:{ set:{ '튜플 B':{ tag:'hold', sub:'xmin 104 · XMIN_COMMITTED  ·  이 스냅샷에는 여전히 안 보인다' } } } } },
+    ops:{ tup:{ set:{ '튜플 B':{ tag:'hold', sub:'xmin 104 · XMIN_COMMITTED  ·  이 snapshot 에는 여전히 안 보인다' } } } } },
 
   { look:{ hdr:true },
     note:'18 은 data checksums 기본 — hint bit 하나가 FPI 를 WAL 에 남길 수 있다',
@@ -237,7 +237,7 @@ const SCENES = [
 
   { look:{ tup:true, ph:true },
     note:'removable 판정 — GlobalVisTest horizon 밖이어야 prune 가능',
-    why:'판정 기준은 "이 트랜잭션보다 오래된 스냅샷이 남아 있는가" 다 — heap_page_prune_opt 는 pd_prune_xid 가 모든 세션에게 지워도 되는 XID 인지(GlobalVisTestIsRemovableXid) 먼저 본다. 그래서 오래 열린 트랜잭션 하나가 정리를 막는다 — 그 snapshot 이 옛 버전을 아직 볼 수 있기 때문이다.',
+    why:'판정 기준은 "이 트랜잭션보다 오래된 스냅샷이 남아 있는가" 다 — heap_page_prune_opt 는 pd_prune_xid 가 모든 세션에게 지워도 되는 XID 인지(GlobalVisTestIsRemovableXid) 먼저 본다. 그래서 오래 열린 트랜잭션 하나가 정리를 막는다 — 그 snapshot 이 old version 을 아직 볼 수 있기 때문이다.',
     key:'PG 의 부풀음(bloat)은 <em>쓰기량이 아니라 가장 오래된 snapshot</em>이 만든다. 유휴 상태로 열려 있는 트랜잭션이 디스크를 먹는 구조다.',
     ref:'src/backend/access/heap/pruneheap.c', sym:'heap_page_prune_opt',
     fact:['if (!GlobalVisTestIsRemovableXid(vistest, prune_xid))',
@@ -312,14 +312,14 @@ const SCENES = [
       { id:'idx → C', tag:'x', sub:'죽은 튜플을 가리킨다' }] },
   },
   steps:[
-  { act:{ f:'vac', t:'tup', lb:'1단계 · 힙을 훑는다' },
+  { act:{ f:'vac', t:'tup', lb:'1단계 · heap 을 훑는다' },
     note:'phase 1 — heap scan 으로 dead TID 를 TidStore 에 수집',
     why:'lazy_scan_heap 이 페이지를 하나씩 보며 죽은 튜플의 TID 를 모은다 — 03 장면의 즉시 정리가 LP_DEAD 로 남긴 자리도 여기 들어간다. 아직 아무것도 지우지 않는다 — 인덱스가 그 TID 들을 아직 가리키고 있기 때문이다. 모으는 그릇은 TidStore 이고, 크기는 maintenance_work_mem 이다(autovacuum 이면 autovacuum_work_mem 이 따로 있을 때 그것).',
     key:'지우기 전에 <em>목록을 만든다</em>. 그 목록이 그릇에 다 안 담기면 VACUUM 은 도중에 멈추고 한 바퀴를 돌아야 한다 — 다음 스텝.',
     ref:'src/backend/access/heap/vacuumlazy.c', sym:'lazy_scan_heap',
     fact:[['src/backend/access/heap/vacuumlazy.c','autovacuum_work_mem : maintenance_work_mem;'],
           ['src/backend/access/heap/vacuumlazy.c','vacrel->dead_items = TidStoreCreateLocal(dead_items_info->max_bytes, true);']],
-    ops:{ vac:{ set:{ '단계':'힙 스캔  ·  TID 수집', '그릇':'maintenance_work_mem 64MB' } } } },
+    ops:{ vac:{ set:{ '단계':'heap 스캔  ·  TID 수집', '그릇':'maintenance_work_mem 64MB' } } } },
 
   { look:{ vac:true },
     note:'TidStore 가 maintenance_work_mem 을 넘으면 — 멈추고 index · heap 한 cycle',
@@ -350,14 +350,14 @@ const SCENES = [
     ops:{ idx:{ set:{ 'idx → A':{ tag:'free', sub:'지워짐' }, 'idx → C':{ tag:'free', sub:'지워짐' } } },
           vac:{ set:{ '단계':'인덱스 정리' } } } },
 
-  { act:{ f:'vac', t:'tup', lb:'3단계 · 힙에서 지운다' },
+  { act:{ f:'vac', t:'tup', lb:'3단계 · heap 에서 지운다' },
     note:'phase 3 — index 정리 뒤에야 heap line pointer 를 LP_UNUSED 로',
     why:'이제 그 TID 를 가리키는 것이 없으므로 lazy_vacuum_heap_page 가 line pointer 를 LP_UNUSED 로 바꾼다 — 그 번호를 새 튜플이 받을 수 있다. 공간은 페이지 안에서 재사용되지만 파일이 줄지는 않는다.',
     key:'VACUUM 은 <em>공간을 재사용 가능하게 만들 뿐</em> 파일을 돌려주지 않는다. "VACUUM 했는데 디스크가 안 줄었다" 는 오해가 여기서 온다 — 돌려주는 것은 VACUUM FULL 이고 그것은 테이블을 새로 쓴다.',
     ref:'src/backend/access/heap/vacuumlazy.c', sym:'lazy_vacuum_heap_page',
     fact:['ItemIdSetUnused(itemid);'],
     ops:{ tup:{ set:{ '튜플 A':{ tag:'free', sub:'LP_UNUSED — 자리 회수' }, '튜플 C':{ tag:'free', sub:'LP_UNUSED — 자리 회수' } } },
-          vac:{ set:{ '단계':'힙 회수', '죽은 튜플':'0', '지운 것':'2' } } },
+          vac:{ set:{ '단계':'heap 회수', '죽은 튜플':'0', '지운 것':'2' } } },
     beat:1 },
 
   { look:{ vac:true },
@@ -385,7 +385,7 @@ const SCENES = [
     ['pg_class','relallvisible · relallfrozen — 비트가 켜진 페이지 수(VACUUM · ANALYZE 가 갱신)'] ],
   links:[['04','VACUUM'],['06','XID wraparound'],['03','LP_DEAD 가 남은 페이지']],
   init:{
-    op:{ kv:{ 'SQL':'—', '힙 접근':'—' } },
+    op:{ kv:{ 'SQL':'—', 'heap 접근':'—' } },
     vm:{ items:[
       { id:'페이지 0', tag:'clean', sub:'ALL_VISIBLE  ·  ALL_FROZEN' },
       { id:'페이지 1', tag:'dirty', sub:'비트 없음  ·  최근 변경' },
@@ -418,7 +418,7 @@ const SCENES = [
     ref:'src/backend/executor/nodeIndexonlyscan.c', sym:'IndexOnlyNext',
     fact:['if (!VM_ALL_VISIBLE(scandesc->heapRelation,',
           'Rats, we have to visit the heap to check visibility.'],
-    ops:{ op:{ set:{ 'SQL':'SELECT id FROM t WHERE id=1', '힙 접근':'없음  ·  Heap Fetches 0' } } } },
+    ops:{ op:{ set:{ 'SQL':'SELECT id FROM t WHERE id=1', 'heap 접근':'없음  ·  Heap Fetches 0' } } } },
 
   { act:{ f:'tup', t:'vm', lb:'변경이 비트를 끈다' },
     note:'write 한 번이면 clear — PD_ALL_VISIBLE 과 VM bit 를 함께 끈다',
@@ -428,7 +428,7 @@ const SCENES = [
     fact:['PageClearAllVisible(page);',
           ['src/backend/access/heap/visibilitymap.c','Clearing visibility map bits is not separately WAL-logged.']],
     ops:{ vm:{ set:{ '페이지 0':{ tag:'dirty', sub:'비트 꺼짐  ·  쓰기 발생' } } },
-          op:{ set:{ '힙 접근':'필요  ·  Heap Fetches ↑' } } },
+          op:{ set:{ 'heap 접근':'필요  ·  Heap Fetches ↑' } } },
     beat:1 },
 
   { look:{ vm:true },
@@ -458,7 +458,7 @@ const SCENES = [
     fact:['vac_ins_scale_factor * reltuples * pcnt_unfrozen;',
           '(vac_ins_base_thresh >= 0 && instuples > vacinsthresh);',
           ['src/backend/utils/misc/guc_tables.c','Minimum number of tuple inserts prior to vacuum.']],
-    ops:{ op:{ set:{ 'SQL':'INSERT 만 계속 — 1000 + 0.2 × reltuples × 얼지 않은 비율', '힙 접근':'VACUUM 뒤 다시 0' } } } },
+    ops:{ op:{ set:{ 'SQL':'INSERT 만 계속 — 1000 + 0.2 × reltuples × 얼지 않은 비율', 'heap 접근':'VACUUM 뒤 다시 0' } } } },
   ],
 },
 {
@@ -469,7 +469,7 @@ const SCENES = [
     ['vacuum_freeze_min_age','50000000','VACUUM 이 들른 페이지에서 이보다 늙은 xmin 을 얼린다'],
     ['vacuum_freeze_table_age','150000000','이 나이를 넘기면 VACUUM 이 얼지 않은 페이지를 모두 읽는다(aggressive)'],
     ['autovacuum_freeze_max_age','200000000','이 나이를 넘기면 autovacuum 이 꺼져 있어도 강제로 돈다'],
-    ['vacuum_failsafe_age','1600000000','이 나이를 넘기면 VACUUM 이 인덱스 정리와 지연을 버리고 동결만 한다'],
+    ['vacuum_failsafe_age','1600000000','이 나이를 넘기면 VACUUM 이 인덱스 정리와 지연을 버리고 freeze 만 한다'],
     ['vacuum_max_eager_freeze_failure_rate','0.03','평소 VACUUM 이 미리 얼리러 읽었다가 실패해도 되는 비율 — 18'] ],
   watch:[
     ['pg_database','datfrozenxid 로 데이터베이스의 나이를 본다'],
@@ -479,7 +479,7 @@ const SCENES = [
   init:{
     xid:{ kv:{ '현재 XID':'100', '상한':'0xFFFFFFFF', '나이':'0', '한계':'—' } },
     hdr:{ kv:{ 't_xmin':'100', 't_infomask':'XMIN_COMMITTED' } },
-    vac:{ kv:{ '동결':'—', '방식':'—' } },
+    vac:{ kv:{ 'freeze':'—', '방식':'—' } },
   },
   steps:[
   { look:{ xid:true },
@@ -511,14 +511,14 @@ const SCENES = [
     beat:1,
     ops:{ xid:{ set:{ '한계':'datfrozenxid + 2^31  ·  경고 4천만 전  ·  거부 3백만 전' } } } },
 
-  { act:{ f:'vac', t:'hdr', lb:'동결' },
+  { act:{ f:'vac', t:'hdr', lb:'freeze' },
     note:'해법은 freeze — 오래된 xmin 을 FROZEN 표식으로',
     why:'충분히 오래된 튜플은 어차피 모두에게 보이므로 xmin 을 더 비교할 필요가 없다. heap_prepare_freeze_tuple 이 그 표식을 남기고, 표식은 HEAP_XMIN_FROZEN 이다.',
     key:'frozen 튜플은 <em>나이 계산에서 빠진다</em>. 그래서 wraparound 를 막는 일은 곧 "동결을 제때 하는 일" 이고, 그것을 강제하는 문턱이 autovacuum_freeze_max_age = 2억이다.',
     ref:'src/backend/access/heap/heapam.c', sym:'heap_prepare_freeze_tuple',
     fact:[['src/include/access/htup_details.h','#define HEAP_XMIN_FROZEN']],
-    ops:{ vac:{ set:{ '동결':'진행  ·  xmin → FROZEN' } },
-          hdr:{ set:{ 't_xmin':'동결 표식', 't_infomask':'XMIN_FROZEN' } } } },
+    ops:{ vac:{ set:{ 'freeze':'진행  ·  xmin → FROZEN' } },
+          hdr:{ set:{ 't_xmin':'freeze 표식', 't_infomask':'XMIN_FROZEN' } } } },
 
   { look:{ hdr:true },
     note:'FROZEN 은 새 bit 가 아니다 — COMMITTED | INVALID, 불가능한 조합의 재활용',
@@ -559,7 +559,7 @@ const SCENES = [
           ['src/backend/access/heap/vacuumlazy.c','Triggering the failsafe makes the ongoing VACUUM bypass any further index'],
           ['src/backend/access/heap/vacuumlazy.c','that it started out with.'],
           ['src/backend/utils/misc/guc_tables.c','Age at which VACUUM should trigger failsafe to avoid a wraparound outage.']],
-    ops:{ vac:{ set:{ '방식':'failsafe — 인덱스 정리 · 지연 · 링 버퍼를 버리고 동결만' } },
+    ops:{ vac:{ set:{ '방식':'failsafe — 인덱스 정리 · 지연 · 링 버퍼를 버리고 freeze 만' } },
           xid:{ set:{ '나이':'16억 초과  ·  failsafe' } } } },
   ],
 },
@@ -654,7 +654,7 @@ const SCENES = [
      SERIALIZABLE 은 SSI 가 얹히는 별도 이야기라 값으로 두지 않는다(locks 05). */
   vary:{ knob:'transaction_isolation', base:'read committed', alt:{
     'repeatable read':{
-      2:{ act:{ f:'sb', t:'snap', lb:'트랜잭션 스냅샷' },
+      2:{ act:{ f:'sb', t:'snap', lb:'트랜잭션 snapshot' },
           note:'B 의 UPDATE 시작 — REPEATABLE READ 는 트랜잭션 첫 statement 의 snapshot 을 끝까지',
           why:'트랜잭션의 첫 호출에서 IsolationUsesXactSnapshot() 이 참이면 snapshot 을 복사해 FirstXactSnapshot 으로 등록한다 — 주석 : 트랜잭션 snapshot 모드에서는 첫 snapshot 이 트랜잭션이 끝날 때까지 살아야 한다. 뒤의 문장은 그것을 그대로 돌려받는다.',
           key:'REPEATABLE READ 의 뜻이 <em>트랜잭션 하나에 snapshot 하나</em>다 — 그래서 7 스텝에서 길이 갈린다.',
@@ -681,7 +681,7 @@ const SCENES = [
           fact:['Advertise the fact that we aborted in pg_xact (assuming that we got as',
                 'latestXid = RecordTransactionAbort(false);'],
           ops:{ sb:{ set:{ '상태':'롤백 — 다시 해야 한다|red' } } } },
-      9:{ act:{ f:'sb', t:'tup', lb:'재시도 — 새 스냅샷' },
+      9:{ act:{ f:'sb', t:'tup', lb:'재시도 — 새 snapshot' },
           note:'retry 한 B — 새 snapshot 에서 v=11 을 보고 12 로',
           why:'새 트랜잭션(xid 202)의 첫 문장이 새 snapshot 을 잡는다. A 가 커밋했으므로 버전 2(v=11)가 보이고, 이번에는 아무도 그 행을 고치고 있지 않아 기다림 없이 끝난다.',
           key:'결과는 READ COMMITTED 와 같은 12 다. 다른 것은 <em>그 12 에 이르는 길</em> — RC 는 문장 안에서 조용히 재검사하고, RR 은 오류를 내고 앱이 되풀이한다.',
@@ -717,7 +717,7 @@ const SCENES = [
   },
   steps:[
   { act:{ f:'sa', t:'tup', lb:'UPDATE v = v + 1' },
-    note:'A 의 UPDATE — 새 버전 append, 옛 버전에 xmax 200',
+    note:'A 의 UPDATE — 새 버전 append, old version 에 xmax 200',
     why:'heap_update 는 새 튜플(v=11)을 쓰고 옛 튜플의 xmax 에 자기 xid 를 넣는다(03 장면). 첫 쓰기에서 xid 를 받으면서 그 xid 에 대한 락을 건다 — 주석 : 트랜잭션 XID 에 락을 건다(막히지 않는다고 가정한다).',
     key:'이 xid 락이 <em>행 락 대기의 실체</em>다. PG 는 행마다 락 구조체를 두지 않고, 행을 고친 트랜잭션의 xid 를 기다린다.',
     ref:'src/backend/access/transam/xact.c', sym:'AssignTransactionId',
@@ -728,7 +728,7 @@ const SCENES = [
                 add:[{ id:'버전 2', tag:'dirty', sub:'v=11  ·  xmin 200  (커밋 전)' }] },
           lk:{ add:[{ id:'xid 200', tag:'hold', sub:'ExclusiveLock  ·  A 가 쥠' }] } } },
 
-  { act:{ f:'sb', t:'snap', lb:'문장 스냅샷' },
+  { act:{ f:'sb', t:'snap', lb:'문장 snapshot' },
     note:'B 의 UPDATE 시작 — READ COMMITTED 는 statement 마다 새 snapshot',
     why:'GetTransactionSnapshot 은 트랜잭션의 첫 호출이 아니면 IsolationUsesXactSnapshot() 을 보고, 거짓(READ COMMITTED)이면 매번 GetSnapshotData 로 새 snapshot 을 만든다. 지금 A(200)가 실행 중이므로 snapshot 의 xip 에 200 이 들어간다.',
     key:'READ COMMITTED 의 뜻이 <em>문장마다 새 snapshot</em>이다. 같은 트랜잭션의 다음 문장은 그사이 커밋된 것을 본다.',

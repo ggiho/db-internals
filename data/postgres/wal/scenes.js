@@ -105,7 +105,7 @@ const SCENES = [
     heap:{ items:[
       { id:'p:7', tag:'x', sub:'절반만 쓰임  ·  깨졌다' },
       { id:'p:9', tag:'clean', sub:'LSN 0/4200' } ] },
-    cmp:{ kv:{ 'InnoDB':'사본 복원 → redo 재생 (두 단계)', 'PG':'—' } },
+    cmp:{ kv:{ 'InnoDB':'사본 복원 → redo replay (두 단계)', 'PG':'—' } },
   },
 
   steps:[
@@ -193,14 +193,14 @@ const SCENES = [
     beat:1,
     ops:{ op:{ set:{ '단계':'checkpoint 시작' } } } },
 
-  { act:{ f:'buf', t:'heap', lb:'더티 페이지를 나눠 내려쓴다' },
+  { act:{ f:'buf', t:'heap', lb:'dirty page 를 나눠 flush 한다' },
     note:'dirty buffer 전량 flush — checkpoint_completion_target 으로 분산',
     why:'checkpoint_completion_target 이 0.9 면 다음 checkpoint 까지 간격의 90% 에 걸쳐 나눠 쓴다. 한꺼번에 쏟으면 그 순간 응답이 멈춘다.',
     key:'InnoDB 의 급정지와 같은 문제이고 같은 해법이다(mysql/innodb 04) — <em>미리 조금씩</em>. 다른 것은 InnoDB 가 dirty 비율로, PG 가 시간 비율로 조절한다는 점이다.',
     ref:'src/backend/access/transam/xlog.c', sym:'CreateCheckPoint',
     ops:{ buf:{ set:{ 'p:7':{ tag:'clean', sub:'내려씀' }, 'p:9':{ tag:'clean', sub:'내려씀' } } },
           heap:{ set:{ '파일':{ tag:'clean', sub:'0/4210 까지 반영됨' } } },
-          op:{ set:{ '단계':'더티 페이지 내려쓰기' } } } },
+          op:{ set:{ '단계':'dirty page flush' } } } },
 
   { act:{ f:'op', t:'seg', lb:'RedoRecPtr 을 옮긴다' },
     note:'본체는 redo point 이동 — 기준 LSN 을 지금으로',
@@ -226,7 +226,7 @@ const SCENES = [
     key:'조절할 것이 하나가 아니라 <em>셋이 서로 당긴다</em> — 복구 시간 · WAL 양 · 쓰기 급증. InnoDB 도 같은 삼각형을 갖고 있고, 손잡이 이름만 다르다.',
     ref:'src/backend/access/transam/xlog.c', sym:'CreateCheckPoint',
     beat:1,
-    ops:{ cmp:{ set:{ 'InnoDB':'redo 용량 · 더티 비율 · io_capacity',
+    ops:{ cmp:{ set:{ 'InnoDB':'redo 용량 · dirty 비율 · io_capacity',
                       'PG':'max_wal_size · timeout · completion_target|gold' } } } },
   ],
 },
@@ -336,7 +336,7 @@ const SCENES = [
     fact:[['src/backend/access/transam/varsup.c','MyProc->xid = xid;'],
           ['src/backend/access/transam/xact.c',"transaction), assigning one if it's not yet set."]],
     ops:{ be:{ set:{ 'xid':'100', '상태':'실행 중|green' } },
-          parr:{ add:[{ id:'xid 100', tag:'hold', sub:'실행 중 — 스냅샷에 들어간다' }] },
+          parr:{ add:[{ id:'xid 100', tag:'hold', sub:'실행 중 — snapshot 에 들어간다' }] },
           xact:{ add:[{ id:'xid 100', tag:'wait', sub:'IN_PROGRESS  (00)' }] } } },
 
   { act:{ f:'be', t:'buf', lb:'heap_update' },
@@ -435,7 +435,7 @@ const SCENES = [
           be:{ set:{ '상태':'커밋됨' } } } },
 
   { look:{ be:true, heap:true },
-    note:'COMMIT ack — WAL 은 durable, 힙 파일은 아직 stale',
+    note:'COMMIT ack — WAL 은 durable, heap 파일은 아직 stale',
     why:'지금 디스크에 있는 것은 WAL 레코드 둘(UPDATE · COMMIT)뿐이다. p:7 은 공유 버퍼 안에서 dirty 로 남아 있다. 여기서 죽어도 복구가 WAL 을 replay 해 v=2 를 되살린다(02 장면).',
     key:'mysql/innodb 01 의 부제가 PG 에서도 그대로 성립한다 — <em>커밋 응답을 받은 순간 데이터 파일에는 아직 옛 값이 있다</em>.',
     ref:'src/backend/access/transam/xact.c', sym:'CommitTransaction',

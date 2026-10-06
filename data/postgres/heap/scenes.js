@@ -79,7 +79,7 @@ const SCENES = [
     /* 칸 폭이 실제 바이트 수를 나타낸다 — sz 가 그 폭이다. 합이 24 여야 한다. */
     hdr:{ items:[
       { id:'pd_lsn',    sz:8, sub:'0 · LSN',        tag:'hdr' },
-      { id:'pd_checksum', sz:2, sub:'8 · 체크섬',    tag:'hdr' },
+      { id:'pd_checksum', sz:2, sub:'8 · checksum',    tag:'hdr' },
       { id:'pd_flags',  sz:2, sub:'10 · 플래그',     tag:'hdr' },
       { id:'pd_lower',  sz:2, sub:'12 · 빈 곳 시작', tag:'hdr' },
       { id:'pd_upper',  sz:2, sub:'14 · 빈 곳 끝',   tag:'hdr' },
@@ -109,7 +109,7 @@ const SCENES = [
   { look:{ hdr:['pd_prune_xid'] },
     note:'pd_prune_xid — prune 후보 힌트 4 바이트',
     why:'pd_prune_xid 는 이 페이지에서 정리 가능한 가장 오래된 XID 다. 0 이면 치울 것이 없다는 뜻이라 즉시 정리(pruning)가 그 자리에서 빠져나온다 — mvcc 덱 03 의 heap_page_prune_opt 가 이 값을 먼저 본다.',
-    key:'MVCC 를 heap 에 두었기 때문에 <em>페이지 헤더에 정리용 필드가 필요해진다</em>. InnoDB 헤더에는 이런 필드가 없다 — 옛 버전이 undo 에 있으니 페이지가 정리를 알 필요가 없다.',
+    key:'MVCC 를 heap 에 두었기 때문에 <em>페이지 헤더에 정리용 필드가 필요해진다</em>. InnoDB 헤더에는 이런 필드가 없다 — old version 이 undo 에 있으니 페이지가 정리를 알 필요가 없다.',
     ref:'src/include/storage/bufpage.h', sym:'PageHeaderData',
     fact:[['src/include/storage/bufpage.h','TransactionId pd_prune_xid;']],
     ops:{ cmp:{ set:{ 'PostgreSQL':'pd_prune_xid 있음', 'InnoDB':'대응 필드 없음' } } } },
@@ -307,7 +307,7 @@ const SCENES = [
     tree:{ items:[
       { id:'FSM root', lvl:0, keys:'| 최댓값 |', fill:.2 },
       { id:'FSM 중간', lvl:1, keys:'구간별 최댓값', fill:.4 },
-      { id:'FSM 잎', lvl:2, keys:'힙 페이지별 요약', fill:.6 } ] },
+      { id:'FSM 잎', lvl:2, keys:'heap 페이지별 요약', fill:.6 } ] },
     sp:{ kv:{ '요약 단위':'—', '트리 깊이':'—', '탐색 비용':'—' } },
     cmp:{ kv:{ 'InnoDB':'—', 'PG':'—' } },
   },
@@ -344,7 +344,7 @@ const SCENES = [
     fact:[['src/include/storage/fsm_internals.h','fp_nodes contains the binary tree, stored in array. The first'],
           ['src/include/storage/fsm_internals.h','#define NonLeafNodesPerPage (BLCKSZ / 2 - 1)']],
     beat:1,
-    ops:{ tree:{ set:{ 'FSM 잎':{ id:'FSM 잎', lvl:2, keys:'힙 페이지별 요약  ·  최대 힙', fill:.6 } } } } },
+    ops:{ tree:{ set:{ 'FSM 잎':{ id:'FSM 잎', lvl:2, keys:'heap 페이지별 요약  ·  최대 heap', fill:.6 } } } } },
 
   { act:{ f:'tree', t:'op', lb:'3단을 내려간다' },
     note:'FSM 페이지들 — 다시 3-level tree',
@@ -355,7 +355,7 @@ const SCENES = [
           ['src/backend/storage/freespace/freespace.c','#define FSM_ROOT_LEVEL	(FSM_TREE_DEPTH - 1)']],
     beat:1,
     ops:{ sp:{ set:{ '트리 깊이':'3단  (8KB 블록)|gold', '탐색 비용':'FSM 페이지 3장 읽기|green' } },
-          op:{ set:{ '읽은 페이지':'3  →  그다음 힙 1장' } } } },
+          op:{ set:{ '읽은 페이지':'3  →  그다음 heap 1장' } } } },
 
   { look:{ fsm:true, op:true },
     note:'실시간 아님 — VACUUM 이 지나가야 갱신',
@@ -372,7 +372,7 @@ const SCENES = [
     ref:'src/backend/storage/freespace/freespace.c', sym:'GetPageWithFreeSpace',
     beat:1,
     ops:{ cmp:{ set:{ 'InnoDB':'클러스터 인덱스가 자리를 정한다 · 찾지 않는다',
-                      'PG':'힙은 순서가 없다 · 3단 FSM 으로 찾는다|gold' } } } },
+                      'PG':'heap 은 순서가 없다 · 3단 FSM 으로 찾는다|gold' } } } },
   ],
 },
 ];

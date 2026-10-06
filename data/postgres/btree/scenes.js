@@ -24,7 +24,7 @@ const SCENES = [
       { id:'leaf R', lvl:1, keys:'40 ‥', fill:.6 } ] },
     leaf:{ items:[
       { id:'10 ‥ 20', tag:'clean', sub:'살아 있는 항목 5개' },
-      { id:'12 · 22', tag:'x', sub:'LP_DEAD — 힙에서 이미 죽었다' },
+      { id:'12 · 22', tag:'x', sub:'LP_DEAD — heap 에서 이미 죽었다' },
       { id:'30 ‥ 39', tag:'clean', sub:'살아 있는 항목 6개' } ] },
     right:{ items:[] },
   },
@@ -240,7 +240,7 @@ const SCENES = [
 
   { look:{ op:true, leaf:true },
     note:'non-HOT UPDATE 가 만든 동일 키 version churn — split 전에 bottom-up deletion 으로 회수',
-    why:'bottom-up 삭제는 "UPDATE 가 만드는 MVCC 버전 반복 때문에 생기는 불필요한 분할을 아예 막는" 것이 목표다. 같은 키의 항목들이 가리키는 heap 튜플을 확인해 모두에게 죽은 옛 버전의 항목을 지운다. 이것은 deduplicate_items 와 무관하게 돈다.',
+    why:'bottom-up 삭제는 "UPDATE 가 만드는 MVCC 버전 반복 때문에 생기는 불필요한 분할을 아예 막는" 것이 목표다. 같은 키의 항목들이 가리키는 heap 튜플을 확인해 모두에게 죽은 old version 의 항목을 지운다. 이것은 deduplicate_items 와 무관하게 돈다.',
     key:'버전이 쌓여 인덱스가 부푸는 PG 의 고질을 <em>분할 직전에 되돌린다</em>(mvcc 07 의 HOT 이 못 된 경우의 뒷수습이다).',
     ref:'src/backend/access/nbtree/nbtdedup.c', sym:'_bt_bottomupdel_pass',
     fact:['entirely prevent "unnecessary" page splits caused by MVCC version churn',

@@ -1,7 +1,7 @@
 /* 핵심 문항 — beat 스텝의 요점. 형식과 원칙은 postgres/mvcc/quiz.js 머리말. */
 export const CORE = {
   '01/5': {
-    q: '시계가 고른 버퍼가 더티면 누가 그것을 쓰나?',
+    q: '시계가 고른 버퍼가 dirty 면 누가 그것을 쓰나?',
     a: '빈 버퍼를 찾던 그 백엔드',
     x: ['언제나 bgwriter', '다음 checkpoint 가 올 때까지 기다린다', 'walwriter 가 대신 쓴다'],
   },
