@@ -27,6 +27,12 @@ const ACTORS = {
   rhd:  { nm:'원점 앞  ·  extra 5B',  lane:'val',  kind:'bytes', w:'w2' },
   rdat: { nm:'원점 뒤  ·  데이터',      lane:'val',  kind:'bytes', w:'w2' },
   bit5: { nm:'5바이트 안의 다섯 값',    lane:'val',  kind:'list', w:'w2' },
+  /* 06b 실측 — 한 page 의 헤더 56 B 와, 같은 칸을 page 마다 늘어놓은 표 */
+  phA:  { nm:'PAGE_HEADER  +0 ~ +8',    lane:'page', kind:'kv', w:'w15' },
+  phB:  { nm:'+10 ~ +16',               lane:'page', kind:'kv', w:'w15' },
+  phC:  { nm:'+18 ~ +55',               lane:'page', kind:'kv', w:'w15' },
+  pgs:  { nm:'page 별 값  ·  t.ibd',  lane:'page', kind:'list', w:'w2' },
+  src:  { nm:'실측 조건',             lane:'file', kind:'kv', w:'w15' },
   file: { nm:'FILE  (.ibd)',     lane:'file', kind:'bytes', w:'w2' },
   sum:  { nm:'CHECKSUM',         lane:'file', kind:'kv', w:'w15' },
   ver:  { nm:'VERSION',          lane:'file', kind:'kv' },

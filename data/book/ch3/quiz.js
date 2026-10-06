@@ -185,6 +185,27 @@ export const CORE = {
     a: '94',
     x: ['74', '38', '112'],
   },
+  /* 06b 는 실측 장면이다 — 문항의 수도 그 측정(data/book/ch3/pagedump.js)에서 나왔다 */
+  '06b/3': {
+    q: '순차 insert 로 꽉 찬 PRIMARY leaf(16 KB)가 119 행에서 split 한 이유는?',
+    a: 'page 의 1/16 을 update 몫으로 남겨 두려고',
+    x: ['slot 이 30 개를 넘으면 split 하도록 정해져서', 'N_HEAP 이 120 에서 넘치는 칸이라서', 'innodb_fill_factor 기본값이 94 라서'],
+  },
+  '06b/6': {
+    q: '순차 insert 인데 첫 leaf(p:6)만 절반쯤에서 잘린 이유는?',
+    a: 'root 에서 복사된 page 라 LAST_INSERT 가 비어 있어서',
+    x: ['첫 leaf 는 늘 가운데에서 자르도록 정해져 있어서', 'DELETE 가 먼저 돌아 page 가 절반 비어 있어서', 'root 가 level 1 이 되면 leaf 를 반으로 나눠서'],
+  },
+  '06b/9': {
+    q: 'PRIMARY 의 page 들은 PAGE_MAX_TRX_ID 가 전부 0 이었다. 왜인가?',
+    a: 'secondary index 의 leaf 에서만 쓰는 칸이라서',
+    x: ['purge 가 끝나면 이 칸을 0 으로 되돌려 놓아서', '커밋이 끝난 trx 의 id 는 0 으로 바꿔 둬서', 'clustered 는 이 칸 대신 FIL 헤더에 적어서'],
+  },
+  '06b/11': {
+    q: 'PAGE_BTR_SEG_LEAF · SEG_TOP 20 B 가 0 이 아닌 page 는?',
+    a: '각 index 의 root page 뿐이다',
+    x: ['모든 leaf page 다', 'split 을 겪은 page 다', 'GARBAGE 가 0 이 아닌 page 다'],
+  },
   '07/2': {
     q: '키 셀이 자식을 가리킬 때 담는 것은?',
     a: '자식 페이지 번호',

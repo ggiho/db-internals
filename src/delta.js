@@ -19,8 +19,14 @@ export function delta(scene, frames, i, ACTORS) {
   for (const [who, c] of Object.entries(now.chg || {})) {
     const a = now.st[who] || {}, b = before[who] || {};
     const lines = [];
-    /* kv 의 바뀐 키 — 같은 값으로 set 하면 bake 가 keys 에 넣지 않는다 */
-    if (a.kv) for (const k of c.keys || []) lines.push({ s: '~', t: `${k}  ${val(b.kv && b.kv[k])} → ${val(a.kv[k])}` });
+    /* kv 의 바뀐 키 — 같은 값으로 set 하면 bake 가 keys 에 넣지 않는다.
+       글자는 같고 색(|gold 등)만 바뀐 칸은 "X → X" 로 쓰면 바뀐 것이 없어 보인다 — book/ch3 06b 가
+       짚는 칸을 색으로 바꾸자 그런 줄이 스텝마다 생겼다. 색이 켜진 칸은 '강조' 로 적고, 꺼진 칸은 뺀다. */
+    if (a.kv) for (const k of c.keys || []) {
+      const was = b.kv && b.kv[k], is = a.kv[k];
+      if (val(was) !== val(is)) lines.push({ s: '~', t: `${k}  ${val(was)} → ${val(is)}` });
+      else if (/\|[a-z]+$/.test(String(is))) lines.push({ s: '~', t: `${k}  ${val(is)}  · 강조` });
+    }
     if (a.mx && (c.keys || []).some((k) => k === 'on' || k === 'dim')) {
       lines.push({ s: '~', t: `강조한 칸 ${(a.mx.on || []).length}개` + ((a.mx.dim || []).length ? ` · 흐린 칸 ${a.mx.dim.length}개` : '') });
     }

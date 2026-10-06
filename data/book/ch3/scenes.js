@@ -1,6 +1,75 @@
 /* Database Internals 3장 "File Formats" 를 무대에 올린다.
    원칙 : 책이 일반론으로 제시한 설계 선택을 InnoDB 가 실제로 무엇을 골랐는지와 맞댄다.
    책의 도판과 문장을 옮기지 않는다 — 개념을 다시 그리고 설명은 내가 쓴다. */
+import { PAGEDUMP } from './pagedump.js';
+
+/* ── 06b 는 실측 장면이다 ──
+   무대와 글의 수는 전부 pagedump.js 에서 꺼낸다 — 실제 .ibd 에서 뜬 바이트다(tools/ibdpage.js).
+   손으로 옮겨 적으면 측정과 화면이 어긋날 수 있다. 측정 조건은 PAGEDUMP.meta 에 있다. */
+const DUMP = PAGEDUMP.pages, M = PAGEDUMP.meta;
+const H = (no) => DUMP[no].f;
+const heapN = (no) => H(no).PAGE_N_HEAP & 0x7fff;
+const SUP_END = 120;                                     /* PAGE_NEW_SUPREMUM_END — 06a 의 9 스텝 */
+const RS = (H(8).PAGE_HEAP_TOP - SUP_END) / H(8).PAGE_N_RECS;   /* PRIMARY record 한 개의 바이트 */
+const GONE6 = heapN(6) - 2 - H(6).PAGE_N_RECS;           /* p:6 에서 지워진 채 남은 record 수 */
+const GONE5 = heapN(5) - 2 - H(5).PAGE_N_RECS;
+const MOVED7 = H(7).PAGE_N_RECS - (H(7).PAGE_N_DIRECTION + 1);  /* split 으로 p:7 이 받은 수 */
+const LEAVES = [6, 7, 8, 9, 10, 11, 12, 13, 14];
+/* 다음 record 를 받을지 — page_get_max_insert_size_after_reorganize 의 식을 그대로 따른다 */
+const EMPTY = 16384 - SUP_END - 8 - 2 * 2;                        /* page_get_free_space_of_empty */
+const resv = (n) => Math.floor((2 * n + 4 - 1) / 4);              /* page_dir_calc_reserved_space */
+const MAXSZ = (recs) => EMPTY - (recs * RS + resv(recs + 1));
+const RESERVE = 16384 / 16;                                       /* dict_index_get_space_reserve */
+const DIRN = { 1: 'LEFT', 2: 'RIGHT', 3: 'SAME_REC', 4: 'SAME_PAGE', 5: 'NO_DIRECTION' };
+const segv = (s) => (s.space || s.page || s.offset ? `(${s.space}, ${s.page}, ${s.offset})` : '0 × 10 B');
+const ROLE = { 3: 'SDI root', 4: 'PRIMARY root  L1', 5: 'idx_c root · leaf', 6: 'PRIMARY leaf', 7: 'PRIMARY leaf', 8: 'PRIMARY leaf', 14: 'PRIMARY leaf  (끝)' };
+/* 칸 이름은 소스의 이름(PAGE_ 를 뗀 것)으로, 오프셋은 값 쪽에 둔다 — 768 폭에서 '+14 N_DIRECTION' 같은
+   열다섯 글자 이름이 칸 밖으로 4.5px 잘렸다(sweep text-clip). 이름은 줄바꿈할 곳이 없다. */
+const PH = ['N_DIR_SLOTS', 'HEAP_TOP', 'N_HEAP', 'FREE', 'GARBAGE', 'LAST_INSERT', 'DIRECTION',
+  'N_DIRECTION', 'N_RECS', 'MAX_TRX_ID', 'LEVEL', 'INDEX_ID', 'SEG_LEAF', 'SEG_TOP'];
+const OFF = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 26, 28, 36, 46];
+/* 열네 칸을 한 배우에 담으면 무대가 좁아진다(verify 는 8 개를 넘으면 경고한다). 06a 처럼 뜻으로 나눈다 —
+   공간(+0 ~ +8) · 삽입 이력과 개수(+10 ~ +16) · trx · tree · segment(+18 ~ +46). 셋 다 맨 위에 어느 page 인지 적는다
+   — 한 스텝에 한 덩어리만 보일 때도 무슨 page 의 값인지 알아야 한다. */
+const PHG = { phA: ['page', ...PH.slice(0, 5)], phB: ['page', ...PH.slice(5, 9)], phC: ['page', ...PH.slice(9)] };
+/* 한 page 의 헤더 56 B 를 kv 로 — 2 바이트 칸은 원래 바이트를 앞에 붙인다 */
+function phOf(no, hot = []) {
+  const f = H(no), x = (o) => DUMP[no].hex.slice((38 + o) * 2, (38 + o + 2) * 2);
+  const v = [
+    `${x(0)} → ${f.PAGE_N_DIR_SLOTS}`, `${x(2)} → ${f.PAGE_HEAP_TOP}`, `${x(4)} → ${heapN(no)} + compact`,
+    `${x(6)} → ${f.PAGE_FREE}`, `${x(8)} → ${f.PAGE_GARBAGE}`, `${x(10)} → ${f.PAGE_LAST_INSERT}`,
+    `${x(12)} → ${DIRN[f.PAGE_DIRECTION]}`, `${x(14)} → ${f.PAGE_N_DIRECTION}`, `${x(16)} → ${f.PAGE_N_RECS}`,
+    `${f.PAGE_MAX_TRX_ID}  · 8 B`, `${x(26)} → ${f.PAGE_LEVEL}`, `${f.PAGE_INDEX_ID}  · 8 B`,
+    segv(f.PAGE_BTR_SEG_LEAF), segv(f.PAGE_BTR_SEG_TOP)];
+  const out = { 'page': `p:${no}  ${ROLE[no] || 'PRIMARY leaf'}` };
+  PH.forEach((k, i) => { out[k] = `+${OFF[i]}  ${v[i]}` + (hot.includes(k) ? '|gold' : ''); });
+  return out;
+}
+/* page 별 값 — p:8 ~ p:13 은 헤더 56 B 가 바이트까지 같아 한 줄로 묶는다 */
+const PGS = [[3, 'p:3  SDI'], [4, 'p:4  root'], [5, 'p:5  idx_c'], [6, 'p:6  leaf'], [7, 'p:7  leaf'], [8, 'p:8–13  leaf'], [14, 'p:14  leaf']];
+/* 바뀐 칸만 set 한다 — 같은 값을 다시 쓰면 verify 가 "변화 없음" 으로 경고한다.
+   스텝은 배열 순서대로 평가되므로 직전 상태를 들고 다니며 차이만 낸다. */
+const NOW = { phA: {}, phB: {}, phC: {}, pgs: {} };
+function op(who, full) {
+  const set = {};
+  for (const [k, v] of Object.entries(full)) {
+    if (JSON.stringify(NOW[who][k]) !== JSON.stringify(v)) { set[k] = v; NOW[who][k] = v; }
+  }
+  return Object.keys(set).length ? { [who]: { set } } : {};
+}
+/* 짚는 칸이 든 덩어리만 내보낸다 — 셋을 함께 바꾸면 세 장이 다 무대에 올라 768 폭에서 카드가 95px 로
+   눌렸다(키와 값이 겹쳤다). 짚는 칸이 없으면(첫 · 끝 스텝) 셋 다 내보낸다. 나중에 올라오는 덩어리는
+   그때 page 줄까지 함께 바뀌므로 낡은 page 를 보이는 일은 없다. */
+const phOps = (no, hot = []) => {
+  const full = phOf(no, hot);
+  return Object.assign({}, ...Object.entries(PHG)
+    .filter(([, ks]) => !hot.length || ks.some((k) => hot.includes(k)))
+    .map(([who, ks]) => op(who, Object.fromEntries(ks.map((k) => [k, full[k]])))));
+};
+/* 짚는 줄은 꼬리표가 아니라 화살표로 표시한다 — list 의 태그는 hold · wait 처럼 뜻이 있는 말이다 */
+const pgsOf = (fn, hot = []) => Object.fromEntries(PGS.map(([no, id]) =>
+  [id, { id, sub: fn(H(no), no) + (hot.includes(no) ? '   ←' : '') }]));
+
 const SCENES = [
 {
   num:'01', tab:'Byte Order', title:'Byte Order: Big-Endian on Disk, Regardless of CPU',
@@ -865,7 +934,7 @@ const SCENES = [
     ['hexdump -C  *.ibd','오프셋 38 부터가 페이지 헤더다 — 38+0 의 2바이트가 슬롯 수'],
     ['I_S.INNODB_BUFFER_PAGE','NUMBER_RECORDS 는 PAGE_N_RECS, PAGE_LEVEL 은 트리 레벨'],
     ['I_S.INNODB_INDEXES','PAGE_NO 가 루트 — FSEG 두 개가 의미를 갖는 유일한 페이지']],
-  links:[['04a','FIL 헤더 38바이트'],['06','슬롯이 레코드 4~8개를 소유한다'],['09','PAGE_FREE 와 PAGE_GARBAGE']],
+  links:[['04a','FIL 헤더 38바이트'],['06','슬롯이 레코드 4~8개를 소유한다'],['06b','실제 .ibd 에서 뜬 field 값'],['09','PAGE_FREE 와 PAGE_GARBAGE']],
   init:{
     op:{ kv:{ '페이지':'p:5  INDEX', '헤더 시작':'—', '데이터 시작':'—' } },
     /* 2바이트 필드가 아홉 개라 하나씩 그리면 18px 이 되어 라벨이 사라진다 —
@@ -990,6 +1059,186 @@ const SCENES = [
     ref:'storage/innobase/page/page.ic', sym:'page_header_get_field',
     beat:1,
     ops:{ addr:{ set:{ '디렉터리 시작':'16384 − 8 − 2(n+1)  ·  역방향|green' } } } },
+  ],
+},
+{
+  num:'06b', tab:'Header, Measured',
+  title:'INDEX Page Header, Measured: 14 Fields on a Real .ibd',
+  sub:`INSERT 1,000 · DELETE 11 · UPDATE 1 뒤의 t.ibd — B-tree page ${Object.keys(DUMP).length} 장의 앞 94 B 를 field 단위로 푼다 (mysqld ${M.mysqld} 실측)`,
+  cast:['src','phA','phB','phC','pgs','fld','addr'],
+  knobs:[
+    ['innodb_page_size','16 KB','1/16 reserve · slot 예약 · inode entry 크기가 이 값에서 나온다'],
+    ['innodb_fast_shutdown',`${M.fastShutdown}  (실측 조건)`,'0 이라 purge 를 끝내고 내렸다 — 1 이면 지운 행이 delete-mark 로 남아 있을 수 있다']],
+  watch:[
+    ['node tools/ibdpage.js t.ibd','이 장면의 표를 다시 뜬다 — 오프셋을 소스 정의와 먼저 맞춘다'],
+    ['I_S.INNODB_BUFFER_PAGE','NUMBER_RECORDS 는 N_RECS, DATA_SIZE 는 HEAP_TOP − 120 − GARBAGE'],
+    ['I_S.INNODB_INDEXES','INDEX_ID · PAGE_NO — PAGE_INDEX_ID 와 root page 번호']],
+  links:[['06a','field 개요와 page 의 주소 지도'],['09','PAGE_FREE · PAGE_GARBAGE 를 다시 쓰는 법'],['04a','앞 38 B — FIL header']],
+  cite:["holds important information about the page and cells"],
+  init:{
+    src:{ kv:{ '파일':'—', 'mysqld':'—', '작업':'—', 'trx':'—', 'shutdown':'—' } },
+    ...Object.fromEntries(Object.entries(PHG).map(([who, ks]) => [who, { kv:Object.fromEntries(ks.map((k) => [k, '—'])) }])),
+    pgs:{ items:PGS.map(([, id]) => ({ id, sub:'—' })) },
+    fld:{ kv:{ '이름':'—', '오프셋 · 폭':'—', '쓰는 곳':'—', '읽는 곳':'—' } },
+    addr:{ kv:{ '식':'—', '실측':'—', '판정':'—' } },
+  },
+  steps:[
+  { look:{ src:true, phA:true, phB:true, phC:true, pgs:true },
+    note:`실측 — page 3–14, B-tree ${Object.keys(DUMP).length} 장의 앞 94 B 를 그대로 떴다`,
+    why:`t.ibd 의 page 0 은 FSP_HDR, 1 은 IBUF_BITMAP, 2 는 INODE, 3 은 SDI 다. 4 가 PRIMARY 의 root, 5 가 idx_c 의 root 로 I_S.INNODB_INDEXES 의 PAGE_NO 와 같고, 6–14 는 PRIMARY 의 leaf 다. PAGE_HEADER 는 FIL header 가 끝난 38 에서 PAGE_DATA(94)까지 56 B — field 12 개 36 B 와 FSEG header 둘 20 B 다.`,
+    key:'이 장면의 수는 <em>설명용 예시가 아니라 파일에서 읽은 값</em>이다. tools/ibdpage.js 가 오프셋을 소스 정의와 글자 단위로 맞춘 뒤 바이트를 풀고, 같은 SQL 을 다시 돌려도 id 를 빼면 같은 표가 나왔다. p:8 – p:13 여섯 장은 헤더 56 B 가 바이트까지 같다.',
+    ref:'storage/innobase/include/page0types.h', sym:'PAGE_DATA',
+    fact:[['storage/innobase/include/page0types.h','constexpr uint32_t PAGE_DATA = PAGE_HEADER + 36 + 2 * FSEG_HEADER_SIZE;']],
+    ops:{ src:{ set:{ '파일':`t.ibd  ·  space ${M.space}  ·  ${M.nPages} page`, 'mysqld':`${M.mysqld}  ·  ${M.rowFormat}`,
+                      '작업':'INSERT 1,000 → DELETE 11 → UPDATE 1', 'trx':`${M.trx.insert} · ${M.trx.delete} · ${M.trx.update}`,
+                      'shutdown':`innodb_fast_shutdown = ${M.fastShutdown}` } },
+          ...phOps(8),
+          ...op('pgs', pgsOf((f, no) => `L${f.PAGE_LEVEL}  ·  index ${no === 3 ? 'SDI' : f.PAGE_INDEX_ID}  ·  recs ${f.PAGE_N_RECS}`)) } },
+
+  { act:{ f:'phA', t:'pgs', lb:'N_DIR_SLOTS' },
+    note:'+0 N_DIR_SLOTS — 119 행 page 에 slot 30, 989 행 page 에 147',
+    why:`slot 하나가 record 4–8 개를 소유한다(PAGE_DIR_SLOT_MIN_N_OWNED = 4, PAGE_DIR_SLOT_MAX_N_OWNED = 8). 9 개가 되면 쪼갠다 — n_owned / 2 인 4 개가 새 slot 으로 가고 5 개가 남는다. p:8 은 infimum · supremum 을 더한 ${heapN(8)} 개를 ${H(8).PAGE_N_DIR_SLOTS} slot 이, p:5 는 ${H(5).PAGE_N_RECS + 2} 개를 ${H(5).PAGE_N_DIR_SLOTS} slot 이 나눠 갖는다.`,
+    key:`slot 당 평균이 <em>${(heapN(8) / H(8).PAGE_N_DIR_SLOTS).toFixed(1)} 과 ${((H(5).PAGE_N_RECS + 2) / H(5).PAGE_N_DIR_SLOTS).toFixed(1)}</em> 로 갈린다. 순차 insert 는 늘 마지막 slot 만 키우므로 4 개짜리를 남기며 지나가고, 흩어진 insert(idx_c)는 4–8 사이에 고루 퍼진다 — 규칙은 같고 밀도가 다르다.`,
+    ref:'storage/innobase/page/page0page.cc', sym:'page_dir_split_slot',
+    fact:[['storage/innobase/include/page0page.h','constexpr uint32_t PAGE_DIR_SLOT_MAX_N_OWNED = 8;'],
+          ['storage/innobase/include/page0page.h','constexpr uint32_t PAGE_DIR_SLOT_MIN_N_OWNED = 4;'],
+          ['storage/innobase/page/page0cur.cc','If the number exceeds PAGE_DIR_SLOT_MAX_N_OWNED,'],
+          ['storage/innobase/page/page0page.cc','page_dir_slot_set_n_owned(new_slot, page_zip, n_owned / 2);']],
+    ops:{ ...phOps(8, ['N_DIR_SLOTS']),
+          ...op('pgs', pgsOf((f) => `slot ${f.PAGE_N_DIR_SLOTS}  ·  소유 ${f.PAGE_N_RECS + 2}`, [8, 5])),
+          fld:{ set:{ '이름':'PAGE_N_DIR_SLOTS', '오프셋 · 폭':'38 + 0  ·  2 B', '쓰는 곳':'page_dir_split_slot · page_dir_balance_slot', '읽는 곳':'page_dir_get_n_slots — binary search 의 범위' } } } },
+
+  { act:{ f:'phA', t:'addr', lb:'HEAP_TOP' },
+    note:`+2 HEAP_TOP — ${H(8).PAGE_HEAP_TOP}, 꽉 찬 leaf 에도 1 KB 남짓이 남는다`,
+    why:`record 가 쌓인 끝이다. ${SUP_END}(supremum 끝) + ${H(8).PAGE_N_RECS} × ${RS} = ${H(8).PAGE_HEAP_TOP}. 다음 record 를 받을지는 page_get_max_insert_size_after_reorganize 가 정한다 — 빈 page 의 여유 ${EMPTY} B 에서 데이터 ${H(8).PAGE_HEAP_TOP - SUP_END} B 와 slot 예약 ${resv(H(8).PAGE_N_RECS + 1)} B 를 빼면 ${MAXSZ(H(8).PAGE_N_RECS)} B 다. ${RS} B 가 들어갈 자리인데 InnoDB 는 split 했다.`,
+    key:`순차 insert 가 clustered leaf 에 몰리면 <em>page 의 1/16 을 update 몫으로 남긴다</em>(dict_index_get_space_reserve). ${RESERVE} + ${RS} > ${MAXSZ(H(8).PAGE_N_RECS)} 라 거절되고, 한 개 적을 때는 ${MAXSZ(H(8).PAGE_N_RECS - 1)} B 가 남아 받았다 — 그래서 꽉 찬 leaf 가 ${H(8).PAGE_N_RECS} 행에서 멈췄다.`,
+    ref:'storage/innobase/btr/btr0cur.cc', sym:'btr_cur_optimistic_insert', beat:1,
+    fact:[['storage/innobase/include/dict0dict.ic','return (UNIV_PAGE_SIZE / 16);'],
+          ['storage/innobase/btr/btr0cur.cc','we have to split the page to reserve enough free space for'],
+          ['storage/innobase/btr/btr0cur.cc','dict_index_get_space_reserve() + rec_size > max_size &&'],
+          ['storage/innobase/include/page0page.ic','occupied = page_get_data_size(page) +']],
+    ops:{ ...phOps(8, ['HEAP_TOP']),
+          ...op('pgs', pgsOf((f) => `top ${f.PAGE_HEAP_TOP}  ·  data ${f.PAGE_HEAP_TOP - SUP_END - f.PAGE_GARBAGE} B`, [8])),
+          fld:{ set:{ '이름':'PAGE_HEAP_TOP', '오프셋 · 폭':'38 + 2  ·  2 B', '쓰는 곳':'page_mem_alloc_heap — heap 끝에서 뗀다', '읽는 곳':'page_get_data_size · I_S DATA_SIZE' } },
+          addr:{ set:{ '식':`${EMPTY} − (${H(8).PAGE_HEAP_TOP - SUP_END} + ${resv(H(8).PAGE_N_RECS + 1)})`, '실측':`= ${MAXSZ(H(8).PAGE_N_RECS)} B  남음`, '판정':`${RESERVE} + ${RS} = ${RESERVE + RS} > ${MAXSZ(H(8).PAGE_N_RECS)}  →  split|red` } } } },
+
+  { act:{ f:'phA', t:'fld', lb:'N_HEAP' },
+    note:`+4 N_HEAP — 0x${DUMP[6].hex.slice(84, 88)} : bit 15 는 compact, 나머지 ${heapN(6)} 은 heap 번호의 수`,
+    why:`p:6 의 user record 는 ${H(6).PAGE_N_RECS} 인데 heap 은 ${heapN(6)} 이다. infimum · supremum 둘(PAGE_HEAP_NO_USER_LOW = 2)에 지워진 ${GONE6} 개가 heap 번호를 쥐고 있다. free list 의 자리를 다시 쓸 때도 새 record 가 그 번호를 물려받는다.`,
+    key:`record lock 은 page 안의 record 를 <em>이 heap 번호로</em> 가리킨다. lock 하나의 bitmap 이 1 + (N_HEAP + 64) / 8 바이트라 p:6 은 지워진 record 몫까지 ${1 + Math.floor((heapN(6) + 64) / 8)} B 를 잡는다 (LOCK_PAGE_BITMAP_MARGIN = 64).`,
+    ref:'storage/innobase/include/lock0priv.h', sym:'lock_size',
+    fact:[['storage/innobase/include/page0types.h','number of records in the heap, bit 15=flag: new-style compact page format'],
+          ['storage/innobase/page/page0cur.cc','heap_no = rec_get_heap_no_new(free_rec);'],
+          ['storage/innobase/include/lock0priv.h','ulint n_recs = page_dir_get_n_heap(page);'],
+          ['storage/innobase/include/lock0priv.h','return (1 + ((n_recs + LOCK_PAGE_BITMAP_MARGIN) / 8));']],
+    ops:{ ...phOps(6, ['N_HEAP']),
+          ...op('pgs', pgsOf((f, no) => `heap ${heapN(no)}  ·  recs ${f.PAGE_N_RECS}`, [6, 5])),
+          fld:{ set:{ '이름':'PAGE_N_HEAP', '오프셋 · 폭':'38 + 4  ·  2 B  (bit 15 = compact)', '쓰는 곳':'page_mem_alloc_heap 이 하나씩 올린다', '읽는 곳':'lock_size — record lock bitmap 의 길이' } },
+          addr:{ set:{ '식':`${heapN(6)} − 2 − ${H(6).PAGE_N_RECS}`, '실측':`= ${GONE6}  지워진 채 남은 record`, '판정':'heap 번호는 반납되지 않는다|gold' } } } },
+
+  { act:{ f:'phA', t:'addr', lb:'+6  FREE  ·  +8  GARBAGE' },
+    note:`+6 FREE · +8 GARBAGE — 지운 ${GONE6} 개가 ${H(6).PAGE_GARBAGE} B 를 쥔 채 page 에 남는다`,
+    why:`GARBAGE 는 지워진 record 바이트의 합, FREE 는 그 목록의 머리다. p:6 의 ${H(6).PAGE_GARBAGE} = ${GONE6} × ${RS}, p:5 의 ${H(5).PAGE_GARBAGE} = ${GONE5} × ${H(5).PAGE_GARBAGE / GONE5}(secondary entry). 살아 있는 데이터는 HEAP_TOP − 120 − GARBAGE 로 나온다 — p:6 은 ${H(6).PAGE_HEAP_TOP - SUP_END - H(6).PAGE_GARBAGE} = ${H(6).PAGE_N_RECS} × ${RS} 이고, I_S.INNODB_BUFFER_PAGE 의 DATA_SIZE 도 같은 식이라 값이 ${M.bufpage[6].data} 이었다.`,
+    cite:["stores a pointer to the first freeblock in the page header"],
+    key:'insert 는 <em>free list 의 머리 하나만</em> 본다. 크기가 맞으면 그 자리를 쓰고, 작으면 목록을 더 뒤지지 않고 HEAP_TOP 에서 새로 뗀다 — 흩어진 garbage 는 page 를 reorganize 해야 연속 공간으로 돌아온다(09 장면).',
+    ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_insert_rec_low',
+    fact:[['storage/innobase/page/page0cur.cc','Try to allocate from the head of the free list.'],
+          ['storage/innobase/page/page0cur.cc','if (rec_offs_size(foffsets) < rec_size) {'],
+          ['storage/innobase/handler/i_s.cc','page_info->data_size =']],
+    ops:{ ...phOps(6, ['FREE', 'GARBAGE']),
+          ...op('pgs', pgsOf((f) => (f.PAGE_GARBAGE ? `free → ${f.PAGE_FREE}  ·  garbage ${f.PAGE_GARBAGE} B` : 'free 0  ·  garbage 0'), [6, 5])),
+          fld:{ set:{ '이름':'PAGE_FREE · PAGE_GARBAGE', '오프셋 · 폭':'38 + 6 · 38 + 8  ·  2 B 씩', '쓰는 곳':'delete · purge 가 목록에 얹고 바이트를 더한다', '읽는 곳':'page_cur_insert_rec_low — 머리 하나만 시도' } },
+          addr:{ set:{ '식':`${H(6).PAGE_HEAP_TOP} − 120 − ${H(6).PAGE_GARBAGE}`, '실측':`= ${H(6).PAGE_HEAP_TOP - SUP_END - H(6).PAGE_GARBAGE} B  =  ${H(6).PAGE_N_RECS} × ${RS}`, '판정':`I_S DATA_SIZE ${M.bufpage[6].data} 과 일치|green` } } } },
+
+  { act:{ f:'pgs', t:'addr', lb:'p:6 → p:7' },
+    note:`p:6 의 ${GONE6} = DELETE 11 + split 이 옮겨 간 ${MOVED7}`,
+    why:`첫 leaf 는 root 에서 태어난다. root 가 차면 record 를 새 page(p:6)로 복사하고 root 를 한 단 올린 뒤 p:6 을 split 한다. 복사로 만든 page 는 LAST_INSERT 가 비어 있어 순차 insert 로 알아보지 못하고, page_get_middle_rec 로 가운데에서 자른다 — (119 + 2) / 2 = 60 번째부터 ${MOVED7} 개가 p:7 로 가고 p:6 에는 ${H(6).PAGE_N_RECS + 11} 개와 garbage ${MOVED7} 이 남았다. 거기서 id 10–20 을 지워 ${H(6).PAGE_N_RECS}.`,
+    key:`순차 insert 인데도 <em>첫 leaf 만 절반</em>이다. 나머지 leaf 는 split_rec_to_right 가 끝에서 잘라 119 를 채운다 — 차이는 LAST_INSERT 한 칸이었다. p:7 의 N_DIRECTION ${H(7).PAGE_N_DIRECTION} 이 그 흔적이다 : ${MOVED7} 개를 받은 뒤 ${H(7).PAGE_N_RECS - MOVED7} 번 이어 붙였다.`,
+    ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_root_raise_and_insert', beat:1,
+    fact:[['storage/innobase/btr/btr0btr.cc','Copy the records from root to the new page one by one.'],
+          ['storage/innobase/page/page0cur.cc','page_header_set_ptr(new_page, nullptr, PAGE_LAST_INSERT, nullptr);'],
+          ['storage/innobase/btr/btr0btr.cc','if (page_header_get_ptr(page, PAGE_LAST_INSERT) == insert_point) {'],
+          ['storage/innobase/btr/btr0btr.cc','split_rec = page_get_middle_rec(page);'],
+          ['storage/innobase/include/page0page.ic','ulint middle = (page_get_n_recs(page) + PAGE_HEAP_NO_USER_LOW) / 2;']],
+    ops:{ ...op('pgs', pgsOf((f, no) => (no === 6 ? `${f.PAGE_N_RECS + 11} 남음 − 11 삭제 = ${f.PAGE_N_RECS}` : no === 7 ? `${MOVED7} 받음 + ${f.PAGE_N_RECS - MOVED7} insert = ${f.PAGE_N_RECS}` : `recs ${f.PAGE_N_RECS}`), [6, 7])),
+          addr:{ set:{ '식':'middle = (119 + 2) / 2 = 60', '실측':`p:6 ${H(6).PAGE_N_RECS + 11} 남김  ·  p:7 ${MOVED7} 받음`, '판정':'root raise 직후의 split 은 가운데|gold' } } } },
+
+  { act:{ f:'phB', t:'pgs', lb:'+10 · +12 · +14' },
+    note:`+10 · +12 · +14 — p:8 은 RIGHT ${H(8).PAGE_N_DIRECTION} : 빈 page 에 119 번 이어 붙인 기록`,
+    why:`insert 가 직전 insert 바로 뒤에 붙으면 RIGHT 로 두고 N_DIRECTION 을 1 올린다. 빈 page 의 첫 insert 는 LAST_INSERT 가 없어 NO_DIRECTION · 0 에서 출발하므로 119 번이면 ${H(8).PAGE_N_DIRECTION} 이다. LAST_INSERT ${H(8).PAGE_LAST_INSERT} 는 마지막 record 의 origin — 시작(${H(8).PAGE_HEAP_TOP - RS})에서 extra ${H(8).PAGE_LAST_INSERT - (H(8).PAGE_HEAP_TOP - RS)} B 를 지난 자리다.`,
+    key:'delete 는 LAST_INSERT 만 0 으로 지운다 — purge 가 지나간 p:5 · p:6 의 LAST_INSERT 가 0 이고, 다음 insert 는 NO_DIRECTION · 0 에서 다시 센다. 이 세 칸이 split 위치와 06a 의 검색 지름길을 정하므로, <em>지우기가 끼어든 직후의 split 은 가운데로 갈 수 있다</em>.',
+    ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_insert_rec_low',
+    fact:[['storage/innobase/page/page0cur.cc','/* 6. Update the last insertion info in page header */'],
+          ['storage/innobase/page/page0cur.cc','page_header_set_field(page, nullptr, PAGE_DIRECTION, PAGE_RIGHT);'],
+          ['storage/innobase/page/page0cur.cc','1. Reset the last insert info in the page header and increment']],
+    ops:{ ...phOps(8, ['LAST_INSERT', 'DIRECTION', 'N_DIRECTION']),
+          ...op('pgs', pgsOf((f) => `${DIRN[f.PAGE_DIRECTION]}  ${f.PAGE_N_DIRECTION}  ·  last ${f.PAGE_LAST_INSERT}`, [8, 7])),
+          fld:{ set:{ '이름':'LAST_INSERT · DIRECTION · N_DIRECTION', '오프셋 · 폭':'38 + 10 · 12 · 14  ·  2 B 씩', '쓰는 곳':'page_cur_insert_rec_low 의 6 단계 · delete 가 지운다', '읽는 곳':'btr_page_get_split_rec_to_right · 06a 의 지름길' } },
+          addr:{ set:{ '식':'119 번 insert − 첫 번째', '실측':`N_DIRECTION ${H(8).PAGE_N_DIRECTION}`, '판정':'직전 insert 의 바로 뒤 → +1|green' } } } },
+
+  { act:{ f:'phB', t:'addr', lb:'+16  N_RECS' },
+    note:`+16 N_RECS — leaf 9 장의 합 ${LEAVES.reduce((a, no) => a + H(no).PAGE_N_RECS, 0)} = COUNT(*)`,
+    why:`user record 만 센다 — infimum · supremum 과 지워진 record 는 빠진다. PRIMARY leaf 9 장을 더하면 ${H(6).PAGE_N_RECS} + 119 × 7 + ${H(14).PAGE_N_RECS} = ${M.rows} 로 COUNT(*) 와 같고, root p:4 의 ${H(4).PAGE_N_RECS} 는 leaf 9 장을 가리키는 node pointer 의 수다.`,
+    key:'N_HEAP 과 N_RECS 의 차이가 곧 <em>지워진 채 남은 record 수</em>다. I_S.INNODB_BUFFER_PAGE 의 NUMBER_RECORDS 는 이 칸을 그대로 읽는다(page_get_n_recs) — 이번 측정에서 11 장 모두 같았다.',
+    ref:'storage/innobase/handler/i_s.cc', sym:'i_s_innodb_set_page_type',
+    fact:[['storage/innobase/include/page0types.h','number of user records on the page'],
+          ['storage/innobase/handler/i_s.cc','page_info->num_recs = page_get_n_recs(page);']],
+    ops:{ ...phOps(8, ['N_RECS']),
+          ...op('pgs', pgsOf((f, no) => `recs ${f.PAGE_N_RECS}  ·  I_S ${M.bufpage[no] ? M.bufpage[no].recs : '—'}`, [6, 7, 8, 14])),
+          fld:{ set:{ '이름':'PAGE_N_RECS', '오프셋 · 폭':'38 + 16  ·  2 B', '쓰는 곳':'insert · delete 가 하나씩', '읽는 곳':'page_get_n_recs · I_S NUMBER_RECORDS' } },
+          addr:{ set:{ '식':`${H(6).PAGE_N_RECS} + 119 × 7 + ${H(14).PAGE_N_RECS}`, '실측':`= ${M.rows}`, '판정':'SELECT COUNT(*) 와 같다|green' } } } },
+
+  { act:{ f:'phC', t:'fld', lb:'+18  MAX_TRX_ID' },
+    note:`+18 MAX_TRX_ID — PRIMARY page 는 전부 0, idx_c 는 ${H(5).PAGE_MAX_TRX_ID} = UPDATE 의 trx`,
+    why:`secondary index 의 leaf 에서만 쓰고, 고친 trx 의 id 가 지금 값보다 클 때만 올린다. trx ${M.trx.insert}(INSERT) · ${M.trx.delete}(DELETE) · ${M.trx.update}(UPDATE) 가 차례로 지나가 남은 값이 ${H(5).PAGE_MAX_TRX_ID} 이고, purge 가 지나간 뒤에도 그대로다. PRIMARY 의 record 는 저마다 DB_TRX_ID 를 들고 있어 이 칸이 필요 없다.`,
+    key:`secondary 를 읽는 consistent read 는 <em>이 값 하나로 page 전체를 판정한다</em>. read view 에서 trx ${H(5).PAGE_MAX_TRX_ID} 가 보이면 그 page 의 entry 는 전부 보이고, 안 보이면 entry 마다 clustered index 로 가서 version 을 확인한다 — 최근 쓰기 한 번이 그 page 를 읽는 오래된 read 를 모두 느리게 할 수 있다.`,
+    ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_sec_rec_cons_read_sees', beat:1,
+    fact:[['storage/innobase/include/page0types.h','defined only in secondary indexes and in the insert buffer tree'],
+          ['storage/innobase/include/page0page.ic','if (page_get_max_trx_id(buf_block_get_frame(block)) < trx_id) {'],
+          ['storage/innobase/lock/lock0lock.cc','if (!inherit_in || index->is_clustered()) {'],
+          ['storage/innobase/lock/lock0lock.cc','return (view->sees(max_trx_id));']],
+    ops:{ ...phOps(5, ['MAX_TRX_ID']),
+          ...op('pgs', pgsOf((f) => `max trx ${f.PAGE_MAX_TRX_ID}`, [5])),
+          fld:{ set:{ '이름':'PAGE_MAX_TRX_ID', '오프셋 · 폭':'38 + 18  ·  8 B', '쓰는 곳':'page_update_max_trx_id — secondary leaf 만, 올리기만', '읽는 곳':'lock_sec_rec_cons_read_sees' } },
+          addr:{ set:{ '식':`max(${M.trx.insert}, ${M.trx.delete}, ${M.trx.update})`, '실측':`= ${H(5).PAGE_MAX_TRX_ID}`, '판정':'view 가 이 id 를 보면 page 통째로 visible|gold' } } } },
+
+  { act:{ f:'phC', t:'pgs', lb:'+26  LEVEL  ·  +28  INDEX_ID' },
+    note:`+26 LEVEL · +28 INDEX_ID — root 1 · leaf 0, ${H(4).PAGE_INDEX_ID} · ${H(5).PAGE_INDEX_ID} 는 I_S 의 INDEX_ID 그대로`,
+    why:`둘 다 page 를 만들 때 한 번 쓰고 다시 쓰지 않는다. leaf 가 0 이고 위로 하나씩 는다 — root p:4 가 1 이라 PRIMARY 는 두 단이다. INDEX_ID 는 I_S.INNODB_INDEXES 의 ${H(4).PAGE_INDEX_ID}(PRIMARY) · ${H(5).PAGE_INDEX_ID}(idx_c) 와 같고, SDI 의 page 3 은 dict_sdi_get_index_id 가 주는 uint64 최댓값을 쓴다.`,
+    key:'page 하나만 주워도 <em>어느 index 의 몇 번째 단인지</em> 안다. I_S.INNODB_BUFFER_PAGE 의 INDEX_NAME 도 이 8 B 를 읽어 index 를 찾는다(btr_page_get_index_id).',
+    ref:'storage/innobase/include/btr0btr.ic', sym:'btr_page_get_index_id',
+    fact:[['storage/innobase/include/page0types.h','level of the node in an index tree; the leaf level is the level 0.'],
+          ['storage/innobase/include/page0types.h','index id where the page belongs. This field should not be written to after'],
+          ['storage/innobase/include/dict0dict.ic','return (std::numeric_limits<uint64_t>::max());'],
+          ['storage/innobase/handler/i_s.cc','page_info->index_id = btr_page_get_index_id(page);']],
+    ops:{ ...phOps(4, ['LEVEL', 'INDEX_ID']),
+          ...op('pgs', pgsOf((f, no) => `L${f.PAGE_LEVEL}  ·  ${no === 3 ? 'uint64 max  (SDI)' : `${f.PAGE_INDEX_ID}  ${M.index[f.PAGE_INDEX_ID].name}`}`, [4, 5])),
+          fld:{ set:{ '이름':'PAGE_LEVEL · PAGE_INDEX_ID', '오프셋 · 폭':'38 + 26 · 2 B  ·  38 + 28 · 8 B', '쓰는 곳':'page 생성 때 한 번 — 이후 쓰지 않는다', '읽는 곳':'btr_page_get_level · btr_page_get_index_id' } },
+          addr:{ set:{ '식':'I_S.INNODB_INDEXES', '실측':`${H(4).PAGE_INDEX_ID} PRIMARY → PAGE_NO ${M.index[H(4).PAGE_INDEX_ID].root}  ·  ${H(5).PAGE_INDEX_ID} idx_c → ${M.index[H(5).PAGE_INDEX_ID].root}`, '판정':'헤더와 사전이 같은 수|green' } } } },
+
+  { act:{ f:'phC', t:'addr', lb:'+36  SEG_LEAF  ·  +46  SEG_TOP' },
+    note:`+36 · +46 FSEG — root 에만 있다 : ${segv(H(4).PAGE_BTR_SEG_LEAF)} · ${segv(H(4).PAGE_BTR_SEG_TOP)}, 나머지는 20 B 가 0`,
+    why:`space · page · offset 10 B 씩이다(FSEG_HEADER_SIZE = 10). 가리키는 곳은 page 2(FIL_PAGE_INODE)의 inode entry — FSEG_ARR_OFFSET 인 50 에서 시작해 FSEG_INODE_SIZE 인 192 B 씩 늘어선다. 50 · 242 는 SDI, 434 · 626 은 PRIMARY, 818 · 1010 은 idx_c 의 것이다.`,
+    key:'index 하나가 <em>segment 둘</em>을 갖는다 — leaf 와 non-leaf. btr_create 가 non-leaf(TOP)를 먼저 만들고 root 를 그 segment 에서 받으므로 TOP 의 entry 가 앞선다(434 < 626). split 이 새 page 를 달라고 하면 level 0 은 SEG_LEAF, 그 위는 SEG_TOP 에서 받는다.',
+    ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_create', beat:1,
+    fact:[['storage/innobase/include/fsp0fsp.h','constexpr uint32_t FSEG_ARR_OFFSET = FSEG_PAGE_DATA + FLST_NODE_SIZE;'],
+          ['storage/innobase/include/fsp0fsp.h','(16 + 3 * FLST_BASE_NODE_SIZE + FSEG_FRAG_ARR_N_SLOTS * FSEG_FRAG_SLOT_SIZE)'],
+          ['storage/innobase/btr/btr0btr.cc','block = fseg_create(space, 0, PAGE_HEADER + PAGE_BTR_SEG_TOP, mtr);'],
+          ['storage/innobase/btr/btr0btr.cc','seg_header = root + PAGE_HEADER + PAGE_BTR_SEG_LEAF;'],
+          ['storage/innobase/include/page0types.h','file segment header for the leaf pages in a B-tree: defined only on the root']],
+    ops:{ ...phOps(4, ['SEG_LEAF', 'SEG_TOP']),
+          ...op('pgs', pgsOf((f) => `leaf ${segv(f.PAGE_BTR_SEG_LEAF)}  ·  top ${segv(f.PAGE_BTR_SEG_TOP)}`, [3, 4, 5])),
+          fld:{ set:{ '이름':'PAGE_BTR_SEG_LEAF · PAGE_BTR_SEG_TOP', '오프셋 · 폭':'38 + 36 · 38 + 46  ·  10 B 씩', '쓰는 곳':'btr_create — TOP 먼저, 그다음 LEAF', '읽는 곳':'btr_page_alloc_low — level 로 segment 를 고른다' } },
+          addr:{ set:{ '식':'50 + 192 × k', '실측':'k = 2 · 3  →  434 · 626  (PRIMARY)', '판정':'root 밖의 page 는 20 B 가 0|gold' } } } },
+
+  { look:{ phA:true, phB:true, phC:true, pgs:true, src:true },
+    note:'정리 — header 56 B 만 읽어도 page 의 상태가 나온다',
+    why:'얼마나 찼나(HEAP_TOP · N_DIR_SLOTS) · 지운 것이 얼마나 갇혔나(FREE · GARBAGE) · 어떻게 채워졌나(DIRECTION · N_DIRECTION) · 몇 개인가(N_RECS · N_HEAP) · 최근에 누가 고쳤나(MAX_TRX_ID) · 어디에 속하나(LEVEL · INDEX_ID) · 새 page 는 어디서 오나(FSEG).',
+    key:'I_S.INNODB_BUFFER_PAGE 의 NUMBER_RECORDS · DATA_SIZE 가 <em>이 칸들을 그대로 계산한 값</em>이다 — 이번 측정에서 INDEX page 11 장 모두 헤더로 계산한 값과 일치했다. 운영 중인 서버라면 그 표가 이 장면의 표다.',
+    ref:'storage/innobase/handler/i_s.cc', sym:'i_s_innodb_set_page_type',
+    ops:{ ...phOps(8),
+          ...op('pgs', pgsOf((f, no) => (M.bufpage[no] ? `I_S  recs ${M.bufpage[no].recs}  ·  data ${M.bufpage[no].data} B` : 'SDI — I_S 대조 밖'))),
+          addr:{ set:{ '식':'DATA_SIZE = HEAP_TOP − 120 − GARBAGE', '실측':'11 장', '판정':'전부 일치|green' } } } },
   ],
 },
 {
