@@ -367,7 +367,7 @@ const SCENES = [
 
   { look:{ cmp:true, sp:true },
     note:'InnoDB 는 FSP_HDR · XDES 로 extent 관리 — 행 위치는 clustered index 의 키가 정한다',
-    why:'InnoDB 는 익스텐트 단위로 세그먼트 인벤토리 페이지(FSP_HDR · XDES)를 두고, 페이지 단위 여유는 인덱스 구조 자체가 관리한다. 별도의 3단 트리를 두지 않는다.',
+    why:'InnoDB 는 extent 상태를 FSP_HDR · XDES page 의 extent descriptor 로, segment 를 INODE page 의 inode entry 로 관리한다. 행이 들어갈 page 는 인덱스 구조가 정하므로 FSM 같은 3단 트리를 두지 않는다.',
     key:'PG 는 <em>heap 이 정렬돼 있지 않기 때문에</em> 빈 공간 색인이 따로 필요하다. InnoDB 의 heap 은 클러스터 인덱스 자체라서 넣을 자리가 키로 정해진다 — 찾을 필요가 없다.',
     ref:'src/backend/storage/freespace/freespace.c', sym:'GetPageWithFreeSpace',
     beat:1,
