@@ -27,6 +27,11 @@ const ACTORS = {
   rhd:  { nm:'원점 앞  ·  extra 5B',  lane:'val',  kind:'bytes', w:'w2' },
   rdat: { nm:'원점 뒤  ·  데이터',      lane:'val',  kind:'bytes', w:'w2' },
   bit5: { nm:'5바이트 안의 다섯 값',    lane:'val',  kind:'list', w:'w2' },
+  /* 04c 실측 — page 0 의 FSP header(칸 · 목록) · extent 표, page 2 의 inode */
+  fsA:  { nm:'FSP header  ·  칸',        lane:'file', kind:'kv', w:'w15' },
+  fsL:  { nm:'FSP header  ·  목록',      lane:'file', kind:'kv', w:'w15' },
+  xd:   { nm:'XDES  ·  page 0 의 extent 표', lane:'file', kind:'list', w:'w2' },
+  ino:  { nm:'INODE  ·  page 2',         lane:'file', kind:'list', w:'w2' },
   /* 06b 실측 — 한 page 의 헤더 56 B 와, 같은 칸을 page 마다 늘어놓은 표 */
   phA:  { nm:'PAGE_HEADER  +0 ~ +8',    lane:'page', kind:'kv', w:'w15' },
   phB:  { nm:'+10 ~ +16',               lane:'page', kind:'kv', w:'w15' },

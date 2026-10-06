@@ -24,6 +24,8 @@ node tools/pgwatch.js || FAIL=1
 # book/ch3 06b 의 실측 바이트 — 저장된 hex 를 다시 풀어 저장된 값 · I_S 측정값과 맞춘다(.ibd 없이 돈다)
 printf '── ibdpage\n'
 node tools/ibdpage.js --check data/book/ch3/pagedump.js || FAIL=1
+# 04c 의 page 0 · 2 — FSP header · descriptor · inode · root 가 서로 맞는지까지
+node tools/ibdspace.js --check data/book/ch3/spacedump.js || FAIL=1
 # 게임 문항과 복습 상태 — 덱 데이터에서 만들어지므로 덱이 바뀌면 함께 깨질 수 있다
 printf '── play\n'
 # | tail 로 줄이면 종료 코드가 tail 의 것이 되어 실패가 사라진다 — 먼저 받고 나서 줄인다

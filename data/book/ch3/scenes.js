@@ -49,7 +49,7 @@ function phOf(no, hot = []) {
 const PGS = [[3, 'p:3  SDI'], [4, 'p:4  root'], [5, 'p:5  idx_c'], [6, 'p:6  leaf'], [7, 'p:7  leaf'], [8, 'p:8–13  leaf'], [14, 'p:14  leaf']];
 /* 바뀐 칸만 set 한다 — 같은 값을 다시 쓰면 verify 가 "변화 없음" 으로 경고한다.
    스텝은 배열 순서대로 평가되므로 직전 상태를 들고 다니며 차이만 낸다. */
-const NOW = { phA: {}, phB: {}, phC: {}, pgs: {} };
+const NOW = { phA: {}, phB: {}, phC: {}, pgs: {}, fsA: {}, fsL: {}, xd: {}, ino: {} };
 function op(who, full) {
   const set = {};
   for (const [k, v] of Object.entries(full)) {
@@ -69,6 +69,59 @@ const phOps = (no, hot = []) => {
 /* 짚는 줄은 꼬리표가 아니라 화살표로 표시한다 — list 의 태그는 hold · wait 처럼 뜻이 있는 말이다 */
 const pgsOf = (fn, hot = []) => Object.fromEntries(PGS.map(([no, id]) =>
   [id, { id, sub: fn(H(no), no) + (hot.includes(no) ? '   ←' : '') }]));
+
+import { SPACEDUMP } from './spacedump.js';
+
+/* ── 04c 도 실측 장면이다 — page 0(FSP header · XDES) 과 page 2(inode) 를 spacedump.js 에서 꺼낸다 ──
+   small 은 06b 와 같은 t.ibd, big 은 같은 표에 10,000 행을 넣은 따로 돌린 측정이다(tools/ibdspace.js). */
+const SD = SPACEDUMP.files, SM = SPACEDUMP.meta;
+const P0 = (n) => SD[n].p0.f;
+const INO = (n) => SD[n].p2.f;
+const flst = (b) => (b.first ? `len ${b.len}  →  ${b.first.page}:${b.first.byte}` : `len ${b.len}`);
+/* 쪽 번호 목록을 구간으로 — 6,7,8,…,16,19 → 6–16 · 19 */
+const span = (a) => {
+  const out = [];
+  for (let i = 0; i < a.length; i++) {
+    let j = i; while (j + 1 < a.length && a[j + 1] === a[j] + 1) j++;
+    out.push(j > i ? `${a[i]}–${a[j]}` : `${a[i]}`); i = j;
+  }
+  return out.join(' · ') || '없음';
+};
+/* segment 의 이름 — root 가 든 segment 가 TOP, 그다음 id 가 LEAF(btr_create 가 TOP 을 먼저 만든다).
+   page 3 은 SDI 의 root, 4 · 5 는 I_S.INNODB_INDEXES 의 PAGE_NO 다. */
+const ROOTS = { 3: 'SDI', ...Object.fromEntries(Object.values(SM.small.index).map((r) => [r.root, r.name])) };
+const roleOf = (n, id) => {
+  for (const [no, name] of Object.entries(ROOTS)) {
+    const top = INO(n).find((i) => i.frag.includes(Number(no)));
+    if (top && top.FSEG_ID === id) return name + ' top';
+    if (top && top.FSEG_ID + 1 === id) return name + ' leaf';
+  }
+  return '?';
+};
+const segPages = (i) => i.frag.length + i.FSEG_NOT_FULL_N_USED + i.FSEG_FULL.len * 64;
+const segOf = (n, role) => INO(n).find((i) => roleOf(n, i.FSEG_ID) === role);
+const xdesOf = (n, e) => P0(n).xdes[e];
+const XD = [[0, 'extent 0  ·  p 0–63'], [1, 'extent 1  ·  p 64–127'], [2, 'extent 2–8  ·  p 128–575']];
+const xdOf = (n, fn, hot = []) => Object.fromEntries(XD.map(([e, id]) =>
+  [id, { id, sub: (xdesOf(n, e) ? fn(xdesOf(n, e), e) : `${SD[n].file} 에는 없다`) + (hot.includes(e) ? '   ←' : '') }]));
+const INOS = INO('small').map((i) => [i.at, `${i.at}  ·  seg ${i.FSEG_ID}`]);
+const inoOf = (n, fn, hot = []) => Object.fromEntries(INOS.map(([at, id]) => {
+  const i = INO(n).find((x) => x.at === at);
+  return [id, { id, sub: fn(i, roleOf(n, i.FSEG_ID)) + (hot.includes(i.FSEG_ID) ? '   ←' : '') }];
+}));
+const fsAOf = (n, hot = []) => {
+  const f = P0(n), v = { 'file': SD[n].file, 'SPACE_ID': `${f.FSP_SPACE_ID}`, 'SIZE': `${f.FSP_SIZE} page`, 'FREE_LIMIT': `${f.FSP_FREE_LIMIT}`,
+    'SPACE_FLAGS': `0x${f.FSP_SPACE_FLAGS.toString(16)}`, 'FRAG_N_USED': `${f.FSP_FRAG_N_USED}`, 'SEG_ID': `${f.FSP_SEG_ID}` };
+  return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, x + (hot.includes(k) ? '|gold' : '')]));
+};
+const fsLOf = (n, hot = []) => {
+  const f = P0(n), v = { 'file': SD[n].file, 'FREE': flst(f.FSP_FREE), 'FREE_FRAG': flst(f.FSP_FREE_FRAG), 'FULL_FRAG': flst(f.FSP_FULL_FRAG),
+    'SEG_INODES_FULL': flst(f.FSP_SEG_INODES_FULL), 'SEG_INODES_FREE': flst(f.FSP_SEG_INODES_FREE) };
+  return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, x + (hot.includes(k) ? '|gold' : '')]));
+};
+const BIG_LEAF = segOf('big', 'PRIMARY leaf');
+const BIG_IDX = segOf('big', 'idx_c leaf');
+const FLAG_BITS = (v) => [...Array(16).keys()].filter((b) => (v >> b) & 1);
 
 const SCENES = [
 {
@@ -369,7 +422,7 @@ const SCENES = [
   watch:[
     ['I_S.INNODB_TABLESPACES','FILE_SIZE · ALLOCATED_SIZE · SPACE'],
     ['hexdump -C  *.ibd | head','파일 첫 페이지가 FSP_HDR — 테이블스페이스 헤더다']],
-  links:[['04a','38바이트 헤더를 한 필드씩'],['04b','같은 자리가 다른 뜻이 되는 경우'],['11','trailer 에 무엇이 있나']],
+  links:[['04a','38바이트 헤더를 한 필드씩'],['04b','같은 자리가 다른 뜻이 되는 경우'],['04c','page 0 · 2 — 공간 지도를 실측으로'],['11','trailer 에 무엇이 있나']],
   init:{
     op:{ kv:{ '파일':'t.ibd', '페이지 크기':'16 KB', '페이지 수':'—' } },
     file:{ items:[
@@ -405,7 +458,7 @@ const SCENES = [
 
   { act:{ f:'pg', t:'hdr', lb:'헤더 38바이트를 읽는다' },
     note:'FIL header — 38 byte, 고정 offset',
-    why:'0 checksum, 4 페이지 번호, 8 이전 형제, 12 다음 형제, 16 LSN, 24 타입, 26 flush LSN, 34 space id.',
+    why:'0 checksum, 4 페이지 번호, 8 이전 sibling, 12 다음 sibling, 16 LSN, 24 타입, 26 flush LSN, 34 space id.',
     key:'전부 <em>고정 오프셋</em>이다 — 계산이 필요 없다. 가변 길이를 헤더에 두지 않는 이유가 이것이다.',
     ref:'storage/innobase/include/fil0fil.h', sym:'fil_page_get_type',
     beat:1,
@@ -573,7 +626,7 @@ const SCENES = [
       { id:'TYPE',     sz:2, tag:'hdr',  sub:'24' },
       { id:'FLUSH_LSN',sz:8, tag:'free', sub:'26  안 씀' },
       { id:'SPACE_ID', sz:4, tag:'hdr',  sub:'34' } ],
-      byl:{ l:'INDEX 페이지의 해석', r:'8·12 = 형제  ·  26 = 안 씀' } },
+      byl:{ l:'INDEX 페이지의 해석', r:'8·12 = sibling  ·  26 = 안 씀' } },
     fld:{ kv:{ '오프셋 8':'—', '오프셋 12':'—', '오프셋 26':'—' } },
   },
   cite:[
@@ -582,7 +635,7 @@ const SCENES = [
   { look:{ fil:['PREV','NEXT'] },
     note:'8 · 12 = sibling pointer — B-Tree leaf 연결',
     why:'같은 레벨의 이전·다음 페이지 번호가 들어간다. 없으면 FIL_NULL 이다.',
-    key:'이 해석은 <em>이 페이지가 트리 노드일 때</em>만 성립한다. 트리 노드가 아니면 형제라는 개념 자체가 없다.',
+    key:'이 해석은 <em>이 페이지가 트리 노드일 때</em>만 성립한다. 트리 노드가 아니면 sibling 이라는 개념 자체가 없다.',
     ref:'storage/innobase/include/btr0btr.h', sym:'btr_page_get_next',
     fact:[['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_PREV = 8;']],
     ops:{ op:{ set:{ '오프셋 8·12':'PREV · NEXT|gold' } },
@@ -636,7 +689,7 @@ const SCENES = [
     ['innodb_compression_level','6','압축을 쓰면 26 부터가 압축 서술자가 된다']],
   watch:[
     ['I_S.INNODB_TABLESPACES','SERVER_VERSION · SPACE_VERSION 이 이 두 자리에서 온다'],
-    ['hexdump -C  *.ibd | head -3','파일 첫 38바이트 — 8·12 를 형제로 읽으면 엉뚱한 값이다']],
+    ['hexdump -C  *.ibd | head -3','파일 첫 38바이트 — 8·12 를 sibling 으로 읽으면 엉뚱한 값이다']],
   links:[['04a','필드 하나씩 보기'],['10','페이지 타입이 해석을 정한다'],['11','trailer 도 같은 이야기다']],
   init:{
     op:{ kv:{ '페이지':'p:0  FSP_HDR', '오프셋 8·12':'—', '오프셋 26':'—' } },
@@ -658,7 +711,7 @@ const SCENES = [
   { look:{ fil:['SRV_VER','SPC_VER'] },
     note:'8 · 12 = server version · space version — sibling 아님',
     why:'FIL_PAGE_SRV_VERSION 과 FIL_PAGE_SPACE_VERSION 이 각각 8 과 12 로 정의된다. 주석이 "페이지 0 에서는 서버 버전 ID" 라고 못박는다.',
-    key:'페이지 0 은 트리 노드가 아니므로 형제가 없다. <em>쓰이지 않을 자리를 다른 것이 차지했다</em>.',
+    key:'페이지 0 은 트리 노드가 아니므로 sibling 이 없다. <em>쓰이지 않을 자리를 다른 것이 차지했다</em>.',
     ref:'storage/innobase/include/fsp0fsp.h', sym:'fsp_is_system_tablespace',
     fact:[['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_SRV_VERSION = 8;'],
           ['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_SPACE_VERSION = 12;'],
@@ -691,6 +744,160 @@ const SCENES = [
     fact:[['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_SPACE_OR_CHKSUM = 0;'],
           ['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_ARCH_LOG_NO_OR_SPACE_ID = 34;']],
     beat:1 },
+  ],
+},
+{
+  num:'04c', tab:'Space Map, Measured',
+  title:'Space Management, Measured: FSP Header, Extents & Inodes',
+  sub:`page 0 의 FSP header · XDES 와 page 2 의 inode — t.ibd(${SD.small.nPages} page)와 big.ibd(${SD.big.nPages} page · ${SM.big.rows.toLocaleString('en-US')} 행)를 그대로 떠서 맞댄다`,
+  cast:['src','fsA','fsL','xd','ino','fld','addr'],
+  knobs:[
+    ['innodb_page_size','16 KB','extent 는 1 MB — 16 KB 면 64 page, XDES bitmap 16 B · 낱장 칸 32 개가 여기서 나온다'],
+    ['innodb_file_per_table','ON','표 하나가 파일 하나 — 이 장면의 page 0 · 2 가 그 표의 것이다']],
+  watch:[
+    ['node tools/ibdspace.js t.ibd','이 장면의 표를 다시 뜬다 — 오프셋을 소스의 식과 먼저 맞춘다'],
+    ['I_S.INNODB_TABLESPACES','FILE_SIZE · ALLOCATED_SIZE — 파일 크기와 FSP_SIZE 가 같다'],
+    ['I_S.INNODB_INDEXES','PAGE_NO 가 root — 그 page 가 든 inode 가 TOP segment']],
+  links:[['04','파일 앞 세 page 의 역할'],['06b','root 의 FSEG header 가 여기를 가리킨다'],['10','FSP_SPACE_FLAGS 의 page size']],
+  cite:["The file usually starts with a fixed-size header"],
+  init:{
+    src:{ kv:{ '파일':'—', '작업':'—', '크기':'—' } },
+    fsA:{ kv:{ 'file':'—', 'SPACE_ID':'—', 'SIZE':'—', 'FREE_LIMIT':'—', 'SPACE_FLAGS':'—', 'FRAG_N_USED':'—', 'SEG_ID':'—' } },
+    fsL:{ kv:{ 'file':'—', 'FREE':'—', 'FREE_FRAG':'—', 'FULL_FRAG':'—', 'SEG_INODES_FULL':'—', 'SEG_INODES_FREE':'—' } },
+    xd:{ items:XD.map(([, id]) => ({ id, sub:'—' })) },
+    ino:{ items:INOS.map(([, id]) => ({ id, sub:'—' })) },
+    fld:{ kv:{ '이름':'—', '오프셋 · 폭':'—', '쓰는 곳':'—', '읽는 곳':'—' } },
+    addr:{ kv:{ '식':'—', '실측':'—', '판정':'—' } },
+  },
+  steps:[
+  { look:{ src:true, fsA:true, fsL:true },
+    note:'page 0 은 파일의 공간 지도 — FIL 뒤 112 B header, 그 뒤 extent 별 descriptor',
+    why:'FSP header 는 FSP_HEADER_OFFSET, 곧 FIL header 가 끝난 38 에서 시작한다. FSP_HEADER_SIZE 는 32 + 5 × 16 = 112 B — 4 B · 8 B 칸 일곱 개와 extent · inode 목록의 base node 다섯 개다. 그 뒤 XDES_ARR_OFFSET 인 150 부터 extent 마다 descriptor 가 하나씩 붙는다.',
+    key:'page 0 하나가 <em>파일 전체의 공간 지도</em>다. 크기 · 준비된 범위 · extent 마다의 주인과 page 별 사용 여부가 여기 있고, 나머지 page 는 이 지도에 기대어 할당된다.',
+    ref:'storage/innobase/include/fsp0fsp.h', sym:'FSP_HEADER_SIZE',
+    fact:[['storage/innobase/include/fsp0fsp.h','constexpr uint32_t FSP_HEADER_OFFSET = FIL_PAGE_DATA;'],
+          ['storage/innobase/include/fsp0fsp.h','constexpr uint32_t FSP_HEADER_SIZE = 32 + 5 * FLST_BASE_NODE_SIZE;'],
+          ['storage/innobase/include/fsp0fsp.h','constexpr uint32_t XDES_ARR_OFFSET = FSP_HEADER_OFFSET + FSP_HEADER_SIZE;']],
+    ops:{ src:{ set:{ '파일':`t.ibd  ·  space ${P0('small').FSP_SPACE_ID}`, '작업':SM.small.note.replace(/^.*— /, ''), '크기':`${SD.small.nPages} page  ·  ${(SD.small.nPages * 16384).toLocaleString('en-US')} B` } },
+          ...op('fsA', fsAOf('small')), ...op('fsL', fsLOf('small')) } },
+
+  { act:{ f:'fsA', t:'addr', lb:'SIZE  ·  FREE_LIMIT' },
+    note:`파일 크기 ≠ 준비된 공간 — big.ibd 는 ${P0('big').FSP_SIZE} page 중 ${P0('big').FSP_FREE_LIMIT} 만 깔렸다`,
+    why:`SIZE 는 page 단위 크기다 — t.ibd 는 ${P0('small').FSP_SIZE} × 16 KB 로 파일 크기와 같다. FREE_LIMIT 은 free list 가 아직 초기화되지 않은 첫 page 다. t.ibd 는 extent 0 하나(${P0('small').FSP_FREE_LIMIT}), big.ibd 는 둘(${P0('big').FSP_FREE_LIMIT})만 descriptor 가 깔렸고 파일은 ${P0('big').FSP_SIZE} page 까지 늘어 있다.`,
+    key:`파일 크기와 <em>할당할 수 있게 준비된 공간</em>은 다르다 — big.ibd 는 ${(SM.big.fileSize / 1048576).toFixed(0)} MB 인데 descriptor 가 깔린 것은 앞 ${P0('big').FSP_FREE_LIMIT / 64} MB 다. extent 2–8 은 아직 XDES_NOT_INITED 다.`,
+    ref:'storage/innobase/include/fsp0fsp.h', sym:'FSP_FREE_LIMIT', beat:1,
+    fact:[['storage/innobase/include/fsp0fsp.h','Current size of the space in pages'],
+          ['storage/innobase/include/fsp0fsp.h','free list has not been initialized'],
+          ['storage/innobase/include/fsp0fsp.h','extent descriptor is not initialized']],
+    ops:{ ...op('fsA', fsAOf('big', ['SIZE', 'FREE_LIMIT'])),
+          src:{ set:{ '파일':`big.ibd  ·  space ${P0('big').FSP_SPACE_ID}`, '작업':`INSERT ${SM.big.rows.toLocaleString('en-US')} 행 (순차)`, '크기':`${SD.big.nPages} page  ·  ${SM.big.fileSize.toLocaleString('en-US')} B` } },
+          fld:{ set:{ '이름':'FSP_SIZE · FSP_FREE_LIMIT', '오프셋 · 폭':'38 + 8 · 38 + 12  ·  4 B 씩', '쓰는 곳':'파일을 늘릴 때 · extent 를 깔 때', '읽는 곳':'다음 extent 를 어디서 깔지' } },
+          addr:{ set:{ '식':`I_S FILE_SIZE ${SM.big.fileSize.toLocaleString('en-US')} B`, '실측':`= ${SM.big.fileSize / 16384} page  =  SIZE`, '판정':`깔린 것 ${P0('big').FSP_FREE_LIMIT} page 뿐|gold` } } } },
+
+  { act:{ f:'fsA', t:'fld', lb:'SPACE_FLAGS' },
+    note:`SPACE_FLAGS 0x${P0('big').FSP_SPACE_FLAGS.toString(16)} — bit ${FLAG_BITS(P0('big').FSP_SPACE_FLAGS).join(' · ')} 이 켜졌다`,
+    why:'폭을 차례로 이어 붙인 bit 묶음이다 — POST_ANTELOPE 1 · ZIP_SSIZE 4 · ATOMIC_BLOBS 1 · PAGE_SSIZE 4 · DATA_DIR · SHARED · TEMPORARY · ENCRYPTION · SDI 1 씩. 그래서 bit 0 은 POST_ANTELOPE, 5 는 ATOMIC_BLOBS, 14 는 SDI 다. page size 칸(bit 6–9)이 0 이면 기본 16 KB 다.',
+    key:'DYNAMIC 형식(ATOMIC_BLOBS)과 <em>사전 정보를 파일 안에 가진다</em>(SDI)는 사실이 page 0 의 bit 둘로 적혀 있다 — 10 장면의 page size 와 같은 4 B 다.',
+    ref:'storage/innobase/include/fsp0types.h', sym:'FSP_FLAGS_POS_SDI',
+    fact:[['storage/innobase/include/fsp0types.h','constexpr uint32_t FSP_FLAGS_WIDTH_ZIP_SSIZE = 4;'],
+          ['storage/innobase/include/fsp0types.h','constexpr uint32_t FSP_FLAGS_WIDTH_PAGE_SSIZE = 4;'],
+          ['storage/innobase/include/fsp0types.h','constexpr uint32_t FSP_FLAGS_WIDTH_SDI = 1;']],
+    ops:{ ...op('fsA', fsAOf('big', ['SPACE_FLAGS'])),
+          fld:{ set:{ '이름':'FSP_SPACE_FLAGS', '오프셋 · 폭':'38 + 16  ·  4 B', '쓰는 곳':'tablespace 를 만들 때', '읽는 곳':'파일을 열 때 — page size · 형식 판정' } },
+          addr:{ set:{ '식':`0x${P0('big').FSP_SPACE_FLAGS.toString(16)}`, '실측':`bit ${FLAG_BITS(P0('big').FSP_SPACE_FLAGS).join(' · ')}`, '판정':'POST_ANTELOPE · ATOMIC_BLOBS · SDI|green' } } } },
+
+  { act:{ f:'fsL', t:'xd', lb:'FREE_FRAG → 0:158' },
+    note:'목록은 descriptor 끼리 엮인다 — FREE_FRAG 의 머리가 곧 extent 0',
+    why:'base node 는 16 B 다 — 길이 4 B 와 첫 · 끝 주소 6 B 씩(page 4 B + byte 2 B). FREE_FRAG 의 첫 원소 0:158 은 page 0 의 158, 곧 extent 0 의 descriptor(150)에 XDES_FLST_NODE(8)를 더한 자리다. FREE · FULL_FRAG 는 비어 있다.',
+    key:'extent 목록은 <em>page 0 안에서 descriptor 끼리 엮인다</em>. 빈 extent · 일부만 쓴 fragment extent · 꽉 찬 fragment extent 가 따로 줄을 서고, 할당은 목록의 머리에서 꺼낸다.',
+    ref:'storage/innobase/include/fut0lst.h', sym:'FLST_BASE_NODE_SIZE',
+    fact:[['storage/innobase/include/fut0lst.h','constexpr ulint FLST_BASE_NODE_SIZE = 4 + 2 * FIL_ADDR_SIZE;'],
+          ['storage/innobase/include/fut0lst.ic','constexpr uint32_t FLST_FIRST = 4;'],
+          ['storage/innobase/include/fsp0fsp.h','constexpr uint32_t XDES_FLST_NODE = 8;']],
+    ops:{ ...op('fsL', fsLOf('small', ['FREE_FRAG'])),
+          src:{ set:{ '파일':`t.ibd  ·  space ${P0('small').FSP_SPACE_ID}`, '작업':SM.small.note.replace(/^.*— /, ''), '크기':`${SD.small.nPages} page  ·  ${(SD.small.nPages * 16384).toLocaleString('en-US')} B` } },
+          ...op('xd', xdOf('small', (x) => `${x.XDES_STATE.replace('XDES_', '')}  ·  seg ${x.XDES_ID}  ·  ${x.used.length} 장`, [0])),
+          addr:{ set:{ '식':'150 + XDES_FLST_NODE', '실측':'= 158', '판정':'FREE_FRAG 의 머리 = extent 0|green' } } } },
+
+  { act:{ f:'xd', t:'fsA', lb:'bitmap → FRAG_N_USED' },
+    note:`extent 0 — 2 bit × 64 page 의 bitmap, 쓰인 page ${xdesOf('small', 0).used.length} 장 = FRAG_N_USED`,
+    why:`descriptor 는 40 B 다 — 주인 segment id 8 B · 목록 node 12 B · 상태 4 B · bitmap 16 B. page 하나에 2 bit(XDES_BITS_PER_PAGE = 2)이고 FREE bit 가 1 이면 빈 page 다. extent 0 은 XDES_ID 가 0 인 fragment extent 라 주인이 없다 — page ${span(xdesOf('small', 0).used)} 이 쓰였다.`,
+    key:`FSP_FRAG_N_USED ${P0('small').FSP_FRAG_N_USED} 은 이 bitmap 에서 쓰인 page 를 센 값과 같다 — header 와 descriptor 가 <em>같은 사실을 두 번</em> 적는다. 두 파일 모두 맞았다(${P0('small').FSP_FRAG_N_USED} · ${P0('big').FSP_FRAG_N_USED}).`,
+    ref:'storage/innobase/include/fsp0fsp.ic', sym:'xdes_get_bit', beat:1,
+    fact:[['storage/innobase/include/fsp0fsp.h','constexpr uint32_t XDES_BITS_PER_PAGE = 2;'],
+          ['storage/innobase/include/fsp0fsp.h','extent is in free fragment list of space'],
+          ['storage/innobase/include/fsp0fsp.h','number of used pages in the FSP_FREE_FRAG list'],
+          ['storage/innobase/include/fsp0fsp.ic','ulint index = bit + XDES_BITS_PER_PAGE * offset;']],
+    ops:{ ...op('xd', xdOf('small', (x) => `${x.XDES_STATE.replace('XDES_', '')}  ·  used ${span(x.used)}`, [0])),
+          ...op('fsA', fsAOf('small', ['FRAG_N_USED'])),
+          fld:{ set:{ '이름':'XDES  (extent descriptor)', '오프셋 · 폭':'150 + 40 × extent  ·  40 B', '쓰는 곳':'page 를 줄 때 · 돌려받을 때 bit 를 뒤집는다', '읽는 곳':'xdes_get_bit — 빈 page 찾기' } },
+          addr:{ set:{ '식':'bitmap 에서 FREE bit 가 0 인 page', '실측':`${xdesOf('small', 0).used.length} 장`, '판정':`FSP_FRAG_N_USED ${P0('small').FSP_FRAG_N_USED} 과 같다|green` } } } },
+
+  { act:{ f:'fsA', t:'ino', lb:'SEG_ID  ·  SEG_INODES_FREE' },
+    note:`index 하나에 segment 둘 — 다음 번호 ${P0('small').FSP_SEG_ID}, inode page 는 85 칸`,
+    why:`SEG_ID 는 다음에 줄 segment id 다 — SDI · PRIMARY · idx_c 가 둘씩, ${INO('small').length} 개를 만든 뒤라 ${P0('small').FSP_SEG_ID} 이다. inode page 하나에는 (16384 − 50 − 10) / 192 = 85 칸이 들어가고, 아직 빈 칸이 있어 SEG_INODES_FREE 목록에 page 2 가 걸려 있다 — 2:38 은 inode page 의 목록 node 자리다.`,
+    key:'index 하나를 만들 때마다 <em>segment 가 둘</em> 생긴다(leaf · non-leaf). inode page 가 차면 SEG_INODES_FULL 로 옮기고 새 inode page 를 받는다.',
+    ref:'storage/innobase/include/fsp0fsp.h', sym:'FSP_SEG_INODES_PER_PAGE',
+    fact:[['storage/innobase/include/fsp0fsp.h','8 bytes which give the first unused segment id'],
+          ['storage/innobase/include/fsp0fsp.h','return (page_size.physical() - FSEG_ARR_OFFSET - 10) / FSEG_INODE_SIZE;'],
+          ['storage/innobase/include/fsp0fsp.h','constexpr uint32_t FSEG_INODE_PAGE_NODE = FSEG_PAGE_DATA;']],
+    ops:{ ...op('fsA', fsAOf('small', ['SEG_ID'])), ...op('fsL', fsLOf('small', ['SEG_INODES_FREE'])),
+          ...op('ino', inoOf('small', (i, r) => `${r}`)),
+          addr:{ set:{ '식':'(16384 − 50 − 10) / 192', '실측':`= 85 칸 · 쓴 것 ${INO('small').length}`, '판정':'SEG_INODES_FREE 에 남는다|gold' } } } },
+
+  { act:{ f:'ino', t:'fld', lb:'inode 192 B' },
+    note:'inode 192 B — 낱장 32 칸과 extent 목록 셋',
+    why:`FSEG_ID 8 B · NOT_FULL_N_USED 4 B · FREE · NOT_FULL · FULL extent 목록 16 B 씩 · MAGIC 4 B · 낱장 page 칸 32 × 4 B 다. 측정한 ${INO('small').length} 개 모두 magic 이 FSEG_MAGIC_N_VALUE = 97937874 였다.`,
+    key:'segment 의 page 는 <em>두 곳</em>에 적힌다 — 낱장(FRAG_ARR)과 extent 목록. t.ibd 는 extent 목록이 전부 비었다 : 모든 page 가 낱장이다.',
+    ref:'storage/innobase/include/fsp0fsp.h', sym:'FSEG_FRAG_ARR',
+    fact:[['storage/innobase/include/fsp0fsp.h','constexpr uint32_t FSEG_FRAG_ARR = 16 + 3 * FLST_BASE_NODE_SIZE;'],
+          ['storage/innobase/include/fsp0fsp.h','constexpr uint32_t FSEG_MAGIC_N_VALUE = 97937874;'],
+          ['storage/innobase/include/fsp0fsp.h','#define FSEG_FRAG_ARR_N_SLOTS (FSP_EXTENT_SIZE / 2)']],
+    ops:{ ...op('ino', inoOf('small', (i, r) => `${r}  ·  frag ${i.frag.length}  ·  extent ${i.FSEG_FREE.len + i.FSEG_NOT_FULL.len + i.FSEG_FULL.len}`)),
+          fld:{ set:{ '이름':'segment inode', '오프셋 · 폭':'page 2 의 50 + 192 × k  ·  192 B', '쓰는 곳':'fseg_create · page 를 줄 때', '읽는 곳':'fseg_alloc_page_no' } } } },
+
+  { act:{ f:'ino', t:'addr', lb:'누가 어느 page 를' },
+    note:'root 는 TOP segment 의 첫 낱장 — root 가 곧 leaf 인 index 는 LEAF segment 가 비어 있다',
+    why:`t.ibd 의 낱장 : SDI top ${span(segOf('small', 'SDI top').frag)} · PRIMARY top ${span(segOf('small', 'PRIMARY top').frag)} · PRIMARY leaf ${span(segOf('small', 'PRIMARY leaf').frag)} · idx_c top ${span(segOf('small', 'idx_c top').frag)}. SDI 와 idx_c 의 leaf segment 는 비었다 — root 하나가 leaf 노릇까지 하는 동안 level 0 page 를 따로 받지 않았다.`,
+    key:'06b 의 FSEG header 가 가리키던 곳이 이 inode 다. split 이 새 page 를 달라고 하면 <em>level 0 은 LEAF, 그 위는 TOP</em> 의 inode 를 찾아 거기서 받는다.',
+    ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_page_alloc_low',
+    fact:[['storage/innobase/btr/btr0btr.cc','seg_header = root + PAGE_HEADER + PAGE_BTR_SEG_LEAF;'],
+          ['storage/innobase/btr/btr0btr.cc','block = fseg_create(space, 0, PAGE_HEADER + PAGE_BTR_SEG_TOP, mtr);']],
+    ops:{ ...op('ino', inoOf('small', (i, r) => `${r}  ·  ${i.frag.length ? 'p ' + span(i.frag) : '비었다'}`, [segOf('small', 'PRIMARY top').FSEG_ID, segOf('small', 'PRIMARY leaf').FSEG_ID])),
+          addr:{ set:{ '식':`root 4 → seg ${segOf('small', 'PRIMARY top').FSEG_ID} (TOP)`, '실측':`leaf ${span(segOf('small', 'PRIMARY leaf').frag)} → seg ${segOf('small', 'PRIMARY leaf').FSEG_ID}  (${segOf('small', 'PRIMARY leaf').frag.length} 장)`, '판정':`root 의 N_RECS ${SD.small.roots[4].f.PAGE_N_RECS} 와 같다|green` } } } },
+
+  { act:{ f:'ino', t:'xd', lb:'33 번째 page' },
+    note:`33 번째 page 부터는 1 MB 단위 — ${segPages(BIG_LEAF)} = ${BIG_LEAF.frag.length} + ${BIG_LEAF.FSEG_NOT_FULL_N_USED}`,
+    why:`segment 가 page 를 달라고 할 때 쓴 낱장이 FSEG_FRAG_LIMIT 인 32 장 아래면 space 에서 page 하나를 떼어 낱장 칸에 적고, 다 찼으면 extent 하나를 통째로 받는다. big.ibd 의 PRIMARY leaf 는 낱장 ${BIG_LEAF.frag.length} 칸이 가득 찼고 NOT_FULL 목록에 extent ${BIG_LEAF.FSEG_NOT_FULL.len} 개, 거기서 ${BIG_LEAF.FSEG_NOT_FULL_N_USED} 장을 썼다.`,
+    key:`${BIG_LEAF.frag.length} + ${BIG_LEAF.FSEG_NOT_FULL_N_USED} = ${segPages(BIG_LEAF)} 은 root p:4 의 node pointer 수 ${SD.big.roots[4].f.PAGE_N_RECS} 와 같다 — <em>inode 가 센 leaf 와 tree 가 가리키는 leaf 가 일치한다</em>. idx_c leaf 는 ${BIG_IDX.frag.length} 장이라 아직 낱장뿐이다.`,
+    ref:'storage/innobase/fsp/fsp0fsp.cc', sym:'fseg_alloc_page_no', beat:1,
+    fact:[['storage/innobase/fsp/fsp0fsp.cc','} else if (used < FSEG_FRAG_LIMIT) {'],
+          ['storage/innobase/fsp/fsp0fsp.cc','/* 6. We allocate an individual page from the space'],
+          ['storage/innobase/fsp/fsp0fsp.cc','/* 7. We allocate a new extent and take its first page'],
+          ['storage/innobase/include/fsp0fsp.h','#define FSEG_FRAG_LIMIT FSEG_FRAG_ARR_N_SLOTS']],
+    ops:{ ...op('ino', inoOf('big', (i, r) => `${r}  ·  frag ${i.frag.length}${i.FSEG_NOT_FULL.len ? '  +  extent ' + i.FSEG_NOT_FULL.len + ' (' + i.FSEG_NOT_FULL_N_USED + ' 장)' : ''}`, [BIG_LEAF.FSEG_ID])),
+          src:{ set:{ '파일':`big.ibd  ·  space ${P0('big').FSP_SPACE_ID}`, '작업':`INSERT ${SM.big.rows.toLocaleString('en-US')} 행 (순차)`, '크기':`${SD.big.nPages} page  ·  ${SM.big.fileSize.toLocaleString('en-US')} B` } },
+          ...op('xd', xdOf('big', (x) => (x.XDES_STATE === 'XDES_NOT_INITED' ? 'NOT_INITED' : x.XDES_ID ? `FSEG  ·  seg ${x.XDES_ID} 의 extent` : 'FREE_FRAG  ·  공용 낱장'), [1])),
+          addr:{ set:{ '식':`frag ${BIG_LEAF.frag.length} + extent 의 ${BIG_LEAF.FSEG_NOT_FULL_N_USED}`, '실측':`= ${segPages(BIG_LEAF)} 장`, '판정':`root N_RECS ${SD.big.roots[4].f.PAGE_N_RECS} 과 같다|green` } } } },
+
+  { act:{ f:'xd', t:'addr', lb:'extent 0 · 1 · 2–8' },
+    note:`big.ibd 의 extent 표 — 0 은 공용 낱장 ${xdesOf('big', 0).used.length} 장, 1 은 seg ${xdesOf('big', 1).XDES_ID} 의 것, 2–8 은 아직 안 깔렸다`,
+    why:`extent 0 의 ${xdesOf('big', 0).used.length} 장 = page 0–3(FSP_HDR · IBUF_BITMAP · INODE · SDI) 4 + root 둘 + PRIMARY leaf 낱장 ${BIG_LEAF.frag.length} + idx_c leaf ${BIG_IDX.frag.length}. 두 index 가 번갈아 받아 6–47 에 섞여 있다. extent 1 은 XDES_FSEG 이고 XDES_ID 가 ${xdesOf('big', 1).XDES_ID} — PRIMARY leaf segment 의 id 다.`,
+    key:'extent 의 주인은 inode 가 아니라 <em>descriptor 의 XDES_ID</em> 에 적힌다 — 그래서 page 0 만 읽어도 어느 1 MB 가 어느 segment 것인지 안다. 낱장은 주인이 page 단위로 섞여 있어 inode 의 FRAG_ARR 로만 안다.',
+    ref:'storage/innobase/include/fsp0fsp.h', sym:'XDES_ID',
+    fact:[['storage/innobase/include/fsp0fsp.h','The identifier of the segment to which this extent belongs'],
+          ['storage/innobase/include/fsp0fsp.h','extent belongs to a segment']],
+    ops:{ ...op('xd', xdOf('big', (x) => (x.XDES_STATE === 'XDES_NOT_INITED' ? 'NOT_INITED  ·  아직 안 깔렸다' : `${x.XDES_STATE.replace('XDES_', '')}  ·  seg ${x.XDES_ID}  ·  ${x.used.length} 장`), [0, 1])),
+          ...op('fsA', fsAOf('big', ['FRAG_N_USED'])),
+          addr:{ set:{ '식':`4 + 2 + ${BIG_LEAF.frag.length} + ${BIG_IDX.frag.length}`, '실측':`= ${4 + 2 + BIG_LEAF.frag.length + BIG_IDX.frag.length} 장`, '판정':`FRAG_N_USED ${P0('big').FSP_FRAG_N_USED} 과 같다|green` } } } },
+
+  { look:{ fsA:true, xd:true, ino:true },
+    note:'정리 — page 0 은 공간의 지도, page 2 는 segment 의 장부',
+    why:'page 0 : 파일 크기 · 깔린 범위 · extent 마다의 상태와 주인 · page 별 사용 bit. page 2 : segment 마다의 낱장과 extent 목록. B-tree root 의 FSEG header(06b)가 page 2 의 칸을 가리키고, 그 칸이 page 0 의 extent 를 가리킨다.',
+    key:'split 이 page 하나를 받기까지 <em>root → inode → descriptor → bitmap</em> 순서로 네 번 짚는다. 이 장면의 모든 수는 두 파일에서 그대로 읽은 것이고, 검사가 매번 바이트를 다시 풀어 header · descriptor · inode · root 가 서로 맞는지 본다.',
+    ref:'storage/innobase/fsp/fsp0fsp.cc', sym:'fseg_alloc_page_no',
+    ops:{ ...op('fsA', fsAOf('big')), ...op('xd', xdOf('big', (x) => (x.XDES_STATE === 'XDES_NOT_INITED' ? 'NOT_INITED' : `${x.XDES_STATE.replace('XDES_', '')}  ·  seg ${x.XDES_ID}  ·  ${x.used.length} 장`))),
+          ...op('ino', inoOf('big', (i, r) => `${r}  ·  ${segPages(i)} 장`)) } },
   ],
 },
 {
@@ -949,7 +1156,7 @@ const SCENES = [
     fsp:{ items:[
       { id:'+0  N_DIR_SLOTS', tag:'clean', sub:'슬롯 배열 길이' },
       { id:'+2  HEAP_TOP',    tag:'clean', sub:'셀이 자란 끝' },
-      { id:'+4  N_HEAP',      tag:'clean', sub:'힙 레코드 수 + 형식 비트' },
+      { id:'+4  N_HEAP',      tag:'clean', sub:'heap 레코드 수 + 형식 비트' },
       { id:'+6  FREE',        tag:'clean', sub:'삭제 레코드 목록 시작' },
       { id:'+8  GARBAGE',     tag:'clean', sub:'삭제된 바이트 합' } ] },
     fins:{ items:[
@@ -1017,7 +1224,7 @@ const SCENES = [
           ['storage/innobase/include/fsp0types.h','constexpr uint32_t FSEG_HEADER_SIZE = 10;']],
     ops:{ phd:{ add:[{ id:'SEG_LEAF', sz:10, tag:'free', sub:'+36  루트만' },
                      { id:'SEG_TOP', sz:10, tag:'free', sub:'+46  루트만' }] },
-          fsp:{ set:{ '+4  N_HEAP':{ tag:'clean', sub:'힙 레코드 수 + 형식 비트' } } },
+          fsp:{ set:{ '+4  N_HEAP':{ tag:'clean', sub:'heap 레코드 수 + 형식 비트' } } },
           addr:{ set:{ 'PAGE_DATA':'38 + 36 + 2×10 = 94|gold' } },
           op:{ set:{ '데이터 시작':'94' } } } },
 
@@ -1699,7 +1906,7 @@ const SCENES = [
 
   { look:{ ver:true },
     note:'version 은 page 0 에만 — 그것도 남의 자리를 차용',
-    why:'FIL_PAGE_SRV_VERSION 은 8, FIL_PAGE_SPACE_VERSION 은 12 다. 그 오프셋은 원래 FIL_PAGE_PREV(8)·FIL_PAGE_NEXT(12), 즉 형제 페이지 포인터 자리다. 0번 페이지에는 형제가 없으므로 그 8바이트를 버전 두 개로 다시 쓴다.',
+    why:'FIL_PAGE_SRV_VERSION 은 8, FIL_PAGE_SPACE_VERSION 은 12 다. 그 오프셋은 원래 FIL_PAGE_PREV(8)·FIL_PAGE_NEXT(12), 즉 sibling 페이지 포인터 자리다. 0번 페이지에는 sibling 이 없으므로 그 8바이트를 버전 두 개로 다시 쓴다.',
     key:'헤더는 <em>고정 배치이면서도 낭비하지 않는다</em>. 같은 오프셋이 페이지 종류에 따라 다른 뜻이 되는 것이 InnoDB 헤더의 기본 수법이고, 04b 장면이 그 목록이다.',
     ref:'storage/innobase/include/fil0types.h', sym:'FIL_PAGE_SRV_VERSION',
     fact:[['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_SRV_VERSION = 8;'],
@@ -1776,10 +1983,10 @@ const SCENES = [
                 'mach_write_to_4(page + UNIV_PAGE_SIZE - FIL_PAGE_END_LSN_OLD_CHKSUM, checksum);'],
           beat:1,
           ops:{ sum:{ set:{ '꼬리 (trailer 앞 4 B)':'0xDEADBEEF|red', 'LSN 하위 (뒤 4 B)':'0x00001330|gold',
-                            '판정':'체크섬으로는 판정하지 않음|red' } },
+                            '판정':'checksum 으로는 판정하지 않음|red' } },
                 pg:{ set:{ '8B':{ sub:'0xDEADBEEF + LSN 하위' } } } } },
 
-      4:{ act:{ f:'file', t:'sum', lb:'찢어진 쓰기는 여전히 잡힌다' },
+      4:{ act:{ f:'file', t:'sum', lb:'torn write 는 여전히 잡힌다' },
           note:'checksum 비교는 skip — 단, 선행 검사가 하나 있다',
           why:'is_corrupted 는 먼저 헤더 LSN 의 하위 절반과 trailer 뒤 4바이트를 memcmp 로 비교한다 — 이 검사는 알고리즘과 무관하다. 그것을 통과한 뒤에야 알고리즘을 보고, none 이면 곧장 false 로 돌아간다.',
           key:'그래서 none 이 없애는 것은 <em>torn write 탐지가 아니라 비트 부패 탐지</em>다. 페이지 절반만 기록된 것은 LSN 이 어긋나 잡히고, 본문 한 비트가 뒤집힌 것은 아무도 모른다.',
@@ -1807,7 +2014,7 @@ const SCENES = [
           fact:[['storage/innobase/buf/checksum.cc','if (curr_algo == SRV_CHECKSUM_ALGORITHM_STRICT_CRC32) {'],
                 ['storage/innobase/page/page0page.cc','ib::warn(ER_IB_MSG_914)']],
           beat:1,
-          ops:{ file:{ set:{ 'page 5':{ id:'page 5', sz:1, tag:'gold', sub:'innodb 체크섬 · 경고 후 사용' } } },
+          ops:{ file:{ set:{ 'page 5':{ id:'page 5', sz:1, tag:'gold', sub:'innodb checksum · 경고 후 사용' } } },
                 sum:{ set:{ '머리 (오프셋 0)':'0x3B71C2E0  (innodb 방식)|gold',
                             '꼬리 (trailer 앞 4 B)':'0x3B71C2E0|gold', '판정':'경고 · 손상 아님|gold' } },
                 op:{ set:{ '알고리즘':'strict_crc32', '결과':'에러 로그에 경고 1줄|gold' } } } },
@@ -1824,7 +2031,7 @@ const SCENES = [
   init:{
     op:{ kv:{ '알고리즘':'crc32', '검사 범위':'페이지 16 KB', '결과':'—' } },
     pg:{ items:[
-      { id:'체크섬', sz:1, tag:'gold', sub:'오프셋 0 · 4 B' },
+      { id:'CHKSUM', sz:1, tag:'gold', sub:'오프셋 0 · 4 B' },
       { id:'페이지 본문', sz:10, tag:'', sub:'16,338 B' },
       { id:'8B', sz:1, tag:'gold', sub:'trailer 8 B' } ],
       byl:{ l:'같은 값이 두 곳에', r:'오프셋 0 · trailer 앞 4 B' } },
@@ -1860,7 +2067,7 @@ const SCENES = [
            'mach_write_to_4(page + UNIV_PAGE_SIZE - FIL_PAGE_END_LSN_OLD_CHKSUM, checksum);'],
     beat:1,
     ops:{ sum:{ set:{ '꼬리 (trailer 앞 4 B)':'0x9F2C41AB|gold', 'LSN 하위 (뒤 4 B)':'0x00001330|gold', '판정':'머리 = 꼬리|green' } },
-          pg:{ set:{ '8B':{ sub:'체크섬 + LSN 하위' } } } } },
+          pg:{ set:{ '8B':{ sub:'checksum + LSN 하위' } } } } },
 
   { act:{ f:'file', t:'sum', lb:'읽을 때 다시 계산해 비교' },
     note:'read 시 재계산 후 비교 — 불일치면 그 page 를 쓰지 않는다',
