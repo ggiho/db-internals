@@ -137,7 +137,9 @@ const nSrc = checkSource();
 function read(file, roots = []) {
   const buf = fs.readFileSync(file);
   if (buf.length % PS) { console.error(file + ' : 크기가 ' + PS + ' 의 배수가 아니다'); process.exit(1); }
-  const nX = Math.ceil(buf.length / PS / EXTENT);
+  /* page 0 의 descriptor 는 앞 page_size 개 page(16 KB 면 256 extent)만 맡는다 — 그 뒤는 16384 page 마다 오는
+     XDES page 의 몫이다. 이것을 넘겨 읽으면 page 1 의 바이트를 descriptor 로 읽는다. */
+  const nX = Math.min(Math.ceil(buf.length / PS / EXTENT), PS / EXTENT);
   const p0 = buf.subarray(0, XDES_ARR + nX * XDES_SIZE);
   const ino = decodeP2(buf.subarray(2 * PS, 3 * PS));
   const p2 = buf.subarray(2 * PS, 2 * PS + FSEG_ARR + (ino.length ? (ino[ino.length - 1].at - FSEG_ARR) / INODE_SIZE + 1 : 0) * INODE_SIZE);

@@ -123,6 +123,53 @@ const BIG_LEAF = segOf('big', 'PRIMARY leaf');
 const BIG_IDX = segOf('big', 'idx_c leaf');
 const FLAG_BITS = (v) => [...Array(16).keys()].filter((b) => (v >> b) & 1);
 
+/* ── 06b · 04c 의 서술이 기대는 측정값 — 맞지 않으면 모듈을 불러오는 순간 멈춘다 ──
+   두 장면의 글은 이 측정(같은 SQL · 같은 빌드)을 전제로 쓰였다. 수의 대부분은 dump 에서 꺼내 쓰지만,
+   "첫 leaf 만 절반" 같은 줄거리와 몇몇 고정 표기(p:8–13 · extent 2–8 · 119 × 7 · 434 · 626 …)는 측정이
+   바뀌면 같이 틀린다. dump 를 다시 떴는데 이 중 하나라도 어긋나면 verify 와 빌드가 여기서 실패한다 —
+   그러면 숫자가 아니라 장면의 서술을 다시 봐야 한다는 뜻이다. */
+const must = (ok, what) => { if (!ok) throw new Error('book/ch3 실측 장면의 전제가 깨졌다 : ' + what); };
+{
+  const ids = Object.fromEntries(Object.entries(M.index).map(([id, r]) => [r.name, Number(id)]));
+  const isLeaf = (no) => H(no).FIL_PAGE_TYPE === 17855 && H(no).PAGE_INDEX_ID === ids.PRIMARY && H(no).PAGE_LEVEL === 0;
+  const leaves = Object.keys(DUMP).map(Number).filter(isLeaf);
+  must(JSON.stringify(leaves) === JSON.stringify(LEAVES), 'PRIMARY leaf 는 page 6–14 다');
+  LEAVES.forEach((no, k) => must(k === LEAVES.length - 1 ? H(no).FIL_PAGE_NEXT === 0xffffffff : H(no).FIL_PAGE_NEXT === LEAVES[k + 1], 'leaf 사슬이 6 → 14 순서다'));
+  must(H(3).FIL_PAGE_TYPE === 17853 && H(4).PAGE_LEVEL === 1 && H(5).PAGE_LEVEL === 0, 'p:3 SDI · p:4 root L1 · p:5 root · leaf');
+  must(M.index[H(4).PAGE_INDEX_ID].root === 4 && M.index[H(5).PAGE_INDEX_ID].root === 5, 'root 는 I_S 의 PAGE_NO 4 · 5');
+  const ph = (no) => DUMP[no].hex.slice(38 * 2, 94 * 2);
+  [9, 10, 11, 12, 13].forEach((no) => must(ph(no) === ph(8), 'p:8–13 은 헤더 56 B 가 같다 (p:' + no + ')'));
+  const n = H(8).PAGE_N_RECS, mids = LEAVES.slice(1, -1);
+  must(n === 119 && mids.length === 7 && mids.every((no) => H(no).PAGE_N_RECS === n), '꽉 찬 leaf 7 장이 119 행 (119 × 7)');
+  must(Number.isInteger(RS) && RS === 127 && H(8).PAGE_N_DIR_SLOTS === 30 && H(5).PAGE_N_RECS === 989 && H(5).PAGE_N_DIR_SLOTS === 147, 'slot 30 · 989 행 · slot 147 · record 127 B');
+  must(RESERVE + RS > MAXSZ(n) && RESERVE + RS <= MAXSZ(n - 1), '1/16 reserve 가 120 번째 record 를 막는다');
+  must(GONE6 * RS === H(6).PAGE_GARBAGE && Number.isInteger(H(5).PAGE_GARBAGE / GONE5), 'GARBAGE = 지워진 record × 크기');
+  must(H(6).PAGE_HEAP_TOP - SUP_END - H(6).PAGE_GARBAGE === H(6).PAGE_N_RECS * RS && M.bufpage[6].data === H(6).PAGE_N_RECS * RS, 'p:6 의 data size = I_S DATA_SIZE');
+  must(MOVED7 === n - Math.floor((n + 2) / 2) + 1 && MOVED7 === 60 && GONE6 - MOVED7 === 11 && H(6).PAGE_N_RECS + 11 === n - MOVED7, '가운데 split 이 60 개를 옮기고 DELETE 11');
+  must(M.rows === 1000 - 11 && LEAVES.reduce((a, no) => a + H(no).PAGE_N_RECS, 0) === M.rows && H(4).PAGE_N_RECS === LEAVES.length, 'leaf 합 = COUNT(*) · root 의 node pointer = leaf 수');
+  must(H(8).PAGE_DIRECTION === 2 && H(8).PAGE_N_DIRECTION === n - 1 && H(8).PAGE_LAST_INSERT - (H(8).PAGE_HEAP_TOP - RS) === 6, 'p:8 RIGHT 118 · LAST_INSERT 는 origin');
+  must(Object.keys(DUMP).map(Number).filter((no) => H(no).PAGE_INDEX_ID === ids.PRIMARY).every((no) => H(no).PAGE_MAX_TRX_ID === 0)
+    && H(5).PAGE_MAX_TRX_ID === Math.max(...Object.values(M.trx)) && H(5).PAGE_MAX_TRX_ID === M.trx.update, 'MAX_TRX_ID : PRIMARY 0 · idx_c = UPDATE trx');
+  const seg = (no) => [H(no).PAGE_BTR_SEG_TOP.offset, H(no).PAGE_BTR_SEG_LEAF.offset];
+  must(JSON.stringify([seg(3), seg(4), seg(5)]) === JSON.stringify([[50, 242], [434, 626], [818, 1010]]), 'FSEG : SDI 50 · 242 · PRIMARY 434 · 626 · idx_c 818 · 1010');
+  must(LEAVES.every((no) => !H(no).PAGE_BTR_SEG_LEAF.offset && !H(no).PAGE_BTR_SEG_TOP.offset), 'root 밖의 page 는 FSEG 20 B 가 0');
+  must(Object.keys(M.bufpage).length === 11, 'I_S 대조 11 장');
+  /* 04c */
+  must(JSON.stringify(INO('small').map((i) => i.at)) === JSON.stringify(INO('big').map((i) => i.at)), '두 파일의 inode 자리가 같다');
+  must(JSON.stringify(segOf('small', 'PRIMARY leaf').frag) === JSON.stringify(LEAVES), 'small 의 PRIMARY leaf 낱장 = 06b 의 leaf 6–14');
+  must(INO('small').every((i) => i.FSEG_MAGIC_N === 97937874) && INO('big').every((i) => i.FSEG_MAGIC_N === 97937874), 'inode magic');
+  must(INO('small').length === 6 && P0('small').FSP_SEG_ID === 7, 'segment 6 개 · 다음 id 7');
+  must(P0('small').FSP_FREE_FRAG.first && P0('small').FSP_FREE_FRAG.first.page === 0 && P0('small').FSP_FREE_FRAG.first.byte === 158, 'FREE_FRAG 의 머리 0:158');
+  must(xdesOf('small', 0).used.length === P0('small').FSP_FRAG_N_USED && P0('small').FSP_FRAG_N_USED === 15, 'small : FRAG_N_USED 15');
+  must(SD.big.nPages === 576 && P0('big').xdes.length === 9 && P0('big').xdes.slice(2).every((x) => x.XDES_STATE === 'XDES_NOT_INITED'), 'big : extent 2–8 은 NOT_INITED · p 128–575');
+  must(P0('big').FSP_FREE_LIMIT === 128 && P0('big').FSP_SIZE === SD.big.nPages && SM.big.fileSize === SD.big.nPages * 16384, 'big : SIZE 576 · FREE_LIMIT 128');
+  must(BIG_LEAF.frag.length === 32 && BIG_LEAF.FSEG_FULL.len === 0 && BIG_LEAF.FSEG_NOT_FULL.len === 1, 'big PRIMARY leaf : 낱장 32 + NOT_FULL extent 1');
+  must(segPages(BIG_LEAF) === SD.big.roots[4].f.PAGE_N_RECS, 'big : leaf 수 = root 의 node pointer 수');
+  must([0, 1, 2, 3].every((p) => xdesOf('big', 0).used.includes(p))
+    && 4 + 2 + BIG_LEAF.frag.length + BIG_IDX.frag.length === P0('big').FSP_FRAG_N_USED && P0('big').FSP_FRAG_N_USED === xdesOf('big', 0).used.length, 'big : 4 + 2 + 32 + 10 = FRAG_N_USED');
+  must(xdesOf('big', 1).XDES_STATE === 'XDES_FSEG' && xdesOf('big', 1).XDES_ID === BIG_LEAF.FSEG_ID, 'big : extent 1 은 PRIMARY leaf 의 것');
+}
+
 const SCENES = [
 {
   num:'01', tab:'Byte Order', title:'Byte Order: Big-Endian on Disk, Regardless of CPU',
@@ -868,12 +915,13 @@ const SCENES = [
 
   { act:{ f:'ino', t:'xd', lb:'33 번째 page' },
     note:`33 번째 page 부터는 1 MB 단위 — ${segPages(BIG_LEAF)} = ${BIG_LEAF.frag.length} + ${BIG_LEAF.FSEG_NOT_FULL_N_USED}`,
-    why:`segment 가 page 를 달라고 할 때 쓴 낱장이 FSEG_FRAG_LIMIT 인 32 장 아래면 space 에서 page 하나를 떼어 낱장 칸에 적고, 다 찼으면 extent 하나를 통째로 받는다. big.ibd 의 PRIMARY leaf 는 낱장 ${BIG_LEAF.frag.length} 칸이 가득 찼고 NOT_FULL 목록에 extent ${BIG_LEAF.FSEG_NOT_FULL.len} 개, 거기서 ${BIG_LEAF.FSEG_NOT_FULL_N_USED} 장을 썼다.`,
+    why:`segment 가 page 를 달라고 할 때 이미 쓴 page(낱장 + FULL extent + NOT_FULL 에서 쓴 것)가 FSEG_FRAG_LIMIT 인 32 장 아래면 space 에서 page 하나를 떼어 낱장 칸에 적고, 그 이상이면 extent 하나를 통째로 받는다. big.ibd 의 PRIMARY leaf 는 낱장 ${BIG_LEAF.frag.length} 칸이 가득 찼고 NOT_FULL 목록에 extent ${BIG_LEAF.FSEG_NOT_FULL.len} 개, 거기서 ${BIG_LEAF.FSEG_NOT_FULL_N_USED} 장을 썼다.`,
     key:`${BIG_LEAF.frag.length} + ${BIG_LEAF.FSEG_NOT_FULL_N_USED} = ${segPages(BIG_LEAF)} 은 root p:4 의 node pointer 수 ${SD.big.roots[4].f.PAGE_N_RECS} 와 같다 — <em>inode 가 센 leaf 와 tree 가 가리키는 leaf 가 일치한다</em>. idx_c leaf 는 ${BIG_IDX.frag.length} 장이라 아직 낱장뿐이다.`,
     ref:'storage/innobase/fsp/fsp0fsp.cc', sym:'fseg_alloc_page_no', beat:1,
     fact:[['storage/innobase/fsp/fsp0fsp.cc','} else if (used < FSEG_FRAG_LIMIT) {'],
           ['storage/innobase/fsp/fsp0fsp.cc','/* 6. We allocate an individual page from the space'],
           ['storage/innobase/fsp/fsp0fsp.cc','/* 7. We allocate a new extent and take its first page'],
+          ['storage/innobase/fsp/fsp0fsp.cc','*used = n_frags + n_total_full + n_used_not_full;'],
           ['storage/innobase/include/fsp0fsp.h','#define FSEG_FRAG_LIMIT FSEG_FRAG_ARR_N_SLOTS']],
     ops:{ ...op('ino', inoOf('big', (i, r) => `${r}  ·  frag ${i.frag.length}${i.FSEG_NOT_FULL.len ? '  +  extent ' + i.FSEG_NOT_FULL.len + ' (' + i.FSEG_NOT_FULL_N_USED + ' 장)' : ''}`, [BIG_LEAF.FSEG_ID])),
           src:{ set:{ '파일':`big.ibd  ·  space ${P0('big').FSP_SPACE_ID}`, '작업':`INSERT ${SM.big.rows.toLocaleString('en-US')} 행 (순차)`, '크기':`${SD.big.nPages} page  ·  ${SM.big.fileSize.toLocaleString('en-US')} B` } },
@@ -883,7 +931,7 @@ const SCENES = [
   { act:{ f:'xd', t:'addr', lb:'extent 0 · 1 · 2–8' },
     note:`big.ibd 의 extent 표 — 0 은 공용 낱장 ${xdesOf('big', 0).used.length} 장, 1 은 seg ${xdesOf('big', 1).XDES_ID} 의 것, 2–8 은 아직 안 깔렸다`,
     why:`extent 0 의 ${xdesOf('big', 0).used.length} 장 = page 0–3(FSP_HDR · IBUF_BITMAP · INODE · SDI) 4 + root 둘 + PRIMARY leaf 낱장 ${BIG_LEAF.frag.length} + idx_c leaf ${BIG_IDX.frag.length}. 두 index 가 번갈아 받아 6–47 에 섞여 있다. extent 1 은 XDES_FSEG 이고 XDES_ID 가 ${xdesOf('big', 1).XDES_ID} — PRIMARY leaf segment 의 id 다.`,
-    key:'extent 의 주인은 inode 가 아니라 <em>descriptor 의 XDES_ID</em> 에 적힌다 — 그래서 page 0 만 읽어도 어느 1 MB 가 어느 segment 것인지 안다. 낱장은 주인이 page 단위로 섞여 있어 inode 의 FRAG_ARR 로만 안다.',
+    key:'extent 의 주인은 두 곳에 적힌다 — inode 는 그 extent 를 NOT_FULL 목록에 엮고, page 0 은 <em>descriptor 의 XDES_ID</em> 에 주인을 적는다. 그래서 page 0 만 읽어도 어느 1 MB 가 어느 segment 것인지 안다. 낱장은 주인이 page 단위로 섞여 있어 inode 의 FRAG_ARR 로만 안다.',
     ref:'storage/innobase/include/fsp0fsp.h', sym:'XDES_ID',
     fact:[['storage/innobase/include/fsp0fsp.h','The identifier of the segment to which this extent belongs'],
           ['storage/innobase/include/fsp0fsp.h','extent belongs to a segment']],
@@ -1304,10 +1352,11 @@ const SCENES = [
 
   { act:{ f:'phA', t:'pgs', lb:'N_DIR_SLOTS' },
     note:'+0 N_DIR_SLOTS — 119 행 page 에 slot 30, 989 행 page 에 147',
-    why:`slot 하나가 record 4–8 개를 소유한다(PAGE_DIR_SLOT_MIN_N_OWNED = 4, PAGE_DIR_SLOT_MAX_N_OWNED = 8). 9 개가 되면 쪼갠다 — n_owned / 2 인 4 개가 새 slot 으로 가고 5 개가 남는다. p:8 은 infimum · supremum 을 더한 ${heapN(8)} 개를 ${H(8).PAGE_N_DIR_SLOTS} slot 이, p:5 는 ${H(5).PAGE_N_RECS + 2} 개를 ${H(5).PAGE_N_DIR_SLOTS} slot 이 나눠 갖는다.`,
+    why:`slot 하나가 record 4–8 개를 소유한다(PAGE_DIR_SLOT_MIN_N_OWNED = 4, PAGE_DIR_SLOT_MAX_N_OWNED = 8) — 첫 · 마지막 slot 만 그 아래로 내려갈 수 있다. 9 개가 되면 쪼갠다 — n_owned / 2 인 4 개가 새 slot 으로 가고 5 개가 남는다. p:8 은 infimum · supremum 을 더한 ${heapN(8)} 개를 ${H(8).PAGE_N_DIR_SLOTS} slot 이, p:5 는 ${H(5).PAGE_N_RECS + 2} 개를 ${H(5).PAGE_N_DIR_SLOTS} slot 이 나눠 갖는다.`,
     key:`slot 당 평균이 <em>${(heapN(8) / H(8).PAGE_N_DIR_SLOTS).toFixed(1)} 과 ${((H(5).PAGE_N_RECS + 2) / H(5).PAGE_N_DIR_SLOTS).toFixed(1)}</em> 로 갈린다. 순차 insert 는 늘 마지막 slot 만 키우므로 4 개짜리를 남기며 지나가고, 흩어진 insert(idx_c)는 4–8 사이에 고루 퍼진다 — 규칙은 같고 밀도가 다르다.`,
     ref:'storage/innobase/page/page0page.cc', sym:'page_dir_split_slot',
     fact:[['storage/innobase/include/page0page.h','constexpr uint32_t PAGE_DIR_SLOT_MAX_N_OWNED = 8;'],
+          ['storage/innobase/include/page0page.h','number may drop below the minimum in the first and the last slot in the'],
           ['storage/innobase/include/page0page.h','constexpr uint32_t PAGE_DIR_SLOT_MIN_N_OWNED = 4;'],
           ['storage/innobase/page/page0cur.cc','If the number exceeds PAGE_DIR_SLOT_MAX_N_OWNED,'],
           ['storage/innobase/page/page0page.cc','page_dir_slot_set_n_owned(new_slot, page_zip, n_owned / 2);']],

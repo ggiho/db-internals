@@ -114,7 +114,8 @@ for (let no = 0; no < buf.length / PS; no++) {
   const b = buf.subarray(no * PS, no * PS + HEAD);
   const f = decode(b);
   if (f.FIL_PAGE_OFFSET !== no && f.FIL_PAGE_TYPE !== 0) { console.error('page ' + no + ' 의 FIL_PAGE_OFFSET 이 ' + f.FIL_PAGE_OFFSET + ' — 페이지 크기가 다르다'); process.exit(1); }
-  kinds.push(no + ':' + (TYPES[f.FIL_PAGE_TYPE] || f.FIL_PAGE_TYPE).replace(/^FIL_PAGE_(TYPE_)?/, ''));
+  /* 표에 없는 종류(LOB · UNDO · RTREE · 큰 파일의 XDES …)는 번호로 적는다 — 숫자에 replace 를 부르면 죽는다 */
+  kinds.push(no + ':' + String(TYPES[f.FIL_PAGE_TYPE] ?? f.FIL_PAGE_TYPE).replace(/^FIL_PAGE_(TYPE_)?/, ''));
   if (BTREE.has(f.FIL_PAGE_TYPE)) pages[no] = { hex: hex(b), f };
 }
 
