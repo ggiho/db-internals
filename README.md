@@ -38,7 +38,8 @@ grep 해 확인한다(`tools/claimcheck.js`). 레이아웃은 15폭 × 7,400방�
 넘침·글자잘림·라벨겹침·레일 겹침·무대 눌림·카드를 긋는 흐름선·잘린 패널 첫 줄·
 눈금과 어긋난 축 띠를 잡는다(`tools/sweep.js`). 실측 장면(ch3 06b)은 실제 .ibd 에서 뜬
 바이트를 덱에 싣는다 — `tools/ibdpage.js` 가 오프셋을 소스 정의와 먼저 맞춘 뒤 풀고, 검사 때마다
-저장된 바이트를 다시 풀어 I_S.INNODB_BUFFER_PAGE 의 측정값과 대조한다.
+저장된 바이트를 다시 풀어 I_S.INNODB_BUFFER_PAGE 의 측정값과 대조한다. 04c(page 0 · 2)는 `tools/ibdspace.js`
+가 같은 일을 하고, 두 장면은 서술이 기대는 전제를 불러올 때마다 dump 에 대고 확인한다.
 
 **손잡이를 돌리면 흐름이 바뀐다.** 무대 옆 손잡이 패널의 값은 설명이 아니라 입력이다.
 값을 누르면 그 장면이 그 설정의 동작으로 다시 재생된다 — 스텝의 문장·근거·배우 상태가
@@ -131,7 +132,7 @@ MongoDB 덱이 화면에 띄우는 발췌는 WiredTiger(GPLv2/v3) 코드뿐이�
 
     node tools/sweep.js --base=http://localhost:5181 --break=overflow --widths=1366 --decks=mysql/locks
 
-`tools/sweep-report.md` 에 그 발동 증거와, 만들면서 밟은 함정 46개가 적혀 있다.
+`tools/sweep-report.md` 에 그 발동 증거와, 만들면서 밟은 함정 47개가 적혀 있다.
 
 ## 저장소에 없는 것
 
