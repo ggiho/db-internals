@@ -9,9 +9,10 @@
 *Database Internals* 2·3장 대조를 담고 있다. 주소와 디렉터리가 엔진 계층을 가지므로
 엔진을 늘려도 도구와 검사가 그대로 붙는다.
 
-용어는 소스와 문서가 쓰는 말을 쓴다 — `next-key lock`·`doublewrite`·`fan-out` 처럼
+용어는 소스와 문서가 쓰는 말을 쓴다 — `next-key lock`·`doublewrite`·`fan-out`·`snapshot` 처럼
 찾아볼 수 있어야 하는 것은 영어로 두고, 조사는 띄어 붙인다(`buffer pool 에`).
-한국어에 자리 잡은 말(페이지·튜플·오프셋·슬롯·스냅샷)은 그대로 쓴다.
+장면 제목과 탭은 영어("Mechanism: detail"), 스텝 헤드라인은 용어 중심의 짧은 문장으로 쓴다.
+본문에 자리 잡은 말(페이지·튜플·오프셋)은 그대로 쓴다.
 
     #mysql/innodb/01/1        #postgres/wal/01/3       #book/ch3/04a/5
     #<엔진>/<덱>/<장면>/<스텝>  ← 주소가 곧 상태다
@@ -35,7 +36,9 @@
 칸 단위로 대조하고(`tools/mxcheck.js`), `NAME = 값` 형태의 주장은 저장소에서
 grep 해 확인한다(`tools/claimcheck.js`). 레이아웃은 15폭 × 7,400방문을 훑어
 넘침·글자잘림·라벨겹침·레일 겹침·무대 눌림·카드를 긋는 흐름선·잘린 패널 첫 줄·
-눈금과 어긋난 축 띠를 잡는다(`tools/sweep.js`).
+눈금과 어긋난 축 띠를 잡는다(`tools/sweep.js`). 실측 장면(ch3 06b)은 실제 .ibd 에서 뜬
+바이트를 덱에 싣는다 — `tools/ibdpage.js` 가 오프셋을 소스 정의와 먼저 맞춘 뒤 풀고, 검사 때마다
+저장된 바이트를 다시 풀어 I_S.INNODB_BUFFER_PAGE 의 측정값과 대조한다.
 
 **손잡이를 돌리면 흐름이 바뀐다.** 무대 옆 손잡이 패널의 값은 설명이 아니라 입력이다.
 값을 누르면 그 장면이 그 설정의 동작으로 다시 재생된다 — 스텝의 문장·근거·배우 상태가
@@ -128,7 +131,7 @@ MongoDB 덱이 화면에 띄우는 발췌는 WiredTiger(GPLv2/v3) 코드뿐이�
 
     node tools/sweep.js --base=http://localhost:5181 --break=overflow --widths=1366 --decks=mysql/locks
 
-`tools/sweep-report.md` 에 그 발동 증거와, 만들면서 밟은 함정 45개가 적혀 있다.
+`tools/sweep-report.md` 에 그 발동 증거와, 만들면서 밟은 함정 46개가 적혀 있다.
 
 ## 저장소에 없는 것
 
