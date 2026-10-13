@@ -214,9 +214,10 @@ function make({ F, deck, labels, scene }) {
   /* ── 자세 ── */
   const put = (o, i, x, y, a, h, j, s, c) => { o.x[i] = x; o.y[i] = y; o.a[i] = a; o.h[i] = h; o.j[i] = j; o.s[i] = s; o.c[i] = c; };
   const show = (p, a, b) => U.smooth(U.range(p, a, b));
+  /* 격자 — 줄 수를 내림으로 잡는다(올림이면 마지막 줄이 덜 차 덩어리 아래가 이가 빠졌다). 남는 알갱이는 셋째 값이 false — 숨긴다 */
   function grid(cx, cy, w, h, n, m) {
-    const cols = Math.max(2, Math.round(Math.sqrt(n * (w / h)))), rows = Math.ceil(n / cols);
-    return [cx - w / 2 + ((m % cols) + 0.5) / cols * w, cy - h / 2 + (Math.floor(m / cols) + 0.5) / rows * h];
+    const cols = Math.max(2, Math.round(Math.sqrt(n * (w / h)))), rows = Math.max(1, Math.floor(n / cols));
+    return [cx - w / 2 + ((m % cols) + 0.5) / cols * w, cy - h / 2 + (Math.floor(m / cols) % rows + 0.5) / rows * h, m < cols * rows];
   }
   const hide = (k) => { const [a, b] = R[k]; for (let i = a; i < b; i++) put(O, i, dust[i * 2], dust[i * 2 + 1], 0, 0, 2, 1, FAINT); };
   const COL = { red: RED, green: GREEN, gold: GOLD, '': INK };
@@ -238,7 +239,7 @@ function make({ F, deck, labels, scene }) {
         /* 그 스텝에서 지운 항목(3 : 3-way 의 복사본) — 제자리에서 흐려지고, 그 자리에서 새 항목이 나온다 */
         if (!pv || end) { hide('c:' + id); continue; }
         const P = posIn(prev, id), a = 0.85 * (1 - show(p, 0.1, 0.3)) * form;
-        for (let m = 0; m < COPY; m++) { const i = s0 + m, [x, y] = into(i, ...grid(P.x, P.y, cw, chh, COPY, m)); put(o, i, x, y, a, 0, 0.05, 1.1, pv.ok ? INK : RED); }
+        for (let m = 0; m < COPY; m++) { const i = s0 + m, [gx, gy, ing] = grid(P.x, P.y, cw, chh, COPY, m), [x, y] = into(i, gx, gy); put(o, i, x, y, a * ing, 0, 0.05, 1.1, pv.ok ? INK : RED); }
         continue;
       }
       const P = posIn(s, id), parent = !pv && !end ? prev.items.find((x) => zoneOf(x.id) === zoneOf(id)) : null, PP = parent ? posIn(prev, parent.id) : null;
@@ -248,14 +249,14 @@ function make({ F, deck, labels, scene }) {
       const base = (volOn ? (hot(s, id) ? 0.92 : 0.5) : 0.45) * dim * form;
       for (let m = 0; m < COPY; m++) {
         const i = s0 + m, jx = jit[i * 2], jy = jit[i * 2 + 1], f = m / COPY;
-        let [x, y] = grid(P.x, P.y, cw, chh, COPY, m), a = base, col = it.ok ? (focus ? GOLD : INK) : RED;
+        let [x, y, ing] = grid(P.x, P.y, cw, chh, COPY, m), a = base, col = it.ok ? (focus ? GOLD : INK) : RED;
         /* 무너진 자리 — 아래로 처지고 흩어진다. 고장 나는 스텝은 알갱이마다 차례로 */
         let q = !it.ok ? (failing ? show(p, 0.1 + f * 0.12, 0.24 + f * 0.12) : 1) : 0;
         if (healing) q = 1 - show(p, 0.18 + f * 0.2, 0.24 + f * 0.2);
         if (q > 0) { x += jx * 10 * q; y += (4 + Math.abs(jy) * 16) * q; a = U.lerp(base, base * 0.38, q); col = q > (healing ? 0.5 : 0.02) ? RED : INK; }
         if (PP) { const e = show(p, 0.1 + (m % 9) * 0.015, 0.34 + (m % 9) * 0.015), [px, py] = grid(PP.x, PP.y, cw, chh, COPY, m); x = U.lerp(px, x, e); y = U.lerp(py, y, e); }
         [x, y] = into(i, x, y);
-        put(o, i, x, y, a, focus ? 0.6 : 0, 0.05, 1.1, col);
+        put(o, i, x, y, a * ing, focus ? 0.6 : 0, 0.05, 1.1, col);
       }
     }
     /* 흐름 — 재복제는 같은 AZ 의 살아 있는 복사본에서, 평시 읽기는 compute 에서 그 복사본으로 */

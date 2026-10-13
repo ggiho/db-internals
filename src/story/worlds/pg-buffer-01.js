@@ -189,9 +189,10 @@ function make({ F, deck, labels, scene }) {
   /* ── 자세 ── */
   const put = (o, i, x, y, a, h, j, s, c) => { o.x[i] = x; o.y[i] = y; o.a[i] = a; o.h[i] = h; o.j[i] = j; o.s[i] = s; o.c[i] = c; };
   const show = (p, a, b) => U.smooth(U.range(p, a, b));
+  /* 격자 — 줄 수를 내림으로 잡는다(올림이면 마지막 줄이 덜 차 덩어리 아래가 이가 빠졌다). 남는 알갱이는 셋째 값이 false — 숨긴다 */
   function grid(cx, cy, w, h, n, m) {
-    const cols = Math.max(2, Math.round(Math.sqrt(n * (w / h)))), rows = Math.ceil(n / cols);
-    return [cx - w / 2 + ((m % cols) + 0.5) / cols * w, cy - h / 2 + (Math.floor(m / cols) + 0.5) / rows * h];
+    const cols = Math.max(2, Math.round(Math.sqrt(n * (w / h)))), rows = Math.max(1, Math.floor(n / cols));
+    return [cx - w / 2 + ((m % cols) + 0.5) / cols * w, cy - h / 2 + (Math.floor(m / cols) % rows + 0.5) / rows * h, m < cols * rows];
   }
   function pose(k, p, t, o) {
     if (!G) return;
@@ -219,10 +220,10 @@ function make({ F, deck, labels, scene }) {
       const cleaned = !end && pb && pb.pg === b.pg && pb.dirty && !b.dirty;
       for (let m = 0; m < SLOT; m++) {
         const i = s0 + m, col = b.dirty || (cleaned && p < 0.12 + (m / SLOT) * 0.25) ? RED : INK;
-        let [x, y] = grid(sl.x, sl.y, sw, sh, SLOT, m);
+        let [x, y, ing] = grid(sl.x, sl.y, sw, sh, SLOT, m);
         if (src) { const q = show(fly, (m % 9) * 0.02, 0.82 + (m % 9) * 0.02); x = U.lerp(src[0] + jit[i * 2] * 14, x, q); y = U.lerp(src[1] + jit[i * 2 + 1] * 14, y, q); }
         [x, y] = into(i, x, y);
-        put(o, i, x, y, (b.pin && m % 11 === 0 ? 0.95 : on ? 0.95 : 0.62) * emph * dim * form, lit, 0.05, on ? 1.25 : 1.1, b.pin && m % 11 === 0 ? GOLD : col);
+        put(o, i, x, y, (b.pin && m % 11 === 0 ? 0.95 : on ? 0.95 : 0.62) * emph * dim * form * ing, lit, 0.05, on ? 1.25 : 1.1, b.pin && m % 11 === 0 ? GOLD : col);
       }
       /* usage — 그 스텝에서 바뀐 칸만 앞 값에서 뒤 값으로 */
       const [p0] = R['pip:' + b.id], ch = s.poolMod.has(b.id) && !end, uu = ch ? U.lerp(pb && pb.pg === b.pg ? pb.u : b.u0, b.u, show(p, 0.24, 0.4)) : b.u;
@@ -253,8 +254,8 @@ function make({ F, deck, labels, scene }) {
     s.heap.forEach((h) => {
       const j = HEAPS.indexOf(h.id), [s0] = R['heap:' + h.id], hp = heaps[j], lk = s.heapMod.has(h.id) && !end;
       for (let m = 0; m < PAGE; m++) {
-        const i = s0 + m, [x, y] = into(i, ...grid(hp.x, hp.y, pw, ph, PAGE, m));
-        put(o, i, x, y, (lk ? 0.95 : s.touch.has('heap') ? 0.7 : 0.45) * dim * form, lk ? 0.7 : 0, 0.05, 1.05, lk ? GOLD : INK);
+        const i = s0 + m, [gx, gy, ing] = grid(hp.x, hp.y, pw, ph, PAGE, m), [x, y] = into(i, gx, gy);
+        put(o, i, x, y, (lk ? 0.95 : s.touch.has('heap') ? 0.7 : 0.45) * dim * form * ing, lk ? 0.7 : 0, 0.05, 1.05, lk ? GOLD : INK);
       }
     });
     /* act — 덩어리가 f 에서 t 로. 도착(0.42) 뒤 0.52 까지 흩어진다 */
