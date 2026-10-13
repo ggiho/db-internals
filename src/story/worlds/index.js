@@ -6,11 +6,13 @@ import { STORY } from '../has.js';
 const ch301 = { id: 'ch3-01', load: () => import('./ch3-01.js') };
 const ch306b = { id: 'ch3-06b', load: () => import('./ch3-06b.js') };
 const pgBuf01 = { id: 'pg-buffer-01', load: () => import('./pg-buffer-01.js') };
+const aurora05 = { id: 'aurora-05', load: () => import('./aurora-05.js') };
 const loadStage = () => import('./stage.js');
 
 export const BESPOKE = {
   'book/ch3': { '01': ch301, '01v': ch301, '06b': ch306b },
   'postgres/buffer': { '01': pgBuf01 },
+  'aurora/mysql': { '05': aurora05 },
 };
 
 export function worldOf(deck, num) {

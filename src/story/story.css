@@ -176,6 +176,13 @@
 .st-labels .wl .pb-i{color:var(--body);font-size:12px}
 .st-labels .wl .pb-g{color:var(--gold)}
 .st-labels .wl .pb-r{color:var(--red)}
+/* aurora mysql 05 — 이름표는 모두 읽어야 하는 값(.sm 아님). 키 줄 아래에 값 줄 */
+.st-labels .wl.aq{font-size:11px}
+.st-labels .wl.aq-c{text-align:center}
+.st-labels .wl .q-i{color:var(--body)}
+.st-labels .wl .q-r{color:var(--red)}
+.st-labels .wl .q-g{color:var(--gold)}
+.st-labels .wl .q-gr{color:var(--green)}
 
 /* 무대(stage) 세계 — 배우 상자 · 층 · 경계. 글은 DOM, 테두리와 칩은 알갱이(stage.js) */
 .st-labels .stn{position:absolute;left:0;top:0;padding:10px 12px 11px;font:400 11.5px/1.45 var(--mono2);color:var(--body);word-break:keep-all}
