@@ -695,7 +695,9 @@ async function main() {
      그래서 덱을 바꿀 때는 쿼리를 붙여 문서를 정말 새로 싣는다 — 그러면 앞 덱이 없다. */
   let curDeck = null;
   const openDeck = async (d) => {
-    await page.goto(`${BASE}/?deck=${d}#${d}`, { waitUntil: 'load' });
+    /* ?lab — Story 가 기본이 된 뒤로, 세계가 있는 장면(ch3 01 · 01v · 06b)은 쿼리 없이 열면 Story 가 뜬다.
+       이 스윕은 Lab 의 배치를 재므로 늘 Lab 으로 연다 */
+    await page.goto(`${BASE}/?lab&deck=${d}#${d}`, { waitUntil: 'load' });
     /* 테마는 문서를 새로 실을 때마다 다시 지정해야 한다 — --theme=light 로 밝은 모드를
        훑는다. 지정하지 않으면 앱의 기본(시스템 따름)이고, 헤드리스는 dark 로 온다. */
     if (ARG.theme) await page.evaluate((t) => {

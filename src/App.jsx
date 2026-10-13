@@ -9,6 +9,8 @@ import Delta from './Delta.jsx';
 import { bake, onStage, valuesOf, stepsOf } from './bake.js';
 /* 덱 목록은 게임 화면(play/)도 쓰므로 따로 둔다 */
 import { DECKS } from './decks.js';
+import { parse, env } from './route.js';
+import { hasStory, toStory } from './story/has.js';
 
 const DEFAULT_DECK = 'book/ch3';
 
@@ -19,27 +21,7 @@ const GROUPS = Object.entries(DECKS).reduce((acc, [id, d]) => {
   return acc;
 }, []);
 
-/* 주소가 곧 상태다 : #<묶음>/<덱>/<장면>/<스텝>. 스텝은 1 부터 센다 (사람이 읽는 번호).
-   덱 이름에 '/' 가 들어가므로 앞에서부터 자를 수 없다 — 등록된 이름 중
-   이 주소의 접두어인 가장 긴 것을 덱으로 본다. 그래야 장면 번호에 무엇이 와도 안전하다. */
-function parse(h) {
-  const raw = String(h || '').replace(/^\/+/, '');
-  let deck = '';
-  for (const id of Object.keys(DECKS)) {
-    if ((raw === id || raw.startsWith(id + '/')) && id.length > deck.length) deck = id;
-  }
-  if (!deck) return { deck: '', num: '', step: 1, v: null };
-  /* 4번째 칸이 손잡이 값이다 — '#덱/장면/스텝/v2' 처럼 붙는다.
-     링크 하나로 "이 값일 때의 이 스텝" 이 재현돼야 하므로 주소에 싣는다. */
-  const [n, s, v] = raw.slice(deck.length).replace(/^\//, '').split('/');
-  const vv = /^v(.+)$/.exec(v || '');
-  return { deck, num: n || '', step: Math.max(1, parseInt(s, 10) || 1), v: vv ? unv(vv[1]) : null };
-}
-/* 손잡이 값은 주소에 인코딩해서 싣는다 — PG 의 격리 수준은 'repeatable read' 처럼 공백이 들고
-   별칭이 없다. 브라우저는 해시의 공백을 %20 으로 바꾸므로 날것으로 실으면 값이 맞지 않는다.
-   지금까지의 값(2 · OFF · READ-COMMITTED · strict_crc32 …)은 인코딩해도 글자가 같다. */
-const env = (v) => encodeURIComponent(v);
-function unv(v) { try { return decodeURIComponent(v); } catch { return v; } }
+/* 주소 규칙(parse · env)은 Story 도 읽으므로 route.js 에 있다 */
 
 export default function App() {
   const [route, setRoute] = useState(() => parse(location.hash.slice(1)));
@@ -227,6 +209,11 @@ export default function App() {
         {/* PLAY 와 테마는 한 쌍으로 줄바꿈한다 — 따로 두면 768 에서 PLAY 만 첫 줄에 남고
             테마가 둘째 줄 왼쪽으로 떨어졌다. 게임에서 "무대로" 를 누르면 떠난 자리로 온다. */}
         <span className="top-r">
+          {/* Story 가 있는 장면에서만 — 같은 장면 · 같은 스텝으로 돌아간다 */}
+          {hasStory({ deck: deckName, num: scene.num }) && (
+            <a className="go-story" href={'#' + canon} title="이 장면을 scroll 로 본다"
+              onClick={(e) => { e.preventDefault(); toStory(canon); }}>STORY</a>
+          )}
           <a className="go-play" href="#play" title="덱에서 만든 문제를 푼다"
             onClick={() => { try { sessionStorage.setItem('dbi.play.from', location.hash.slice(1)); } catch { /* 기본 덱 */ } }}>PLAY</a>
           <button type="button" className="thm" onClick={() => setTheme(

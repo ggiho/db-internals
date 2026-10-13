@@ -78,3 +78,7 @@
 .go-play{font:400 8.5px var(--mono);letter-spacing:.18em;color:var(--gold);text-decoration:none;
   border:1px solid var(--gold);padding:2px 7px}
 .go-play:hover{background:color-mix(in srgb, var(--gold) 14%, transparent)}
+/* Story 로 — PLAY 와 같은 상자다(머리글 높이가 바뀌지 않게) */
+.go-story{font:400 8.5px var(--mono);letter-spacing:.18em;color:var(--accent);text-decoration:none;
+  border:1px solid var(--accent);padding:2px 7px}
+.go-story:hover{background:color-mix(in srgb, var(--accent) 14%, transparent)}

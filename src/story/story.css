@@ -1,0 +1,244 @@
+/* ══════════ Story ══════════
+   색은 Lab 과 같은 토큰을 쓴다(style.css) — 두 화면을 오가도 테마가 같다.
+   글꼴만 다르다 : 글은 Hahmlet(한글 serif), 이름 · 바이트 · 오프셋은 IBM Plex Mono.
+   크기는 폭(vw)과 높이(vh) 중 작은 쪽을 따른다 — 1366×768 처럼 낮은 화면에서 글이 넘치지 않게. */
+.st{
+  --gut:clamp(20px,3.2vw,56px);
+  --copyw:min(40vw,600px);
+  --serif:'Hahmlet','AppleMyungjo','Nanum Myeongjo',serif;
+  --mono2:'IBM Plex Mono',var(--mono);
+  font-family:var(--serif);color:var(--body);
+  font-variant-numeric:lining-nums tabular-nums;
+}
+.st ::selection{background:var(--gold);color:var(--bg)}
+.st-field{position:fixed;inset:0;width:100vw;height:100vh;z-index:0;pointer-events:none}
+.st-labels{position:fixed;inset:0;z-index:2;pointer-events:none}
+
+/* ── 머리글 ── */
+/* 머리글 — 항목은 접지 않고, 다 안 들어가면 줄을 바꾼다. 줄였더니 손잡이 값이 긴 장면(postgres mvcc 08 · 1024 폭)에서
+   'db-internals' 가 'db- / internals' 로, 장면 이름 · 손잡이 값 · '어둡게' 가 두 줄로 접혔다(storysweep header-wrap) */
+.st-top{position:fixed;top:0;left:0;right:0;z-index:10;display:flex;flex-wrap:wrap;align-items:center;gap:8px 22px;
+  padding:16px var(--gut);pointer-events:none}
+.st-brand,.st-where,.st-ab button{white-space:nowrap}
+.st-top > *{pointer-events:auto}
+.st-brand{font:500 15px var(--serif);color:var(--ink);text-decoration:none;letter-spacing:-.01em}
+.st-where{display:flex;gap:12px;align-items:baseline;background:none;border:0;padding:4px 0;cursor:pointer;
+  font:400 13px var(--serif);color:var(--body)}
+.st-where .s{font:400 12px var(--mono2);color:var(--faint)}
+.st-where:hover .s,.st-where[aria-expanded="true"] .s{color:var(--ink)}
+.st-r{margin-left:auto;display:flex;gap:8px;align-items:center}
+.st-btn{font:400 12.5px var(--serif);color:var(--body);background:none;border:1px solid var(--line);
+  border-radius:999px;padding:5px 13px;cursor:pointer;white-space:nowrap}
+.st-btn:hover{color:var(--ink);border-color:var(--faint)}
+.st :focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
+
+/* 짝 장면 — 장면 전체에 걸리는 선택이라 머리글에 둔다 */
+.st-ab{display:flex;gap:2px;padding:3px;margin-left:6px;
+  border:1px solid var(--line);border-radius:999px;background:color-mix(in srgb,var(--bg) 80%,transparent);
+  backdrop-filter:blur(6px)}
+.st-ab button{display:flex;gap:8px;align-items:baseline;background:none;border:0;border-radius:999px;
+  padding:5px 14px;cursor:pointer;font:500 12.5px var(--mono2);color:var(--faint)}
+.st-ab button small{font:400 11.5px var(--serif);color:var(--faint)}
+.st-ab button.on{background:var(--panel2);color:var(--ink);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--gold) 70%,transparent)}
+.st-ab button.on small{color:var(--body)}
+.st-ab button:hover:not(.on){color:var(--body)}
+
+/* 장면 목록 */
+.st-menu{position:fixed;top:56px;left:var(--gut);z-index:20;display:grid;grid-template-columns:repeat(2,minmax(210px,1fr));
+  gap:0 22px;padding:12px 16px;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  box-shadow:0 18px 50px rgba(0,0,0,.35);max-height:72vh;overflow:auto}
+.st-menu a{display:flex;gap:10px;align-items:baseline;padding:7px 2px;color:var(--body);text-decoration:none;
+  font:400 13.5px var(--serif);border-bottom:1px solid var(--hair)}
+.st-menu a b{font:500 11.5px var(--mono2);color:var(--faint);width:2.7em;flex:none}
+.st-menu a i{margin-left:auto;font:400 10.5px var(--mono2);font-style:normal;color:var(--faint)}
+.st-menu a.on{color:var(--ink)}
+.st-menu a.on b,.st-menu a.story b{color:var(--gold)}
+.st-menu a:hover{color:var(--ink)}
+
+/* ── 레일 : 스텝 순서 ── */
+.st-rail{position:fixed;right:calc(var(--gut) * .5);top:50%;transform:translateY(-50%);z-index:10;
+  display:flex;flex-direction:column;gap:5px}
+.st-rail button{display:flex;align-items:center;justify-content:flex-end;gap:8px;background:none;border:0;
+  padding:2px 0;cursor:pointer;font:400 10.5px var(--mono2);color:var(--faint)}
+.st-rail i{display:block;width:10px;height:1px;background:currentColor;transition:width .3s,background .3s}
+.st-rail button:hover{color:var(--body)}
+.st-rail button.on{color:var(--ink)}
+.st-rail button.on i{width:22px;background:var(--gold)}
+/* 요점(beat)은 금색 눈금, 묶음 끝 뒤에 틈 — 25 스텝 레일이 1366×768 에서 570px 였다 */
+.st-rail button.beat{color:var(--body)}
+.st-rail button.beat i{width:14px;background:var(--gold)}
+.st-rail button.end{margin-bottom:7px}
+.st-rail.dense{gap:1px}
+.st-rail.dense button{padding:1px 0;font-size:9.5px}
+.st-k .sk{color:var(--gold)}
+.st-skim b{font-weight:500;color:var(--gold);margin-left:2px}
+.st-skim.on{color:var(--ink);border-color:var(--gold);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--gold) 60%,transparent)}
+.st-prog{display:none}
+
+/* ── 구간 · 고정 글 ── */
+.st-sec{position:relative;height:calc(var(--len) * 100vh)}
+.st-pin{position:fixed;inset:0;z-index:3;pointer-events:none;visibility:hidden}
+.st-pin button,.st-pin a{pointer-events:auto}
+
+.st-copy{position:absolute;left:var(--gut);top:50%;width:var(--copyw);
+  transform:translateY(calc(-50% + var(--lift,0px)));opacity:var(--show,0);will-change:transform,opacity}
+.st-k{margin:0 0 14px;font:400 12px var(--mono2);color:var(--faint)}
+.st-k b{color:var(--gold);font-weight:500}
+.st-note{margin:0;font:400 min(2.3vw,4.6vh,38px)/1.36 var(--serif);color:var(--ink);letter-spacing:-.012em;
+  word-break:keep-all;overflow-wrap:anywhere;text-wrap:balance}
+.st-note code.t{font-family:var(--mono2);font-size:.8em;font-weight:500;letter-spacing:-.015em}
+.st-why{margin:20px 0 0;font:300 clamp(14px,min(1.04vw,2.1vh),16.5px)/1.8 var(--serif);color:var(--body);
+  word-break:keep-all;overflow-wrap:anywhere}
+.st-key{margin:18px 0 0;padding-left:14px;border-left:2px solid var(--gold);
+  font:400 clamp(14px,min(1.04vw,2.1vh),16.5px)/1.75 var(--serif);color:var(--ink);word-break:keep-all;overflow-wrap:anywhere}
+.st-key em{font-style:normal;color:var(--gold)}
+/* '근거' 는 줄지 않는다 — 소스 자리가 길면 flex 가 이것을 줄여 '근 / 거' 로 접었다(storysweep word-split). 넘치는 쪽이 다음 줄로 */
+.st-ref{margin-top:20px;display:inline-flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;background:none;border:0;padding:0;
+  cursor:pointer;font:400 12px var(--mono2);color:var(--faint);text-align:left}
+.st-ref > span{flex:none;font:400 12.5px var(--serif);color:var(--body)}
+.st-ref code.sym{color:var(--body)}
+.st-ref:hover:not(:disabled) code{color:var(--accent)}
+.st-ref:disabled{cursor:default}
+
+/* 장면 제목 — 첫 스텝 구간의 앞머리 */
+.st-hero{position:absolute;left:var(--gut);top:50%;width:var(--copyw);transform:translateY(-50%);
+  opacity:var(--show,1);visibility:visible}
+.st-deck{margin:0 0 18px;font:400 13px var(--serif);color:var(--faint)}
+.st-title{margin:0;font:400 min(3.7vw,7vh,60px)/1.12 var(--serif);color:var(--ink);letter-spacing:-.022em;text-wrap:balance}
+.st-sub{margin:24px 0 0;font:300 clamp(15px,1.2vw,19px)/1.7 var(--serif);color:var(--body);word-break:keep-all}
+.st-title .nb{white-space:nowrap}
+.st-hint{margin:34px 0 0;font:400 13px var(--serif);color:var(--faint)}
+
+/* 이어지는 장면 */
+.st-next{display:flex;flex-direction:column;margin-top:10px}
+.st-next a{display:grid;grid-template-columns:3.2em 1fr;column-gap:12px;row-gap:2px;padding:16px 0;
+  border-top:1px solid var(--line);color:var(--ink);text-decoration:none}
+.st-next a:last-child{border-bottom:1px solid var(--line)}
+.st-next a b{font:500 13px var(--mono2);color:var(--gold);grid-row:span 3;padding-top:5px}
+.st-next a .tb{font:400 21px var(--serif);letter-spacing:-.01em}
+.st-next a .ds{font:300 14.5px var(--serif);color:var(--body)}
+.st-next a i{font:400 12px var(--serif);font-style:normal;color:var(--faint)}
+.st-end .st-k{font:400 13px var(--serif)}
+.st-next a:hover .tb{color:var(--gold)}
+.st-again{margin-top:26px;background:none;border:1px solid var(--line);border-radius:999px;padding:7px 15px;
+  font:400 12.5px var(--serif);color:var(--body);cursor:pointer}
+.st-again:hover{color:var(--ink);border-color:var(--faint)}
+
+.st-cred{position:fixed;right:var(--gut);bottom:14px;z-index:5;margin:0;font:400 10.5px var(--serif);color:var(--faint);
+  pointer-events:none}
+
+/* 알갱이 위의 이름표 — 세계가 자리와 투명도를 매 프레임 정한다 */
+.st-labels .wl{position:absolute;left:0;top:0;font:400 12px var(--mono2);color:var(--faint);white-space:nowrap;
+  opacity:0;will-change:opacity,transform}
+.st-labels .wl.ink{color:var(--body)}
+.st-labels .wl.gold{color:var(--gold)}
+.st-labels .wl.red{color:var(--red)}
+.st-labels .wl.green{color:var(--green)}
+.st-labels .wl.big{font-size:13.5px}
+.st-labels .wl.serif{font:400 13px var(--serif)}
+.st-labels .code{position:absolute;left:0;top:0;margin:0;font:400 12.5px/1.8 var(--mono2);color:var(--faint);
+  white-space:pre;opacity:0}
+.st-labels .code .ln{display:block;transition:color .25s}
+.st-labels .code .ln i{display:inline-block;width:3.4em;font-style:normal;color:var(--dim2)}
+.st-labels .code .ln.on{color:var(--ink)}
+.st-labels .code .ln.on i{color:var(--gold)}
+/* 문법 강조는 전역 .c-k · .c-t … (rail.css) 그대로 — 지금 쓰는 줄만 색을 받고 나머지는 흐리게 */
+.st-labels .code .ln:not(.on) span{color:inherit}
+
+/* 06b 의 hexdump — 앞 94 B 의 실제 바이트. 짚는 칸(h)은 금색, FIL header(f)는 흐리게.
+   Lab 의 전역 .row(flex · gap 14px)와 이름이 겹쳐 바이트 사이가 벌어졌다 — hx- 로 가른다 */
+.st-labels .hexs{position:absolute;left:0;top:0;display:flex;gap:28px;align-items:flex-start;font:400 12px/1.62 var(--mono2);
+  color:var(--body);opacity:0}
+.st-labels .hexs .hx-hd{font:400 12.5px var(--serif);color:var(--faint);margin-bottom:6px;white-space:nowrap}
+.st-labels .hexs .hx-hd b{font:500 12px var(--mono2);color:var(--ink)}
+.st-labels .hexs .hx-row{white-space:nowrap}
+.st-labels .hexs .hx-row i{display:inline-block;width:3.4em;font-style:normal;color:var(--dim2)}
+.st-labels .hexs .hx-row b{font-weight:400;margin-right:.5em}
+.st-labels .hexs .hx-row b.gap{margin-left:.5em}
+.st-labels .hexs .hx-row b.f{color:var(--faint)}
+.st-labels .hexs .hx-row b.p{color:var(--body)}
+.st-labels .hexs .hx-row b.h{color:var(--gold);font-weight:600}
+.st-labels .hexs .hx-dec{display:flex;flex-direction:column;gap:6px;padding-top:26px;min-width:0}
+.st-labels .hexs .hx-dec span{display:grid;grid-template-columns:auto auto 1fr;column-gap:10px;white-space:nowrap}
+.st-labels .hexs .hx-dec em{font-style:normal;color:var(--body);grid-column:1 / -1;font-size:11.5px}
+.st-labels .hexs .hx-dec i{font-style:normal;color:var(--faint)}
+.st-labels .hexs .hx-dec b{color:var(--gold);font-weight:500}
+.st-labels .hexs.narrow .hx-l{display:none}
+.st-labels .hexs.narrow .hx-dec{padding-top:0;font-size:10.5px}
+.st-labels .wl.sm{font-size:11px}
+.st-labels .wl.ml{white-space:pre-line;line-height:1.45}
+.st-labels .wl.st-wrap{white-space:normal;line-height:1.45;word-break:keep-all}
+
+/* 무대(stage) 세계 — 배우 상자 · 층 · 경계. 글은 DOM, 테두리와 칩은 알갱이(stage.js) */
+.st-labels .stn{position:absolute;left:0;top:0;padding:10px 12px 11px;font:400 11.5px/1.45 var(--mono2);color:var(--body);word-break:keep-all}
+.st-labels .stn-measure{visibility:hidden;transform:none !important}
+/* 꼬리표 — 이 스텝이 무대에 올리지 않은 배우(초점 배치). 이름만 */
+.st-labels .stn.tag{padding:4px 9px 5px;white-space:nowrap}
+.st-labels .stn.tag .s-hd{margin:0}
+.st-labels .stn .s-hd{font:500 11px var(--mono2);letter-spacing:.05em;color:var(--faint);margin-bottom:5px}
+/* 이름과 값을 한 줄에(Lab 의 .kv 와 같다), 안 들어가면 값이 다음 줄 오른쪽으로. 위아래로 쌓았더니 상자가 길어져
+   폰에서 세계 전체가 0.4 배로 줄었다(storysweep text-small) */
+.st-labels .stn .s-kv{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:10px;margin-top:4px}
+.st-labels .stn .s-kv i{font-style:normal;font-size:10.5px;color:var(--faint);overflow-wrap:anywhere}
+.st-labels .stn .s-kv b{margin-left:auto;font-weight:400;color:var(--ink);word-break:keep-all;overflow-wrap:anywhere}
+.st-labels .stn .s-kv.chg i{color:var(--body)}
+.st-labels .stn b.gold,.st-labels .stn .chg b{color:var(--gold)}
+.st-labels .stn b.red{color:var(--red)}
+.st-labels .stn b.green{color:var(--green)}
+.st-labels .stn .s-gg{display:grid;grid-template-columns:1fr auto;column-gap:8px;margin-top:9px;font-size:10.5px;color:var(--faint)}
+.st-labels .stn .s-gg s{grid-column:1 / -1;display:block;height:6px;margin-bottom:5px}
+.st-labels .stn .s-gg b{font-weight:400;color:var(--body)}
+/* 항목 — id 와 설명을 한 칸에 글로 흘린다. id · 설명을 따로 칸으로 두었더니 id 가 넓을 때 설명 칸이
+   '보인다' 한 어절보다 좁아져 음절 사이에서 접혔다(storysweep word-split) */
+.st-labels .stn .s-li{display:grid;grid-template-columns:12px 1fr;column-gap:8px;align-items:start;margin-top:6px}
+.st-labels .stn .s-li s{display:block;width:12px;height:12px;margin-top:2px}
+.st-labels .stn .s-li p{margin:0;min-width:0}
+.st-labels .stn .s-li b{font-weight:500;color:var(--ink);overflow-wrap:anywhere;margin-right:2px}
+.st-labels .stn .s-li span{color:var(--faint);font-size:10.5px;overflow-wrap:anywhere}
+.st-labels .stn .s-li.none span{grid-column:1 / -1}
+.st-labels .stn .s-frs{display:flex;flex-wrap:wrap;gap:8px 8px;margin-top:6px}
+.st-labels .stn .s-fr{display:flex;flex-direction:column;width:62px}
+.st-labels .stn .s-fr s{display:block;width:24px;height:24px;margin-bottom:5px}
+.st-labels .stn .s-fr b{font-weight:500;color:var(--ink);overflow-wrap:anywhere}
+.st-labels .stn .s-fr span{color:var(--faint);font-size:10px;line-height:1.35;overflow-wrap:anywhere}
+.st-labels .stn-lane,.st-labels .stn-edge,.st-labels .stn-tok{position:absolute;left:0;top:0;white-space:nowrap}
+.st-labels .stn-lane{font:400 12.5px var(--serif);color:var(--body)}
+.st-labels .stn-lane i{font-style:normal;color:var(--faint);margin-left:8px;font-size:12px}
+.st-labels .stn-edge{font:400 11px var(--mono2);color:var(--faint)}
+.st-labels .stn-edge.gold{color:var(--gold)}
+.st-labels .stn-tok{font:500 11.5px var(--mono2);color:var(--accent);opacity:0;padding:2px 7px;border-radius:4px;
+  background:color-mix(in srgb,var(--bg) 88%,transparent);box-shadow:0 0 0 1px color-mix(in srgb,currentColor 35%,transparent)}
+.st-labels .stn-tok.gold{color:var(--gold)}
+.st-knob .st-kn{align-self:center;padding:0 6px 0 10px;font:400 11px var(--mono2);color:var(--faint)}
+
+/* ── 좁은 화면 : 글이 위, 세계가 아래 ── */
+@media (max-width:819px){
+  .st{--copyw:calc(100vw - 2 * var(--gut))}
+  .st-top{padding:12px var(--gut);gap:12px}
+  .st-where .d{display:none}
+  .st-top{flex-wrap:wrap;row-gap:8px}
+  .st-ab{order:5;margin-left:0}
+  .st-ab button{white-space:nowrap;padding:5px 12px}
+  .st-ab button small{display:none}
+  .st-knob .st-kn{display:none}
+  .st-labels .wl.sm,.st-labels .wl.axis{display:none}
+  .st-labels .stn{padding:8px 10px 9px}
+
+  .st-copy,.st-hero{top:calc(var(--top-h,56px) + 14px);transform:translateY(var(--lift,0px))}
+  .st-hero{transform:none}
+  .st-note{font-size:20px;line-height:1.4}
+  .st-why{margin-top:12px;font-size:13.5px;line-height:1.7;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .st-key{margin-top:10px;font-size:13.5px;line-height:1.65;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+  .st-title{font-size:30px}
+  .st-sub{font-size:14.5px}
+  .st-rail,.st-cred{display:none}
+  .st-prog{display:flex;position:fixed;left:var(--gut);right:var(--gut);top:calc(var(--top-h,56px) + 4px);z-index:9;gap:2px;height:3px}
+  .st-prog i{flex:1;background:var(--line);border-radius:1px}
+  .st-prog i.beat{background:color-mix(in srgb,var(--gold) 45%,var(--line))}
+  .st-prog i.past{background:var(--faint)}
+  .st-prog i.on{background:var(--gold)}
+  .st-menu{grid-template-columns:1fr;left:8px;right:8px}
+}
+@media (prefers-reduced-motion:reduce){
+  .st-rail i{transition:none}
+}
