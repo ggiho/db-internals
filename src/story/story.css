@@ -201,6 +201,68 @@
 .st-labels .stn .s-fr s{display:block;width:24px;height:24px;margin-bottom:5px}
 .st-labels .stn .s-fr b{font-weight:500;color:var(--ink);overflow-wrap:anywhere}
 .st-labels .stn .s-fr span{color:var(--faint);font-size:10px;line-height:1.35;overflow-wrap:anywhere}
+/* bytes — 칸 폭 ∝ 크기, 칸은 알갱이. 이름은 아래 줄에 재서 놓는다(겹치면 다음 줄) */
+.st-labels .stn .s-by{display:flex;gap:3px;height:20px;margin-top:8px}
+.st-labels .stn .s-by s{display:block;flex-basis:0;min-width:4px}
+.st-labels .stn .s-byl{position:relative;margin-top:7px}
+.st-labels .stn .s-byl span{position:absolute;left:0;top:0;display:flex;flex-direction:column;align-items:center;text-align:center;
+  max-width:min(150px,100%);line-height:1.35}
+.st-labels .stn .s-byl b{font-weight:500;color:var(--ink);font-size:10.5px;overflow-wrap:anywhere}
+.st-labels .stn .s-byl i{font-style:normal;color:var(--faint);font-size:10px;overflow-wrap:anywhere}
+.st-labels .stn .s-byl .chg b{color:var(--gold)}
+/* tree — 레벨마다 한 줄, 노드 막대는 채움만큼 밝다 */
+.st-labels .stn .s-tr{display:flex;flex-direction:column;gap:16px;margin-top:8px}
+.st-labels .stn .s-tl{display:flex;justify-content:center;gap:8px}
+.st-labels .stn .s-tn{flex:0 1 auto;min-width:0;display:flex;flex-direction:column;align-items:center;text-align:center;line-height:1.35}
+.st-labels .stn .s-tn s{display:block;width:52px;max-width:100%;height:8px;margin-bottom:5px}
+.st-labels .stn .s-tn b{font-weight:500;color:var(--ink);font-size:11px;overflow-wrap:anywhere}
+.st-labels .stn .s-tn span{color:var(--faint);font-size:10px;overflow-wrap:anywhere}
+.st-labels .stn .s-tn.chg b{color:var(--gold)}
+.st-labels .stn .s-tlb{margin-top:-10px;text-align:center;font-size:10px;color:var(--faint)}
+/* axis — 위에 락 범위(이름 + 막대, 줄은 재서 나눈다), 아래에 수직선과 레코드 */
+.st-labels .stn .s-ax{margin:12px 4px 0}
+.st-labels .stn .s-axs{position:relative}
+.st-labels .stn .s-sp{position:absolute;top:0;height:20px}
+.st-labels .stn .s-sp span{position:absolute;left:50%;bottom:7px;transform:translateX(-50%);white-space:nowrap;font-size:10.5px;line-height:1.2}
+.st-labels .stn .s-sp s{position:absolute;left:0;right:0;bottom:0;height:5px;display:block}
+.st-labels .stn .s-sp.pt s{left:-3px;right:-3px}
+.st-labels .stn .s-sp .k-next,.st-labels .stn .s-sp .k-gap{color:var(--gold)}
+.st-labels .stn .s-sp .k-rec{color:var(--accent)}
+.st-labels .stn .s-sp .k-ii{color:var(--green)}
+.st-labels .stn .s-sp .k-blk{color:var(--red)}
+.st-labels .stn .s-sp.chg span{color:var(--ink)}
+.st-labels .stn .s-axl{position:relative;height:44px;margin-top:6px}
+.st-labels .stn .s-axl > s{position:absolute;left:0;right:0;top:4px;height:1px;display:block}
+.st-labels .stn .s-ar{position:absolute;top:1px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center}
+.st-labels .stn .s-ar s{display:block;width:7px;height:7px}
+.st-labels .stn .s-ar b{font-weight:500;font-size:10.5px;color:var(--ink);margin-top:3px;white-space:nowrap}
+.st-labels .stn .s-ar.gone b{color:var(--faint);text-decoration:line-through}
+.st-labels .stn .s-axl i{position:absolute;top:28px;font-style:normal;font-size:10px;color:var(--faint)}
+.st-labels .stn .s-axl i.lo{left:0}
+.st-labels .stn .s-axl i.hi{right:0}
+/* graph — 노드 한 줄, 간선 이름은 재서 놓고 선은 그 가운데를 지난다 */
+.st-labels .stn .s-gr{position:relative;margin-top:6px}
+.st-labels .stn .s-gns{display:flex;justify-content:space-around;gap:10px}
+.st-labels .stn .s-gn{display:flex;flex-direction:column;align-items:center;text-align:center;min-width:0;line-height:1.35}
+.st-labels .stn .s-gn s{display:block;width:34px;height:14px;margin-bottom:4px}
+.st-labels .stn .s-gn b{font-weight:500;color:var(--ink);font-size:11px;overflow-wrap:anywhere}
+.st-labels .stn .s-gn span{font-size:10px;color:var(--faint);overflow-wrap:anywhere}
+.st-labels .stn .s-gn.gone b{color:var(--faint);text-decoration:line-through}
+.st-labels .stn .s-gn.chg b{color:var(--gold)}
+.st-labels .stn .s-ge{position:absolute;left:0;top:0;white-space:nowrap;font-size:10px;line-height:14px;color:var(--body);
+  background:var(--bg);padding:0 4px}
+.st-labels .stn .s-ge.hot{color:var(--gold)}
+.st-labels .stn .s-gcy{margin-top:6px;font-size:10.5px;color:var(--red);text-align:center}
+/* matrix — 허용은 채운 칸, 막힘은 빈 칸(알갱이). 범례만 CSS 로 그린다 */
+.st-labels .stn .s-mx{display:grid;gap:3px;margin-top:8px;align-items:center}
+.st-labels .stn .s-mx i{font-style:normal;font-size:10px;color:var(--faint);text-align:center;white-space:nowrap}
+.st-labels .stn .s-mx i.rh{text-align:right;padding-right:4px}
+.st-labels .stn .s-mx s{display:block;aspect-ratio:1;width:100%;max-width:22px;justify-self:center}
+.st-labels .stn .s-mxk{display:flex;gap:12px;margin-top:8px;font-size:10px;color:var(--faint)}
+.st-labels .stn .s-mxk span{display:flex;align-items:center;gap:5px}
+.st-labels .stn .s-mxk s{display:block;width:9px;height:9px}
+.st-labels .stn .s-mxk s.y{background:color-mix(in srgb,var(--green) 70%,transparent)}
+.st-labels .stn .s-mxk s.n{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--red) 60%,transparent)}
 .st-labels .stn-lane,.st-labels .stn-edge,.st-labels .stn-tok{position:absolute;left:0;top:0;white-space:nowrap}
 .st-labels .stn-lane{font:400 12.5px var(--serif);color:var(--body)}
 .st-labels .stn-lane i{font-style:normal;color:var(--faint);margin-left:8px;font-size:12px}

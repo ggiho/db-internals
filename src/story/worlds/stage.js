@@ -1,10 +1,13 @@
 /* 무대(stage) — 덱의 배우 · lane · 경계와 장면의 각본(ops · act · look)을 그대로 읽어 그리는 범용 세계.
-   전용 세계(ch3-01 · ch3-06b)처럼 장면마다 손으로 그리지 않는다 — 배우가 kv · list · frames 인 장면이면 붙는다.
+   전용 세계(ch3-01 · ch3-06b)처럼 장면마다 손으로 그리지 않는다 — 배우가 KINDS 의 종류이면 붙는다.
 
      · lane 하나가 한 층이다(SQL 계층 · 메모리 · 디스크). 층 사이의 선은 덱의 EDGES — 스텝의 hot 이 그 선을 밝힌다
-     · 배우는 상자다. 글(이름 · 값 · 항목)은 DOM, 테두리와 항목의 칩은 알갱이
-     · 항목(list · frames 의 items)은 id 마다 알갱이를 정해 둔다 — 스텝이 넘어가도 같은 알갱이가 그 항목이다.
-       그래서 act 가 있는 스텝에서 새로 생긴 항목은 act 의 출발 배우(같은 id 의 칩이 있으면 그 칩)에서 날아온다
+     · 배우는 상자다. 글(이름 · 값 · 항목)은 DOM, 테두리와 칩은 알갱이
+     · 칩은 HTML 의 <s data-it> 자리다. 모양(data-sh) · 색(data-c) · 채움(data-f) · 밝힘(data-on) · 흐림(data-dim)을
+       그 자리에 적어 두고, 알갱이 쪽은 종류를 모른 채 그것만 읽는다 — 칸(bytes) · 노드(tree · graph) · 막대(axis) ·
+       칸(matrix) 이 모두 같은 길로 그려진다
+     · 칩은 key 마다 알갱이를 정해 둔다 — 스텝이 넘어가도 같은 알갱이가 그 항목이다.
+       그래서 act 가 있는 스텝에서 새로 생긴 칩은 act 의 출발 배우(같은 key 의 칩이 있으면 그 칩)에서 날아온다
        (innodb 01 의 3 : .ibd 의 p:5 가 buffer pool 로 읽혀 들어온다)
      · act 는 알갱이 덩어리가 f 에서 t 로 날아가는 것, look 은 그 배우 · 항목이 빛나는 것
    상자의 크기는 모든 스텝 · 모든 손잡이 값의 내용을 미리 재서 가장 큰 것으로 고정한다 — 스텝마다 상자가 흔들리지 않게.
@@ -13,8 +16,11 @@
 import { INK, GOLD, ACCENT, GREEN, RED, FAINT, U } from '../field.js';
 import { bake, stepsOf, onStage } from '../../bake.js';
 
-const KINDS = new Set(['kv', 'list', 'frames']);
+const KINDS = new Set(['kv', 'list', 'frames', 'bytes', 'tree', 'axis', 'graph', 'matrix']);
 const TAG = { dirty: RED, red: RED, pin: GOLD, hold: GOLD, gold: GOLD, ok: GREEN, green: GREEN, free: FAINT, wait: ACCENT, hdr: ACCENT };
+/* data-c 의 이름 — TAG 와 달리 덱의 tag 가 아니라 그리는 색 그 자체 */
+const COL = { ink: INK, gold: GOLD, accent: ACCENT, green: GREEN, red: RED, faint: FAINT };
+const cname = (tag) => ({ [RED]: 'red', [GOLD]: 'gold', [GREEN]: 'green', [FAINT]: 'faint', [ACCENT]: 'accent' })[TAG[tag]] || 'ink';
 const SUF = /\|(gold|red|green)$/;
 const clsOf = (v) => { const m = SUF.exec(String(v)); return m ? m[1] : ''; };
 const bare = (v) => String(v).replace(SUF, '');
@@ -24,10 +30,56 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 const brk = (s) => esc(s).replace(/([a-z])([A-Z])/g, '$1<wbr>$2').replace(/_(?=\w)/g, '_<wbr>');
 /* 상자 글이 읽히는 가장 작은 배율 — 가장 작은 글(10px)이 8px 이 되는 곳 */
 const MIN_Z = 0.8;
+const has = (arr, x) => (arr || []).includes(x);
+
+/* 배우마다 칩 key 와 그 알갱이 수 — 모든 스텝 · 값 · init 에 한 번이라도 나온 것.
+   bytes 는 칸 폭이 크기에 비례하므로 알갱이도 폭(그 스텝 띠에서의 몫)에 비례해 나눈다 — 칸마다 같은 수를 주면
+   2 byte 칸이 8 byte 칸보다 빽빽해져 뜻이 뒤집힌다 */
+function chipKeys(deck, sc, bakes, f) {
+  const out = {};
+  for (const id of sc.cast) {
+    const a = deck.ACTORS[id];
+    if (!a || !KINDS.has(a.kind)) continue;
+    const m = new Map(), put = (k, n) => m.set(k, Math.max(m.get(k) || 0, Math.round(n * f)));
+    const sts = [sc.init[id] || {}];
+    for (const { frames } of bakes.values()) for (const fr of frames) sts.push(fr.st[id] || {});
+    for (const st of sts) {
+      const items = st.items || [];
+      if (a.kind === 'list') items.forEach((it) => put(it.id, 54));
+      else if (a.kind === 'frames') items.forEach((it) => put(it.id, 96));
+      else if (a.kind === 'tree') items.forEach((it) => put(it.id, 44));
+      else if (a.kind === 'graph') items.forEach((it) => put(it.id, 40));
+      else if (a.kind === 'bytes') {
+        const tot = items.reduce((s, x) => s + (x.sz || 1), 0) || 1;
+        items.forEach((it) => put(it.id, Math.max(14, (360 * (it.sz || 1)) / tot)));
+      } else if (a.kind === 'axis') {
+        put('@line', 90);
+        items.forEach((it) => put('r:' + it.id, 12));
+        (st.spans || []).forEach((sp) => put('sp:' + sp.id, 40));
+      /* 칸마다 28 — 12 였을 때 채운 칸은 성긴 점, 빈 칸은 한 변에 점 셋이라 허용 · 막힘이 한눈에 갈리지 않았다(locks 04 · 10) */
+      } else if (a.kind === 'matrix' && st.mx) st.mx.rows.forEach((r) => st.mx.cols.forEach((c) => put('mx:' + r + '/' + c, 28)));
+    }
+    out[id] = m;
+  }
+  return out;
+}
+const scaleOf = (narrow) => (narrow ? 0.66 : 1);
+const BOX = 110, TOK = 260, GG = 120, DUST = 1200;
+function budget(deck, sc, bakes, narrow) {
+  const f = scaleOf(narrow), keys = chipKeys(deck, sc, bakes, f);
+  let n = Math.round((TOK + DUST) * f);
+  for (const id of Object.keys(keys)) {
+    n += Math.round(BOX * f) + [...keys[id].values()].reduce((s, x) => s + x, 0);
+    if ((sc.init[id] && sc.init[id].gg) || [...bakes.values()].some(({ frames }) => frames.some((fr) => fr.st[id] && fr.st[id].gg))) n += Math.round(GG * f);
+  }
+  return { keys, n };
+}
+const bakesOf = (sc) => new Map([null, ...Object.keys((sc.vary && sc.vary.alt) || {})].map((v) => [v, { frames: bake(sc, v), steps: stepsOf(sc, v) }]));
 
 export default {
-  count: (narrow) => (narrow ? 4200 : 6400),
-  /* 이 세계가 그릴 수 있는 장면인가 — cast 가 전부 kv · list · frames 여야 한다 */
+  /* 알갱이 수 — 장면이 쓰는 칩만큼. 고정(6400)으로 두면 10 × 10 matrix 같은 장면은 모자란다 */
+  count: (narrow, deck, sc) => Math.max(narrow ? 4200 : 6400, deck && sc ? budget(deck, sc, bakesOf(sc), narrow).n : 0),
+  /* 이 세계가 그릴 수 있는 장면인가 — cast 가 전부 KINDS 여야 한다 */
   fits: (deck, sc) => (sc.cast || []).every((id) => deck.ACTORS[id] && KINDS.has(deck.ACTORS[id].kind)),
   make,
 };
@@ -39,28 +91,19 @@ function make({ F, deck, labels, scene }) {
   const lanes = deck.LANES.filter((ln) => cast.some((id) => ACT[id].lane === ln.id));
   const VALS = [null, ...Object.keys((sc.vary && sc.vary.alt) || {})];
   let vary = null;
-  const bakes = new Map(VALS.map((v) => [v, { frames: bake(sc, v), steps: stepsOf(sc, v) }]));
+  const bakes = bakesOf(sc);
   const cur = () => bakes.get(vary) || bakes.get(null);
 
-  /* 항목 id — 배우마다 모든 스텝 · 값에 걸쳐 한 번이라도 나온 것 */
-  const ids = {};
-  for (const id of cast) {
-    const set = new Set();
-    for (const { frames } of bakes.values()) for (const f of frames) for (const it of (f.st[id] && f.st[id].items) || []) set.add(it.id);
-    for (const it of (sc.init[id] && sc.init[id].items) || []) set.add(it.id);
-    ids[id] = [...set];
-  }
-
-  /* ── 알갱이 구역 : 상자 테두리 · 항목 칩 · 게이지 · 날아가는 덩어리 · 먼지 ── */
-  const f = N / 6400, R = {};
+  /* ── 알갱이 구역 : 상자 테두리 · 칩 · 게이지 · 날아가는 덩어리 · 먼지 ── */
+  const narrow0 = innerWidth < 820, f = scaleOf(narrow0), { keys } = budget(deck, sc, bakes, narrow0), R = {};
   let at = 0;
   const take = (key, n) => { R[key] = [at, at + n]; at += n; };
-  const BOXN = Math.round(110 * f), CHIP = Math.round(54 * f), PAGEN = Math.round(96 * f);
+  const BOXN = Math.round(BOX * f);
   cast.forEach((id) => take('box:' + id, BOXN));
-  cast.forEach((id) => ids[id].forEach((it) => take('it:' + id + ':' + it, ACT[id].kind === 'frames' ? PAGEN : CHIP)));
+  cast.forEach((id) => keys[id].forEach((n, k) => take('it:' + id + ':' + k, n)));
   /* 게이지 — init 에 있거나 어느 스텝이든 gg 를 쓰는 배우만 */
-  for (const id of cast) if ((sc.init[id] && sc.init[id].gg) || [...bakes.values()].some(({ frames }) => frames.some((fr) => fr.st[id] && fr.st[id].gg))) take('gg:' + id, Math.round(120 * f));
-  take('tok', Math.round(260 * f));
+  for (const id of cast) if ((sc.init[id] && sc.init[id].gg) || [...bakes.values()].some(({ frames }) => frames.some((fr) => fr.st[id] && fr.st[id].gg))) take('gg:' + id, Math.round(GG * f));
+  take('tok', Math.round(TOK * f));
   R.DST = [at, N];
   if (at > N) throw new Error('stage 세계 : 알갱이가 모자란다 (' + at + ' > ' + N + ')');
 
@@ -83,28 +126,152 @@ function make({ F, deck, labels, scene }) {
   const tokEl = el('stn-tok');
   const measurer = el('stn stn-measure');
 
-  /* 상자 안의 글 — 스텝 k 의 상태. 칩 자리는 <s> 로 비워 두고 알갱이가 채운다 */
+  /* ── 상자 안의 글 — 스텝 k 의 상태. 칩 자리는 <s> 로 비워 두고 알갱이가 채운다 ── */
+  const chip = (key, o = {}) => `<s data-it="${esc(key)}" data-sh="${o.sh || 'fill'}" data-c="${o.c || 'ink'}"`
+    + (o.f != null ? ` data-f="${o.f}"` : '') + (o.on ? ' data-on="1"' : '') + (o.dim ? ' data-dim="1"' : '')
+    + (o.lvl != null ? ` data-l="${o.lvl}"` : '') + (o.style ? ` style="${o.style}"` : '') + '></s>';
   function inner(id, st, chg) {
     const a = ACT[id], c = chg || {};
     let h = `<div class="s-hd">${esc(a.nm)}</div>`;
     if (st.kv) for (const [k, v] of Object.entries(st.kv)) {
-      h += `<div class="s-kv${(c.keys || []).includes(k) ? ' chg' : ''}"><i>${brk(k)}</i><b class="${clsOf(v)}">${brk(bare(v))}</b></div>`;
+      h += `<div class="s-kv${has(c.keys, k) ? ' chg' : ''}"><i>${brk(k)}</i><b class="${clsOf(v)}">${brk(bare(v))}</b></div>`;
     }
     if (st.gg) h += `<div class="s-gg"><s data-gg="1"></s><i>${esc(st.gg.l || '')}</i><b>${esc(st.gg.r || '')}</b></div>`;
-    if (st.items) {
+    const items = st.items || [], on = (x) => has(c.add, x) || has(c.mod, x);
+    if (a.kind === 'list' || a.kind === 'frames') {
       const fr = a.kind === 'frames';
       h += fr ? '<div class="s-frs">' : '';
-      for (const it of st.items) {
-        const on = (c.add || []).includes(it.id) || (c.mod || []).includes(it.id);
+      for (const it of items) {
+        const o = { sh: it.tag === 'free' ? 'line' : 'fill', c: cname(it.tag), on: on(it.id) };
         h += fr
-          ? `<div class="s-fr${on ? ' chg' : ''}"><s data-it="${esc(it.id)}"></s><b>${brk(it.id)}</b><span>${brk(it.sub || '')}</span></div>`
+          ? `<div class="s-fr${o.on ? ' chg' : ''}">${chip(it.id, o)}<b>${brk(it.id)}</b><span>${brk(it.sub || '')}</span></div>`
           /* id 와 설명 사이의 공백 — 붙여 썼더니 'RowExclusive' 와 'INSERT' 가 한 낱말이 되어 'INSER / T' 로 잘렸다 */
-          : `<div class="s-li${on ? ' chg' : ''}"><s data-it="${esc(it.id)}"></s><p><b>${brk(it.id)}</b>${it.sub ? ` <span>${brk(it.sub)}</span>` : ''}</p></div>`;
+          : `<div class="s-li${o.on ? ' chg' : ''}">${chip(it.id, o)}<p><b>${brk(it.id)}</b>${it.sub ? ` <span>${brk(it.sub)}</span>` : ''}</p></div>`;
       }
-      if (!st.items.length) h += `<div class="s-li none"><span>비어 있다</span></div>`;
+      if (!items.length) h += `<div class="s-li none"><span>비어 있다</span></div>`;
       h += fr ? '</div>' : '';
     }
+    /* bytes — 칸 폭 ∝ 크기(Lab 의 Bytes 와 같은 규칙). 이름은 칸보다 넓을 수 있어 칸 아래 줄에 따로 두고,
+       어느 줄에 둘지는 재서 정한다(post) */
+    if (a.kind === 'bytes') {
+      h += `<div class="s-by">${items.map((it) => chip(it.id, { sh: it.tag === 'free' ? 'line' : 'fill', c: cname(it.tag), on: on(it.id), style: `flex-grow:${it.sz || 1}` })).join('')}</div>`;
+      h += `<div class="s-byl">${items.map((it) => `<span data-lb="${esc(it.id)}"${on(it.id) ? ' class="chg"' : ''}><b>${brk(it.id)}</b>${it.sub ? `<i>${brk(it.sub)}</i>` : ''}</span>`).join('')}</div>`;
+      if (!items.length) h += `<div class="s-li none"><span>비어 있다</span></div>`;
+      if (st.byl) h += `<div class="s-kv"><i>${brk(st.byl.l || '')}</i><b>${brk(st.byl.r || '')}</b></div>`;
+    }
+    /* tree — 레벨마다 한 줄. 노드의 막대는 채움(fill)만큼 밝다, 92% 넘으면 금색(Lab 의 .tr-n.full) */
+    if (a.kind === 'tree') {
+      const lv = [...new Set(items.map((x) => x.lvl || 0))].sort((x, y) => x - y);
+      h += '<div class="s-tr">' + lv.map((L, li) => `<div class="s-tl">${items.filter((x) => (x.lvl || 0) === L).map((x) => {
+        const fl = typeof x.fill === 'number' ? x.fill : 1;
+        return `<div class="s-tn${on(x.id) ? ' chg' : ''}">${chip(x.id, { sh: 'bar', f: fl, c: fl > 0.92 ? 'gold' : 'ink', on: on(x.id), lvl: L })}<b>${brk(x.id)}</b>${x.keys ? `<span>${brk(x.keys)}</span>` : ''}</div>`;
+      }).join('')}</div>${li === lv.length - 1 ? '<div class="s-tlb">leaf</div>' : ''}`).join('') + '</div>';
+    }
+    /* axis — 수직선 위의 레코드(점)와 락 범위(막대). 범위 이름이 겹치지 않게 줄을 나누는 것은 재서 정한다(post) */
+    if (a.kind === 'axis') {
+      const { min = 0, max = 1 } = st.axis || {}, rg = (max - min) || 1, pc = (v) => (((v - min) / rg) * 100).toFixed(3) + '%';
+      const sOn = (x) => has(c.span && c.span.add, x) || has(c.span && c.span.mod, x);
+      h += '<div class="s-ax"><div class="s-axs">' + (st.spans || []).map((sp) => {
+        const pt = sp.from === sp.to, kc = { next: 'gold', gap: 'gold', rec: 'accent', ii: 'green', blk: 'red' }[sp.kind] || 'accent';
+        return `<div class="s-sp${pt ? ' pt' : ''}${sOn(sp.id) ? ' chg' : ''}" style="left:${pc(sp.from)};width:${pt ? '0' : `calc(${pc(sp.to)} - ${pc(sp.from)})`}">`
+          + `<span class="k-${esc(sp.kind || 'rec')}">${esc(sp.lb || '')}</span>${chip('sp:' + sp.id, { sh: sp.kind === 'gap' ? 'line' : 'fill', c: kc, on: sOn(sp.id) })}</div>`;
+      }).join('') + '</div><div class="s-axl">' + chip('@line', { sh: 'hline', c: 'faint' })
+        + items.map((it) => `<div class="s-ar${it.tag === 'x' ? ' gone' : ''}" style="left:${pc(it.v)}">${chip('r:' + it.id, { sh: 'fill', c: it.tag === 'x' ? 'faint' : 'ink', on: on(it.id), dim: it.tag === 'x' })}<b>${esc(it.id)}</b></div>`).join('')
+        + `<i class="lo">${esc(min)}</i><i class="hi">${esc(max)}</i></div></div>`;
+    }
+    /* graph — 노드는 한 줄, 간선은 호(앞으로 가는 것은 위, 되돌아오는 것은 아래). 간선 이름 자리는 재서 정한다(post) */
+    if (a.kind === 'graph') {
+      const eOn = (x) => has(c.edge && c.edge.add, x);
+      h += '<div class="s-gr"><div class="s-gns">' + items.map((n) => `<div class="s-gn${on(n.id) ? ' chg' : ''}${n.tag === 'x' ? ' gone' : ''}">`
+        + chip(n.id, { sh: n.tag === 'x' ? 'line' : 'fill', c: { hold: 'gold', wait: 'red', x: 'red' }[n.tag] || 'accent', on: on(n.id) })
+        + `<b>${brk(n.id)}</b>${n.sub ? `<span>${brk(n.sub)}</span>` : ''}</div>`).join('') + '</div>'
+        + (st.edges || []).map((e) => `<span class="s-ge${e.hot ? ' hot' : ''}${eOn(e.id) ? ' chg' : ''}" data-e="${esc(e.id)}" data-f="${esc(e.from)}" data-t="${esc(e.to)}">${esc(e.lb || '')}</span>`).join('')
+        + (st.cycle ? `<div class="s-gcy">${esc(st.cycle)}</div>` : '') + '</div>';
+    }
+    /* matrix — + 는 채운 칸, - 는 빈 칸. 칸의 뜻은 덱이 적는다(mx.yes · no, 없으면 허용 · 막힘 — 강도 행렬은 예 · 아니오).
+       on 은 밝히고, dim 이 있으면 나머지를 흐린다 */
+    if (a.kind === 'matrix' && st.mx) {
+      const { rows, cols, cells } = st.mx, mOn = new Set(st.mx.on || []), mDim = new Set(st.mx.dim || []);
+      h += `<div class="s-mx" style="grid-template-columns:auto repeat(${cols.length},minmax(0,1fr))"><i></i>${cols.map((cc) => `<i class="ch">${esc(cc)}</i>`).join('')}`
+        + rows.map((r, ri) => `<i class="rh">${esc(r)}</i>` + cols.map((cc, ci) => {
+          const key = r + '/' + cc, yes = cells[ri] && cells[ri][ci] === '+';
+          return chip('mx:' + key, { sh: yes ? 'fill' : 'line', c: yes ? 'green' : 'red', on: mOn.has(key), dim: mDim.size && !mDim.has(key) && !mOn.has(key) });
+        }).join('')).join('') + `</div><div class="s-mxk"><span><s class="y"></s>${esc(st.mx.yes || '허용')}</span><span><s class="n"></s>${esc(st.mx.no || '막힘')}</span></div>`;
+      if (st.mx.lb) h += `<div class="s-kv"><i>${brk(st.mx.lb.l || '')}</i><b>${brk(st.mx.lb.r || '')}</b></div>`;
+    }
     return h;
+  }
+  /* 재서 놓는 것들 — 측정기 안에서 글의 실제 폭을 재고 자리를 정해 그 자리를 HTML 에 적는다(그대로 그린다).
+     줄 나누기는 Lab 의 Axis 와 같은 탐욕법 : 왼쪽부터, 앞 것의 오른쪽 끝 + 6px 을 넘는 첫 줄에 */
+  function post(id, root) {
+    const kind = ACT[id].kind, rel = (e) => e.getBoundingClientRect();
+    const lanesOf = (bx) => { const end = [], row = []; for (const [l, r] of bx) { let k = 0; while (end[k] !== undefined && l < end[k] + 6) k++; end[k] = r; row.push(k); } return { row, n: end.length }; };
+    if (kind === 'bytes') {
+      const wrap = root.querySelector('.s-byl');
+      if (!wrap) return;
+      const W = wrap.clientWidth, x0 = rel(wrap).left, lbs = [...wrap.children];
+      /* 잰 폭을 못 박는다 — 절대 위치는 left 만큼 쓸 폭이 줄어, 오른쪽으로 옮긴 이름이 더 접히고 키가 커져
+         다음 줄 · 아래 꼬리말을 덮었다(storysweep inbox-overlap, ch3 11 · heap 04) */
+      lbs.forEach((lb) => { lb.style.width = Math.ceil(rel(lb).width + 0.5) + 'px'; });   /* offsetWidth 는 정수로 깎여 '헤더' 가 '헤 / 더' 로 접혔다 */
+      const want = lbs.map((lb) => {
+        const s = root.querySelector(`.s-by s[data-it="${CSS.escape(lb.dataset.lb)}"]`), r = rel(s), w = lb.offsetWidth;
+        return Math.max(0, Math.min(W - w, r.left - x0 + r.width / 2 - w / 2));
+      });
+      const ord = lbs.map((_, i) => i).sort((p, q) => want[p] - want[q]);
+      const { row, n } = lanesOf(ord.map((i) => [want[i], want[i] + lbs[i].offsetWidth]));
+      const rowH = [];
+      ord.forEach((i, j) => { rowH[row[j]] = Math.max(rowH[row[j]] || 0, lbs[i].offsetHeight); });
+      const top = rowH.map((_, k) => rowH.slice(0, k).reduce((s, x) => s + x + 4, 0));
+      ord.forEach((i, j) => Object.assign(lbs[i].style, { left: want[i].toFixed(1) + 'px', top: top[row[j]] + 'px' }));
+      wrap.style.height = (n ? top[n - 1] + rowH[n - 1] : 0) + 'px';
+    }
+    if (kind === 'axis') {
+      const wrap = root.querySelector('.s-axs');
+      if (!wrap) return;
+      const W = wrap.clientWidth, x0 = rel(wrap).left, sps = [...wrap.children];
+      /* 이름은 막대 가운데 — 상자 끝을 넘으면 안으로 민다 */
+      const bx = sps.map((sp) => {
+        const lb = sp.firstElementChild, r = rel(sp), w = lb.offsetWidth, c = r.left - x0 + r.width / 2;
+        const l = Math.max(0, Math.min(W - w, c - w / 2));
+        lb.style.marginLeft = (l - (c - w / 2)).toFixed(1) + 'px';
+        return [l, l + w];
+      });
+      const ord = sps.map((_, i) => i).sort((p, q) => bx[p][0] - bx[q][0]);
+      const { row, n } = lanesOf(ord.map((i) => bx[i]));
+      ord.forEach((i, j) => { sps[i].style.top = row[j] * 22 + 'px'; });
+      wrap.style.height = Math.max(1, n) * 22 + 'px';
+    }
+    if (kind === 'graph') {
+      const gr = root.querySelector('.s-gr');
+      if (!gr) return;
+      const ns = root.querySelector('.s-gns'), g0 = rel(gr), cx = {};
+      ns.querySelectorAll('s[data-it]').forEach((s) => { const r = rel(s); cx[s.dataset.it] = r.left - g0.left + r.width / 2; });
+      const order = [...ns.querySelectorAll('s[data-it]')].map((s) => s.dataset.it);
+      /* 짧은 간선부터 노드에 가까운 줄에 — 긴 간선이 짧은 것을 가로지르지 않게 */
+      const span = (e) => Math.abs(cx[e.dataset.f] - cx[e.dataset.t]);
+      const es = [...gr.querySelectorAll('.s-ge')].filter((e) => cx[e.dataset.f] != null && cx[e.dataset.t] != null).sort((p, q) => span(p) - span(q));
+      const bag = { up: [], dn: [] }, place = [];
+      for (const e of es) {
+        const i = order.indexOf(e.dataset.f), j = order.indexOf(e.dataset.t), dn = j < i;
+        const l = Math.min(cx[e.dataset.f], cx[e.dataset.t]), r = Math.max(cx[e.dataset.f], cx[e.dataset.t]);
+        const b = bag[dn ? 'dn' : 'up'];
+        let k = 0;
+        while (b[k] !== undefined && l < b[k] + 6) k++;
+        b[k] = r;
+        place.push({ e, dn, k, c: (l + r) / 2 });
+      }
+      const LH = 18, up = bag.up.length, dn = bag.dn.length, pt = up ? up * LH + 6 : 4, pb = dn ? dn * LH + 6 : 4;
+      ns.style.paddingTop = pt + 'px';
+      ns.style.paddingBottom = pb + 'px';
+      const nr = rel(ns), top = nr.top - g0.top + pt, bot = nr.bottom - g0.top - pb;
+      for (const { e, dn: d, k, c } of place) {
+        const w = e.offsetWidth, l = Math.max(0, Math.min(gr.clientWidth - w, c - w / 2));
+        const y = d ? bot + k * LH + 4 : top - (k + 1) * LH + 2;
+        Object.assign(e.style, { left: l.toFixed(1) + 'px', top: y.toFixed(1) + 'px' });
+        e.dataset.d = d ? '1' : '';
+      }
+      gr.querySelectorAll('.s-ge').forEach((e) => { if (!es.includes(e)) e.remove(); });
+    }
   }
   const tagged = (id) => `<div class="s-hd">${esc(ACT[id].nm)}</div>`;
 
@@ -112,14 +279,39 @@ function make({ F, deck, labels, scene }) {
   let G = null;
   const rnd = U.rng(5);
   const dust = new Float32Array(N * 2), jit = new Float32Array(N * 2).map(() => rnd() - 0.5);
-  const units = (id) => (ACT[id].w === 'w2' ? 2 : ACT[id].w === 'w15' ? 1.5 : ACT[id].w === 'wide' ? 4 : 1);
+  /* bytes 는 최소 두 칸 — 폭이 크기에 비례하는 띠라 가로가 곧 정보다. 한 칸(172px)에 8 칸을 넣었더니 이름이 7 줄로
+     밀리고 지시선이 서로 엇갈렸다(postgres heap 02). matrix 도 열이 5 개를 넘으면 두 칸(pg locks 03 의 8 × 8) */
+  const mxCols = (id) => Math.max(0, ...[...bakes.values()].flatMap(({ frames }) => frames.map((fr) => (fr.st[id] && fr.st[id].mx ? fr.st[id].mx.cols.length : 0))));
+  const units = (id) => {
+    const a = ACT[id], u = a.w === 'w2' ? 2 : a.w === 'w15' ? 1.5 : a.w === 'wide' ? 4 : 1;
+    return a.kind === 'bytes' || (a.kind === 'matrix' && mxCols(id) > 5) ? Math.max(2, u) : u;
+  };
+  /* 측정기 안의 칩 · 이름 · 간선 자리 — 상자 왼쪽 위 기준 */
+  function readChips() {
+    const base = measurer.getBoundingClientRect(), m = {}, rel = (r) => ({ dx: r.left - base.left, dy: r.top - base.top, w: r.width, h: r.height });
+    measurer.querySelectorAll('s[data-it]').forEach((s) => {
+      const d = s.dataset;
+      m[d.it] = { ...rel(s.getBoundingClientRect()), sh: d.sh, c: COL[d.c] ?? INK, f: d.f != null ? +d.f : null, on: !!d.on, dim: !!d.dim, lvl: d.l != null ? +d.l : null };
+      /* graph 노드의 아래 끝(이름까지) — 되돌아오는 간선은 여기서 나간다. 칩 아래에서 나가게 했더니 세로선이 노드 이름 위를
+         지나갔다(innodb 08 · pg locks 04 · 05) */
+      const gn = s.closest('.s-gn');
+      if (gn) m[d.it].nb = gn.getBoundingClientRect().bottom - base.top;
+    });
+    const g = measurer.querySelector('s[data-gg]');
+    if (g) m['@gg'] = rel(g.getBoundingClientRect());
+    /* bytes 이름 — 칸에서 비켜 놓였으면 지시선을 긋는다 */
+    measurer.querySelectorAll('.s-byl [data-lb]').forEach((lb) => { m['lb:' + lb.dataset.lb] = rel(lb.getBoundingClientRect()); });
+    /* graph 간선 — 두 끝은 노드 칩, 꼭대기는 이름 자리 */
+    measurer.querySelectorAll('.s-ge').forEach((e) => { m['e:' + e.dataset.e] = { ...rel(e.getBoundingClientRect()), from: e.dataset.f, to: e.dataset.t, dn: !!e.dataset.d, hot: e.classList.contains('hot') }; });
+    return m;
+  }
   function build(L) {
     /* 열 수는 상자 폭이 MIN_COL 을 넘게 — 1024 폭에서 4 열로 나눴더니 상자가 101px 이라
        'trx_rows_locked'(99px) 이 상자 밖으로 나갔다(storysweep box-overflow 49 건) */
     const ww = L.x1 - L.x0, gap = L.narrow ? 8 : 12, MIN_COL = 150;
     const cols = Math.max(2, Math.min(4, Math.floor((ww + gap) / (MIN_COL + gap)))), colW = (ww - (cols - 1) * gap) / cols;
-    /* 1 : 상자 폭을 정하고, 모든 스텝 · 값의 내용을 재서 높이를 정한다 */
-    const width = {}, height = {}, chips = new Map(), hk = new Map();
+    /* 1 : 상자 폭을 정하고, 모든 스텝 · 값의 내용을 재서 높이를 정한다. 재서 놓은 HTML 은 그대로 그리도록 둔다 */
+    const width = {}, height = {}, chips = new Map(), hk = new Map(), html = new Map();
     for (const id of cast) {
       const u = Math.min(cols, units(id));
       width[id] = u * colW + (u - 1) * gap;
@@ -127,20 +319,17 @@ function make({ F, deck, labels, scene }) {
       let hmax = 0;
       for (const [v, { frames }] of bakes) {
         frames.forEach((fr, k) => {
-          const st = fr.st[id] || {};
-          measurer.innerHTML = inner(id, st, fr.chg[id]);
+          measurer.innerHTML = inner(id, fr.st[id] || {}, fr.chg[id]);
+          post(id, measurer);
+          html.set(v + '|' + k + '|' + id, measurer.innerHTML);
           hk.set(v + '|' + k + '|' + id, measurer.offsetHeight);
           hmax = Math.max(hmax, measurer.offsetHeight);
-          /* 칩의 자리 — 상자 왼쪽 위 기준 */
-          const base = measurer.getBoundingClientRect(), m = {};
-          measurer.querySelectorAll('s[data-it]').forEach((s) => { const r = s.getBoundingClientRect(); m[s.dataset.it] = { dx: r.left - base.left, dy: r.top - base.top, w: r.width, h: r.height }; });
-          const g = measurer.querySelector('s[data-gg]');
-          if (g) { const r = g.getBoundingClientRect(); m['@gg'] = { dx: r.left - base.left, dy: r.top - base.top, w: r.width, h: r.height }; }
-          chips.set(v + '|' + k + '|' + id, m);
+          chips.set(v + '|' + k + '|' + id, readChips());
         });
       }
       /* init(스텝 0 의 앞) 도 잰다 — 첫 스텝의 출발 자리 */
       measurer.innerHTML = inner(id, sc.init[id] || {}, null);
+      post(id, measurer);
       hmax = Math.max(hmax, measurer.offsetHeight);
       height[id] = hmax;
     }
@@ -150,7 +339,7 @@ function make({ F, deck, labels, scene }) {
     let tagH = 0;
     for (const id of cast) { measurer.innerHTML = tagged(id); tagW[id] = measurer.offsetWidth; tagH = Math.max(tagH, measurer.offsetHeight); }
     measurer.className = 'stn stn-measure'; measurer.innerHTML = '';
-    G = { L, chips, gap, cols, colW, width, height, hk, tagW, tagH, lays: new Map() };
+    G = { L, chips, html, gap, cols, colW, width, height, hk, tagW, tagH, lays: new Map() };
     G.full = pack(new Set(cast), false, (id) => height[id]);
     G.focus = G.full.z < MIN_Z;
     /* 4 : 데스크톱은 세계를 세로 가운데로 — 글은 가운데에 서는데 무대만 위에 붙어, 상자가 적은 장면은 오른쪽 아래
@@ -256,15 +445,24 @@ function make({ F, deck, labels, scene }) {
   /* 화면 좌표 — 배치 lay 에서 상자 안의 점(dx, dy)을 배율까지 적용해 */
   const abs = (lay, id, dx, dy) => { const b = lay.box[id]; return [b.X + dx * lay.z, b.Y + dy * lay.z]; };
   const center = (lay, id) => abs(lay, id, lay.box[id].w / 2, lay.box[id].h / 2);
-  const chipOf = (k, id, it) => { const m = G.chips.get(vary + '|' + k + '|' + id) || G.chips.get('null|' + k + '|' + id); return m ? m[it] : null; };
+  const chipsAt = (k, id) => G.chips.get(vary + '|' + k + '|' + id) || G.chips.get('null|' + k + '|' + id) || {};
+  const chipOf = (k, id, it) => chipsAt(k, id)[it] || null;
+  const baseKey = (key) => key.replace(/^(sp|r|mx):/, '');
 
   /* ── 자세 ── */
   const put = (o, i, x, y, a, h, j, s, c) => { o.x[i] = x; o.y[i] = y; o.a[i] = a; o.h[i] = h; o.j[i] = j; o.s[i] = s; o.c[i] = c; };
   const show = (p, a, b) => U.smooth(U.range(p, a, b));
+  /* 칩 안의 m 번째 알갱이 자리 — fill · bar 는 격자, line 은 테두리, hline 은 가운데 가로선 */
+  function chipPt(ch, n, m) {
+    if (ch.sh === 'line') return U.rectPath(ch.dx, ch.dy, ch.w, ch.h)((m + 0.5) / n);
+    if (ch.sh === 'hline') return [ch.dx + ((m + 0.5) / n) * ch.w, ch.dy + ch.h / 2];
+    const cols = Math.max(2, Math.round(Math.sqrt(n * (ch.w / Math.max(1, ch.h)))));
+    return [ch.dx + (((m % cols) + 0.5) / cols) * ch.w, ch.dy + ((Math.floor(m / cols) + 0.5) / Math.ceil(n / cols)) * ch.h];
+  }
   function pose(k, p, t, o) {
     if (!G) return;
     const { frames, steps } = cur(), nk = frames.length, kk = Math.min(k, nk - 1), lay = layOf(vary, kk);
-    const end = k >= nk, fr = frames[kk], step = steps[kk] || {}, prev = kk > 0 ? frames[kk - 1] : null;
+    const end = k >= nk, fr = frames[kk], step = steps[kk] || {};
     const act = !end && step.act ? step.act : null, look = (!end && step.look) || {};
     const touch = end ? new Set() : fr.touch;
     const fly = act ? show(p, 0.08, 0.42) : 1;
@@ -277,7 +475,7 @@ function make({ F, deck, labels, scene }) {
       /* 이 배치에 없는 배우(꼬리표를 뺀 배치) — 그 알갱이는 먼지로 */
       if (!b) {
         hide(i0, i0 + BOXN);
-        for (const it of ids[id]) hide(...R['it:' + id + ':' + it]);
+        for (const key of keys[id].keys()) hide(...R['it:' + id + ':' + key]);
         if (R['gg:' + id]) hide(...R['gg:' + id]);
         continue;
       }
@@ -288,32 +486,34 @@ function make({ F, deck, labels, scene }) {
         put(o, i, U.lerp(dust[i * 2], x + jit[i * 2] * 0.6, form), U.lerp(dust[i * 2 + 1], y + jit[i * 2 + 1] * 0.6, form),
           (end ? 0.08 : b.tag ? 0.22 : 0.35 + 0.5 * lit) * form, lit * 0.8, 0.1, b.tag ? 0.9 : 1.05, lit > 0.9 ? GOLD : lit > 0 ? INK : FAINT);
       }
-      /* 항목 칩 — 이 스텝의 상태에 있으면 그 칩 자리에, 없으면(꼬리표도) 상자 가운데로 사라진다 */
-      const items = (!b.tag && fr.st[id] && fr.st[id].items) || [];
-      for (const it of ids[id]) {
-        const [s0, s1] = R['it:' + id + ':' + it], n = s1 - s0;
-        const here = items.find((x) => x.id === it), ch = here ? chipOf(kk, id, it) : null;
-        const ch0 = !end && fr.chg[id], moved = ch0 && ((ch0.add || []).includes(it) || (ch0.mod || []).includes(it));
-        const lk = (Array.isArray(look[id]) && look[id].includes(it)) || moved;
-        const born = here && act && act.t === id && prev && !((prev.st[id] && prev.st[id].items) || []).some((x) => x.id === it);
+      /* 칩 — 이 스텝에 있으면 그 자리에, 없으면(꼬리표도) 상자 가운데로 사라진다 */
+      const here = b.tag ? {} : chipsAt(kk, id), prevC = kk > 0 ? chipsAt(kk - 1, id) : null;
+      for (const key of keys[id].keys()) {
+        const [s0, s1] = R['it:' + id + ':' + key], n = s1 - s0, ch = here[key] || null;
+        const lk = ch && ((Array.isArray(look[id]) && look[id].includes(baseKey(key))) || (!end && ch.on));
+        /* 새로 생긴 칩 — act 의 출발 배우에서. 같은 key 의 칩이 있으면 그 칩에서(같은 page 가 디스크에서 올라온다) */
+        const born = ch && act && act.t === id && prevC && !prevC[key];
         let ox = null, oy = null;
         if (born) {
-          /* 새로 생긴 항목 — act 의 출발 배우에서. 같은 id 의 칩이 있으면 그 칩에서(같은 page 가 디스크에서 올라온다) */
-          const src = chipOf(kk, act.f, it) || chipOf(kk - 1, act.f, it);
-          [ox, oy] = src ? abs(lay, act.f, src.dx + src.w / 2, src.dy + src.h / 2) : center(lay, act.f);
+          const src = chipOf(kk, act.f, key) || chipOf(kk - 1, act.f, key);
+          [ox, oy] = src && lay.box[act.f] ? abs(lay, act.f, src.dx + src.w / 2, src.dy + src.h / 2) : lay.box[act.f] ? center(lay, act.f) : center(lay, id);
         }
-        const c = here ? (TAG[here.tag] ?? INK) : FAINT, free = here && here.tag === 'free';
-        const cols = Math.max(2, Math.round(Math.sqrt(n * ((ch ? ch.w : 10) / Math.max(1, ch ? ch.h : 10)))));
+        const line = ch && (ch.sh === 'line' || ch.sh === 'hline');
         for (let m = 0; m < n; m++) {
           const i = s0 + m;
-          let x, y, a;
+          let x, y, a, bg = false;
           if (ch) {
-            const gx = ((m % cols) + 0.5) / cols, gy = (Math.floor(m / cols) + 0.5) / Math.ceil(n / cols);
-            [x, y] = free ? abs(lay, id, ...U.rectPath(ch.dx, ch.dy, ch.w, ch.h)((m + 0.5) / n)) : abs(lay, id, ch.dx + gx * ch.w, ch.dy + gy * ch.h);
-            a = end ? 0.08 : free ? 0.45 : lk ? 1 : 0.85;
+            [x, y] = abs(lay, id, ...chipPt(ch, n, m));
+            a = end ? 0.08 : line ? 0.45 : lk ? 1 : 0.85;
+            /* bar — 앞 f 만큼 밝게, 나머지는 흐린 바탕(Lab 의 채움 막대) */
+            if (ch.sh === 'bar') {
+              const cols = Math.max(2, Math.round(Math.sqrt(n * (ch.w / Math.max(1, ch.h)))));
+              if (((m % cols) + 0.5) / cols > ch.f) { a = end ? 0.05 : 0.2; bg = true; }
+            }
+            if (ch.dim) a *= 0.3;
             if (born) { const q = show(fly, (m % 7) * 0.02, 0.85 + (m % 7) * 0.02); x = U.lerp(ox + jit[i * 2] * 10, x, q); y = U.lerp(oy + jit[i * 2 + 1] * 10, y, q); }
           } else { [x, y] = center(lay, id); a = 0; }
-          put(o, i, U.lerp(dust[i * 2], x, form), U.lerp(dust[i * 2 + 1], y, form), a * form, lk ? 1 : 0, 0.05, free ? 0.9 : 1.15, lk ? GOLD : c);
+          put(o, i, U.lerp(dust[i * 2], x, form), U.lerp(dust[i * 2 + 1], y, form), a * form, lk && !bg ? 1 : 0, 0.05, line ? 0.9 : 1.15, !ch || bg ? FAINT : lk ? GOLD : ch.c);
         }
       }
       /* 게이지 */
@@ -365,12 +565,11 @@ function make({ F, deck, labels, scene }) {
     const [A, B] = pair(k, next, nk), C = b > 0.5 ? B : A;
     if (kk !== shown || vary !== shownV || C !== shownL) {
       shown = kk; shownV = vary; shownL = C;
-      const fr = frames[kk];
       for (const id of cast) {
         const bx = C.box[id], e = boxEl[id];
         if (!bx) continue;
         e.className = bx.tag ? 'stn tag' : 'stn';
-        e.innerHTML = bx.tag ? tagged(id) : inner(id, fr.st[id] || {}, fr.chg[id]);
+        e.innerHTML = bx.tag ? tagged(id) : G.html.get(vary + '|' + kk + '|' + id) ?? G.html.get('null|' + kk + '|' + id);
         Object.assign(e.style, { width: bx.tag ? '' : bx.w + 'px', transform: `translate(${bx.X}px, ${bx.Y}px) scale(${C.z})`, transformOrigin: '0 0' });
       }
       for (const ln of lanes) {
@@ -402,17 +601,66 @@ function make({ F, deck, labels, scene }) {
   }
 
   let css = {};
+  /* 상자 안의 선 — tree 의 부모 → 자식, graph 의 간선, bytes 의 이름 지시선. 칩 자리에서 잇는다 */
+  function inLines(ctx, C, kk, id, o) {
+    const ch = chipsAt(kk, id), P = (dx, dy) => abs(C, id, dx, dy), kind = ACT[id].kind;
+    if (kind === 'tree') {
+      /* 위 레벨에 노드가 하나뿐이면 그것이 아래 레벨 전부의 부모다 — 그때만 잇는다(데이터에 없는 연결을 지어내지 않게) */
+      const lv = {};
+      for (const [key, c] of Object.entries(ch)) if (c.lvl != null) (lv[c.lvl] ||= []).push(c);
+      const ls = Object.keys(lv).map(Number).sort((x, y) => x - y);
+      ctx.globalAlpha = 0.4 * o; ctx.strokeStyle = css.faint; ctx.lineWidth = 1; ctx.setLineDash([]);
+      for (let i = 0; i + 1 < ls.length; i++) {
+        if (lv[ls[i]].length !== 1) continue;
+        const pa = lv[ls[i]][0], [x0, y0] = P(pa.dx + pa.w / 2, pa.dy + pa.h);
+        for (const cc of lv[ls[i + 1]]) { const [x1, y1] = P(cc.dx + cc.w / 2, cc.dy); ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); }
+      }
+    }
+    if (kind === 'graph') {
+      for (const [key, e] of Object.entries(ch)) {
+        if (!key.startsWith('e:')) continue;
+        const a = ch[e.from], b2 = ch[e.to];
+        if (!a || !b2) continue;
+        /* 가로선은 이름 한가운데로 — 이름에 바탕을 깔아 선이 글자 밑으로 지나가게 */
+        const ya = e.dn ? (a.nb ?? a.dy + a.h) + 2 : a.dy, yb = e.dn ? (b2.nb ?? b2.dy + b2.h) + 2 : b2.dy, apex = e.dy + e.h / 2;
+        const [x0, y0] = P(a.dx + a.w / 2, ya), [x1, y1] = P(b2.dx + b2.w / 2, yb), [, yc] = P(0, apex);
+        ctx.globalAlpha = (e.hot ? 0.95 : 0.6) * o; ctx.strokeStyle = e.hot ? css.gold : css.body; ctx.lineWidth = e.hot ? 1.5 : 1; ctx.setLineDash([]);
+        ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0, yc); ctx.lineTo(x1, yc); ctx.lineTo(x1, y1); ctx.stroke();
+        /* 화살머리 — 목적지 쪽 다리 끝 */
+        const s = 4 * C.z, dir = e.dn ? -1 : 1;
+        ctx.beginPath(); ctx.moveTo(x1 - s, y1 - dir * s * 1.6); ctx.lineTo(x1, y1); ctx.lineTo(x1 + s, y1 - dir * s * 1.6); ctx.stroke();
+      }
+    }
+    if (kind === 'bytes') {
+      ctx.globalAlpha = 0.35 * o; ctx.strokeStyle = css.faint; ctx.lineWidth = 1; ctx.setLineDash([]);
+      for (const [key, lb] of Object.entries(ch)) {
+        if (!key.startsWith('lb:')) continue;
+        const c = ch[key.slice(3)];
+        if (!c) continue;
+        const cx = c.dx + c.w / 2, lx = lb.dx + lb.w / 2;
+        if (Math.abs(cx - lx) < 2 && lb.dy - (c.dy + c.h) < 10) continue;
+        const [x0, y0] = P(cx, c.dy + c.h + 1), [x1, y1] = P(lx, lb.dy - 1);
+        ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      }
+    }
+  }
   function overlay(ctx, k, p, b, t, next = k + 1) {
     if (!G) return;
     const { steps } = cur(), nk = steps.length, kk = Math.min(b > 0.5 ? next : k, nk - 1), step = steps[kk] || {};
     const [A, B] = pair(k, next, nk), C = b > 0.5 ? B : A, fade = Math.abs(1 - 2 * b);
-    const hot = step.hot || (step.act && step.act.hot);
+    const hot = step.hot || (step.act && step.act.hot), end = (b > 0.5 ? next : k) >= nk;
+    const form = k === 0 ? show(p, 0.18, 0.36) : 1;
     ctx.save();
     for (const { ei, Y } of C.edge) {
       const lit = hot && hot === EDG[ei].hot;
       ctx.globalAlpha = (lit ? 0.95 : 0.45) * (sameEdge(A, B, ei) ? 1 : fade); ctx.strokeStyle = lit ? css.gold : css.faint; ctx.lineWidth = lit ? 1.5 : 1;
       ctx.setLineDash(lit ? [] : [3, 4]);
       ctx.beginPath(); ctx.moveTo(G.L.x0, Y); ctx.lineTo(G.L.x1, Y); ctx.stroke();
+    }
+    for (const id of cast) {
+      const bx = C.box[id];
+      if (!bx || bx.tag || !['tree', 'graph', 'bytes'].includes(ACT[id].kind)) continue;
+      inLines(ctx, C, kk, id, (end ? 0.18 : 1) * form * (sameBox(A, B, id) ? 1 : fade));
     }
     ctx.restore();
     edgeEl.forEach((el2, i) => el2.classList.toggle('gold', !!(hot && hot === EDG[i].hot)));
@@ -422,7 +670,7 @@ function make({ F, deck, labels, scene }) {
     build(L) { this.theme(); build(L); shown = -2; },
     theme() {
       const cs = getComputedStyle(document.documentElement);
-      css = { faint: cs.getPropertyValue('--faint').trim(), gold: cs.getPropertyValue('--gold').trim() };
+      css = { faint: cs.getPropertyValue('--faint').trim(), gold: cs.getPropertyValue('--gold').trim(), body: cs.getPropertyValue('--body').trim() };
     },
     pose, paint, overlay,
     setVary(v) { const vv = v == null ? null : String(v); if (bakes.has(vv)) vary = vv; },

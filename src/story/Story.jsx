@@ -161,7 +161,8 @@ export default function Story() {
     if (!deck || !scene || !mod || !fontsOk || !cv.current) return undefined;
     history.scrollRestoration = 'manual';
     const narrow0 = innerWidth < 820;
-    const F = createField(cv.current, mod.count(narrow0));
+    /* 알갱이 수는 세계가 장면을 보고 정한다(무대는 쓰는 칩만큼) */
+    const F = createField(cv.current, mod.count(narrow0, deck, sceneRef.current));
     F.resize(); F.readTheme();
     const world = mod.make({ F, deck, labels: lbl.current, scene: () => sceneRef.current });
     const N = F.N;
