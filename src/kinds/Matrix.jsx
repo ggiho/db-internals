@@ -14,7 +14,7 @@ export default function Matrix({ a }) {
                 <motion.td key={c} layout
                   className={'mx-v ' + (yes ? 'y' : 'n') + (on.has(key) ? ' on' : '') + (off ? ' off' : '')}
                   animate={{ opacity: off ? 0.26 : 1 }} transition={{ duration: 0.3 }}>
-                  <i>{yes ? '허용' : '막힘'}</i>
+                  <i>{yes ? (a.mx.yes || '허용') : (a.mx.no || '막힘')}</i>
                 </motion.td>
               );
             })}
