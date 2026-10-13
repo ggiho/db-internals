@@ -176,7 +176,7 @@
 .st-labels .wl .pb-i{color:var(--body);font-size:12px}
 .st-labels .wl .pb-g{color:var(--gold)}
 .st-labels .wl .pb-r{color:var(--red)}
-/* aurora mysql 05 — 이름표는 모두 읽어야 하는 값(.sm 아님). 키 줄 아래에 값 줄 */
+/* 전용 세계의 이름표(aurora mysql 05 · wiredtiger 01) — 모두 읽어야 하는 값이라 .sm 이 아니다. 키는 본문색, 값은 그 색 */
 .st-labels .wl.aq{font-size:11px}
 .st-labels .wl.aq-c{text-align:center}
 .st-labels .wl .q-i{color:var(--body)}
