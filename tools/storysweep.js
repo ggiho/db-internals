@@ -404,7 +404,7 @@ async function runSize(browser, [w, h]) {
         for (const [kind, detail] of m.P) res.problems.push([res.size, at, kind, detail]);
         while (errs.length) res.problems.push([res.size, at, 'errors', errs.shift()]);
         if (SHOTS) {
-          /* 알갱이가 목표에 닿을 때까지(밝은 것의 98% 가 4px 안) — 목표는 이미 쟀고, 그림은 따라가는 중일 수 있다.
+          /* 알갱이가 목표에 닿을 때까지(밝은 것의 98% 가 1.5px 안) — 목표는 이미 쟀고, 그림은 따라가는 중일 수 있다.
              흐려지는 중인 것도 기다린다 — 사라진 칩이 상자 가운데에 덩어리로 남은 채 찍혀 결함처럼 보였다(ch2 02 · 06 · 08) */
           await page.waitForFunction(() => {
             const F = window.__story.F;
@@ -413,7 +413,8 @@ async function runSize(browser, [w, h]) {
               /* 흐린 것도 센다 — 0.1 아래로 흐려진 알갱이 200 개가 한 점에 겹쳐 덩어리로 찍혔다(postgres/buffer 01 / 6) */
               if (Math.max(F.a[i], F.ta[i]) > 0.03 && Math.abs(F.a[i] - F.ta[i]) > 0.02) fading++;
               if (F.ta[i] < 0.3) continue;
-              n++; if (Math.abs(F.px[i] - F.tx[i]) + Math.abs(F.py[i] - F.ty[i]) > 4) far++;
+              /* 1.5px — 4px 로 두자 5px 간격 격자(aurora 05 의 표 칸)가 덜 앉은 채 흐트러져 찍혔다 */
+              n++; if (Math.abs(F.px[i] - F.tx[i]) + Math.abs(F.py[i] - F.ty[i]) > 1.5) far++;
             }
             return far <= n * 0.02 && fading <= 3;
           }, null, { timeout: 4000, polling: 200 }).catch(() => {});
