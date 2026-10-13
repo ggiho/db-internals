@@ -396,7 +396,7 @@ const SCENES = [
       1:{ key:'이 값에서는 클러스터 기본을 <em>w:1</em> 로 정해 두었다 — 응답이 무엇을 기다리지 않게 되는지 따라가 보라.',
           ops:{ op:{ set:{ '쓰기 확인':'w: 1 (setDefaultRWConcern)|gold', '단계':'요청 받음' } } } },
       6:{ look:{ op:true, jr:true },
-          note:'w:1 — journal 대기 없이 즉시 ack',
+          note:'w:1 — journal 대기 없이 즉시 ack', act:null,
           why:'w:1 은 j 를 함께 주지 않으면 journal 을 기다리지 않는다 — writeConcernMajorityJournalDefault 는 { w: "majority" } 의 동작만 정한다. 로그 레코드는 아직 log buffer 에 있고, 100ms 주기의 flush 가 내린다(04 장면).',
           key:'응답과 fsync 사이에 <em>최대 100ms</em> 가 생긴다. 그 사이 서버가 죽으면 응답을 받은 쓰기가 사라질 수 있다.',
           ref:WT + 'log/log.c', sym:'__wt_log_flush',

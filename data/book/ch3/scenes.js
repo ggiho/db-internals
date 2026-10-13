@@ -28,6 +28,8 @@ const ROLE = { 3: 'SDI root', 4: 'PRIMARY root  L1', 5: 'idx_c root · leaf', 6:
 const PH = ['N_DIR_SLOTS', 'HEAP_TOP', 'N_HEAP', 'FREE', 'GARBAGE', 'LAST_INSERT', 'DIRECTION',
   'N_DIRECTION', 'N_RECS', 'MAX_TRX_ID', 'LEVEL', 'INDEX_ID', 'SEG_LEAF', 'SEG_TOP'];
 const OFF = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 26, 28, 36, 46];
+/* Story 의 06b 세계가 같은 식으로 page 위의 경계를 그린다 — 식을 두 곳에 두면 서로 어긋날 수 있으므로 여기서 내보낸다 */
+export const MEASURED = { DUMP, M, SUP_END, RS, GONE6, GONE5, MOVED7, LEAVES, EMPTY, resv, MAXSZ, RESERVE, DIRN, PH, OFF, ROLE, heapN };
 /* 열네 칸을 한 배우에 담으면 무대가 좁아진다(verify 는 8 개를 넘으면 경고한다). 06a 처럼 뜻으로 나눈다 —
    공간(+0 ~ +8) · 삽입 이력과 개수(+10 ~ +16) · trx · tree · segment(+18 ~ +46). 셋 다 맨 위에 어느 page 인지 적는다
    — 한 스텝에 한 덩어리만 보일 때도 무슨 page 의 값인지 알아야 한다. */
@@ -217,11 +219,15 @@ const SCENES = [
           val:{ set:{ 'AA':{ tag:'gold', sub:'a+0  MSB  ← n >> 24' } } } } },
 
   { look:{ op:true },
-    note:'파일 내 모든 multi-byte 값이 같은 규칙 — 예외 없음',
-    why:'mach0data.h 머리에 규칙이 적혀 있다 : "데이터와 모든 필드는 데이터베이스 파일에 항상 같은 형식으로 저장된다 — ascii, big-endian." 그리고 파일의 모든 데이터는 반드시 이 모듈의 함수로만 접근해야 한다고 못박는다.',
-    key:'바이트 순서를 <em>고르는 것</em>보다 중요한 것은 <em>한 곳에서만 다루는 것</em>이다. 그래서 InnoDB 코드에는 캐스팅으로 정수를 읽는 자리가 없다 — 전부 mach_* 를 지난다.',
-    ref:'storage/innobase/include/mach0data.ic', sym:'mach_write_to_4',
-    fact:[['storage/innobase/include/mach0data.h','in the same format: ascii, big-endian']] },
+    note:'순서는 타입이 정한다 — 정수는 big-endian, float · double 은 little-endian',
+    why:'mach0data.h 머리의 규칙은 "데이터와 모든 필드는 파일에 늘 같은 형식으로 — ascii, big-endian" 이다. 그런데 같은 파일이 float · double 은 "little-endian format 으로 저장된다" 고 적는다. 행을 저장할 때도 big-endian 으로 뒤집는 것은 정수(DATA_INT)뿐이고, FLOAT · DOUBLE 열은 MySQL 이 넘긴 바이트를 그대로 둔다 — MySQL 의 float8store 는 big-endian 기계에서 바이트를 뒤집어 어디서나 little-endian 으로 쓴다.',
+    key:'정수는 big-endian 이라 <em>바이트 비교가 숫자 비교</em>가 되고, 부동소수는 <em>값으로 풀어서</em>(mach_double_read) 비교하므로 순서가 비교에 끼어들지 않는다 — 어느 쪽이든 플랫폼을 보지 않는다.',
+    ref:'storage/innobase/include/mach0data.ic', sym:'mach_double_write',
+    fact:[['storage/innobase/include/mach0data.h','in the same format: ascii, big-endian'],
+          ['storage/innobase/include/mach0data.h','Writes a double. It is stored in a little-endian format.'],
+          ['storage/innobase/row/row0mysql.cc','Store integer data in Innobase in a big-endian format,'],
+          ['include/big_endian.h','*(T) = ((uchar *)&V)[7];'],
+          ['storage/innobase/rem/rem0cmp.cc','d_1 = mach_double_read(a);']] },
 
   { look:{ val:true },
     note:'폭별 write 함수는 필요한 것만 — 5 byte 용은 없다',
@@ -1615,7 +1621,7 @@ const SCENES = [
      숨은 컬럼)은 두 형식에서 같으므로 물려받는다. */
   vary:{ knob:'innodb_default_row_format', base:'dynamic', alt:{
     'redundant':{
-      2:{ note:'6 byte — 담는 것도 다르다',
+      2:{ note:'6 byte — 담는 것도 다르다', act:{ f:'rhd', t:'bit5', lb:'6바이트를 풀어본다' },
           why:'REC_N_OLD_EXTRA_BYTES 가 6 이다. COMPACT 계열의 5바이트와 한 바이트 차이인데, 그 한 바이트가 아니라 배치 전체가 다르다 — REDUNDANT 는 필드 개수를 헤더에 적고, 오프셋이 1바이트인지 2바이트인지도 비트 하나로 표시한다.',
           key:'그래서 REDUNDANT 레코드는 <em>스스로 자기 필드 수를 안다</em>. COMPACT 은 그것을 인덱스 정의에서 가져온다 — 바이트를 아낀 대신 레코드만 보고는 해석할 수 없게 됐다.',
           ref:'storage/innobase/rem/rec.h', sym:'REC_N_OLD_EXTRA_BYTES',
@@ -1635,7 +1641,7 @@ const SCENES = [
                             'next':{ id:'next', sz:2, tag:'gold', sub:'−3 −2' } },
                       add:[{ id:'n_f', sz:1, tag:'gold', sub:'−1 · 필드 수 + short' }] } } },
 
-      4:{ note:'status 3 bit 없음 — 그 자리에 field 수',
+      4:{ note:'status 3 bit 없음 — 그 자리에 field 수', act:{ f:'bit5', t:'rhd', lb:'n_fields 10비트' },
           why:'REC_NEW_STATUS 는 COMPACT 계열에만 있다. REDUNDANT 에서 이 레코드가 무엇인지(ORDINARY·NODE_PTR·INFIMUM·SUPREMUM)는 별도 필드가 아니라 문맥과 info bits 로 판별한다.',
           key:'같은 정보를 <em>다른 방식으로 담는다</em>. 어느 쪽이 더 낫다기보다, 형식을 바꾸면 해석 코드가 갈라진다는 것이 요점이다 — rec_get_* 함수가 new 와 old 로 쌍을 이루는 이유.',
           ref:'storage/innobase/rem/rec.h', sym:'REC_OLD_N_FIELDS',
@@ -1644,7 +1650,7 @@ const SCENES = [
           ops:{ bit5:{ set:{ 'n_fields':{ tag:'x', sub:'10비트 · 이 레코드의 필드 수' } } },
                 rhd:{ set:{ '◆':{ id:'◆', sz:1, tag:'hdr', sub:'원점 · status 없음' } } } } },
 
-      6:{ note:'null bitmap 없음 — NULL 은 offset 안의 bit 하나',
+      6:{ note:'null bitmap 없음 — NULL 은 offset 안의 bit 하나', act:{ f:'rhd', t:'op', lb:'원점 앞의 필드 오프셋' },
           why:'REDUNDANT 는 필드마다 시작 오프셋을 적고, 그 오프셋의 최상위 비트를 SQL NULL 표시로 쓴다. 1바이트 오프셋이면 0x80, 2바이트면 0x8000 이다. 주석이 그렇게 적는다.',
           key:'그래서 nullable 컬럼이 많아도 <em>비트맵이 커지지 않는다</em> — 대신 모든 필드가 오프셋 값을 하나씩 갖는다. COMPACT 은 반대로 거래했다 : 오프셋은 가변 길이 필드만, NULL 은 비트맵으로.',
           ref:'storage/innobase/rem/rec.h', sym:'REC_1BYTE_SQL_NULL_MASK',

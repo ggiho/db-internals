@@ -664,7 +664,7 @@ const SCENES = [
           ops:{ sb:{ set:{ '격리':'REPEATABLE READ|gold', '문장':'UPDATE t SET v=v+1 WHERE id=1', '상태':'실행 중' } },
                 snap:{ set:{ '잡은 때':'트랜잭션 첫 문장', 'xip':'[200]', '다음 문장':'같은 것을 쓴다' } } } },
       7:{ look:{ sb:true, lk:true },
-          note:'REPEATABLE READ — 여기서 종료 : could not serialize access due to concurrent update',
+          note:'REPEATABLE READ — 여기서 종료 : could not serialize access due to concurrent update', act:{ f:'tup', t:'sb', lb:'TM_Updated  →  ERROR 40001' },
           why:'IsolationUsesXactSnapshot() 이 참이면 TM_Updated 를 받는 즉시 ERRCODE_T_R_SERIALIZATION_FAILURE(40001)로 오류를 낸다. B 의 snapshot 은 트랜잭션 전체의 것인데, 그 snapshot 이 모르는 버전 2 위에 쓰면 그 snapshot 의 세계와 맞지 않는 결과가 된다.',
           key:'REPEATABLE READ 는 <em>기다린 끝에 실패한다</em>. 직렬화 실패는 버그가 아니라 계약이다 — 앱이 트랜잭션을 처음부터 다시 해야 한다.',
           ref:'src/backend/executor/nodeModifyTable.c', sym:'ExecUpdate',

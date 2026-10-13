@@ -885,7 +885,7 @@ const SCENES = [
      여기서는 고아 행이 실제로 만들어지고 부모가 지워지는 것까지 본다. */
   vary:{ knob:'foreign_key_checks', base:'ON', alt:{
     'OFF':{
-      1:{ note:'check 자체가 시작되지 않는다',
+      1:{ note:'check 자체가 시작되지 않는다', act:null,
           why:'row_ins_check_foreign_constraints 가 trx->check_foreigns 를 먼저 본다. false 면 부모 인덱스를 열기 전에 DB_SUCCESS 로 돌아간다.',
           key:'끄는 것은 검사를 <em>느슨하게</em> 하는 것이 아니라 <em>하지 않는</em> 것이다. 그래서 부모가 있는지도 모른 채 통과한다.',
           ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_check_foreign_constraints',
@@ -903,7 +903,7 @@ const SCENES = [
                       add:[{ id:'child pid=99', tag:'x', sub:'부모 없음  ·  고아' }] },
                 stmt:{ set:{ 'SQL':'INSERT INTO child(pid) VALUES(99)', '락 수':'1' } } } },
 
-      3:{ note:'parent row 에 lock 없음',
+      3:{ note:'parent row 에 lock 없음', act:{ f:'stmt', t:'sec', lb:'자식 행만  ·  implicit X' },
           why:'잠그는 코드는 검사 안에 있다. 검사를 건너뛰었으므로 부모 인덱스를 읽지도 않았다. 자식 행의 implicit X 하나만 남는다.',
           key:'대량 적재에서 끄는 이유가 이것이다 — <em>부모 쪽 락이 통째로 사라진다</em>. 부모 테이블의 동시성이 자식 적재에 영향받지 않는다.',
           ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_check_foreign_constraint',

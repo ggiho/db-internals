@@ -28,7 +28,9 @@ const SCENES = [
                  ['storage/innobase/handler/ha_innodb.cc','srv_flush_log_at_trx_commit == 1);']],
            /* lb 는 기본값 스텝이 이미 4,912 로 올려 둔다 — 같은 값을 다시 set 하면
               "변화 없음" 경고가 난다. 이 값에서 달라지는 것은 redo 쪽뿐이다. */
-           ops:{ redo:{ set:{ 'Log flushed up to':'4,912  (파일에 씀 · fsync 안 함)|gold' } } } },
+           ops:{ redo:{ set:{ 'Log flushed up to':'4,912  (파일에 씀 · fsync 안 함)|gold' } } },
+           /* act 도 적는다 — 적지 않으면 기본값의 '그룹 fsync' 토큰이 이 값에서도 날아갔다 */
+           act:{ f:'lb', t:'redo', lb:'write 만  →  OS page cache' } },
       13:{ note:'WAL 절반 성립 — 순서는 맞지만 durability 가 다르다',
            why:'redo 가 페이지보다 먼저 파일에 간 것은 맞다. 그러나 fsync 를 하지 않았으므로 그 기록이 디스크 매체에 있다는 보장은 없다.',
            key:'WAL 의 두 약속 중 <em>순서는 지키고 내구성은 낮췄다</em>. 크래시 복구는 여전히 이 파일을 읽지만, OS 크래시라면 읽을 것이 없을 수 있다.',
@@ -46,7 +48,9 @@ const SCENES = [
            fact:[['storage/innobase/handler/ha_innodb.cc','if (binlog_group_flush && srv_flush_log_at_trx_commit == 0) {'],
                  ['storage/innobase/handler/ha_innodb.cc','Do not flush the redo log during binlog group commit. */']],
            ops:{ redo:{ set:{ 'Log flushed up to':'4,600  (이 트랜잭션은 아직)|red' } },
-                 lb:{ set:{ 'assigned up to':'4,912  (버퍼에 남아 있다)' } } } },
+                 lb:{ set:{ 'assigned up to':'4,912  (버퍼에 남아 있다)' } } },
+           /* 아무것도 파일로 가지 않는다 — 기본값의 lb → redo 토큰을 지운다 */
+           act:null },
       13:{ note:'WAL 불성립 — redo 가 아직 log buffer 에',
            why:'페이지는 이미 dirty 이고 redo 는 버퍼에 남아 있다. 이 순간의 순서는 WAL 이 요구하는 것과 반대다.',
            key:'그래서 이 값은 <em>커밋 응답을 받은 변경도 잃을 수 있다</em>. 초당 한 번의 flush 사이에 죽으면 그 구간이 사라진다.',
@@ -442,14 +446,14 @@ const SCENES = [
           beat:1,
           ops:{ bp:{ set:{ 'p:5':{ tag:'x', sub:'checksum 불일치 · 읽을 수 없다' } } } } },
 
-      7:{ note:'retry 소진 — server abort',
+      7:{ note:'retry 소진 — server abort', act:null,
           why:'BUF_PAGE_READ_MAX_RETRIES 만큼 다시 읽어 본 뒤 치명 오류로 중단한다. 그 메시지가 innodb_force_recovery 를 안내한다.',
           key:'복구가 <em>시작조차 끝나지 못한다</em>. undo 도, binlog 판정도, 여기까지 오지 못한다.',
           ref:'storage/innobase/buf/buf0buf.cc', sym:'Buf_fetch::read_page',
           fact:[['storage/innobase/buf/buf0buf.cc','" this problem by using innodb_force_recovery. Please "']],
           ops:{ ses:{ set:{ '서버 상태':'기동 실패 · Aborting|red' } } } },
 
-      8:{ note:'binlog 판정 단계 미도달',
+      8:{ note:'binlog 판정 단계 미도달', act:null,
           why:'PREPARED 트랜잭션을 찾고 XID 를 대조하는 일은 페이지를 읽을 수 있어야 가능하다. 그 앞에서 멈췄으므로 trx 77 은 판정되지 않은 채 남는다.',
           key:'복구의 단계들은 <em>순서대로 묶여 있다</em>. 물리 복구가 막히면 논리 복구는 시작도 하지 않는다.',
           ref:'sql/binlog/recovery.cc', sym:'Binlog_recovery::recover',
@@ -457,7 +461,7 @@ const SCENES = [
           ops:{ bin:{ set:{ '판정':'실행되지 않음|red' } },
                 ses:{ set:{ 'PREPARED trx':'77  (판정 못 함)|red' } } } },
 
-      9:{ note:'남은 수단 — innodb_force_recovery 로 검사 우회',
+      9:{ note:'남은 수단 — innodb_force_recovery 로 검사 우회', act:null,
           why:'값을 올리면 손상 검사를 건너뛰고 기동한다. 페이지는 고쳐지지 않는다 — 깨진 바이트를 그대로 들고 연다.',
           key:'그래서 이것은 <em>복구가 아니라 탈출</em>이다. 열린 뒤 할 일은 데이터를 덤프해 새 인스턴스로 옮기는 것뿐이다.',
           ref:'storage/innobase/srv/srv0start.cc', sym:'srv_start',
@@ -492,14 +496,14 @@ const SCENES = [
           beat:1,
           ops:{ bp:{ set:{ 'p:5':{ tag:'x', sub:'checksum 불일치 · 읽을 수 없다' } } } } },
 
-      7:{ note:'retry 소진 — server abort',
+      7:{ note:'retry 소진 — server abort', act:null,
           why:'BUF_PAGE_READ_MAX_RETRIES 만큼 다시 읽어 본 뒤 치명 오류로 중단한다. 그 메시지가 innodb_force_recovery 를 안내한다.',
           key:'복구가 <em>시작조차 끝나지 못한다</em>. undo 도, binlog 판정도, 여기까지 오지 못한다.',
           ref:'storage/innobase/buf/buf0buf.cc', sym:'Buf_fetch::read_page',
           fact:[['storage/innobase/buf/buf0buf.cc','" this problem by using innodb_force_recovery. Please "']],
           ops:{ ses:{ set:{ '서버 상태':'기동 실패 · Aborting|red' } } } },
 
-      8:{ note:'binlog 판정 단계 미도달',
+      8:{ note:'binlog 판정 단계 미도달', act:null,
           why:'PREPARED 트랜잭션을 찾고 XID 를 대조하는 일은 페이지를 읽을 수 있어야 가능하다. 그 앞에서 멈췄으므로 trx 77 은 판정되지 않은 채 남는다.',
           key:'복구의 단계들은 <em>순서대로 묶여 있다</em>. 물리 복구가 막히면 논리 복구는 시작도 하지 않는다.',
           ref:'sql/binlog/recovery.cc', sym:'Binlog_recovery::recover',
@@ -507,7 +511,7 @@ const SCENES = [
           ops:{ bin:{ set:{ '판정':'실행되지 않음|red' } },
                 ses:{ set:{ 'PREPARED trx':'77  (판정 못 함)|red' } } } },
 
-      9:{ note:'남은 수단 — innodb_force_recovery 로 검사 우회',
+      9:{ note:'남은 수단 — innodb_force_recovery 로 검사 우회', act:null,
           why:'값을 올리면 손상 검사를 건너뛰고 기동한다. 페이지는 고쳐지지 않는다 — 깨진 바이트를 그대로 들고 연다.',
           key:'그래서 이것은 <em>복구가 아니라 탈출</em>이다. 열린 뒤 할 일은 데이터를 덤프해 새 인스턴스로 옮기는 것뿐이다.',
           ref:'storage/innobase/srv/srv0start.cc', sym:'srv_start',
@@ -1001,7 +1005,7 @@ const SCENES = [
                 lock:{ add:[{ id:'30 · rec only', tag:'hold', sub:'LOCK_REC_NOT_GAP = 1024' }] },
                 ses:{ set:{ '잠근 것':'2' } } } },
 
-      5:{ note:'scan 은 50 까지 읽지만 lock 은 남기지 않는다',
+      5:{ note:'scan 은 50 까지 읽지만 lock 은 남기지 않는다', act:{ f:'ses', t:'idx', lb:'50 까지 읽기만  —  lock 없음' },
           why:'범위가 끝났음을 알려면 조건을 넘어선 첫 레코드를 읽어야 한다. 읽는 것까지는 같다. 다른 것은 그 다음이다 — gap 을 건너뛰는 트랜잭션은 이 자리에서 잠금을 만들지 않는다.',
           key:'REPEATABLE READ 에서는 이 지점이 (30, 50) gap lock 이 됐다. 여기서는 <em>읽고 지나간다</em>.',
           ref:'storage/innobase/row/row0sel.cc', sym:'row_compare_row_to_range',
@@ -1350,7 +1354,7 @@ const SCENES = [
      6~11(온라인 구간·row log·마무리)은 그대로 물려받는다 — 도착하는 길만 달랐다. */
   vary:{ knob:'lock_wait_timeout', base:'31536000', order:['5','0'], alt:{
     '5':{
-      3:{ note:'5s 경과 — queue 가 쌓이기 전에 ALTER 가 timeout',
+      3:{ note:'5s 경과 — queue 가 쌓이기 전에 ALTER 가 timeout', act:{ f:'mdl', t:'ses', lb:'ALTER 1205  ·  5초 후' },
           why:'acquire_lock 이 set_timespec 으로 절대 시각을 잡고 그때까지만 기다린다. 대기 결과가 MDL_wait::TIMEOUT 이면 ER_LOCK_WAIT_TIMEOUT 을 낸다.',
           key:'그래서 <em>3번 이후의 줄이 아예 생기지 않는다</em>. 막히는 세션이 없다는 것은 장애가 없다는 뜻이다 — ALTER 하나만 실패했다.',
           ref:'sql/mdl.cc', sym:'MDL_context::acquire_lock',
@@ -1383,7 +1387,7 @@ const SCENES = [
                 ses:{ set:{ 'ALTER 상태':'인덱스 구축 중|gold' } } } },
     },
     '0':{
-      3:{ note:'lock_wait_timeout=0 — 대기 없이 try_acquire_lock 경로',
+      3:{ note:'lock_wait_timeout=0 — 대기 없이 try_acquire_lock 경로', act:{ f:'mdl', t:'ses', lb:'ALTER 1205  ·  즉시' },
           why:'acquire_lock 의 첫 분기가 lock_wait_timeout == 0 을 보고 try_acquire_lock 으로 간다. 주석이 이유를 적는다 — 불필요한 deadlock 탐지 시도와 그로 인해 생길 수 있는 "가짜" deadlock 을 피하기 위해서다.',
           key:'0 은 <em>가장 짧은 타임아웃이 아니라 다른 분기</em>다. 기다리지 않으므로 대기 그래프에 들어갈 일이 없고, deadlock 으로 오판될 일도 없다.',
           ref:'sql/mdl.cc', sym:'MDL_context::acquire_lock',

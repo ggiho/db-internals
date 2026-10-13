@@ -293,6 +293,11 @@ for (const sc of SCENES) {
         const base = (sc.steps || [])[+k - 1];
         if (base && base.ops && o.note && !('ops' in o))
           err(`SCENE ${sc.num}(v${v}).${String(k).padStart(2, '0')} note 를 바꾸고 ops 를 안 적었다 — 기본값의 ops 가 섞인다`);
+        /* act 도 같다 — 무대는 act 를 토큰으로 날린다. innodb 01(v0).12 는 "redo write 자체를 skip" 인데
+           기본값의 "그룹 fsync → LSN 4,912" 토큰이 날아갔다. 처음 넣었을 때 6 덱 20 스텝이 걸렸다(innodb 03 OFF 의
+           "server abort" 에 "PREPARED trx 77 발견" 이 날아가는 식). 같은 act 가 맞으면 옮겨 적고, 없애려면 act:null */
+        if (base && base.act && o.note && !('act' in o))
+          err(`SCENE ${sc.num}(v${v}).${String(k).padStart(2, '0')} note 를 바꾸고 act 를 안 적었다 — 기본값의 act(${base.act.lb}) 가 날아간다`);
       }
   }
   const VALS = sc.vary ? [null, ...Object.keys(sc.vary.alt || {})] : [null];
