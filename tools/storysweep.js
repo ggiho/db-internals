@@ -60,6 +60,8 @@ const BREAKS = {
   'word-glue': { js: true, kind: 'word-split' },
   'text-small': { css: '.st-labels *{font-size:6px !important}' },
   'header-wrap': { css: '.st-top *{white-space:normal !important;max-width:34px !important}' },
+  /* 상자 안의 이름을 한 자리로 모은다 — bytes 의 칸 이름 · axis 의 범위 이름은 상자 안에서 재서 놓는다 */
+  'inbox-overlap': { css: '.st-labels .stn .s-byl span,.st-labels .stn .s-sp{left:0 !important;top:0 !important}' },
   /* 서는 자리 뒤에도 이름표 하나가 p 를 따라 흐려지게 한다 */
   'hold-still': { js: true },
   /* act 이름표를 글 위로 띄운다 — 서는 자리에서는 이미 사라져 있어 다른 검사는 못 본다 */
@@ -141,6 +143,25 @@ function measure() {
     if (el.closest('.stn-measure') || vis(el) < 0.3) continue;
     const cs = getComputedStyle(el);
     if (/hidden|clip/.test(cs.overflowX) && el.scrollWidth > el.clientWidth + 1) P.push(['text-clip', nm(el)]);
+  }
+  /* 상자 안의 글끼리 — 무대의 bytes · axis · graph 는 이름을 상자 안에 직접 놓는다. 위의 label-overlap 은 상자끼리만 본다.
+     글을 직접 가진 요소의 줄 조각(Range rect)을 쌍으로 견준다 */
+  for (const stn of document.querySelectorAll('.st-labels .stn:not(.stn-measure)')) {
+    if (vis(stn) < 0.3) continue;
+    const rr = [], rg2 = document.createRange();
+    for (const el of stn.querySelectorAll('*')) {
+      for (const n of el.childNodes) {
+        if (n.nodeType !== 3 || !n.data.trim()) continue;
+        rg2.selectNodeContents(n);
+        for (const r of rg2.getClientRects()) if (r.width > 0.5 && r.height > 0.5) rr.push({ el, r });
+      }
+    }
+    let hit = null;
+    for (let i = 0; i < rr.length && !hit; i++) for (let j = i + 1; j < rr.length; j++) {
+      if (rr[i].el === rr[j].el) continue;
+      if (ov(rr[i].r, rr[j].r, 1.5)) { hit = [rr[i].el, rr[j].el]; break; }
+    }
+    if (hit) P.push(['inbox-overlap', `${nm(stn)} : ${nm(hit[0])} × ${nm(hit[1])}`]);
   }
   for (const stn of document.querySelectorAll('.st-labels .stn:not(.stn-measure)')) {
     if (vis(stn) < 0.3) continue;
@@ -377,12 +398,17 @@ async function runSize(browser, [w, h]) {
         for (const [kind, detail] of m.P) res.problems.push([res.size, at, kind, detail]);
         while (errs.length) res.problems.push([res.size, at, 'errors', errs.shift()]);
         if (SHOTS) {
-          /* 알갱이가 목표에 닿을 때까지(밝은 것의 98% 가 4px 안) — 목표는 이미 쟀고, 그림은 따라가는 중일 수 있다 */
+          /* 알갱이가 목표에 닿을 때까지(밝은 것의 98% 가 4px 안) — 목표는 이미 쟀고, 그림은 따라가는 중일 수 있다.
+             흐려지는 중인 것도 기다린다 — 사라진 칩이 상자 가운데에 덩어리로 남은 채 찍혀 결함처럼 보였다(ch2 02 · 06 · 08) */
           await page.waitForFunction(() => {
             const F = window.__story.F;
-            let n = 0, far = 0;
-            for (let i = 0; i < F.N; i++) { if (F.ta[i] < 0.3) continue; n++; if (Math.abs(F.px[i] - F.tx[i]) + Math.abs(F.py[i] - F.ty[i]) > 4) far++; }
-            return far <= n * 0.02;
+            let n = 0, far = 0, fading = 0;
+            for (let i = 0; i < F.N; i++) {
+              if (Math.max(F.a[i], F.ta[i]) > 0.12 && Math.abs(F.a[i] - F.ta[i]) > 0.08) fading++;
+              if (F.ta[i] < 0.3) continue;
+              n++; if (Math.abs(F.px[i] - F.tx[i]) + Math.abs(F.py[i] - F.ty[i]) > 4) far++;
+            }
+            return far <= n * 0.02 && fading <= 3;
           }, null, { timeout: 4000, polling: 200 }).catch(() => {});
           const dir = `${SHOTS}/${w}x${h}`;
           fs.mkdirSync(dir, { recursive: true });
