@@ -65,6 +65,8 @@ const BREAKS = {
   /* 서는 자리 뒤에도 이름표 하나가 p 를 따라 흐려지게 한다 */
   'hold-still': { js: true },
   'label-hidden': { css: '.st-labels > .wl{display:none !important}' },
+  /* 이름표의 글을 크게 부풀려 알갱이 덩어리를 덮게 한다 */
+  'label-grain': { css: '.st-labels > .wl{font-size:60px !important}' },
   /* act 이름표를 글 위로 띄운다 — 서는 자리에서는 이미 사라져 있어 다른 검사는 못 본다 */
   flight: { css: '.st-labels .stn-tok{margin-left:-60vw !important}' },
 };
@@ -223,6 +225,28 @@ function measure() {
       r2.selectNodeContents(tn);
       const ys = [...r2.getClientRects()].filter((r) => r.width > 0).map((r) => r.top);
       if (ys.length > 1 && Math.max(...ys) - Math.min(...ys) > 4) P.push(['header-wrap', `${nm(tn.parentElement)}`]);
+    }
+  }
+  /* 글자가 알갱이 덩어리 위에 있는가 — 글이 점에 묻힌다. 이름표끼리의 겹침(label-overlap)은 알갱이를 보지 않아서
+     wiredtiger 01 의 'UPDATE CHAIN · head' 가 마디 덩어리 위에 얹힌 것을 0 으로 셌다. 이름표의 상자가 아니라 글자의 줄 상자로
+     잰다(상자로 재자 aurora 05 의 줄 끝에 둔 작은 막대가 걸렸다 — 글자를 덮지 않는다). 밝은 목표(≥ 0.3)가 넷 이상이면 */
+  {
+    const F = window.__story && window.__story.F, rg = document.createRange();
+    if (F) for (const e of document.querySelectorAll('.st-labels > .wl')) {
+      if (vis(e) < 0.3) continue;
+      const rs = [], tw = document.createTreeWalker(e, NodeFilter.SHOW_TEXT);
+      for (let tn = tw.nextNode(); tn; tn = tw.nextNode()) {
+        if (!tn.data.trim()) continue;
+        rg.selectNodeContents(tn);
+        for (const r of rg.getClientRects()) if (r.width > 1 && r.height > 1) rs.push(r);
+      }
+      let n = 0;
+      for (let i = 0; i < F.N; i++) {
+        if (F.ta[i] < 0.3) continue;
+        const x = F.tx[i], y = F.ty[i];
+        if (rs.some((r) => x > r.left + 1 && x < r.right - 1 && y > r.top + 1 && y < r.bottom - 1)) n++;
+      }
+      if (n >= 4) P.push(['label-grain', `${nm(e)} 위 알갱이 ${n}`]);
     }
   }
   /* 세계가 보이라고 한 이름표(불투명도 > 0.3)를 CSS 가 숨겼는가. 숨은 것은 겹침 · 화면 밖 검사에 걸리지 않는다 —
