@@ -39,6 +39,17 @@ const SCENES = [
            why:'커밋 판정은 binlog fsync 로 정해진다(sync_binlog=1). 그 판정은 남았는데 그 트랜잭션의 redo 는 fsync 되지 않았다.',
            key:'그래서 OS 가 죽으면 <em>"커밋됐다고 판정된 것" 과 "redo 에 남은 것" 이 어긋날 수 있다</em>. 값을 2 로 두는 대가가 여기서 드러난다.',
            ref:'sql/binlog/recovery.cc', sym:'Binlog_recovery::recover' },
+      /* page 를 쓰기 전에 redo 를 그 page 의 LSN 까지 — buf_flush_write_block_low 가 dblwr::write 보다 먼저 한다.
+         이 스텝이 없을 때는 LSN 4,912 의 page 가 flushed 4,600 · 4,912(fsync 안 함)인 채로 .ibd 에 쓰였다(WAL 위반) */
+      20:{ note:'page 쓰기 전에 redo 를 그 LSN 까지 flush — 그 다음 doublewrite 사본',
+           why:'page cleaner 가 페이지를 쓰는 buf_flush_write_block_low 는 먼저 flushed_to_disk_lsn 이 그 페이지의 newest LSN 보다 작은지 보고, 작으면 log_write_up_to(…, true) 로 거기까지 flush 한다. 그 다음에야 dblwr::write 로 doublewrite 사본을 쓴다.',
+           key:'커밋 때 redo 의 fsync 를 미룰 수는 있어도 <em>페이지가 redo 를 앞지르지는 못한다</em>. 이 값이 낮추는 것은 커밋의 내구성이지 WAL 의 순서가 아니다.',
+           ref:'storage/innobase/buf/buf0flu.cc', sym:'buf_flush_write_block_low',
+           fact:[['storage/innobase/buf/buf0flu.cc','Force the log to the disk before writing the modified block'],
+                 ['storage/innobase/buf/buf0flu.cc','wait_stats = log_write_up_to(*log_sys, flush_to_lsn, true);']],
+           act:{ f:'bp', t:'dw', lb:'p:5 사본 먼저' },
+           ops:{ dw:{ add:[{ id:'p:5', tag:'ok', sub:'사본 · fsync 완료' }] },
+                 redo:{ set:{ 'Log flushed up to':'4,912  (page 쓰기 전에)|green' } } } },
     },
     '0':{
       12:{ note:'flush ① — 이 값에선 redo write 자체를 skip',
@@ -47,18 +58,34 @@ const SCENES = [
            ref:'storage/innobase/handler/ha_innodb.cc', sym:'innobase_flush_logs',
            fact:[['storage/innobase/handler/ha_innodb.cc','if (binlog_group_flush && srv_flush_log_at_trx_commit == 0) {'],
                  ['storage/innobase/handler/ha_innodb.cc','Do not flush the redo log during binlog group commit. */']],
-           ops:{ redo:{ set:{ 'Log flushed up to':'4,600  (이 트랜잭션은 아직)|red' } },
+           /* flushed 는 뒤로 가지 않는다 — 4,600 으로 두었더니 처음 값 4,800 에서 거꾸로 갔다 */
+           ops:{ redo:{ set:{ 'Log flushed up to':'4,800  (이 트랜잭션은 아직)|red' } },
                  lb:{ set:{ 'assigned up to':'4,912  (버퍼에 남아 있다)' } } },
-           /* 아무것도 파일로 가지 않는다 — 기본값의 lb → redo 토큰을 지운다 */
-           act:null },
-      13:{ note:'WAL 불성립 — redo 가 아직 log buffer 에',
-           why:'페이지는 이미 dirty 이고 redo 는 버퍼에 남아 있다. 이 순간의 순서는 WAL 이 요구하는 것과 반대다.',
-           key:'그래서 이 값은 <em>커밋 응답을 받은 변경도 잃을 수 있다</em>. 초당 한 번의 flush 사이에 죽으면 그 구간이 사라진다.',
-           ref:'storage/innobase/log/log0write.cc', sym:'log_write_up_to' },
+           /* 아무것도 파일로 가지 않는다 — 기본값의 lb → redo 토큰을 지운다. 경계(io)도 — 지우지 않자 기본값의 hot 이 남아
+              아무것도 건너지 않는 메모리 · 디스크 경계가 밝아졌다 */
+           act:null, hot:null },
+      /* 처음엔 'WAL 불성립 — 순서가 WAL 이 요구하는 것과 반대' 라 적었다. 페이지도 아직 메모리이고, 페이지를 쓰는 쪽이
+         redo 를 먼저 flush 하므로(20 스텝) 순서는 깨지지 않는다. 깨지는 것은 커밋의 내구성이다 */
+      13:{ note:'WAL 순서는 지켜진다 — 깨지는 것은 커밋의 내구성',
+           why:'페이지는 dirty 이지만 아직 메모리에 있고, redo 는 버퍼에 남아 있다. 둘 다 디스크에 없으니 순서가 뒤집힌 것이 아니다 — 페이지를 디스크에 쓰는 쪽이 그 전에 redo 를 그 LSN 까지 flush 한다(20 스텝).',
+           key:'그래서 이 값은 <em>커밋 응답을 받은 변경도 잃을 수 있다</em>. 초당 한 번의 flush 사이에 죽으면 그 구간이 사라진다 — 그러나 디스크의 페이지가 redo 보다 앞서는 일은 없다.',
+           ref:'storage/innobase/buf/buf0flu.cc', sym:'buf_flush_write_block_low',
+           fact:[['storage/innobase/buf/buf0flu.cc','Force the log to the disk before writing the modified block']] },
       16:{ note:'binlog 는 판정 완료, redo 는 최대 1s 뒤처짐',
            why:'커밋 판정은 binlog fsync 로 남는다. redo 는 log_flusher 가 초당 한 번 flush 한다.',
            key:'복구는 binlog 가 "커밋" 이라 적은 트랜잭션을 redo 에서 <em>찾지 못할 수 있다</em>. 이 값을 쓰는 것은 그 위험을 받아들이는 일이다.',
            ref:'sql/binlog/recovery.cc', sym:'Binlog_recovery::recover' },
+      /* page 를 쓰기 전에 redo 를 그 page 의 LSN 까지 — buf_flush_write_block_low 가 dblwr::write 보다 먼저 한다.
+         이 스텝이 없을 때는 LSN 4,912 의 page 가 flushed 4,600 · 4,912(fsync 안 함)인 채로 .ibd 에 쓰였다(WAL 위반) */
+      20:{ note:'page 쓰기 전에 redo 를 그 LSN 까지 flush — 그 다음 doublewrite 사본',
+           why:'page cleaner 가 페이지를 쓰는 buf_flush_write_block_low 는 먼저 flushed_to_disk_lsn 이 그 페이지의 newest LSN 보다 작은지 보고, 작으면 log_write_up_to(…, true) 로 거기까지 flush 한다. 그 다음에야 dblwr::write 로 doublewrite 사본을 쓴다.',
+           key:'커밋 때 redo 의 fsync 를 미룰 수는 있어도 <em>페이지가 redo 를 앞지르지는 못한다</em>. 이 값이 낮추는 것은 커밋의 내구성이지 WAL 의 순서가 아니다.',
+           ref:'storage/innobase/buf/buf0flu.cc', sym:'buf_flush_write_block_low',
+           fact:[['storage/innobase/buf/buf0flu.cc','Force the log to the disk before writing the modified block'],
+                 ['storage/innobase/buf/buf0flu.cc','wait_stats = log_write_up_to(*log_sys, flush_to_lsn, true);']],
+           act:{ f:'bp', t:'dw', lb:'p:5 사본 먼저' },
+           ops:{ dw:{ add:[{ id:'p:5', tag:'ok', sub:'사본 · fsync 완료' }] },
+                 redo:{ set:{ 'Log flushed up to':'4,912  (page 쓰기 전에)|green' } } } },
     },
   }},
   init:{
