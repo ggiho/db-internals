@@ -8,6 +8,7 @@ const ch306b = { id: 'ch3-06b', load: () => import('./ch3-06b.js') };
 const pgBuf01 = { id: 'pg-buffer-01', load: () => import('./pg-buffer-01.js') };
 const aurora05 = { id: 'aurora-05', load: () => import('./aurora-05.js') };
 const wt01 = { id: 'wt-01', load: () => import('./wt-01.js') };
+const innodb01 = { id: 'innodb-01', load: () => import('./innodb-01.js') };
 const loadStage = () => import('./stage.js');
 
 export const BESPOKE = {
@@ -15,6 +16,7 @@ export const BESPOKE = {
   'postgres/buffer': { '01': pgBuf01 },
   'aurora/mysql': { '05': aurora05 },
   'mongodb/wiredtiger': { '01': wt01 },
+  'mysql/innodb': { '01': innodb01 },
 };
 
 export function worldOf(deck, num) {
