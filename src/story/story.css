@@ -168,6 +168,14 @@
 .st-labels .wl.sm{font-size:11px}
 .st-labels .wl.ml{white-space:pre-line;line-height:1.45}
 .st-labels .wl.st-wrap{white-space:normal;line-height:1.45;word-break:keep-all}
+.st-labels .wl.ml.st-wrap{white-space:pre-line}
+/* pg buffer 01 — 이름표는 모두 읽어야 하는 값이라 .sm(좁은 화면에서 숨는 곁말)을 쓰지 않는다.
+   칸 · 페이지의 이름 : 첫 줄이 페이지, 그 아래 버퍼 · usage · 상태 */
+.st-labels .wl.pb{font-size:11px}
+.st-labels .wl.pb-slot,.st-labels .wl.pb-heap{text-align:center}
+.st-labels .wl .pb-i{color:var(--body);font-size:12px}
+.st-labels .wl .pb-g{color:var(--gold)}
+.st-labels .wl .pb-r{color:var(--red)}
 
 /* 무대(stage) 세계 — 배우 상자 · 층 · 경계. 글은 DOM, 테두리와 칩은 알갱이(stage.js) */
 .st-labels .stn{position:absolute;left:0;top:0;padding:10px 12px 11px;font:400 11.5px/1.45 var(--mono2);color:var(--body);word-break:keep-all}

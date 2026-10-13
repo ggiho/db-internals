@@ -94,6 +94,8 @@ const SCENES = [
     fact:['existing_buf_id = BufTableLookup(&newTag, newHash);'],
     ops:{ pool:{ set:{ 'buf 3':{ tag:'pin', sub:'p:42  ·  usage 1  ·  핀 1' } } },
           map:{ set:{ '결과':'buf 3 — 새로 넣음' } },
+          /* 읽었으니 '아직 안 읽음' 이 아니다 — 그대로 두었더니 9 스텝 끝까지 그렇게 남았다 */
+          heap:{ set:{ 'p:42':{ sub:'buf 3 으로 읽힘' } } },
           be:{ set:{ '단계':'p:42 읽음' } } } },
 
   { act:{ f:'bgw', t:'heap', lb:'바늘 앞 dirty 쓰기', hot:'io' },
