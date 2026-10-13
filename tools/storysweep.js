@@ -64,6 +64,7 @@ const BREAKS = {
   'inbox-overlap': { css: '.st-labels .stn .s-byl span,.st-labels .stn .s-sp{left:0 !important;top:0 !important}' },
   /* 서는 자리 뒤에도 이름표 하나가 p 를 따라 흐려지게 한다 */
   'hold-still': { js: true },
+  'label-hidden': { css: '.st-labels > .wl{display:none !important}' },
   /* act 이름표를 글 위로 띄운다 — 서는 자리에서는 이미 사라져 있어 다른 검사는 못 본다 */
   flight: { css: '.st-labels .stn-tok{margin-left:-60vw !important}' },
 };
@@ -223,6 +224,11 @@ function measure() {
       const ys = [...r2.getClientRects()].filter((r) => r.width > 0).map((r) => r.top);
       if (ys.length > 1 && Math.max(...ys) - Math.min(...ys) > 4) P.push(['header-wrap', `${nm(tn.parentElement)}`]);
     }
+  }
+  /* 세계가 보이라고 한 이름표(불투명도 > 0.3)를 CSS 가 숨겼는가. 숨은 것은 겹침 · 화면 밖 검사에 걸리지 않는다 —
+     좁은 화면(< 820)의 .sm 숨김에 걸려 768 에서 pg buffer 01 의 이름표가 모두 사라진 것을 문제 0 으로 셌다 */
+  for (const e of document.querySelectorAll('.st-labels > .wl')) {
+    if (e.style.opacity !== '' && parseFloat(e.style.opacity) > 0.3 && getComputedStyle(e).display === 'none') P.push(['label-hidden', nm(e)]);
   }
   /* 낱말이 글자 사이에서 접혔는가 — 이웃한 두 글자가 모두 한글 · 라틴 · 숫자인데 그 사이에서 줄이 바뀌면.
      실측 : 항목 설명에 keep-all 이 없어 '커밋됨' 이 '커 / 밋됨' 으로(wiredtiger 06), id 와 설명을 공백 없이 붙여 써서
@@ -404,7 +410,8 @@ async function runSize(browser, [w, h]) {
             const F = window.__story.F;
             let n = 0, far = 0, fading = 0;
             for (let i = 0; i < F.N; i++) {
-              if (Math.max(F.a[i], F.ta[i]) > 0.12 && Math.abs(F.a[i] - F.ta[i]) > 0.08) fading++;
+              /* 흐린 것도 센다 — 0.1 아래로 흐려진 알갱이 200 개가 한 점에 겹쳐 덩어리로 찍혔다(postgres/buffer 01 / 6) */
+              if (Math.max(F.a[i], F.ta[i]) > 0.03 && Math.abs(F.a[i] - F.ta[i]) > 0.02) fading++;
               if (F.ta[i] < 0.3) continue;
               n++; if (Math.abs(F.px[i] - F.tx[i]) + Math.abs(F.py[i] - F.ty[i]) > 4) far++;
             }

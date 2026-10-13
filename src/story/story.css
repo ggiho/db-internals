@@ -291,7 +291,6 @@
   .st-ab button{white-space:nowrap;padding:5px 12px}
   .st-ab button small{display:none}
   .st-knob .st-kn{display:none}
-  .st-labels .wl.sm,.st-labels .wl.axis{display:none}
   .st-labels .stn{padding:8px 10px 9px}
 
   .st-copy,.st-hero{top:calc(var(--top-h,56px) + 14px);transform:translateY(var(--lift,0px))}
@@ -308,6 +307,10 @@
   .st-prog i.past{background:var(--faint)}
   .st-prog i.on{background:var(--gold)}
   .st-menu{grid-template-columns:1fr;left:8px;right:8px}
+}
+/* 곁말(.sm · .axis)은 폰 폭에서만 숨긴다 — 819 까지 숨기자 768 에서 06b 의 잰 바이트 값("HEAP_TOP 15,233" 등)이 사라졌다 */
+@media (max-width:599px){
+  .st-labels .wl.sm,.st-labels .wl.axis{display:none}
 }
 @media (prefers-reduced-motion:reduce){
   .st-rail i{transition:none}

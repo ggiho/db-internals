@@ -147,7 +147,8 @@ function make({ F, deck, labels, scene }) {
     const vTop = { x: cx, y: L.y0 + wh * (L.narrow ? 0.09 : 0.13), sc: Math.min((ww * 0.66) / (10 * VCW), 0.64) };
     const vHero = { x: cx, y: L.y0 + wh * 0.42, sc: Math.min((ww * 0.92) / (10 * VCW), 1.08) };
     const vRes = { x: cx, y: L.y0 + wh * (L.narrow ? 0.96 : 0.9), sc: vTop.sc * 0.86 };
-    const codeY = cy + cs / 2 + (L.narrow ? 56 : 110);   /* 축 이름표(화살표 아래 +78) 밑에서 시작한다 */
+    /* 축 이름표(화살표 아래 +78) 밑에서 시작한다. 이름표가 숨는 폭(폰)에서만 당겨 올린다 */
+    const codeY = cy + cs / 2 + (getComputedStyle(axis.el).display === 'none' ? 56 : 110);
     /* 3 : int 4 칸과 double 8 칸 */
     const cs2 = Math.min((ww * 0.92 - 7 * 8) / 8, cs * 0.72), gap2 = Math.max(6, cs2 * 0.12);
     const row2 = (k, y) => [...Array(k).keys()].map((i) => ({ x: cx - (k * cs2 + (k - 1) * gap2) / 2 + i * (cs2 + gap2), y: y - cs2 / 2, w: cs2, h: cs2 }));

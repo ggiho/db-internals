@@ -2,7 +2,7 @@
    경계(HEAP_TOP · directory · trailer …)는 dump 의 헤더 값으로 그리고, 식은 scenes.js 의 것(MEASURED)을 그대로 쓴다.
 
    dump 는 page 마다 앞 94 B 만 갖고 있다. 그래서 —
-     · 94 B 는 실제 바이트를 hexdump 로 보인다(격자의 첫 줄에 마우스를 올리면 그 byte 의 field 와 값)
+     · 94 B 는 실제 바이트를 hexdump 로 보인다
      · 그 뒤의 byte 는 어느 영역인지만 보인다. 지워진 record 가 page 의 어디에 있는지는 그리지 않는다 —
        실측된 자리는 free list 의 머리(PAGE_FREE) 하나뿐이고, 나머지는 쌓은 막대로 양만 보인다.
    스텝마다 어느 page 의 어느 칸을 짚는지는 장면의 ops 와 bake 상태에서 읽는다 — '|gold' 가 붙은 칸이다.
@@ -149,7 +149,12 @@ function make({ F, deck, labels, scene }) {
   const scat = new Float32Array(N * 2), jit = new Float32Array(N * 2).map(() => rnd() - 0.5);
   function build(L) {
     const ww = L.x1 - L.x0, wh = L.y1 - L.y0;
-    const stripH = L.narrow ? 66 : 168;
+    strip.style.width = ww + 'px';
+    strip.classList.toggle('narrow', L.narrow);
+    /* 좁은 세계의 hexdump 는 푼 값의 줄뿐이고 스텝마다 줄 수가 다르다 — 66 으로 두자 768 에서 셋째 줄이 아래 막대 이름을 덮었다.
+       모든 스텝의 글로 재서 가장 높은 만큼 비운다 */
+    const stripH = L.narrow ? Math.max(66, ...spec.map((sp, k) => { drawStrip(sp.page, k === NS - 1 ? PH : sp.hot); return strip.offsetHeight + 10; })) : 168;
+    stripKey = '';
     const fit = (w, h) => Math.max(1.4, Math.floor((Math.min(w, h) / COLS) * 10) / 10);
     const ppF = fit(L.narrow ? ww : ww - 214, wh - stripH);
     const ppL = fit(L.narrow ? ww * 0.5 : ww * 0.44, wh - stripH);
@@ -163,8 +168,6 @@ function make({ F, deck, labels, scene }) {
     G = { L, ww, wh, full, left, panel, my, zoom };
     for (let i = 0; i < N; i++) { scat[i * 2] = L.x0 + rnd() * ww; scat[i * 2 + 1] = L.y0 + rnd() * wh; }
     strip.style.transform = `translate(${L.x0}px, ${L.y0}px)`;
-    strip.style.width = ww + 'px';
-    strip.classList.toggle('narrow', L.narrow);
   }
   const at = (m, o) => [m.x + (o % COLS) * m.pp, m.y + Math.floor(o / COLS) * m.pp];
   const rowY = (m, o) => m.y + Math.floor(o / COLS) * m.pp + m.pp / 2;
