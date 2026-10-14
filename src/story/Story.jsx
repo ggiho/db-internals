@@ -14,6 +14,12 @@ import './story.css';
    시간이고(p : 0 → 1), 구간 끝에서 다음 스텝의 자세로 섞여 넘어간다(컷이 없다).
    주소는 Lab 과 같다(#덱/장면/스텝) — 읽는 자리가 바뀔 때마다 replaceState 로 따라 적는다. */
 
+/* 덱 메뉴 — 묶음 순서를 지키면서 묶음별로(Lab 의 위 메뉴와 같다). Story 가 있는 덱만 */
+const DECK_GROUPS = Object.entries(DECKS).filter(([id]) => STORY[id]).reduce((acc, [id, d]) => {
+  const g = acc.find((x) => x.g === d.g) || (acc.push({ g: d.g, decks: [] }), acc[acc.length - 1]);
+  g.decks.push({ id, lb: d.lb });
+  return acc;
+}, []);
 const FONTS = 'https://fonts.googleapis.com/css2?family=Hahmlet:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap';
 /* 구간 길이(화면 높이 배수) — 첫 스텝은 장면 제목을 먼저 보이므로 길다 */
 const LEN_FIRST = 2.2, LEN_STEP = 1.1, LEN_LOOK = 0.9, LEN_END = 1.1;
@@ -420,6 +426,7 @@ export default function Story() {
         <button type="button" className="st-where" aria-expanded={menu} onClick={() => setMenu((m) => !m)}>
           <span className="d">{deck.DECK.title}</span>
           <span className="s">{scene.hidden && pairAB ? pairAB[0].num : scene.num} {scene.hidden && pairAB ? pairAB[0].tab : scene.tab}</span>
+          <span className="c" aria-hidden="true">▾</span>
         </button>
         {scene.vary && vals.length > 1 && (
           <div className="st-ab st-knob" role="group" aria-label={scene.vary.knob}>
@@ -460,7 +467,19 @@ export default function Story() {
       </header>
 
       {menu && (
-        <nav className="st-menu" aria-label="이 덱의 장면">
+        <nav className="st-menu" aria-label="덱과 장면">
+          {/* 덱 — Lab 의 위 메뉴와 같은 묶음. 처음엔 이 덱의 장면만 있어서 Story 에서는 다른 덱으로 갈 길이 없었다 */}
+          <div className="st-decks">
+            {DECK_GROUPS.map((g) => (
+              <div key={g.g} className="st-dg">
+                <span>{g.g}</span>
+                {g.decks.map((d) => (
+                  <a key={d.id} href={'#' + d.id + '/' + STORY[d.id].first + '/1'} onClick={() => setMenu(false)}
+                    className={d.id === deckId ? 'on' : ''} aria-current={d.id === deckId ? 'page' : undefined}>{d.lb}</a>
+                ))}
+              </div>
+            ))}
+          </div>
           {visible.map((s) => (
             <a key={s.num} href={'#' + deckId + '/' + s.num + '/1'} onClick={() => setMenu(false)}
               className={(s.num === num || (pairAB && pairAB.some((x) => x.num === s.num)) ? 'on' : '') + (storyNums.includes(s.num) ? ' story' : '')}>

@@ -26,6 +26,8 @@
   font:400 13px var(--serif);color:var(--body)}
 .st-where .s{font:400 12px var(--mono2);color:var(--faint)}
 .st-where:hover .s,.st-where[aria-expanded="true"] .s{color:var(--ink)}
+.st-where .c{font:400 10px var(--mono2);color:var(--faint);margin-left:-6px}
+.st-where:hover .c,.st-where[aria-expanded="true"] .c{color:var(--ink)}
 .st-r{margin-left:auto;display:flex;gap:8px;align-items:center}
 .st-btn{font:400 12.5px var(--serif);color:var(--body);background:none;border:1px solid var(--line);
   border-radius:999px;padding:5px 13px;cursor:pointer;white-space:nowrap}
@@ -54,6 +56,13 @@
 .st-menu a.on{color:var(--ink)}
 .st-menu a.on b,.st-menu a.story b{color:var(--gold)}
 .st-menu a:hover{color:var(--ink)}
+/* 덱 — 장면 목록 위, 두 열을 가로질러 */
+.st-menu .st-decks{grid-column:1 / -1;display:flex;flex-direction:column;gap:6px;padding:2px 2px 12px;margin-bottom:6px;border-bottom:1px solid var(--line)}
+.st-menu .st-dg{display:flex;flex-wrap:wrap;gap:4px 16px;align-items:baseline}
+.st-menu .st-dg span{font:500 10.5px var(--mono2);color:var(--faint);width:6.4em;flex:none}
+.st-menu .st-dg a{display:inline;padding:2px 0;border:0;font:400 13px var(--mono2);color:var(--body)}
+.st-menu .st-dg a.on{color:var(--gold)}
+.st-menu .st-dg a:hover{color:var(--ink)}
 
 /* ── 레일 : 스텝 순서 ── */
 .st-rail{position:fixed;right:calc(var(--gut) * .5);top:50%;transform:translateY(-50%);z-index:10;
