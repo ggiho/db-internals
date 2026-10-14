@@ -80,6 +80,10 @@ function loadFonts() {
       /* 세계의 이름표가 쓰는 굵기 — 빠뜨리자 첫 build 가 끝난 뒤(1,029 → 1,111ms)에 와서 이름표 높이를 대체 글꼴로 쟀다 */
       document.fonts.load('400 12px "IBM Plex Mono"'),
       document.fonts.load('400 30px "Hahmlet"'),
+      /* 머리글이 쓰는 것도 — 브랜드는 Hahmlet 500, 버튼은 한글이다. 늦게 오면 좁은 화면에서 두 줄인 머리글의 높이가 바뀌고,
+         ResizeObserver 가 세계를 다시 짜 서 있는 동안 3px 움직였다(768 innodb 01, storysweep hold-still) */
+      document.fonts.load('500 15px "Hahmlet"'),
+      document.fonts.load('400 13px "Hahmlet"', '어둡게밝게요점만스텝'),
     ]).then(resolve, resolve);
     let l = document.getElementById('st-fonts');
     if (!l) {
@@ -255,15 +259,12 @@ export default function Story() {
       }
     }
 
-    let builtL = '';
     function rebuild() {
       /* 머리글 높이를 먼저 — 좁은 화면의 글(그래서 세계의 위 끝)이 이 높이 아래에서 시작한다 */
       const top = root.current.querySelector('.st-top');
       if (top) root.current.style.setProperty('--top-h', Math.ceil(top.getBoundingClientRect().bottom) + 'px');
       F.resize(); measure();
-      const L = layout();
-      builtL = JSON.stringify(L);
-      world.build(L);
+      world.build(layout());
     }
     rebuild();
     /* 주소가 가리킨 스텝에 선다 — 1 이면 맨 위(장면 제목)부터 */
@@ -302,11 +303,9 @@ export default function Story() {
     let rt = 0;
     const onResize = () => { clearTimeout(rt); rt = setTimeout(rebuild, 160); };
     addEventListener('resize', onResize);
-    /* 늦게 온 글꼴로 세계의 틀(layout)이 바뀌면 다시 짠다 — 좁은 화면의 위 끝은 글 아래라, 한글 subset(그 글자가 처음 그려질 때
-       받는다)이 오면 글 높이가 바뀐다. 틀이 그대로면 짜지 않는다 — subset 이 올 때마다 짜자 스텝마다 무대 전체를 다시 재느라
-       여러 크기를 함께 돌린 storysweep 이 멈췄다. 세계 이름표의 글꼴은 loadFonts 가 먼저 받는다 */
-    const onFonts = () => { if (JSON.stringify(layout()) !== builtL) onResize(); };
-    document.fonts.addEventListener('loadingdone', onFonts);
+    /* 늦게 온 글꼴로는 다시 짜지 않는다. 한 번은 다시 짜게 했는데, 좁은 화면에서 그 스텝의 글이 처음 보일 때 받는 한글 subset 이
+       글 높이를 몇 px 바꿔 세계가 서 있는 중에 3px 움직였다(768 innodb 01 / 2, storysweep hold-still). 세계 이름표의 글꼴
+       (Plex Mono 400)은 loadFonts 가 먼저 받으므로 첫 build 가 대체 글꼴로 재는 일은 없다 */
 
     /* 검사 도구(tools/storysweep.js)가 알갱이 · 세계 상태를 직접 잰다 — 개발 서버이거나 주소에 ?probe 가 있을 때만.
        스윕은 배포본(build)을 재야 하므로 build 에서도 열 수 있어야 한다 */
@@ -322,7 +321,6 @@ export default function Story() {
     return () => {
       cancelAnimationFrame(raf);
       removeEventListener('resize', onResize);
-      document.fonts.removeEventListener('loadingdone', onFonts);
       if (world.dispose) world.dispose();
       if (lbl.current) lbl.current.innerHTML = '';
     };
