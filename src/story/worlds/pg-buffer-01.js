@@ -149,15 +149,15 @@ function make({ F, deck, labels, scene }) {
     place(hdBgw, L.x1, y0, 'r'); place(txBgw, L.x1, y0 + 16, 'r');
     wrap(txBgw, Math.min(180, L.x1 - (C.x + 70)));
     /* 매핑 표(또는 끝의 vs InnoDB)는 왼쪽, 왼쪽 두 칸 사이의 띠에 — 왼쪽 칸 이름의 가장 넓은 폭(모든 스텝의 글로 잰다) 앞에서 멈춘다 */
-    const slotW = slotLb.map((lb) => Math.max(...TX.map((t) => { lb.el.innerHTML = t.get(lb)[0]; return lb.el.getBoundingClientRect().width; })));
-    slotLb.forEach((lb) => { lb.t = null; });
+    /* 재는 동안 넣은 글은 되돌린다(다시 짤 때 다음 paint 전까지 다른 스텝의 글이 남지 않게) */
+    const slotW = slotLb.map((lb) => { const keep = lb.el.innerHTML, w = Math.max(...TX.map((t) => { lb.el.innerHTML = t.get(lb)[0]; return lb.el.getBoundingClientRect().width; })); lb.el.innerHTML = keep; return w; });
     const left = Math.min(...slots.map((s, i) => (Math.cos(ang(i)) < -0.1 ? s.x - Math.max(sw, slotW[i]) / 2 : Infinity)));
     const mx = L.x0, mw = left - 14 - mx, my = C.y - 64;
     place(hdMap, mx, my);
     rowMap.forEach((lb, i) => place(lb, mx, my + 18 + i * 15));
     place(qMap, mx, my + 18 + NB * 15 + 6); wrap(qMap, mw);
-    const qH = Math.max(...TX.map((t) => { qMap.el.textContent = t.get(qMap)[0]; return qMap.el.getBoundingClientRect().height; }));
-    qMap.t = null;
+    const qKeep = qMap.el.textContent, qH = Math.max(...TX.map((t) => { qMap.el.textContent = t.get(qMap)[0]; return qMap.el.getBoundingClientRect().height; }));
+    qMap.el.textContent = qKeep;
     place(free, mx, my + 18 + NB * 15 + 6 + qH + 8);
     place(hdCmp, mx, my); place(txCmp, mx, my + 18); wrap(txCmp, mw);
     slots.forEach((s, i) => (s.top ? place(slotLb[i], s.x, pips[i].y - 6, 'c', 'b') : place(slotLb[i], s.x, pips[i].y + pipS + 6, 'c', 't')));

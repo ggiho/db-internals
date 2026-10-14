@@ -148,8 +148,11 @@ function make({ F, deck, labels, scene }) {
   });
   for (const b of BAKES.values()) b.TX = texts(b.S);
   const TXALL = [...BAKES.values()].flatMap((b) => b.TX);
+  /* 재는 동안 넣은 글은 되돌린다 — 글꼴이 늦게 와 다시 짤 때 다음 paint 전까지 마지막 스텝의 글이 남아,
+     그 사이에 잰 storysweep 이 wiredtiger 01 / 2 에서 5 스텝의 글을 보았다 */
   const most = (lb) => {
     let w = 0, h = 0;
+    const keep = lb.el.innerHTML;
     for (const t of TXALL) {
       const e = t.get(lb);
       if (!e || e[3] === false) continue;
@@ -157,7 +160,7 @@ function make({ F, deck, labels, scene }) {
       const r = lb.el.getBoundingClientRect();
       w = Math.max(w, r.width); h = Math.max(h, r.height);
     }
-    lb.t = null;
+    lb.el.innerHTML = keep;
     return { w, h };
   };
 

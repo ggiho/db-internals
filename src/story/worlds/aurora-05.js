@@ -136,8 +136,11 @@ function make({ F, deck, labels, scene }) {
     return t;
   });
   /* 한 이름표의 모든 스텝 글 중 가장 큰 폭 · 높이(글이 바뀌어도 이웃을 덮지 않게 자리를 잡는다) */
+  /* 재는 동안 넣은 글은 되돌린다 — 글꼴이 늦게 와 다시 짤 때 다음 paint 전까지 마지막 스텝의 글이 남아,
+     그 사이에 잰 storysweep 이 wiredtiger 01 / 2 에서 5 스텝의 글을 보았다 */
   const most = (lb) => {
     let w = 0, h = 0;
+    const keep = lb.el.innerHTML;
     for (const t of TX) {
       const e = t.get(lb);
       if (!e || e[3] === false) continue;
@@ -145,7 +148,7 @@ function make({ F, deck, labels, scene }) {
       const r = lb.el.getBoundingClientRect();
       w = Math.max(w, r.width); h = Math.max(h, r.height);
     }
-    lb.t = null;
+    lb.el.innerHTML = keep;
     return { w, h };
   };
 
@@ -190,10 +193,11 @@ function make({ F, deck, labels, scene }) {
       const lb = mdlLb[key];
       place(lb, L.x0, ry);
       /* 작은 막대는 이름 줄의 끝에 */
+      const keep = lb.el.innerHTML;
       lb.el.innerHTML = TX[0].get(lb)[0];
       const k = lb.el.querySelector('.q-i');
       G.mm[key] = { x: L.x0 + k.offsetLeft + k.offsetWidth + 12, y: ry + k.offsetTop + k.offsetHeight / 2 };
-      lb.t = null;
+      lb.el.innerHTML = keep;
       ry += mdlH[i] + 8;
     });
     place(hdGr, gx, Y(botY)); place(grLb, gx, Y(botY) + 18);

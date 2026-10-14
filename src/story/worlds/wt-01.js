@@ -108,8 +108,11 @@ function make({ F, deck, labels, scene }) {
     t.set(txCmp, [Object.entries(s.cmp).map(([k, v]) => `<span class="q-i">${esc(k)}</span>\n${val(v)}`).join('\n'), on('cmp'), '', true, true]);
     return t;
   });
+  /* 재는 동안 넣은 글은 되돌린다 — 글꼴이 늦게 와 다시 짤 때 다음 paint 전까지 마지막 스텝의 글이 남아,
+     그 사이에 잰 storysweep 이 wiredtiger 01 / 2 에서 5 스텝의 글을 보았다 */
   const most = (lb) => {
     let w = 0, h = 0;
+    const keep = lb.el.innerHTML;
     for (const t of TX) {
       const e = t.get(lb);
       if (!e || e[3] === false) continue;
@@ -117,7 +120,7 @@ function make({ F, deck, labels, scene }) {
       const r = lb.el.getBoundingClientRect();
       w = Math.max(w, r.width); h = Math.max(h, r.height);
     }
-    lb.t = null;
+    lb.el.innerHTML = keep;
     return { w, h };
   };
 
@@ -148,7 +151,6 @@ function make({ F, deck, labels, scene }) {
     place(memLb, L.x1, Y(memY), 'r');
     /* head 이름표는 마디 위 — 마디 덩어리에 얹히지 않게 */
     place(headLb, nx0, Y(chainY) - ch / 2 - 6, 'l', 'b');
-    for (const id of NIDS) place(nodeLb[id], 0, 0);   /* 자리는 스텝마다 — paint 에서 */
     if (EDGE) place(edgeLb, L.x1, Y(edgeY) - 3, 'r', 'b');
     place(diskLb, L.x1, Y(diskY), 'r');
     place(imgLb, G.img.x, Y(imgY) + ih / 2 + 10, 'c', 't');
