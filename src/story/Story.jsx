@@ -71,6 +71,8 @@ function loadFonts() {
     const ready = () => Promise.all([
       document.fonts.load('600 64px "IBM Plex Mono"'),
       document.fonts.load('500 30px "IBM Plex Mono"'),
+      /* 세계의 이름표가 쓰는 굵기 — 빠뜨리자 첫 build 가 끝난 뒤(1,029 → 1,111ms)에 와서 이름표 높이를 대체 글꼴로 쟀다 */
+      document.fonts.load('400 12px "IBM Plex Mono"'),
       document.fonts.load('400 30px "Hahmlet"'),
     ]).then(resolve, resolve);
     let l = document.getElementById('st-fonts');
@@ -165,6 +167,9 @@ export default function Story() {
     const F = createField(cv.current, mod.count(narrow0, deck, sceneRef.current));
     F.resize(); F.readTheme();
     const world = mod.make({ F, deck, labels: lbl.current, scene: () => sceneRef.current });
+    /* 손잡이 값은 아래의 [vNow] 효과가 넘기는데, 그 효과는 세계를 싣기 전에 이미 돌았다 — /v2 가 실린 주소로 바로 열면
+       글은 2 의 스텝인데 세계는 기본값을 그렸다(innodb 01). 만든 자리에서 지금 값을 넘긴다 */
+    if (world.setVary) world.setVary(vRef.current);
     const N = F.N;
     const buf = () => ({ x: new Float32Array(N), y: new Float32Array(N), a: new Float32Array(N),
       h: new Float32Array(N), j: new Float32Array(N), s: new Float32Array(N), c: new Uint8Array(N) });
@@ -244,12 +249,15 @@ export default function Story() {
       }
     }
 
+    let builtL = '';
     function rebuild() {
       /* 머리글 높이를 먼저 — 좁은 화면의 글(그래서 세계의 위 끝)이 이 높이 아래에서 시작한다 */
       const top = root.current.querySelector('.st-top');
       if (top) root.current.style.setProperty('--top-h', Math.ceil(top.getBoundingClientRect().bottom) + 'px');
       F.resize(); measure();
-      world.build(layout());
+      const L = layout();
+      builtL = JSON.stringify(L);
+      world.build(L);
     }
     rebuild();
     /* 주소가 가리킨 스텝에 선다 — 1 이면 맨 위(장면 제목)부터 */
@@ -288,6 +296,11 @@ export default function Story() {
     let rt = 0;
     const onResize = () => { clearTimeout(rt); rt = setTimeout(rebuild, 160); };
     addEventListener('resize', onResize);
+    /* 늦게 온 글꼴로 세계의 틀(layout)이 바뀌면 다시 짠다 — 좁은 화면의 위 끝은 글 아래라, 한글 subset(그 글자가 처음 그려질 때
+       받는다)이 오면 글 높이가 바뀐다. 틀이 그대로면 짜지 않는다 — subset 이 올 때마다 짜자 스텝마다 무대 전체를 다시 재느라
+       여러 크기를 함께 돌린 storysweep 이 멈췄다. 세계 이름표의 글꼴은 loadFonts 가 먼저 받는다 */
+    const onFonts = () => { if (JSON.stringify(layout()) !== builtL) onResize(); };
+    document.fonts.addEventListener('loadingdone', onFonts);
 
     /* 검사 도구(tools/storysweep.js)가 알갱이 · 세계 상태를 직접 잰다 — 개발 서버이거나 주소에 ?probe 가 있을 때만.
        스윕은 배포본(build)을 재야 하므로 build 에서도 열 수 있어야 한다 */
@@ -303,6 +316,7 @@ export default function Story() {
     return () => {
       cancelAnimationFrame(raf);
       removeEventListener('resize', onResize);
+      document.fonts.removeEventListener('loadingdone', onFonts);
       if (world.dispose) world.dispose();
       if (lbl.current) lbl.current.innerHTML = '';
     };
@@ -330,7 +344,14 @@ export default function Story() {
     return () => ro.disconnect();
   }, [deck, scene && scene.num]);   /* eslint-disable-line react-hooks/exhaustive-deps */
   useEffect(() => { if (api.current.setScene) api.current.setScene(num); }, [num]);
-  useEffect(() => { if (api.current.setVary) api.current.setVary(vNow); }, [vNow]);
+  /* 값이 바뀌면 그 값의 스텝 글로 바뀐다 — 좁은 화면은 세계의 위 끝이 가장 긴 글 아래라 배치도 다시 한다. 안 하자 장면 안에서
+     값을 바꾼 세계가 기본값 글의 높이에 남아, 그 주소로 바로 연 세계와 39px 달랐다(postgres buffer 02 / 1GB, storysweep vary-load).
+     데스크톱의 배치는 글과 무관하다 */
+  useEffect(() => {
+    if (!api.current.setVary) return;
+    api.current.setVary(vNow);
+    if (innerWidth < 820 && api.current.relayout) api.current.relayout();
+  }, [vNow]);
 
   /* 손잡이 값을 바꾼다 — 장면 · 스텝은 그대로, 그 값의 스텝으로 글과 세계가 함께 갈린다 */
   const setKnob = useCallback((v) => {
