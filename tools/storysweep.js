@@ -65,6 +65,8 @@ const BREAKS = {
   /* 서는 자리 뒤에도 이름표 하나가 p 를 따라 흐려지게 한다 */
   'hold-still': { js: true },
   'label-hidden': { css: '.st-labels > .wl{display:none !important}' },
+  /* 바로 연 주소의 손잡이 값을 세계가 놓치게 한다(고치기 전의 Story 와 같다) */
+  'vary-load': { js: true },
   /* 이름표의 글을 크게 부풀려 알갱이 덩어리를 덮게 한다 */
   'label-grain': { css: '.st-labels > .wl{font-size:60px !important}' },
   /* act 이름표를 글 위로 띄운다 — 서는 자리에서는 이미 사라져 있어 다른 검사는 못 본다 */
@@ -448,6 +450,52 @@ async function runSize(browser, [w, h]) {
         }
         for (const d of await page.evaluate(holdStill)) res.problems.push([res.size, at, 'hold-still', d]);
         for (const d of await page.evaluate(flight)) res.problems.push([res.size, at, 'flight', d]);
+      }
+    }
+    /* vary-load — 손잡이 값이 실린 주소로 바로 열어도 세계가 그 값을 그리는가. 장면 안에서 값을 바꿔 들어간 자리와 알갱이 목표를
+       견준다. Story 가 세계를 싣기 전에 setVary 를 불러 버려, 바로 연 /v2 가 글은 2 의 스텝인데 세계는 기본값을 그렸다(innodb 01).
+       덱 · 세계 모듈 · 글꼴이 오는 순서의 경합이라, 바로 여는 쪽은 캐시가 빈 새 컨텍스트에서 연다 — 같은 페이지에서 다시 열자
+       모듈이 캐시에 있어 늘 이겼고 innodb 01 을 놓쳤다. 크기와 무관한 결함이라 첫 크기에서만 잰다 */
+    if (p.variants.length && `${w}x${h}` === SIZES[0].join('x')) {
+      const ready = (pg) => pg.waitForFunction(() => window.__story && window.__story.tops().length > 1, null, { timeout: 20000 });
+      const knob = (pg, v) => pg.waitForFunction((v) => document.querySelector('.st-knob button.on')?.textContent === v, String(v), { timeout: 5000 }).catch(() => {});
+      /* 목표가 멈출 때까지 — 250ms 사이 두 번이 같으면(최대 3s). 두 프레임만 기다리자 새 컨텍스트에서 늦게 온 글꼴로 무대가
+         다시 짜이는 중에 재어 ch3 11 / none 이 알갱이 2,022 개 다르다고 나왔다(시간을 두면 같다) */
+      const snap = (pg, k) => pg.evaluate(async (kk) => {
+        window.__story.goStep(kk, false);
+        const F = window.__story.F, read = () => ({ ta: Array.from(F.ta, (x) => Math.round(x * 20)), tx: Array.from(F.tx, Math.round), ty: Array.from(F.ty, Math.round) });
+        const same = (a, b) => a.ta.every((x, i) => x === b.ta[i] && a.tx[i] === b.tx[i] && a.ty[i] === b.ty[i]);
+        let prev = read();
+        for (let t = 0; t < 12; t++) { await new Promise((r) => setTimeout(r, 250)); const cur = read(); if (same(prev, cur)) return cur; prev = cur; }
+        return prev;
+      }, k - 1);
+      for (const run of p.variants) {
+        const k = run.steps[0], hh = `${p.deck}/${p.num}/${k}/v${encodeURIComponent(run.v)}`, at = `${p.deck}/${p.num}/${k}/v${run.v}`;
+        await page.evaluate((x) => { location.hash = x; }, `${p.deck}/${p.num}/${k}`);
+        await page.evaluate((x) => { location.hash = x; }, hh); await knob(page, run.v);
+        const A = await snap(page, k);
+        const ctx2 = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 1 }), pg2 = await ctx2.newPage();
+        await pg2.goto(`${BASE}/?probe&r=varyload-${p.deck.replace('/', '-')}-${p.num}-${run.v}#${hh}`, { waitUntil: 'load' });
+        await ready(pg2); await knob(pg2, run.v);
+        if (BREAK === 'vary-load') await pg2.evaluate(() => window.__story.world.setVary && window.__story.world.setVary(null));
+        const B = await snap(pg2, k);
+        await ctx2.close();
+        /* 먼지(불투명도 ≤ 0.045)는 빼고 잰다 — 먼지 자리는 build 마다 난수를 새로 뽑아, 글꼴이 늦게 와 build 를 한 번 더 한 쪽과
+           달랐다(고친 빌드에서 locks 07 · wal 04 가 번갈아 2,000 개 남짓 다르다고 나왔다). 0.1 이상(반올림 ×20 ≥ 2)만 */
+        /* 세계 전체가 똑같이 밀린 것은 뺀다 — 좁은 화면의 위 끝은 머리글 · 글 높이를 따라 경로마다 2 – 3px 달랐다
+           (768 에서 16 곳, 모두 모든 알갱이가 같은 만큼). 찾는 것은 다른 값을 그린 세계다 — 값 · 색 · 일부만 움직인 것 */
+        const med = (a) => { const b = a.slice().sort((x, y) => x - y); return b.length ? b[b.length >> 1] : 0; };
+        const both = [...A.ta.keys()].filter((i) => A.ta[i] >= 2 && B.ta[i] >= 2);
+        const mx = med(both.map((i) => B.tx[i] - A.tx[i])), my = med(both.map((i) => B.ty[i] - A.ty[i]));
+        let diff = 0;
+        for (let i = 0; i < A.ta.length; i++) {
+          if (A.ta[i] < 2 && B.ta[i] < 2) continue;
+          /* 위치는 3px 까지 같다고 본다 — 상자 폭의 반올림으로 2px 남짓 어긋난 것이 innodb 03 · 09 에서 나왔다 */
+          if (A.ta[i] !== B.ta[i] || Math.abs(A.tx[i] + mx - B.tx[i]) > 3 || Math.abs(A.ty[i] + my - B.ty[i]) > 3) diff++;
+        }
+        /* 하나라도 — 같은 상태를 두 번 그리면 목표가 같다(고친 빌드에서 19 값 모두 0). 0.5% 로 두자 innodb 01 의 flushed 바늘
+           24 / 6,400 이 걸리지 않았다 — 값이 바꾸는 알갱이가 그것뿐이었다 */
+        if (A.ta.length !== B.ta.length || diff > 0) res.problems.push([res.size, at, 'vary-load', `바로 연 주소의 세계가 다르다 — 알갱이 ${diff} / ${A.ta.length}`]);
       }
     }
   }
