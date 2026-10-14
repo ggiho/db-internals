@@ -28,7 +28,9 @@ const SCENES = [
                  ['storage/innobase/handler/ha_innodb.cc','srv_flush_log_at_trx_commit == 1);']],
            /* lb 는 기본값 스텝이 이미 4,912 로 올려 둔다 — 같은 값을 다시 set 하면
               "변화 없음" 경고가 난다. 이 값에서 달라지는 것은 redo 쪽뿐이다. */
-           ops:{ redo:{ set:{ 'Log flushed up to':'4,912  (파일에 씀 · fsync 안 함)|gold' } } },
+           /* 'Log flushed up to' 는 flushed_to_disk_lsn — fsync 된 곳이다. 처음엔 여기에 write 한 곳(4,912)을 적었다.
+              커밋은 log_write_up_to(lsn, false) 로 write 까지만 기다리고, fsync 는 log_flusher 가 1s 마다 따로 한다 */
+           ops:{ redo:{ set:{ 'Log flushed up to':'4,800  (4,912 까지는 write 만)|gold' } } },
            /* act 도 적는다 — 적지 않으면 기본값의 '그룹 fsync' 토큰이 이 값에서도 날아갔다 */
            act:{ f:'lb', t:'redo', lb:'write 만  →  OS page cache' } },
       13:{ note:'WAL 절반 성립 — 순서는 맞지만 durability 가 다르다',
@@ -42,11 +44,12 @@ const SCENES = [
       /* page 를 쓰기 전에 redo 를 그 page 의 LSN 까지 — buf_flush_write_block_low 가 dblwr::write 보다 먼저 한다.
          이 스텝이 없을 때는 LSN 4,912 의 page 가 flushed 4,600 · 4,912(fsync 안 함)인 채로 .ibd 에 쓰였다(WAL 위반) */
       20:{ note:'page 쓰기 전에 redo 를 그 LSN 까지 flush — 그 다음 doublewrite 사본',
-           why:'page cleaner 가 페이지를 쓰는 buf_flush_write_block_low 는 먼저 flushed_to_disk_lsn 이 그 페이지의 newest LSN 보다 작은지 보고, 작으면 log_write_up_to(…, true) 로 거기까지 flush 한다. 그 다음에야 dblwr::write 로 doublewrite 사본을 쓴다.',
+           why:'page cleaner 가 페이지를 쓰는 buf_flush_write_block_low 는 먼저 flushed_to_disk_lsn 이 그 페이지의 newest LSN 보다 작은지 보고, 작으면 log_write_up_to(…, true) 로 거기까지 flush 한다. 그 다음에야 dblwr::write 로 doublewrite 사본을 쓴다. 이 값에서는 log_flusher 가 innodb_flush_log_at_timeout(기본 1s)마다 flush 하므로 보통은 이미 끝나 있고, 아니면 여기서 강제된다.',
            key:'커밋 때 redo 의 fsync 를 미룰 수는 있어도 <em>페이지가 redo 를 앞지르지는 못한다</em>. 이 값이 낮추는 것은 커밋의 내구성이지 WAL 의 순서가 아니다.',
            ref:'storage/innobase/buf/buf0flu.cc', sym:'buf_flush_write_block_low',
            fact:[['storage/innobase/buf/buf0flu.cc','Force the log to the disk before writing the modified block'],
-                 ['storage/innobase/buf/buf0flu.cc','wait_stats = log_write_up_to(*log_sys, flush_to_lsn, true);']],
+                 ['storage/innobase/buf/buf0flu.cc','wait_stats = log_write_up_to(*log_sys, flush_to_lsn, true);'],
+                 ['storage/innobase/log/log0write.cc','const auto flush_every = get_srv_flush_log_at_timeout();']],
            act:{ f:'bp', t:'dw', lb:'p:5 사본 먼저' },
            ops:{ dw:{ add:[{ id:'p:5', tag:'ok', sub:'사본 · fsync 완료' }] },
                  redo:{ set:{ 'Log flushed up to':'4,912  (page 쓰기 전에)|green' } } } },
@@ -78,11 +81,12 @@ const SCENES = [
       /* page 를 쓰기 전에 redo 를 그 page 의 LSN 까지 — buf_flush_write_block_low 가 dblwr::write 보다 먼저 한다.
          이 스텝이 없을 때는 LSN 4,912 의 page 가 flushed 4,600 · 4,912(fsync 안 함)인 채로 .ibd 에 쓰였다(WAL 위반) */
       20:{ note:'page 쓰기 전에 redo 를 그 LSN 까지 flush — 그 다음 doublewrite 사본',
-           why:'page cleaner 가 페이지를 쓰는 buf_flush_write_block_low 는 먼저 flushed_to_disk_lsn 이 그 페이지의 newest LSN 보다 작은지 보고, 작으면 log_write_up_to(…, true) 로 거기까지 flush 한다. 그 다음에야 dblwr::write 로 doublewrite 사본을 쓴다.',
+           why:'page cleaner 가 페이지를 쓰는 buf_flush_write_block_low 는 먼저 flushed_to_disk_lsn 이 그 페이지의 newest LSN 보다 작은지 보고, 작으면 log_write_up_to(…, true) 로 거기까지 flush 한다. 그 다음에야 dblwr::write 로 doublewrite 사본을 쓴다. 이 값에서는 log_flusher 가 innodb_flush_log_at_timeout(기본 1s)마다 flush 하므로 보통은 이미 끝나 있고, 아니면 여기서 강제된다.',
            key:'커밋 때 redo 의 fsync 를 미룰 수는 있어도 <em>페이지가 redo 를 앞지르지는 못한다</em>. 이 값이 낮추는 것은 커밋의 내구성이지 WAL 의 순서가 아니다.',
            ref:'storage/innobase/buf/buf0flu.cc', sym:'buf_flush_write_block_low',
            fact:[['storage/innobase/buf/buf0flu.cc','Force the log to the disk before writing the modified block'],
-                 ['storage/innobase/buf/buf0flu.cc','wait_stats = log_write_up_to(*log_sys, flush_to_lsn, true);']],
+                 ['storage/innobase/buf/buf0flu.cc','wait_stats = log_write_up_to(*log_sys, flush_to_lsn, true);'],
+                 ['storage/innobase/log/log0write.cc','const auto flush_every = get_srv_flush_log_at_timeout();']],
            act:{ f:'bp', t:'dw', lb:'p:5 사본 먼저' },
            ops:{ dw:{ add:[{ id:'p:5', tag:'ok', sub:'사본 · fsync 완료' }] },
                  redo:{ set:{ 'Log flushed up to':'4,912  (page 쓰기 전에)|green' } } } },
