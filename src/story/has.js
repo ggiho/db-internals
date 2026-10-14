@@ -11,7 +11,7 @@ export const STORY = {
   'postgres/mvcc':      { first: '01', nums: ['01', '02', '03', '04', '05', '06', '07', '08'] },
   'postgres/heap':      { first: '01', nums: ['01', '02', '03', '04', '05'] },
   'postgres/buffer':    { first: '01', nums: ['01', '02'] },
-  'postgres/btree':     { first: '01', nums: ['01', '02'] },
+  'postgres/btree':     { first: '01', nums: ['01', '02', '03', '04', '05', '06', '07'] },
   'postgres/locks':     { first: '01', nums: ['01', '02', '03', '04', '05'] },
   'postgres/wal':       { first: '01', nums: ['01', '02', '03', '04'] },
   'aurora/mysql':       { first: '01', nums: ['01', '02', '03', '04', '05'] },
