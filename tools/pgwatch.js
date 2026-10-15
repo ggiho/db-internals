@@ -39,7 +39,7 @@ const catFile = (v) => path.join(P, 'src/include/catalog', v + '.h');
 const catCols = (v) => new Set([...fs.readFileSync(catFile(v), 'utf8')
   .matchAll(/\b(\w+)\s*(?:BKI_[A-Z_]+(?:\([^)]*\))?\s*)*;/g)].map((x) => x[1]));
 const TOOLS = ['pg_buffercache', 'pageinspect', 'pgstattuple', 'pg_visibility', 'pg_waldump',
-  'pg_controldata', 'pg_walinspect', 'pg_freespacemap'];
+  'pg_controldata', 'pg_walinspect', 'pg_freespacemap', 'pg_checksums'];
 
 const { DECKS } = await import(path.join(ROOT, 'src/decks.js'));
 let bad = 0, seen = 0;

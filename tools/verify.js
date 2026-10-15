@@ -215,6 +215,11 @@ for (const sc of SCENES) {
       }
     }
     if (kind === 'graph' && !v.items) err(T + ' ' + k + ' 는 graph 인데 init 에 items(노드)가 없다');
+    /* list 의 init 항목도 태그 어휘를 지킨다 — add · set 만 보았더니 init 의 'gold' 가 통과했다(heap 09 blk 2) */
+    if (kind === 'list' && v.items) v.items.forEach(x => {
+      if (x.tag !== undefined && !TAGS.includes(x.tag))
+        err(T + ' ' + k + ' 항목 ' + x.id + ' 의 태그가 list 어휘에 없다 — ' + x.tag);
+    });
     if (kind === 'bytes') {
       if (!v.items) err(T + ' ' + k + ' 는 bytes 인데 init 에 items 가 없다');
       else v.items.forEach(x => {
