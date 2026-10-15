@@ -4,7 +4,7 @@
    num_requested 로 옮겨 갔다. 18 의 pg_stat_bgwriter 에는 buffers_clean 등 넷만 남았다.
 
    읽는 것 : src/backend/catalog/system_views.sql 의 CREATE VIEW (SELECT * FROM 다른뷰 는 그 열을
-   물려받는다), src/include/catalog/<이름>.h (pg_class 같은 카탈로그), pg_proc.dat (함수).
+   물려받는다 · SELECT * FROM 함수() 는 그 함수의 proargnames 를), src/include/catalog/<이름>.h (pg_class 같은 카탈로그), pg_proc.dat (함수).
    뷰 이름 뒤 설명에 있는 snake_case 낱말은 그 뷰의 열이거나 설정 이름(guc_tables.c)이어야 한다.
    확장(pageinspect 등)과 도구(pg_waldump)는 대조하지 않는다.
    pg_stat_slru 는 열이 아니라 행(name)으로 SLRU 를 가른다 — 설명의 낱말이 SimpleLruInit 에 넘긴 이름이면
@@ -34,7 +34,9 @@ for (const m of sql.matchAll(/CREATE (?:OR REPLACE )?VIEW (\w+)(?:\([^)]*\))? AS
   const star = /SELECT\s+\*\s+FROM\s+(\w+)/.exec(m[2]);
   views[m[1]] = { cols, from: star && star[1] };
 }
-for (const v of Object.values(views)) if (v.from && views[v.from]) for (const c of views[v.from].cols) v.cols.add(c);
+/* SELECT * FROM 함수() 인 뷰(pg_aios = pg_get_aios())는 그 함수의 출력 인자 이름이 열이다 — pg_proc.dat 의 proargnames */
+const argsOf = (fn) => { const m = new RegExp("proname => '" + fn + "'(?:(?!\\n\\{)[\\s\\S])*?proargnames => '\\{([^}]*)\\}'").exec(procs); return m ? m[1].split(',') : []; };
+for (const v of Object.values(views)) if (v.from) for (const c of views[v.from] ? views[v.from].cols : argsOf(v.from)) v.cols.add(c);
 const catFile = (v) => path.join(P, 'src/include/catalog', v + '.h');
 const catCols = (v) => new Set([...fs.readFileSync(catFile(v), 'utf8')
   .matchAll(/\b(\w+)\s*(?:BKI_[A-Z_]+(?:\([^)]*\))?\s*)*;/g)].map((x) => x[1]));

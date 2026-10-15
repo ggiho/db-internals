@@ -14,11 +14,12 @@ const pgMvcc = { id: 'pg-mvcc', load: () => import('./pg-mvcc.js') };
 const pgHeap = { id: 'pg-heap', load: () => import('./pg-heap.js') };
 const pgWal = { id: 'pg-wal', load: () => import('./pg-wal.js') };
 const pgLocks = { id: 'pg-locks', load: () => import('./pg-locks.js') };
+const pgBuffer = { id: 'pg-buffer', load: () => import('./pg-buffer.js') };
 const loadStage = () => import('./stage.js');
 
 export const BESPOKE = {
   'book/ch3': { '01': ch301, '01v': ch301, '06b': ch306b },
-  'postgres/buffer': { '01': pgBuf01 },
+  'postgres/buffer': { '01': pgBuf01, ...Object.fromEntries(['02', '03', '04', '05', '06'].map((n) => [n, pgBuffer])) },
   'aurora/mysql': { '05': aurora05 },
   'mongodb/wiredtiger': { '01': wt01 },
   'mysql/innodb': { '01': innodb01 },
