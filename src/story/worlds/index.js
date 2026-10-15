@@ -13,6 +13,7 @@ const pgBtree = { id: 'pg-btree', load: () => import('./pg-btree.js') };
 const pgMvcc = { id: 'pg-mvcc', load: () => import('./pg-mvcc.js') };
 const pgHeap = { id: 'pg-heap', load: () => import('./pg-heap.js') };
 const pgWal = { id: 'pg-wal', load: () => import('./pg-wal.js') };
+const pgLocks = { id: 'pg-locks', load: () => import('./pg-locks.js') };
 const loadStage = () => import('./stage.js');
 
 export const BESPOKE = {
@@ -22,6 +23,7 @@ export const BESPOKE = {
   'mongodb/wiredtiger': { '01': wt01 },
   'mysql/innodb': { '01': innodb01 },
   'postgres/btree': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07'].map((n) => [n, pgBtree])),
+  'postgres/locks': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07', '08'].map((n) => [n, pgLocks])),
   'postgres/wal': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07', '08'].map((n) => [n, pgWal])),
   'postgres/heap': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07', '08', '09', '10'].map((n) => [n, pgHeap])),
   'postgres/mvcc': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11'].map((n) => [n, pgMvcc])),
