@@ -19,6 +19,7 @@
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
 import { bake, stepsOf, valuesOf } from '../../bake.js';
+import { stagger } from './stagger.js';
 
 const HANGUL = /[가-힣]/;
 const TU = 120, LPN = 30, SL = 44, HB = 160, AX = 150, VB = 40, RING = 220, TOK = 150, BC = 12;
@@ -46,32 +47,6 @@ const decode = (v, T) => {
 };
 const hex4 = (m) => '0x' + m.toString(16).padStart(4, '0');
 const bitsIn = (m) => Array.from({ length: 16 }, (_, b) => b).filter((b) => m & (1 << b));
-/* 이름표 줄 나누기 — 겹치면 다음 줄로. 줄을 내린 이름표는 선(pins)으로 제자리에 잇는데, 그 선이 다른 이름표를
-   지나지 않게 한다. 그렇게 둘 곳이 없으면 겹침만 피한다(ok = false) */
-const TRY = [0, 1, 2].map((r) => [r, 'c']).concat([0, 1, 2].flatMap((r) => [[r, 'L'], [r, 'R']]), [3, 4, 5].flatMap((r) => [[r, 'c'], [r, 'L'], [r, 'R']]));
-function stagger(items, x0, x1, gap = 8) {
-  const out = [];
-  let ok = true;
-  for (const it of [...items].sort((p, q) => p.cx - q.cx)) {
-    const pins = it.pins || [it.cx];
-    const cand = (row, al) => {
-      const l0 = al === 'c' ? it.cx - it.w / 2 : al === 'L' ? Math.min(...pins) + 3 - it.w : Math.max(...pins) - 3;
-      const l = Math.max(x0, Math.min(x1 - it.w, l0));
-      return { l, r: l + it.w, row };
-    };
-    const clash = (c, strict) => out.some((q) => (q.row === c.row && c.l < q.r + gap && q.l < c.r + gap)
-      || (strict && ((q.row < c.row && pins.some((x) => x > q.l - 2 && x < q.r + 2)) || (q.row > c.row && q.pins.some((x) => x > c.l - 2 && x < c.r + 2)))));
-    /* 가운데 정렬을 먼저(두 줄까지) — 옆으로 민 이름표는 이웃 칸의 이름처럼 읽힌다 */
-    let pick = null;
-    for (const strict of [true, false]) {
-      for (const [row, al] of TRY) { const c = cand(row, al); if (!clash(c, strict)) { pick = c; break; } }
-      if (pick) { if (!strict) ok = false; break; }
-    }
-    out.push({ ...it, ...(pick || cand(0, 'c')), pins });
-  }
-  return { out, ok, rows: out.length ? Math.max(...out.map((q) => q.row)) + 1 : 0 };
-}
-
 export default {
   count: (narrow) => (narrow ? 3600 : 5000),
   make,
