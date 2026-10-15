@@ -13,6 +13,13 @@ const ACTORS = {
   /* SSI 장면용 — 막지 않는 SIREAD 락과, 읽기·쓰기 사이의 conflict 방향. */
   sir:  { nm:'SIREAD LOCKS', lane:'sql', kind:'list' },
   rw:   { nm:'RW-CONFLICT', lane:'heap', kind:'graph' },
+  /* 06 · 08 — LOCK 객체 하나의 granted 와 wait queue. 항목의 q(granted · waiting) 와 mode 로 세계가 grantMask · waitMask 를 셈한다 */
+  lq:   { nm:'LOCK  relation t', lane:'sql', kind:'list' },
+  /* 07 — 행 락 네 단계의 충돌 표(heavyweight 모드로 대응해 셈한다) */
+  rmx:  { nm:'행 락 충돌',  lane:'heap', kind:'matrix' },
+  /* 08 — 락 표의 열쇠(16 바이트)와 파티션 */
+  ltag: { nm:'LOCKTAG  ·  16 B', lane:'sql', kind:'bytes' },
+  part: { nm:'LOCK PARTITIONS', lane:'sql', kind:'list' },
 };
 const EDGES = [
   /* 락 표는 공유 메모리에 있고 튜플은 힙에 있다 — 재시작하면 앞쪽만 사라진다. */
