@@ -6,7 +6,9 @@
    읽는 것 : src/backend/catalog/system_views.sql 의 CREATE VIEW (SELECT * FROM 다른뷰 는 그 열을
    물려받는다), src/include/catalog/<이름>.h (pg_class 같은 카탈로그), pg_proc.dat (함수).
    뷰 이름 뒤 설명에 있는 snake_case 낱말은 그 뷰의 열이거나 설정 이름(guc_tables.c)이어야 한다.
-   확장(pageinspect 등)과 도구(pg_waldump)는 대조하지 않는다. */
+   확장(pageinspect 등)과 도구(pg_waldump)는 대조하지 않는다.
+   pg_stat_slru 는 열이 아니라 행(name)으로 SLRU 를 가른다 — 설명의 낱말이 SimpleLruInit 에 넘긴 이름이면
+   그 행이 있다는 뜻이라 통과시킨다(mvcc 10 의 multixact_offset · multixact_member). */
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -22,6 +24,9 @@ if (!fs.existsSync(path.join(P, 'src/backend/catalog/system_views.sql'))) {
 const sql = read('src/backend/catalog/system_views.sql');
 const guc = read('src/backend/utils/misc/guc_tables.c');
 const procs = read('src/include/catalog/pg_proc.dat');
+const SLRU_FILES = ['src/backend/access/transam/clog.c', 'src/backend/access/transam/commit_ts.c', 'src/backend/access/transam/multixact.c',
+  'src/backend/access/transam/subtrans.c', 'src/backend/commands/async.c', 'src/backend/storage/lmgr/predicate.c'];
+const slru = new Set(SLRU_FILES.flatMap((f) => [...read(f).matchAll(/SimpleLruInit\([^,]+,\s*"(\w+)"/g)].map((m) => m[1])));
 
 const views = {};
 for (const m of sql.matchAll(/CREATE (?:OR REPLACE )?VIEW (\w+)(?:\([^)]*\))? AS([\s\S]*?);/g)) {
@@ -46,7 +51,7 @@ for (const d of Object.keys(DECKS).filter((d) => d.startsWith('postgres/'))) {
       if (TOOLS.includes(v)) continue;
       if (views[v]) {
         for (const [, c] of String(desc).matchAll(/\b([a-z]+_[a-z0-9_]+)\b/g)) {
-          if (views[v].cols.has(c) || guc.includes('{"' + c + '"')) continue;
+          if (views[v].cols.has(c) || guc.includes('{"' + c + '"') || (v === 'pg_stat_slru' && slru.has(c))) continue;
           bad++; console.log(`  ! ${d} ${sc.num} : ${v} 에 ${c} 열이 없다  [${desc}]`);
         }
       } else if (fs.existsSync(catFile(v))) {

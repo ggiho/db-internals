@@ -47,6 +47,8 @@ const BREAKS = {
   'label-out': { css: '.st-labels > *{margin-left:3000px !important}' },
   'label-overlap': { css: '.st-labels .wl,.st-labels .stn{transform:translate(62vw,46vh) !important}' },
   'rail-overlap': { css: '.st-rail{right:auto !important;left:62vw !important}' },
+  /* 출처 표기를 무대 가운데로 올린다 — mvcc 11 의 아래 설명이 1024×768 에서 그것과 겹쳤는데 화면 안이라 아무 검사도 안 걸렸다 */
+  'cred-overlap': { css: '.st-cred{bottom:auto !important;top:48vh !important;right:auto !important;left:56vw !important;width:40vw !important}' },
   'header-overlap': { css: '.st-top{top:42vh !important}' },
   'text-clip': { css: '.st-btn{max-width:22px !important;overflow:hidden !important;white-space:nowrap !important}' },
   'box-overflow': { css: '.st-labels .stn{width:56px !important}' },
@@ -133,6 +135,8 @@ function measure() {
     if (ov(world[i].r, world[j].r, 1.5)) P.push(['label-overlap', `${nm(world[i].e)} × ${nm(world[j].e)}`]);
   }
   if (cr) for (const { e, r } of world) if (ov(cr, r)) P.push(['copy-overlap', nm(e)]);
+  const cred = document.querySelector('.st-cred');
+  if (cred && vis(cred) > 0.05) { const cd = R(cred); for (const { e, r } of world) if (ov(cd, r)) P.push(['cred-overlap', nm(e)]); }
   const rail = document.querySelector('.st-rail');
   if (rail && vis(rail) > 0.05) {
     const rr = R(rail);
