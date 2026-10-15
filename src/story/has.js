@@ -13,7 +13,7 @@ export const STORY = {
   'postgres/buffer':    { first: '01', nums: ['01', '02'] },
   'postgres/btree':     { first: '01', nums: ['01', '02', '03', '04', '05', '06', '07'] },
   'postgres/locks':     { first: '01', nums: ['01', '02', '03', '04', '05'] },
-  'postgres/wal':       { first: '01', nums: ['01', '02', '03', '04'] },
+  'postgres/wal':       { first: '01', nums: ['01', '02', '03', '04', '05', '06', '07', '08'] },
   'aurora/mysql':       { first: '01', nums: ['01', '02', '03', '04', '05'] },
   'mongodb/wiredtiger': { first: '01', nums: ['01', '02', '03', '04', '05', '06', '07', '08', '09'] },
   'book/ch2':           { first: '01', nums: ['01', '02', '03', '03v', '04', '05', '05v', '06', '07', '08', '09', '10', '11'] },
