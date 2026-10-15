@@ -10,6 +10,7 @@ const aurora05 = { id: 'aurora-05', load: () => import('./aurora-05.js') };
 const wt01 = { id: 'wt-01', load: () => import('./wt-01.js') };
 const innodb01 = { id: 'innodb-01', load: () => import('./innodb-01.js') };
 const pgBtree = { id: 'pg-btree', load: () => import('./pg-btree.js') };
+const pgMvcc = { id: 'pg-mvcc', load: () => import('./pg-mvcc.js') };
 const loadStage = () => import('./stage.js');
 
 export const BESPOKE = {
@@ -19,6 +20,7 @@ export const BESPOKE = {
   'mongodb/wiredtiger': { '01': wt01 },
   'mysql/innodb': { '01': innodb01 },
   'postgres/btree': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07'].map((n) => [n, pgBtree])),
+  'postgres/mvcc': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11'].map((n) => [n, pgMvcc])),
 };
 
 export function worldOf(deck, num) {
