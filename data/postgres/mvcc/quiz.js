@@ -82,4 +82,49 @@ export const CORE = {
     a: '인덱스 키 열 불변, 같은 페이지에 빈 자리',
     x: ['인덱스 키 열 불변이면 충분하다', '키 불변, 그리고 fillfactor 가 100 미만', '테이블에 인덱스가 하나도 없어야 한다'],
   },
+  '09/3': {
+    q: 'REPEATABLE READ 세션 S1(xmin 500)이 열려 있을 때, 600 이 지우고 커밋한 튜플을 VACUUM 은?',
+    a: '남긴다 — 600 이 OldestXmin 500 보다 뒤다',
+    x: ['곧바로 치운다 — 600 은 이미 커밋됐다', 'S1 이 그 테이블을 읽은 적이 없으면 치운다', 'VACUUM 이 S1 이 끝날 때까지 기다렸다가 치운다'],
+  },
+  '09/5': {
+    q: '"idle in transaction" 세션이 horizon 을 붙잡지 않는 경우는?',
+    a: '읽기만 한 READ COMMITTED 세션 — 남은 snapshot 이 없다',
+    x: ['REPEATABLE READ 로 SELECT 만 한 세션', '무엇이든 쓴 뒤 노는 READ COMMITTED 세션', 'idle 이면 수준과 무관하게 모두 붙잡는다'],
+  },
+  '09/8': {
+    q: 'VACUUM 로그의 removable cutoff 가 계속 아주 오래됐다면 먼저 볼 것은?',
+    a: 'backend_xmin 이 가장 작은 세션과 복제 슬롯의 xmin',
+    x: ['autovacuum_max_workers 를 늘렸는지', '테이블의 fillfactor 와 HOT 비율', 'shared_buffers 와 checkpoint 간격'],
+  },
+  '10/4': {
+    q: '부모 행에 FK 검사의 KEY SHARE 잠금 셋(MultiXact)이 걸려 있을 때 그 행의 DELETE 는?',
+    a: '충돌하는 멤버마다 그 트랜잭션이 끝나길 기다린다',
+    x: ['MultiXact 하나만 기다리면 되므로 바로 진행한다', '공유 잠금이라 기다리지 않고 지운다', '데드락으로 보고 곧바로 오류를 낸다'],
+  },
+  '10/6': {
+    q: '부모 행에 KEY SHARE 잠금이 있을 때 기다리지 않고 진행하는 문장은?',
+    a: '키가 아닌 열만 바꾸는 UPDATE',
+    x: ['그 행의 DELETE', '키 열을 바꾸는 UPDATE', 'SELECT … FOR UPDATE'],
+  },
+  '10/8': {
+    q: 'MultiXactId 의 wraparound 를 막는 문턱이 기본값(4억)보다 일찍 오는 때는?',
+    a: '멤버 공간 사용량이 안전선을 넘었을 때',
+    x: ['XID 나이가 2억을 넘었을 때', 'MultiXact 버퍼가 가득 찼을 때', '부모 행에 잠금이 셋 이상일 때'],
+  },
+  '11/5': {
+    q: '한 세션의 하위 트랜잭션이 64 개를 넘으면 다른 세션들에게는 무슨 일이?',
+    a: '하위 XID 를 판정할 때마다 pg_subtrans 를 읽는다',
+    x: ['아무 일도 없다 — 그 세션 안에서만 느려진다', '그 세션의 새 하위 트랜잭션이 오류로 거절된다', '다른 세션의 snapshot 이 그 세션이 끝나길 기다린다'],
+  },
+  '11/6': {
+    q: '넘친 뒤 ROLLBACK TO SAVEPOINT 로 하위 트랜잭션을 되돌리면 overflowed 는?',
+    a: '그대로 — 최상위 트랜잭션이 끝나야 지워진다',
+    x: ['캐시에 자리가 나면 곧바로 지워진다', 'SAVEPOINT 를 RELEASE 하면 지워진다', '다음 snapshot 을 잡을 때 지워진다'],
+  },
+  '11/8': {
+    q: 'SubtransSLRU 대기가 늘었다. 근본 처방은?',
+    a: '64 개를 넘기는 트랜잭션(행마다 EXCEPTION)을 고친다',
+    x: ['subtransaction_buffers 를 크게 늘린다', 'max_connections 를 줄인다', 'autovacuum 을 더 자주 돌린다'],
+  },
 };

@@ -21,6 +21,13 @@ const ACTORS = {
   /* 03 죽은 튜플에서 쓴다 — 즉시 정리의 문턱(pd_prune_xid · 빈 공간)이 페이지 헤더에 있다 */
   ph:  { nm:'PAGE HEADER',    lane:'heap', kind:'kv' },
   lk:  { nm:'PG_LOCKS',       lane:'shm',  kind:'list' },
+  /* 09 horizon — 백엔드 · walsender 의 xmin, 그리고 MIN() 의 시작값 latestCompletedXid + 1 */
+  pa:  { nm:'PROCARRAY',      lane:'shm',  kind:'list' },
+  /* 10 MultiXact — 멤버 명단(pg_multixact) */
+  mx:  { nm:'MULTIXACT',      lane:'shm',  kind:'list' },
+  /* 11 하위 트랜잭션 — 한 백엔드의 PGPROC(subxid 캐시 64 칸)와 pg_subtrans */
+  pp:  { nm:'PGPROC (S1)',    lane:'shm',  kind:'kv' },
+  st:  { nm:'PG_SUBTRANS',    lane:'shm',  kind:'list' },
 };
 
 /* 흐름 화살표 — 아직 장면 간 이동만 있어 비어 있다 */
