@@ -313,7 +313,7 @@
   .st-copy,.st-hero{top:calc(var(--top-h,56px) + 14px);transform:translateY(var(--lift,0px))}
   .st-hero{transform:none}
   .st-note{font-size:20px;line-height:1.4}
-  .st-why{margin-top:12px;font-size:13.5px;line-height:1.7;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .st-why{margin-top:12px;font-size:13.5px;line-height:1.7;display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;overflow:hidden}
   .st-key{margin-top:10px;font-size:13.5px;line-height:1.65;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
   .st-title{font-size:30px}
   .st-sub{font-size:14.5px}
