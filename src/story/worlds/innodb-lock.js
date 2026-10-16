@@ -19,7 +19,7 @@ const span = { gold: 'q-g', red: 'q-r', green: 'q-gr' };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const val = (v) => (tone(v) ? `<span class="${span[tone(v)]}">${esc(bare(v))}</span>` : esc(bare(v)));
 const TAGC = { clean: INK, x: RED, red: RED, dirty: RED, gold: GOLD, hold: GOLD, pin: GOLD, free: FAINT, ok: GREEN, green: GREEN, wait: ACCENT, sep: ACCENT };
-const SPC = { next: GOLD, gap: ACCENT, rec: INK, blk: RED };
+const SPC = { next: GOLD, gap: ACCENT, rec: INK, blk: RED, ii: GREEN };
 
 export default {
   count: (narrow) => (narrow ? 3400 : 4600),
@@ -69,13 +69,13 @@ function make({ F, deck, labels, scene }) {
 
   /* 셈 맞추기 */
   for (const [kk, b] of BAKES) [b.S0, ...b.S].forEach((s, i) => {
-    const at = `innodb ${sc.num} 세계${kk ? ' (' + sc.vary.knob + '=' + kk + ')' : ''} : ${i ? i + ' 스텝' : 'init'}`;
+    const at = `${sc.num} 세계${kk ? ' (' + sc.vary.knob + '=' + kk + ')' : ''} : ${i ? i + ' 스텝' : 'init'}`;
     if (IDX) {
       const vs = s[IDX].map((x) => x.v).sort((p, q) => p - q), ax = s[IDX + '#ax'];
       const prevOf = (v) => { const j = vs.indexOf(v); return j > 0 ? vs[j - 1] : ax.min; };
       for (const q of s[IDX + '#sp']) {
         if (q.kind === 'next' && (!vs.includes(q.to) || q.from !== prevOf(q.to))) console.error(`${at} : next-key ${q.id} (${q.from}, ${q.to}] 의 끝이 레코드와 맞지 않는다 — 레코드 ${vs.join(' · ')}`);
-        if (q.kind === 'gap' && (!(vs.includes(q.from) || q.from === ax.min) || !vs.includes(q.to) || q.from !== prevOf(q.to))) console.error(`${at} : gap ${q.id} (${q.from}, ${q.to}) 의 양끝이 이웃한 레코드가 아니다`);
+        if ((q.kind === 'gap' || q.kind === 'ii') && (!(vs.includes(q.from) || q.from === ax.min) || !vs.includes(q.to) || q.from !== prevOf(q.to))) console.error(`${at} : ${q.kind} ${q.id} (${q.from}, ${q.to}) 의 양끝이 이웃한 레코드가 아니다`);
         if (q.kind === 'rec' && (q.from !== q.to || !vs.includes(q.to))) console.error(`${at} : 레코드 락 ${q.id} 가 레코드 위에 있지 않다 (${q.from}–${q.to})`);
       }
     }
@@ -123,7 +123,7 @@ function make({ F, deck, labels, scene }) {
     for (const a of TEXTS) t.set(tx[a], [kvHtml(s[a]), on(a), '', true, true]);
     if (IDX) {
       for (const id of RECS) { const it = s[IDX].find((x) => x.id === id); t.set(recLb[id], [it ? id : '', on(IDX), '', !!it]); }
-      for (const id of SPIDS) { const q = s[IDX + '#sp'].find((x) => x.id === id); t.set(spLb[id], [q ? q.lb || '' : '', !!q && on(IDX) && hotIt(s, IDX, id), q ? (q.kind === 'blk' ? 'red' : q.kind === 'next' ? 'gold' : q.kind === 'rec' ? 'green' : '') : '', !!q && !!q.lb]); }
+      for (const id of SPIDS) { const q = s[IDX + '#sp'].find((x) => x.id === id); t.set(spLb[id], [q ? q.lb || '' : '', !!q && on(IDX) && hotIt(s, IDX, id), q ? (q.kind === 'blk' ? 'red' : q.kind === 'next' ? 'gold' : q.kind === 'rec' || q.kind === 'ii' ? 'green' : '') : '', !!q && !!q.lb]); }
     }
     if (GR) {
       const cyc = cycleOf(s);

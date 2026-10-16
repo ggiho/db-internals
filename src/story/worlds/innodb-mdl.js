@@ -57,7 +57,7 @@ function make({ F, deck, labels, scene }) {
   /* 셈 맞추기 */
   for (const [kk, b] of BAKES) [b.S0, ...b.S].forEach((s, i) => {
     if (!MQ) return;
-    const at = `innodb ${sc.num} 세계${kk ? ' (' + sc.vary.knob + '=' + kk + ')' : ''} : ${i ? i + ' 스텝' : 'init'}`;
+    const at = `${sc.num} 세계${kk ? ' (' + sc.vary.knob + '=' + kk + ')' : ''} : ${i ? i + ' 스텝' : 'init'}`;
     const its = s[MQ];
     for (const it of its) {
       if (!['granted', 'pending', 'gone'].includes(it.q)) console.error(`${at} : ${it.id} 의 q ${it.q} 를 모른다`);

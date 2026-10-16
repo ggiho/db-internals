@@ -36,19 +36,19 @@ export const CORE = {
     x: ['X 하나뿐 — AUTO_INC 끼리는 공존', 'S 와 X — 공유도 자기와 충돌', 'IX 와 X — intention lock 끼리 충돌'],
   },
   '04/6': {
-    q: 'lock_table_has 가 쓰는 강도 표의 역할은?',
-    a: '이미 더 강한 테이블 락을 쥐었으면 새로 안 만든다',
-    x: ['남의 락과 호환되는지 판정한다 — 호환 표와 같은 일', '행 락이 이미 있는지 정밀 모드로 비교한다', '대기 중인 락의 우선순위를 정한다'],
+    q: '강도 표(lock_strength_matrix)가 테이블 층과 행 층에서 하는 일은?',
+    a: '이미 충분한 락을 쥐었으면 새로 안 만든다',
+    x: ['남의 락과 함께 설 수 있는지 판정한다', '대기 중인 락 중 누구를 먼저 깨울지 정한다', '테이블 락을 행 락으로 낮출지 정한다'],
   },
   '05/8': {
-    q: 'secondary 인덱스 idx_c 로 찾아 UPDATE 하면 P_S.data_locks 의 레코드 락은?',
-    a: 'idx_c 에 한 줄, PRIMARY 에 한 줄',
-    x: ['PRIMARY 에만 한 줄 — 락은 클러스터에만', 'idx_c 에만 한 줄 — 찾은 인덱스에만', '테이블의 모든 인덱스에 한 줄씩'],
+    q: 'RR 에서 UNIQUE 가 아닌 idx_c 로 찾아 UPDATE 하면 data_locks 의 RECORD 줄은?',
+    a: 'idx_c 에 둘(200 · 300 앞 gap), PRIMARY 에 하나',
+    x: ['idx_c 에 하나, PRIMARY 에 하나 — 지나간 레코드마다 한 줄', 'PRIMARY 에만 하나 — 레코드 락은 클러스터에만', '세 행 모두에 하나씩 — 테이블을 훑었으므로'],
   },
   '06/1': {
-    q: 'UPDATE … WHERE c=200 이 c 의 인덱스를 탈 때 레코드 락이 걸리는 곳은?',
-    a: '방문한 c=200 항목과 그 행뿐',
-    x: ['테이블의 모든 행 — 조건 판정 전에 잠그므로', 'c=200 과 앞뒤 이웃 행 전부', '테이블 IX 만 — 행은 커밋 때 잠근다'],
+    q: 'RR 에서 UPDATE … WHERE c=200 이 UNIQUE 아닌 c 인덱스를 탈 때 잠기는 곳은?',
+    a: 'c=200 항목 · 그 행 · c=300 앞의 gap',
+    x: ['테이블의 모든 행 — 조건 판정 전에 잠그므로', 'c=200 항목과 그 행뿐 — 조건에 맞는 것만', 'c=200 과 앞뒤 이웃 행 전부'],
   },
   '06/6': {
     q: '인덱스를 탄 이 UPDATE 가 실행 중일 때 id=10 · id=30 행은?',
@@ -68,7 +68,7 @@ export const CORE = {
   '07/8': {
     q: '평온한 INSERT(충돌 없음, 유니크 인덱스 없음) 뒤 P_S.data_locks 에 남는 레코드 락은?',
     a: '없다 — 새 행의 X 는 implicit 이라 보이지 않는다',
-    x: ['새 행의 X 레코드 락 한 줄', 'insert intention(insert intention) gap lock 한 줄', '새 행 X 와 insert intention lock 두 줄'],
+    x: ['새 행의 X 레코드 락 한 줄', 'X,GAP,INSERT_INTENTION 한 줄', '새 행 X 와 insert intention 두 줄'],
   },
   '08/4': {
     q: '자식 테이블에 INSERT 한 트랜잭션이 열려 있는 동안 부모 id=20 의 DELETE 는?',
@@ -87,8 +87,8 @@ export const CORE = {
   },
   '10/1': {
     q: 'MDL 의 락 단계가 InnoDB 보다 훨씬 많은 이유는?',
-    a: '온라인 DDL 에 "읽기만 허용" 같은 중간 단계가 필요해서',
-    x: ['테이블마다 인덱스 수만큼 단계를 따로 두어야 해서', 'MyISAM 호환을 위해 옛 THR_LOCK 모드를 남겨서', '행 락까지 MDL 이 대신 표현하려고 늘려서'],
+    a: 'ALTER · LOCK TABLES · I_S 가 각자 다른 단계를 써서',
+    x: ['테이블마다 인덱스 수만큼 단계를 따로 두어야 해서', 'MyISAM 호환을 위해 옛 THR_LOCK 모드를 그대로 남겨 두어서', '행 락까지 MDL 이 대신 표현하려고 늘려서'],
   },
   '11/1': {
     q: 'BEGIN; SELECT …; 뒤 방치된 세션이 ALTER 를 막을 때 P_S.data_locks 는?',
@@ -97,7 +97,7 @@ export const CORE = {
   },
   '11/5': {
     q: 'MDL 대기 줄을 푸는 방법은?',
-    a: 'GRANTED 를 쥔 원인 세션을 끝낸다',
+    a: 'GRANTED 를 쥔 쪽이 COMMIT 하거나 KILL 된다',
     x: ['ALTER 를 KILL 한다 — 그러면 다시 해도 된다', 'lock_wait_timeout 을 늘린다', '뒤에 쌓인 SELECT 들을 KILL 한다'],
   },
   '12/6': {
