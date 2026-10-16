@@ -75,6 +75,8 @@ const BREAKS = {
   flight: { css: '.st-labels .stn-tok{margin-left:-60vw !important}' },
   /* 보이는 이름표 하나의 끝에 색 표시를 글자로 붙인다 — locks 03 에서 실제로 있었던 모습 */
   'tone-raw': { js: true },
+  /* why · key 를 한 줄로 자른다 — 좁은 화면의 줄 수 제한이 글을 끊던 모습 */
+  'copy-clip': { css: '.st-why,.st-key{display:-webkit-box !important;-webkit-line-clamp:1 !important;-webkit-box-orient:vertical !important;overflow:hidden !important}' },
 };
 if (BREAK && !BREAKS[BREAK]) { console.error('모르는 --break : ' + BREAK + '  (' + Object.keys(BREAKS).join(' · ') + ')'); process.exit(2); }
 
@@ -293,6 +295,11 @@ function measure() {
       }
       prev = r;
     }
+  }
+  /* 설명이 잘렸는가 — 좁은 화면은 why 를 줄 수로 자른다. 3 줄일 때 768 에서 850 스텝 중 257 의 why 가 문장 중간에서
+     '…' 로 끊겼는데, 잘린 글은 상자 안에 있으니 다른 검사는 모두 통과했다 */
+  for (const e of document.querySelectorAll('.st-why, .st-key')) {
+    if (vis(e) > 0.5 && e.scrollHeight > e.clientHeight + 2) P.push(['copy-clip', `${nm(e)} ${e.scrollHeight - e.clientHeight}px 가려짐`]);
   }
   /* 색 표시가 글자로 남았는가 — 값 끝의 '|red' 는 색으로 바꾸고 떼어야 한다. 세계의 칸 설명(capOf)은 그것을 하지 않아
      locks 03 의 'LOCK_X · … 풀렸다|red' 가 글자 그대로 찍혔는데, 글자는 제자리에 있으니 다른 검사는 모두 통과했다 */
