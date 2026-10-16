@@ -19,7 +19,7 @@ export const CORE = {
   },
   '02/4': {
     q: 'readConcern majority 읽기는 WiredTiger 에서 무엇으로 구현되나?',
-    a: '과반 커밋 시점을 read timestamp 로 연 트랜잭션',
+    a: 'committed snapshot 시각으로 연 트랜잭션',
     x: ['과반 노드에 같은 읽기를 보내 결과가 같은지 비교한다', '과반이 복제할 때까지 읽기를 기다린다', 'oplog 를 거꾸로 적용해 과반 시점을 만든다'],
   },
   '02/5': {
@@ -94,7 +94,7 @@ export const CORE = {
   },
   '08/5': {
     q: '재시작 때 연 checkpoint(stable 90)에 ts 93 의 값이 들어 있을 수 있는 이유는?',
-    a: 'eviction 이 먼저 쓴 깨끗한 페이지를 checkpoint 가 건너뛰어서',
+    a: 'reconciliation 이 timestamp 를 보지 않고 커밋된 최신 값을 써서',
     x: ['checkpoint 가 커밋 전 값도 함께 써서', 'journal replay 가 ts 93 을 데이터 파일에 다시 써서', '있을 수 없다 — checkpoint 는 stable 까지만 담는다'],
   },
   '08/8': {
@@ -104,7 +104,7 @@ export const CORE = {
   },
   '08/10': {
     q: 'replica set 멤버의 크래시 복구는 어떤 순서인가?',
-    a: 'checkpoint 의 stable 로 rollback 은 뒤 oplog 를 다시 적용한다',
+    a: 'log replay 뒤 stable 로 rollback 하고 oplog 를 다시 적용한다',
     x: ['redo 를 replay 한 뒤 커밋 전 것을 undo 로 되돌린다', 'journal 에서 컬렉션 변경을 replay 하고 끝낸다', 'secondary 에서 데이터 파일을 통째로 받아 온다'],
   },
   '09/5': {
