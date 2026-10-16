@@ -23,6 +23,23 @@ const ACTORS = {
   sec:   { nm:'SECONDARY',     lane:'repl', kind:'kv' },
   sa:    { nm:'SESSION A',     lane:'cli',  kind:'kv' },
   sb:    { nm:'SESSION B',     lane:'cli',  kind:'kv' },
+  /* 10 B-tree 분할 — 메모리 page 와 디스크 블록의 크기가 다르다 */
+  bt:    { nm:'B-TREE  (컬렉션)', lane:'mem', kind:'tree', w:'w2' },
+  pg:    { nm:'LEAF PAGE  (메모리)', lane:'mem', kind:'list' },
+  blk:   { nm:'collection-*.wt  블록', lane:'disk', kind:'list' },
+  ix:    { nm:'_id INDEX',     lane:'mem',  kind:'kv' },
+  /* 11 unique 인덱스 — 컬렉션 테이블과 인덱스 테이블이 따로다 */
+  coll:  { nm:'COLLECTION TABLE', lane:'mem', kind:'list' },
+  idid:  { nm:'_id_ INDEX',    lane:'mem',  kind:'list' },
+  uidx:  { nm:'email_1 INDEX', lane:'mem',  kind:'axis', w:'w2' },
+  /* 12 락 · ticket — 서버 층의 lock manager 와 WiredTiger 앞의 입장권 */
+  ses:   { nm:'SESSIONS',      lane:'cli',  kind:'kv' },
+  lk:    { nm:'LOCK MANAGER',  lane:'mem',  kind:'list' },
+  lmx:   { nm:'LOCK MODES',    lane:'mem',  kind:'matrix' },
+  tk:    { nm:'TICKETS',       lane:'mem',  kind:'kv' },
+  cur:   { nm:'CURRENTOP',     lane:'mem',  kind:'list' },
+  /* 13 read concern — 같은 문서를 level 마다 읽은 결과 */
+  rd:    { nm:'READS',         lane:'cli',  kind:'list' },
 };
 const EDGES = [
   /* 메모리의 페이지(이미지 + 사슬)가 디스크 이미지로 바뀌는 경계 — reconciliation 이다.

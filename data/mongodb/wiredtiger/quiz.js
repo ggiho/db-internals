@@ -70,7 +70,7 @@ export const CORE = {
   '06/8': {
     q: 'w: "majority" 가 기다리는 과반은 어떤 노드의 과반인가? (기본 설정)',
     a: '그 oplog 항목을 journal 에 쓴 노드',
-    x: ['그 oplog 항목을 받기만 한 노드', '그 변경을 checkpoint 까지 한 노드', '그 항목을 적용만 하고 아직 쓰지 않은 노드'],
+    x: ['그 oplog 항목을 네트워크로 받기만 한 노드', '그 변경을 checkpoint 까지 한 노드', '그 항목을 적용만 하고 아직 쓰지 않은 노드'],
   },
   '06/11': {
     q: '기본 write concern 에서 커밋 응답을 받았다는 것은?',
@@ -121,5 +121,50 @@ export const CORE = {
     q: 'old version 을 지워도 되는 경계가 InnoDB 와 WiredTiger 에서 어떻게 다른가?',
     a: 'WiredTiger 는 가장 오래된 읽기에 300초의 시간 창을 더한다',
     x: ['둘 다 가장 오래된 read view 까지만 둔다', 'WiredTiger 는 checkpoint 가 끝나면 old version 을 모두 지운다', 'InnoDB 도 300초의 시간 창을 두고 지운다'],
+  },
+  '10/6': {
+    q: '100 만 건을 RecordId 순으로 넣을 때 WiredTiger 의 메모리 page 는 어떻게 나뉘나?',
+    a: '마지막 키 하나만 새 page 로 옮긴다',
+    x: ['반으로 나눠 양쪽에 반씩 남긴다', '32KB 가 차는 순간 둘로 나눈다', 'checkpoint 가 돌 때 한꺼번에 반씩 나눈다'],
+  },
+  '10/10': {
+    q: '컬렉션 트리가 나뉘는 때는 몇 번인가? (WiredTiger)',
+    a: '두 번 — 메모리에서 append 로, 디스크로 갈 때 90 % 로',
+    x: ['한 번 — 16KB 페이지가 찰 때', '한 번 — reconciliation 이 쓸 때만', '세 번 — 메모리 · eviction · checkpoint 에서 각각 한 번씩'],
+  },
+  '11/5': {
+    q: 'unique 인덱스에 넣기 전 1 단계에서 WiredTiger 에 하는 일은?',
+    a: 'prefix 키를 넣었다가 곧바로 지운다',
+    x: ['그 키에 S 락을 걸어 둔다', '인덱스 전체에 X 락을 잡는다', '같은 키가 있는지 인덱스를 읽어 보기만 한다'],
+  },
+  '11/9': {
+    q: 'A 가 커밋하자, 같은 email 을 넣으려 재시도하던 B 는?',
+    a: 'E11000 DuplicateKey 를 받는다',
+    x: ['WriteConflict 112 를 받는다', '그대로 들어간다 — A 와 RecordId 가 달라서', '계속 재시도한다 — A 의 tombstone 때문에'],
+  },
+  '11/10': {
+    q: '트랜잭션 안의 B 가 A 의 커밋 전 email 과 같은 값을 넣으면?',
+    a: '곧바로 112 WriteConflict 로 끊긴다',
+    x: ['A 가 끝날 때까지 기다린다', 'E11000 DuplicateKey 를 받는다', '들어가고, 나중에 A 의 커밋이 DuplicateKey 로 실패한다'],
+  },
+  '12/10': {
+    q: '쉬던 트랜잭션 A 가 커밋하면 lock manager 의 대기 줄은?',
+    a: 'B 의 X 를 허가하고 멈춘다 — C 는 B 다음',
+    x: ['B 와 C 를 함께 허가한다 — 둘 다 기다렸으니', 'C 의 IX 를 먼저 허가한다 — A 와 같은 모드라서', '먼저 온 순서와 상관없이 무작위로 깨운다'],
+  },
+  '13/3': {
+    q: 'primary 에서 readConcern majority 읽기가 과반 전 쓰기를 만나면?',
+    a: '기다리지 않고 committed snapshot 의 옛 값을 준다',
+    x: ['과반이 확인할 때까지 기다린다', '새 값을 주고 operationTime 을 올린다', 'ReadConcernMajorityNotAvailableYet 오류를 낸다'],
+  },
+  '13/9': {
+    q: '인과 일관 세션이 secondary 에서 majority 로 읽을 때 기다리는 것은?',
+    a: '그 노드의 committed snapshot 이 내 쓰기 시각에 닿기',
+    x: ['primary 가 그 읽기를 대신 처리하기', 'secondary 의 batch 가 끝나기만 — commit point 는 안 본다', '기다리지 않는다 — lastApplied 로 바로 읽는다'],
+  },
+  '13/11': {
+    q: 'MongoDB 의 read concern level 이 WiredTiger 에서 바꾸는 것은?',
+    a: '트랜잭션에 줄 read timestamp',
+    x: ['visibility 판정 규칙 그 자체', '읽을 노드와 그 노드의 락', '읽은 뒤 기다릴 replication 단계'],
   },
 };
