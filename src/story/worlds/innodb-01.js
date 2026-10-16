@@ -139,9 +139,13 @@ function make({ F, deck, labels, scene }) {
     for (const a of LISTS) t.set(empty[a], ['—', false, '', !s[a].length]);
     for (const l of LN) t.set(laneLb[l.id], [`${l.lb}  ·  ${l.note}`, false]);
     EDG.forEach((e, i) => t.set(edgeLb[i], [e.lb, false, (s.step.hot || (s.step.act && s.step.act.hot)) === e.hot ? 'gold' : '']));
+    /* 같은 LSN 에 선 flushed 와 checkpoint 는 이름표 하나로 — 둘째 줄의 checkpoint 가 오른쪽 끝(4,912)으로 가면
+       1280×720 에서 아래의 소스 표기와 겹쳤다(01 의 23~25 스텝) */
+    const same = lsn(s.redo['Log flushed up to']) != null && lsn(s.redo['Log flushed up to']) === lsn(s.redo['Last checkpoint at']);
     for (const [p, [a, k, nm]] of Object.entries(PTRK)) {
       const v = a === 'lb' ? s.lb[k] : s.redo[k], n = lsn(v);
-      t.set(ptrLb[p], [`${nm}  ${n == null ? '—' : bare(v)}`, on(a), tone(v)]);
+      if (same && p === 'ckpt') { t.set(ptrLb[p], ['', on(a), '', false]); continue; }
+      t.set(ptrLb[p], [`${same && p === 'flushed' ? 'flushed · checkpoint' : nm}  ${n == null ? '—' : bare(v)}`, on(a), tone(v)]);
     }
     t.set(lsnLb, ['LSN', on('redo') || on('lb')]);
     return t;

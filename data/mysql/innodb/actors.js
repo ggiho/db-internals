@@ -13,7 +13,7 @@ const ACTORS = {
   fl:   { nm:'FLUSH LIST',       lane:'mem',  kind:'list', w:'w15' },  /* oldest_modification 251px */
   fr:   { nm:'FREE LIST',        lane:'mem',  kind:'list'   },
   /* 목록으로는 그릴 수 없는 구조들 — 인덱스 구간 · 대기 사이클 · B+tree */
-  idx:  { nm:'INDEX  idx_a',     lane:'mem',  kind:'axis', w:'w2' },
+  idx:  { nm:'PRIMARY KEY  (a)',  lane:'mem',  kind:'axis', w:'w2' },  /* 07 · 08 — a 가 PK 라야 등호는 레코드 락, 범위 끝은 gap 만이다 */
   wait: { nm:'WAIT-FOR',         lane:'mem',  kind:'graph', w:'w15' },
   tree: { nm:'B+TREE',           lane:'mem',  kind:'tree', w:'w2' },
   mdl:  { nm:'MDL QUEUE',        lane:'sql',  kind:'list', w:'w15' },
