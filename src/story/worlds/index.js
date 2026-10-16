@@ -16,6 +16,8 @@ const pgWal = { id: 'pg-wal', load: () => import('./pg-wal.js') };
 const pgLocks = { id: 'pg-locks', load: () => import('./pg-locks.js') };
 const pgBuffer = { id: 'pg-buffer', load: () => import('./pg-buffer.js') };
 const innodbMvcc = { id: 'innodb-mvcc', load: () => import('./innodb-mvcc.js') };
+const innodbLru = { id: 'innodb-lru', load: () => import('./innodb-lru.js') };
+const innodbLsn = { id: 'innodb-lsn', load: () => import('./innodb-lsn.js') };
 const loadStage = () => import('./stage.js');
 
 export const BESPOKE = {
@@ -23,7 +25,7 @@ export const BESPOKE = {
   'postgres/buffer': { '01': pgBuf01, ...Object.fromEntries(['02', '03', '04', '05', '06'].map((n) => [n, pgBuffer])) },
   'aurora/mysql': { '05': aurora05 },
   'mongodb/wiredtiger': { '01': wt01 },
-  'mysql/innodb': { '01': innodb01, '02': innodbMvcc },
+  'mysql/innodb': { '01': innodb01, '02': innodbMvcc, '03': innodbLsn, '04': innodbLsn, '05': innodbLru, '05v': innodbLru, '06': innodbLru },
   'postgres/btree': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07'].map((n) => [n, pgBtree])),
   'postgres/locks': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07', '08'].map((n) => [n, pgLocks])),
   'postgres/wal': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07', '08'].map((n) => [n, pgWal])),

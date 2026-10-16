@@ -894,7 +894,9 @@ const SCENES = [
     dw:{ items:[] },
     ibd:{ items:[{ id:'…', tag:'clean', sub:'디스크는 최신' }] },
     redo:{ kv:{ 'Last checkpoint at':'6,000', 'Log sequence number':'6,000', 'checkpoint age':'0' },
-           gg:{ v:.0, l:'checkpoint age', r:'0%' } },
+           /* cap · marks 는 세계가 읽는다 — 그림의 LSN 단위로 잰 redo 용량(위 실측의 100 MiB)과 그 비율의 문턱들 */
+           gg:{ v:.0, l:'checkpoint age', r:'0%', cap:3740,
+                marks:[[0.1,'adaptive 10%'],[0.775,'async 7/8'],[0.831,'sync 15/16'],[0.833,'쓰기 멈춤']] } },
   },
   knobs:[
     ['innodb_redo_log_capacity','100 MB','redo 용량. 작으면 checkpoint 나이가 금방 한계에 닿는다'],
@@ -1255,6 +1257,7 @@ const SCENES = [
           'UT_LIST_REMOVE(buf_pool->free, &block->page);'],
     ops:{ bp:{ add:[{ id:'p:77', tag:'dirty', sub:'old 진입 · 곧바로 고쳐 dirty' }], move:[['p:77',2]] },
           fl:{ add:[{ id:'p:77', tag:'dirty', sub:'oldest_modification 8,610' }] },
+          ibd:{ set:{ 'p:77':{ sub:'buffer pool 로 읽힘 · 옛 값' } } },
           fr:{ del:['free'] },
           ses:{ set:{ '하려는 일':'p:78 읽기', 'free 요청':'—' } } } },
 
