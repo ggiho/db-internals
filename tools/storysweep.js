@@ -73,6 +73,8 @@ const BREAKS = {
   'label-grain': { css: '.st-labels > .wl{font-size:60px !important}' },
   /* act 이름표를 글 위로 띄운다 — 서는 자리에서는 이미 사라져 있어 다른 검사는 못 본다 */
   flight: { css: '.st-labels .stn-tok{margin-left:-60vw !important}' },
+  /* 보이는 이름표 하나의 끝에 색 표시를 글자로 붙인다 — locks 03 에서 실제로 있었던 모습 */
+  'tone-raw': { js: true },
 };
 if (BREAK && !BREAKS[BREAK]) { console.error('모르는 --break : ' + BREAK + '  (' + Object.keys(BREAKS).join(' · ') + ')'); process.exit(2); }
 
@@ -292,6 +294,14 @@ function measure() {
       prev = r;
     }
   }
+  /* 색 표시가 글자로 남았는가 — 값 끝의 '|red' 는 색으로 바꾸고 떼어야 한다. 세계의 칸 설명(capOf)은 그것을 하지 않아
+     locks 03 의 'LOCK_X · … 풀렸다|red' 가 글자 그대로 찍혔는데, 글자는 제자리에 있으니 다른 검사는 모두 통과했다 */
+  const tw2 = document.createTreeWalker(document.querySelector('.st'), NodeFilter.SHOW_TEXT);
+  for (let tn = tw2.nextNode(); tn; tn = tw2.nextNode()) {
+    const el = tn.parentElement, m = /\|(red|gold|green)\b/.exec(tn.data);
+    if (!m || !el.closest('.st-labels, .st-copy, .st-top') || el.closest('.stn-measure') || vis(el) < 0.3) continue;
+    P.push(['tone-raw', `${nm(el)} … "${tn.data.slice(Math.max(0, m.index - 12), m.index + m[0].length)}"`]); break;
+  }
   /* 알갱이 목표 — 밝은 것(ta ≥ .3)이 화면 밖이거나 글 위에 있으면 */
   const F = window.__story.F;
   let total = 0, out = 0, onCopy = 0;
@@ -404,6 +414,14 @@ async function runSize(browser, [w, h]) {
           p.normalize();
           [...p.childNodes].forEach((n) => { if (n.nodeType === 3 && !n.data.trim()) n.remove(); });
         });
+      };
+    });
+    if (BREAK === 'tone-raw') await page.evaluate(() => {
+      const W = window.__story.world, paint = W.paint;
+      W.paint = (...a) => {
+        paint(...a);
+        const e = [...document.querySelectorAll('.st-labels > .wl')].find((x) => parseFloat(x.style.opacity || '1') > 0.5 && x.textContent.trim());
+        if (e && !/\|red$/.test(e.textContent)) e.append('|red');
       };
     });
     if (BREAK === 'hold-still') await page.evaluate(() => {

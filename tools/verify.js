@@ -577,8 +577,12 @@ function overlap(a, b) {
   const src = fs.readFileSync(path.join(ROOT, 'data', DECK, 'scenes.js'), 'utf8');
   let at = 0, n = 0;
   while ((at = src.indexOf('ops:{', at)) >= 0) {
+    /* 따옴표 안은 건너뛴다 — 라벨 '(100,200]' 의 ] 를 괄호로 세면 깊이가 어긋나
+       서로 다른 배우의 set 두 개를 같은 깊이로 보고 중복이라 했다(오탐). */
+    const skipStr = (t, k) => { if (t[k] !== "'") return k; for (k++; k < t.length && t[k] !== "'"; k++) if (t[k] === '\\') k++; return k; };
     let d = 0, i = at + 4, end = -1;
     for (; i < src.length; i++) {
+      i = skipStr(src, i);
       if (src[i] === '{') d++;
       else if (src[i] === '}') { d--; if (!d) { end = i; break; } }
     }
@@ -587,6 +591,7 @@ function overlap(a, b) {
     /* 깊이 1 의 키만 센다 */
     const seen = {}; let dd = 0;
     for (let j = 0; j < body.length; j++) {
+      j = skipStr(body, j);
       const ch = body[j];
       if (ch === '{' || ch === '[') dd++;
       else if (ch === '}' || ch === ']') dd--;
