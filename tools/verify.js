@@ -588,24 +588,33 @@ function overlap(a, b) {
     }
     if (end < 0) break;
     const body = src.slice(at + 5, end);
-    /* 깊이 1 의 키만 센다 */
-    const seen = {}; let dd = 0;
+    /* 모든 깊이의 객체마다 키를 센다 — 배우 키만 세던 때는 bt:{ del:[…], …, del:[…] } 처럼
+       한 배우 안의 연산이 두 번 나온 것을 못 봤다(book/ch3 09/4 : 앞의 del 이 사라져
+       reorganize 뒤에도 지운 칸이 무대에 남았다). 따옴표 키('leaf R':)도 센다. */
+    const stack = [{ seen: {}, at: 'ops' }]; let lastKey = null;
+    const record = (k) => {
+      const top = stack[stack.length - 1];
+      if (!top) return;
+      top.seen[k] = (top.seen[k] || 0) + 1; lastKey = k;
+      if (top.seen[k] === 2) { err('ops 안의 ' + top.at + ' 에 키 "' + k +
+        '" 가 두 번 나온다 — 뒤가 앞을 덮어 연산이 조용히 사라진다 (원문 위치 ' + at + ')'); n++; }
+    };
+    const prevOk = (j) => { let k = j - 1; while (k >= 0 && /\s/.test(body[k])) k--; return k < 0 || body[k] === '{' || body[k] === ','; };
     for (let j = 0; j < body.length; j++) {
-      j = skipStr(body, j);
       const ch = body[j];
-      if (ch === '{' || ch === '[') dd++;
-      else if (ch === '}' || ch === ']') dd--;
-      else if (dd === 0) {
-        const m = /^(\w+)\s*:/.exec(body.slice(j));
-        if (m && (j === 0 || /[\s,]/.test(body[j - 1]))) {
-          seen[m[1]] = (seen[m[1]] || 0) + 1;
-          j += m[0].length - 1;
-        }
+      if (ch === "'") {
+        const m = /^'((?:[^'\\]|\\.)*)'\s*:/.exec(body.slice(j, j + 300));
+        if (m && stack[stack.length - 1] && prevOk(j)) record(m[1]);
+        j = skipStr(body, j); continue;
+      }
+      if (ch === '{') { stack.push({ seen: {}, at: lastKey ? (stack[stack.length - 1] ? stack[stack.length - 1].at + '.' : '') + lastKey : '{}' }); lastKey = null; }
+      else if (ch === '[') { stack.push(null); lastKey = null; }
+      else if (ch === '}' || ch === ']') { stack.pop(); lastKey = null; }
+      else if (stack[stack.length - 1] && /[A-Za-z_$]/.test(ch) && prevOk(j)) {
+        const m = /^([A-Za-z_$][\w$]*)\s*:/.exec(body.slice(j, j + 80));
+        if (m) { record(m[1]); j += m[0].length - 1; }
       }
     }
-    for (const [k, cnt] of Object.entries(seen))
-      if (cnt > 1) { err('ops 안에 배우 키 "' + k + '" 가 ' + cnt +
-        '번 나온다 — 뒤가 앞을 덮어 연산이 조용히 사라진다 (원문 위치 ' + at + ')'); n++; }
     at = end;
   }
 }
