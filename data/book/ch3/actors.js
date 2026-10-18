@@ -27,6 +27,9 @@ const ACTORS = {
   rhd:  { nm:'원점 앞  ·  extra 5B',  lane:'val',  kind:'bytes', w:'w2' },
   rdat: { nm:'원점 뒤  ·  데이터',      lane:'val',  kind:'bytes', w:'w2' },
   bit5: { nm:'5바이트 안의 다섯 값',    lane:'val',  kind:'list', w:'w2' },
+  /* 02a 실측 — 같은 행의 원점 앞 바이트를 두 형식으로 나란히 */
+  rdx:  { nm:'REDUNDANT  ·  원점 앞',  lane:'val',  kind:'bytes', w:'w2' },
+  cdx:  { nm:'COMPACT  ·  원점 앞',    lane:'val',  kind:'bytes', w:'w2' },
   /* 04c 실측 — page 0 의 FSP header(칸 · 목록) · extent 표, page 2 의 inode */
   fsA:  { nm:'FSP header  ·  칸',        lane:'file', kind:'kv', w:'w15' },
   fsL:  { nm:'FSP header  ·  목록',      lane:'file', kind:'kv', w:'w15' },
