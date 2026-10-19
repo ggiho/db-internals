@@ -6,7 +6,9 @@ import { STORY } from '../has.js';
 const ch301 = { id: 'ch3-01', load: () => import('./ch3-01.js') };
 const ch306b = { id: 'ch3-06b', load: () => import('./ch3-06b.js') };
 const pgBuf01 = { id: 'pg-buffer-01', load: () => import('./pg-buffer-01.js') };
-const aurora05 = { id: 'aurora-05', load: () => import('./aurora-05.js') };
+/* aurora 는 덱 하나를 aurora.js 가 맡는다(05 quorum 은 그 안에서 aurora-05 를 부른다). 짝 장면이 없으므로 id 는 장면마다 —
+   같은 id 를 쓰면 스텝 수가 같은 두 장면(03 · 06, 05 · 07) 사이를 메뉴로 옮길 때 세계를 다시 만들지 않는다 */
+const auroraDeck = (n) => ({ id: 'aurora:' + n, load: () => import('./aurora.js') });
 const wt01 = { id: 'wt-01', load: () => import('./wt-01.js') };
 const innodb01 = { id: 'innodb-01', load: () => import('./innodb-01.js') };
 const pgBtree = { id: 'pg-btree', load: () => import('./pg-btree.js') };
@@ -21,15 +23,16 @@ const innodbLsn = { id: 'innodb-lsn', load: () => import('./innodb-lsn.js') };
 const innodbLock = { id: 'innodb-lock', load: () => import('./innodb-lock.js') };
 const innodbTree = { id: 'innodb-tree', load: () => import('./innodb-tree.js') };
 const innodbMdl = { id: 'innodb-mdl', load: () => import('./innodb-mdl.js') };
+const innodbMx = (n) => ({ id: 'innodb-mx:' + n, load: () => import('./innodb-mx.js') });
 const loadStage = () => import('./stage.js');
 
 export const BESPOKE = {
   'book/ch3': { '01': ch301, '01v': ch301, '06b': ch306b },
   'postgres/buffer': { '01': pgBuf01, ...Object.fromEntries(['02', '03', '04', '05', '06'].map((n) => [n, pgBuffer])) },
-  'aurora/mysql': { '05': aurora05 },
+  'aurora/mysql': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07'].map((n) => [n, auroraDeck(n)])),
   'mongodb/wiredtiger': { '01': wt01 },
   'mysql/innodb': { '01': innodb01, '02': innodbMvcc, '03': innodbLsn, '04': innodbLsn, '05': innodbLru, '05v': innodbLru, '06': innodbLru, '07': innodbLock, '08': innodbLock, '09': innodbMdl, '10': innodbTree },
-  'mysql/locks': { ...Object.fromEntries(['01', '02', '02v', '03', '05', '06', '06v', '07', '08', '09', '12'].map((n) => [n, innodbLock])), '11': innodbMdl },
+  'mysql/locks': { ...Object.fromEntries(['01', '02', '02v', '03', '05', '06', '06v', '07', '08', '09', '12'].map((n) => [n, innodbLock])), '04': innodbMx('04'), '10': innodbMx('10'), '11': innodbMdl },
   'postgres/btree': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07'].map((n) => [n, pgBtree])),
   'postgres/locks': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07', '08'].map((n) => [n, pgLocks])),
   'postgres/wal': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07', '08'].map((n) => [n, pgWal])),
