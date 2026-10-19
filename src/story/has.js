@@ -2,7 +2,8 @@
    Lab 머리글이 STORY 링크를 낼지 정할 때 쓴다. 세계를 늘리면 여기와 worlds/index.js 에 함께 적는다.
    first 는 장면 없이 들어온 주소(#book/ch3 · 빈 주소)가 열 장면이다 — Lab 이 같은 경우 첫 장면을 연다. */
 /* first 는 그 덱의 첫 장면이다. 숨은 짝 장면(05v · 02v · 03v)도 적는다.
-   ch3 의 01 · 01v · 06b 는 전용 세계, 나머지는 범용 무대(worlds/stage.js — 배우 종류 여덟 가지를 그린다)다.
+   어느 장면이 어느 세계를 쓰는지는 worlds/index.js 의 BESPOKE 가 정한다 — 거기 없는 장면은 범용 무대
+   (worlds/stage.js — 배우 종류 여덟 가지를 그린다)다.
    목록은 덱의 장면 순서대로 뽑아 적었다(2026-10-13, 98 장면 전부). storysweep.js 가 시작할 때 무대 장면이
    정말 그 조건에 맞는지 먼저 본다 */
 export const STORY = {
