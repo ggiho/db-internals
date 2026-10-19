@@ -15,6 +15,9 @@ const GONE6 = heapN(6) - 2 - H(6).PAGE_N_RECS;           /* p:6 에서 지워진
 const GONE5 = heapN(5) - 2 - H(5).PAGE_N_RECS;
 const MOVED7 = H(7).PAGE_N_RECS - (H(7).PAGE_N_DIRECTION + 1);  /* split 으로 p:7 이 받은 수 */
 const LEAVES = [6, 7, 8, 9, 10, 11, 12, 13, 14];
+/* 11 의 page 5 — 04 가 LSN 19,514,629 를 읽는 t.ibd 의 p:5 다. 머리 checksum 은 그 dump 의 앞 4 B, trailer 뒤 4 B 는
+   헤더 LSN(16 – 23)의 하위 4 B 와 같아야 한다(11/3 의 torn write 규칙). 꼬리 앞 4 B 는 crc32 가 같은 값을 다시 쓴다 */
+const CK5 = '0x' + DUMP[5].hex.slice(0, 8).toUpperCase(), LO5 = '0x' + DUMP[5].hex.slice(40, 48).toUpperCase();
 /* 다음 record 를 받을지 — page_get_max_insert_size_after_reorganize 의 식을 그대로 따른다 */
 const EMPTY = 16384 - SUP_END - 8 - 2 * 2;                        /* page_get_free_space_of_empty */
 const resv = (n) => Math.floor((2 * n + 4 - 1) / 4);              /* page_dir_calc_reserved_space */
@@ -29,7 +32,9 @@ const PH = ['N_DIR_SLOTS', 'HEAP_TOP', 'N_HEAP', 'FREE', 'GARBAGE', 'LAST_INSERT
   'N_DIRECTION', 'N_RECS', 'MAX_TRX_ID', 'LEVEL', 'INDEX_ID', 'SEG_LEAF', 'SEG_TOP'];
 const OFF = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 26, 28, 36, 46];
 /* Story 의 06b 세계가 같은 식으로 page 위의 경계를 그린다 — 식을 두 곳에 두면 서로 어긋날 수 있으므로 여기서 내보낸다 */
-export const MEASURED = { DUMP, M, SUP_END, RS, GONE6, GONE5, MOVED7, LEAVES, EMPTY, resv, MAXSZ, RESERVE, DIRN, PH, OFF, ROLE, heapN };
+export const MEASURED = { DUMP, M, SUP_END, RS, GONE6, GONE5, MOVED7, LEAVES, EMPTY, resv, MAXSZ, RESERVE, DIRN, PH, OFF, ROLE, heapN,
+  /* 3장의 다른 장면 세계(ch3-page)가 04c 의 page 0 · 2 를 바이트 그대로 그린다 */
+  SPACE: SPACEDUMP };
 /* 열네 칸을 한 배우에 담으면 무대가 좁아진다(verify 는 8 개를 넘으면 경고한다). 06a 처럼 뜻으로 나눈다 —
    공간(+0 ~ +8) · 삽입 이력과 개수(+10 ~ +16) · trx · tree · segment(+18 ~ +46). 셋 다 맨 위에 어느 page 인지 적는다
    — 한 스텝에 한 덩어리만 보일 때도 무슨 page 의 값인지 알아야 한다. */
@@ -1486,6 +1491,8 @@ const SCENES = [
     cite:['Store variable-size records with a minimal overhead',
           'Reference records in the page without regard to their exact locations'],
     ops:{ cells:{ set:{ '셀 1  k=30':{ id:'셀 1  k="Leslie"', tag:'ok', sub:'길이가 달라도 무관' } } },
+          /* 그 셀을 가리키는 슬롯도 같은 키를 적는다 — k=30 으로 남아 셀과 어긋났다(ch3-page 세계의 셈 맞추기) */
+          dir:{ set:{ '슬롯 3 → 셀 1':{ sub:'k="Leslie"' } } },
           op:{ set:{ '가변 길이':'가능 · 슬롯이 오프셋을 안다|green' } } } },
 
   { look:{ dir:true },
@@ -1736,6 +1743,10 @@ const SCENES = [
     why:'0 FIL 헤더 38 · 38 페이지 헤더 36 · 74 FSEG 20 · 94 데이터 · 99 infimum · 112 supremum · 끝−8 부터 디렉터리 역방향 · 끝 8바이트 trailer.',
     key:'전부 <em>상수 덧셈</em>이다. 어떤 페이지를 열어도 계산 없이 자리를 안다 — 그것이 고정 오프셋 설계가 사는 이유다.',
     ref:'storage/innobase/page/page.ic', sym:'page_header_get_field',
+    fact:[['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_DATA = 38;'],
+          ['storage/innobase/include/page0types.h','constexpr uint32_t PAGE_DATA = PAGE_HEADER + 36 + 2 * FSEG_HEADER_SIZE;'],
+          ['storage/innobase/include/page0types.h','#define PAGE_NEW_SUPREMUM (PAGE_DATA + 2 * REC_N_NEW_EXTRA_BYTES + 8)'],
+          ['storage/innobase/include/page0page.h','constexpr uint32_t PAGE_DIR = FIL_PAGE_DATA_END;']],
     beat:1,
     ops:{ addr:{ set:{ '디렉터리 시작':'16384 − 8 − 2(n+1)  ·  역방향|green' } } } },
   ],
@@ -1916,6 +1927,8 @@ const SCENES = [
     why:'얼마나 찼나(HEAP_TOP · N_DIR_SLOTS) · 지운 것이 얼마나 갇혔나(FREE · GARBAGE) · 어떻게 채워졌나(DIRECTION · N_DIRECTION) · 몇 개인가(N_RECS · N_HEAP) · 최근에 누가 고쳤나(MAX_TRX_ID) · 어디에 속하나(LEVEL · INDEX_ID) · 새 page 는 어디서 오나(FSEG).',
     key:'I_S.INNODB_BUFFER_PAGE 의 NUMBER_RECORDS · DATA_SIZE 가 <em>이 칸들을 그대로 계산한 값</em>이다 — 이번 측정에서 INDEX page 11 장 모두 헤더로 계산한 값과 일치했다. 운영 중인 서버라면 그 표가 이 장면의 표다.',
     ref:'storage/innobase/handler/i_s.cc', sym:'i_s_innodb_set_page_type',
+    fact:['page_info->data_size = (ulint)(page_header_get_field(page, PAGE_HEAP_TOP) - (page_is_comp(page) ? PAGE_NEW_SUPREMUM_END : PAGE_OLD_SUPREMUM_END) - page_header_get_field(page, PAGE_GARBAGE));',
+          'page_info->num_recs = page_get_n_recs(page);'],
     ops:{ ...phOps(8),
           ...op('pgs', pgsOf((f, no) => (M.bufpage[no] ? `I_S  recs ${M.bufpage[no].recs}  ·  data ${M.bufpage[no].data} B` : 'SDI — I_S 대조 밖'))),
           addr:{ set:{ '식':'DATA_SIZE = HEAP_TOP − 120 − GARBAGE', '실측':'11 장', '판정':'전부 일치|green' } } } },
@@ -2054,8 +2067,9 @@ const SCENES = [
 
   /* 행 형식을 REDUNDANT 로 내리면 이 장면의 바이트가 실제로 달라진다 — extra 가 5 에서
      6 으로 늘고, status 3비트가 없어지고, 널 비트맵 자체가 없다. NULL 은 별도 비트맵이
-     아니라 필드 오프셋의 최상위 비트로 표시된다. 1·3·5 스텝(원점, info bits 네 비트,
-     숨은 컬럼)은 두 형식에서 같으므로 물려받는다. */
+     아니라 필드 오프셋의 최상위 비트로 표시된다. 1·3 스텝(원점, info bits 네 비트)은 두 형식에서
+     같으므로 물려받는다. 5 스텝(숨은 컬럼 13 B)은 글이 같지만 extra 가 6 이라 합이 19 B 다 —
+     물려받았을 때 REDUNDANT 에서도 '5 + 13 = 18 B' 로 남았다(ch3-page 세계의 셈 맞추기). */
   vary:{ knob:'innodb_default_row_format', base:'dynamic', alt:{
     'redundant':{
       2:{ note:'6 byte — 담는 것도 다르다', act:{ f:'rhd', t:'bit5', lb:'6바이트를 풀어본다' },
@@ -2081,6 +2095,10 @@ const SCENES = [
           ops:{ bit5:{ set:{ 'n_fields':{ tag:'x', sub:'10비트 · 이 레코드의 필드 수' } } },
                 rhd:{ set:{ '◆':{ id:'◆', sz:1, tag:'hdr', sub:'원점 · status 없음' } } } } },
 
+      5:{ ops:{ rdat:{ set:{ 'DB_TRX_ID':{ id:'DB_TRX_ID', sz:6, tag:'gold', sub:'6 B · 누가 바꿨나' },
+                             'DB_ROLL_PTR':{ id:'DB_ROLL_PTR', sz:7, tag:'gold', sub:'7 B · 이전 버전 위치' } } },
+                op:{ set:{ 'extra 바이트':'6 + 숨은 컬럼 13 = 19 B|red' } } } },
+
       6:{ note:'null bitmap 없음 — NULL 은 offset 안의 bit 하나', act:{ f:'rhd', t:'op', lb:'원점 앞의 필드 오프셋' },
           why:'REDUNDANT 는 필드마다 끝 오프셋을 적고, 그 오프셋의 최상위 비트를 SQL NULL 표시로 쓴다. 1바이트 오프셋이면 0x80, 2바이트면 0x8000 이다. 주석이 그렇게 적는다.',
           key:'그래서 nullable 컬럼이 많아도 <em>비트맵이 커지지 않는다</em> — 대신 모든 필드가 오프셋 값을 하나씩 갖는다. COMPACT 은 반대로 거래했다 : 오프셋은 가변 길이 필드만, NULL 은 비트맵으로.',
@@ -2099,6 +2117,8 @@ const SCENES = [
           why:'컬럼도 값도 같은데 extra 는 5 에서 6 으로, 널 표시는 비트맵에서 오프셋의 비트로, 필드 수는 인덱스 정의에서 레코드 안으로 옮겨갔다.',
           key:'그래서 행 형식은 <em>한번 정하면 그 테이블에 박힌다</em>. 옛 형식을 계속 읽을 수 있어야 하므로 InnoDB 는 두 해석 경로를 영구히 들고 간다 — 10 장면이 그 이야기다.',
           ref:'storage/innobase/rem/rec.h', sym:'REC_N_OLD_EXTRA_BYTES',
+          fact:['constexpr uint32_t REC_N_OLD_EXTRA_BYTES = 6;',
+                'constexpr uint32_t REC_1BYTE_SQL_NULL_MASK = 0x80UL;'],
           beat:1,
           ops:{ op:{ set:{ '원점 기준':'헤더 ← 원점 → 데이터  ·  완결|green' } } } },
     },
@@ -2183,6 +2203,9 @@ const SCENES = [
     why:'슬롯 2바이트가 원점 오프셋을 담고, 원점 앞 5바이트에 다섯 값이 겹쳐 있고, 그 앞에 가변 길이 정보가, 뒤에 숨은 컬럼과 값이 있다.',
     key:'페이지에서 레코드까지 <em>한 줄로 내려왔다</em> — 파일(04) → FIL 헤더(04a) → 페이지 헤더(06a) → 슬롯(06) → 이 레코드. 아래로 더 가면 컬럼 하나의 바이트 순서(01)다.',
     ref:'storage/innobase/rem/rec.cc', sym:'rec_get_offsets',
+    fact:[['storage/innobase/include/page0page.ic','mach_write_to_2(slot, page_offset(rec));'],
+          ['storage/innobase/rem/rec.h','constexpr int32_t REC_N_NEW_EXTRA_BYTES = 5;'],
+          ['storage/innobase/rem/rec.h','*lens = *nulls - UT_BITS_IN_BYTES(*n_null);']],
     beat:1,
     ops:{ op:{ set:{ '원점 기준':'헤더 ← 원점 → 데이터  ·  완결|green' } } } },
   ],
@@ -2383,7 +2406,7 @@ const SCENES = [
           dir:{ del:['slot 1 → 112'],
                 add:[{ id:'slot 1 → 가운데', tag:'ok', sub:'n_owned 4 · split 이 세운 슬롯' },
                      { id:'slot 2 → 112', tag:'hold', sub:'n_owned 6 · 한 칸 밀린 supremum 슬롯' }] },
-          hdr:{ set:{ 'N_DIR_SLOTS':'3|gold' } },
+          hdr:{ set:{ 'N_HEAP':'11', 'N_DIR_SLOTS':'3|gold' } },
           op:{ set:{ '넣은 순서':'Tom · Leslie · Ron + 여섯', '쓴 칸':'next 둘씩 + split 한 번' } } } },
 
   { look:{ cells:['Leslie · 148'], op:true },
@@ -2763,7 +2786,7 @@ const SCENES = [
           fact:['mach_write_to_8(page + UNIV_PAGE_SIZE - FIL_PAGE_END_LSN_OLD_CHKSUM, newest_lsn);',
                 'mach_write_to_4(page + UNIV_PAGE_SIZE - FIL_PAGE_END_LSN_OLD_CHKSUM, checksum);'],
           beat:1,
-          ops:{ sum:{ set:{ '꼬리 (trailer 앞 4 B)':'0xDEADBEEF|red', 'LSN 하위 (뒤 4 B)':'0x00001330|gold',
+          ops:{ sum:{ set:{ '꼬리 (trailer 앞 4 B)':'0xDEADBEEF|red', 'LSN 하위 (뒤 4 B)':`${LO5}|gold`,
                             '판정':'checksum 으로는 판정하지 않음|red' } },
                 pg:{ set:{ '8B':{ sub:'0xDEADBEEF + LSN 하위' } } } } },
 
@@ -2848,7 +2871,7 @@ const SCENES = [
           ['storage/innobase/include/fil0types.h',"versions the 'new' checksum of the page"],
           ['storage/innobase/handler/ha_innodb.cc','nullptr, nullptr, SRV_CHECKSUM_ALGORITHM_CRC32, &innodb_checksum_algorithm_typelib);']],
     cite:['Before writing the data on disk, we compute its checksum and write it together with the data'],
-    ops:{ sum:{ set:{ '머리 (오프셋 0)':'0x9F2C41AB|gold' } },
+    ops:{ sum:{ set:{ '머리 (오프셋 0)':`${CK5}|gold` } },
           op:{ set:{ '결과':'계산 완료' } } } },
 
   { act:{ f:'pg', t:'sum', lb:'꼬리에도 같은 값을' },
@@ -2860,7 +2883,7 @@ const SCENES = [
           'mach_write_to_4(page + UNIV_PAGE_SIZE - FIL_PAGE_END_LSN_OLD_CHKSUM, checksum);',
           'If CRC32 is used then it is faster to use that checksum'],
     beat:1,
-    ops:{ sum:{ set:{ '꼬리 (trailer 앞 4 B)':'0x9F2C41AB|gold', 'LSN 하위 (뒤 4 B)':'0x00001330|gold', '판정':'머리 = 꼬리|green' } },
+    ops:{ sum:{ set:{ '꼬리 (trailer 앞 4 B)':`${CK5}|gold`, 'LSN 하위 (뒤 4 B)':`${LO5}|gold`, '판정':'머리 = 꼬리|green' } },
           pg:{ set:{ '8B':{ sub:'checksum + LSN 하위' } } } } },
 
   { act:{ f:'file', t:'sum', lb:'읽을 때 다시 계산해 비교' },
