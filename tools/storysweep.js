@@ -494,9 +494,10 @@ async function runSize(browser, [w, h]) {
         window.__story.goStep(kk, false);
         const F = window.__story.F, read = () => ({ ta: Array.from(F.ta, (x) => Math.round(x * 20)), tx: Array.from(F.tx, Math.round), ty: Array.from(F.ty, Math.round) });
         const same = (a, b) => a.ta.every((x, i) => x === b.ta[i] && a.tx[i] === b.tx[i] && a.ty[i] === b.ty[i]);
+        const texts = () => [...document.querySelectorAll('.st-labels *')].filter((e) => !e.children.length && e.textContent.trim() && getComputedStyle(e).opacity !== '0').map((e) => e.textContent.trim());
         let prev = read();
-        for (let t = 0; t < 12; t++) { await new Promise((r) => setTimeout(r, 250)); const cur = read(); if (same(prev, cur)) return cur; prev = cur; }
-        return prev;
+        for (let t = 0; t < 12; t++) { await new Promise((r) => setTimeout(r, 250)); const cur = read(); if (same(prev, cur)) return { ...cur, texts: texts() }; prev = cur; }
+        return { ...prev, texts: texts(), unsettled: true };
       }, k - 1);
       for (const run of p.variants) {
         const k = run.steps[0], hh = `${p.deck}/${p.num}/${k}/v${encodeURIComponent(run.v)}`, at = `${p.deck}/${p.num}/${k}/v${run.v}`;
@@ -508,23 +509,41 @@ async function runSize(browser, [w, h]) {
         await ready(pg2); await knob(pg2, run.v);
         if (BREAK === 'vary-load') await pg2.evaluate(() => window.__story.world.setVary && window.__story.world.setVary(null));
         const B = await snap(pg2, k);
-        await ctx2.close();
         /* 먼지(불투명도 ≤ 0.045)는 빼고 잰다 — 먼지 자리는 build 마다 난수를 새로 뽑아, 글꼴이 늦게 와 build 를 한 번 더 한 쪽과
            달랐다(고친 빌드에서 locks 07 · wal 04 가 번갈아 2,000 개 남짓 다르다고 나왔다). 0.1 이상(반올림 ×20 ≥ 2)만 */
         /* 세계 전체가 똑같이 밀린 것은 뺀다 — 좁은 화면의 위 끝은 머리글 · 글 높이를 따라 경로마다 2 – 3px 달랐다
            (768 에서 16 곳, 모두 모든 알갱이가 같은 만큼). 찾는 것은 다른 값을 그린 세계다 — 값 · 색 · 일부만 움직인 것 */
-        const med = (a) => { const b = a.slice().sort((x, y) => x - y); return b.length ? b[b.length >> 1] : 0; };
-        const both = [...A.ta.keys()].filter((i) => A.ta[i] >= 2 && B.ta[i] >= 2);
-        const mx = med(both.map((i) => B.tx[i] - A.tx[i])), my = med(both.map((i) => B.ty[i] - A.ty[i]));
-        let diff = 0;
-        for (let i = 0; i < A.ta.length; i++) {
-          if (A.ta[i] < 2 && B.ta[i] < 2) continue;
-          /* 위치는 3px 까지 같다고 본다 — 상자 폭의 반올림으로 2px 남짓 어긋난 것이 innodb 03 · 09 에서 나왔다 */
-          if (A.ta[i] !== B.ta[i] || Math.abs(A.tx[i] + mx - B.tx[i]) > 3 || Math.abs(A.ty[i] + my - B.ty[i]) > 3) diff++;
+        const compare = (A, B) => {
+          const med = (a) => { const b = a.slice().sort((x, y) => x - y); return b.length ? b[b.length >> 1] : 0; };
+          const both = [...A.ta.keys()].filter((i) => A.ta[i] >= 2 && B.ta[i] >= 2);
+          const mx = med(both.map((i) => B.tx[i] - A.tx[i])), my = med(both.map((i) => B.ty[i] - A.ty[i]));
+          /* 위치는 3px 까지 같다고 본다 — 상자 폭의 반올림으로 2px 남짓 어긋난 것이 innodb 03 · 09 에서 나왔다.
+             하나라도 — 같은 상태를 두 번 그리면 목표가 같다(고친 빌드에서 19 값 모두 0). 0.5% 로 두자 innodb 01 의 flushed 바늘
+             24 / 6,400 이 걸리지 않았다 — 값이 바꾸는 알갱이가 그것뿐이었다 */
+          const bad = [];
+          for (let i = 0; i < A.ta.length; i++) {
+            if (A.ta[i] < 2 && B.ta[i] < 2) continue;
+            if (A.ta[i] !== B.ta[i] || Math.abs(A.tx[i] + mx - B.tx[i]) > 3 || Math.abs(A.ty[i] + my - B.ty[i]) > 3) bad.push(i);
+          }
+          return { diff: bad.length, bad, mx, my };
+        };
+        /* 한 번 어긋나면 2초 뒤 두 쪽을 다시 잰다 — 768 innodb 03 · 09 에서 두 번 나고 다시 돌리면 사라졌는데, 33 번의 표적 재현
+           (CPU 6배 느림 · 글꼴 3.5초 지연 · 앞 장면 거치기)과 덱 스윕 세 번에서는 한 번도 안 났다(2026-10-19). 다음에 나면
+           원인을 가를 수 있게 : 다시 재도 남는가(세계가 다른 값을 그렸다) 사라지는가(재는 때가 일렀다), 어디가 · 어떤 글이 달랐나 */
+        let r = compare(A, B), note = '';
+        if (A.ta.length !== B.ta.length || r.diff > 0) {
+          const xs = r.bad.map((i) => A.tx[i]), ys = r.bad.map((i) => A.ty[i]);
+          const onlyA = (A.texts || []).filter((t) => !(B.texts || []).includes(t)).slice(0, 4), onlyB = (B.texts || []).filter((t) => !(A.texts || []).includes(t)).slice(0, 4);
+          note = ` · 범위 x ${Math.min(...xs)}‥${Math.max(...xs)} y ${Math.min(...ys)}‥${Math.max(...ys)} · 밀림 ${r.mx},${r.my}` +
+            (A.unsettled || B.unsettled ? ` · 덜 멈춤 ${A.unsettled ? 'A' : ''}${B.unsettled ? 'B' : ''}` : '') +
+            (onlyA.length || onlyB.length ? ` · 글 A만 ${JSON.stringify(onlyA)} B만 ${JSON.stringify(onlyB)}` : '');
+          await page.waitForTimeout(2000);
+          const A2 = await snap(page, k), B2 = await snap(pg2, k), r2 = compare(A2, B2);
+          note += r2.diff > 0 || A2.ta.length !== B2.ta.length ? ` · 2초 뒤에도 ${r2.diff}` : ' · 2초 뒤 같아짐';
         }
-        /* 하나라도 — 같은 상태를 두 번 그리면 목표가 같다(고친 빌드에서 19 값 모두 0). 0.5% 로 두자 innodb 01 의 flushed 바늘
-           24 / 6,400 이 걸리지 않았다 — 값이 바꾸는 알갱이가 그것뿐이었다 */
-        if (A.ta.length !== B.ta.length || diff > 0) res.problems.push([res.size, at, 'vary-load', `바로 연 주소의 세계가 다르다 — 알갱이 ${diff} / ${A.ta.length}`]);
+        await ctx2.close();
+        const diff = r.diff;
+        if (A.ta.length !== B.ta.length || diff > 0) res.problems.push([res.size, at, 'vary-load', `바로 연 주소의 세계가 다르다 — 알갱이 ${diff} / ${A.ta.length}${note}`]);
       }
     }
   }
