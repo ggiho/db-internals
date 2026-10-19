@@ -69,6 +69,8 @@ const BREAKS = {
   'label-hidden': { css: '.st-labels > .wl{display:none !important}' },
   /* 바로 연 주소의 손잡이 값을 세계가 놓치게 한다(고치기 전의 Story 와 같다) */
   'vary-load': { js: true },
+  /* 옮겨 온 쪽을 다른 스텝에서 재게 한다 — 비교가 정말 다른 세계를 잡는지 */
+  'scene-nav': { js: true },
   /* 이름표의 글을 크게 부풀려 알갱이 덩어리를 덮게 한다 */
   'label-grain': { css: '.st-labels > .wl{font-size:60px !important}' },
   /* act 이름표를 글 위로 띄운다 — 서는 자리에서는 이미 사라져 있어 다른 검사는 못 본다 */
@@ -91,7 +93,13 @@ for (const deck of ONLY) {
     /* 범용 무대 장면은 그 조건(cast 가 전부 kv · list · frames)에 맞아야 한다 — 안 맞으면 세계가 상자를 못 짠다 */
     if (!BESPOKE[deck]?.[num] && !stage.fits(m, sc)) { console.error('STORY 에 적힌 무대 장면이 무대 조건에 안 맞는다 : ' + deck + '/' + num); process.exit(2); }
     const vals = valuesOf(sc).slice(1);
-    plan.push({ deck, num, n: sc.steps.length, variants: vals.map((v) => ({ v, steps: Object.keys(sc.vary.alt[v]).map(Number) })) });
+    /* 같은 세계 id 를 쓰는 바로 앞 장면 — 짝(pair)은 일부러 같은 장에서 날아가므로 뺀다 */
+    const prev = plan.length && plan[plan.length - 1].deck === deck ? plan[plan.length - 1].num : null;
+    const wid = (x) => BESPOKE[deck]?.[x]?.id;
+    const ps = prev && m.SCENES.find((s2) => s2.num === prev);
+    const paired = ps && (ps.pair === num || sc.pair === prev);
+    const navFrom = prev && wid(prev) && wid(prev) === wid(num) && !paired ? prev : null;
+    plan.push({ deck, num, navFrom, n: sc.steps.length, variants: vals.map((v) => ({ v, steps: Object.keys(sc.vary.alt[v]).map(Number) })) });
   }
 }
 const perSize = plan.reduce((a, p) => a + p.n + p.variants.reduce((b, x) => b + x.steps.length, 0), 0);
@@ -404,7 +412,36 @@ async function runSize(browser, [w, h]) {
   page.on('pageerror', (e) => errs.push(String(e).slice(0, 160)));
   page.on('console', (m) => { if (m.type() === 'error' && !/favicon|Failed to load resource/.test(m.text())) errs.push(m.text().slice(0, 160)); });
   const res = { size: `${w}×${h}`, visits: 0, ok: 0, world: 0, grains: 0, problems: [] };
+  /* 서는 자리의 목표가 멈출 때까지 — vary-load 와 같은 셈 */
+  const settle = (pg, k) => pg.evaluate(async (kk) => {
+    window.__story.goStep(kk, false);
+    const F = window.__story.F, read = () => ({ ta: Array.from(F.ta, (x) => Math.round(x * 20)), tx: Array.from(F.tx, Math.round), ty: Array.from(F.ty, Math.round) });
+    const same = (a, b) => a.ta.every((x, i) => x === b.ta[i] && a.tx[i] === b.tx[i] && a.ty[i] === b.ty[i]);
+    let prev = read();
+    for (let t = 0; t < 12; t++) { await new Promise((r) => setTimeout(r, 250)); const cur = read(); if (same(prev, cur)) return cur; prev = cur; }
+    return prev;
+  }, k);
   for (const p of plan) {
+    /* scene-nav — 메뉴로 장면을 옮기면 해시만 바뀐다. 같은 세계 id 를 쓰는 장면끼리 스텝 수까지 같으면 Story 가 장을 다시 짜지 않아
+       앞 장면의 세계가 남았다(postgres/heap 02 → 03 에서 5,000 중 630 알갱이). 이 스윕은 장면마다 문서를 새로 싣기 때문에
+       한 번도 못 봤다. 앞 장면에서 해시로 옮겨 온 화면과 새로 연 화면을 견준다. 크기와 무관한 결함이라 첫 크기에서만 */
+    if (p.navFrom && `${w}x${h}` === SIZES[0].join('x')) {
+      await page.goto(`${BASE}/?probe&r=nav-${p.deck.replace('/', '-')}-${p.navFrom}-${p.num}#${p.deck}/${p.navFrom}/1`, { waitUntil: 'load' });
+      await page.waitForFunction(() => window.__story && window.__story.tops().length > 1, null, { timeout: 20000 });
+      await page.evaluate((x) => { location.hash = x; }, `${p.deck}/${p.num}/1`);
+      await page.waitForFunction((n) => document.querySelector('.st')?.dataset.scene === n, p.num, { timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(400);
+      const A = await settle(page, BREAK === 'scene-nav' ? Math.min(1, p.n - 1) : 0);
+      await page.goto(`${BASE}/?probe&r=navfresh-${p.deck.replace('/', '-')}-${p.num}#${p.deck}/${p.num}/1`, { waitUntil: 'load' });
+      await page.waitForFunction(() => window.__story && window.__story.tops().length > 1, null, { timeout: 20000 });
+      const B = await settle(page, 0);
+      let diff = 0;
+      for (let i = 0; i < Math.max(A.ta.length, B.ta.length); i++) {
+        if ((A.ta[i] || 0) < 2 && (B.ta[i] || 0) < 2) continue;
+        if (A.ta[i] !== B.ta[i] || Math.abs(A.tx[i] - B.tx[i]) > 3 || Math.abs(A.ty[i] - B.ty[i]) > 3) diff++;
+      }
+      if (A.ta.length !== B.ta.length || diff > 0) res.problems.push([res.size, `${p.deck}/${p.navFrom}→${p.num}/1`, 'scene-nav', `옮겨 온 화면이 새로 연 화면과 다르다 — 알갱이 ${diff} / ${B.ta.length}`]);
+    }
     /* 쿼리를 바꿔 문서를 새로 싣는다 — 해시만 바꾸면 앞 장면의 세계가 남는다 */
     await page.goto(`${BASE}/?probe&r=${w}x${h}-${p.deck.replace('/', '-')}-${p.num}#${p.deck}/${p.num}/1`, { waitUntil: 'load' });
     await page.waitForFunction(() => window.__story && window.__story.tops().length > 1, null, { timeout: 20000 });

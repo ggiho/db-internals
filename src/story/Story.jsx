@@ -167,6 +167,10 @@ export default function Story() {
   sceneRef.current = scene;
   const vRef = useRef(vNow);
   vRef.current = vNow;
+  /* 장을 다시 짤 열쇠 — 장면이 바뀌면 다시 짠다. 같은 세계 id 를 쓰는 장면끼리 스텝 수까지 같으면 아래 효과가 다시 돌지 않아,
+     메뉴로 옮겨 간 화면에 앞 장면의 세계가 남았다(postgres/heap 02 → 03, 5,000 중 630 알갱이 · storysweep scene-nav).
+     짝(01 · 01v)만은 한 열쇠다 — 같은 장에서 알갱이가 날아가게 한 것이다 */
+  const buildKey = pairAB ? pairAB[0].num : num;
 
   /* ── 엔진 : 장 · 세계 · scroll · 글 보이기 · 주소 ── */
   useEffect(() => {
@@ -324,7 +328,7 @@ export default function Story() {
       if (world.dispose) world.dispose();
       if (lbl.current) lbl.current.innerHTML = '';
     };
-  }, [deck, mod, n, ns, skim, fontsOk]);   /* eslint-disable-line react-hooks/exhaustive-deps — 짝을 바꿔도 장은 그대로 */
+  }, [deck, mod, n, ns, skim, fontsOk, buildKey]);   /* eslint-disable-line react-hooks/exhaustive-deps — 짝을 바꿔도 장은 그대로 */
 
   /* 장면 번호가 어떤 길로 바뀌든(짝 버튼 · 뒤로가기 · 주소 고치기) 세계에 알린다 — 같은 세계 안의 짝이면
      장을 다시 만들지 않으므로, 알리지 않으면 세계는 옛 장면의 순서로 그린다(실측 : 주소는 01 인데 AA 가 a+3) */
