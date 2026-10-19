@@ -30,7 +30,7 @@ const SCENES = [
     ops:{ op:{ set:{ '넣는 순서':'4 2 6 1 3 5 7  (섞임)', '트리 높이':'3', '최악 탐색':'3 회|green' } },
           bst:{ del:['—'], add:[
             { id:'4', lvl:0, keys:'root', fill:.5 },
-            { id:'2', lvl:1, keys:'1 · 3', fill:.5 }, { id:'6', lvl:1, keys:'5 · 7', fill:.5 } ] } } },
+            { id:'2', lvl:1, keys:'1 · 3', fill:.5, kids:[1,3] }, { id:'6', lvl:1, keys:'5 · 7', fill:.5, kids:[5,7] } ] } } },
 
   { act:{ f:'op', t:'bst', lb:'이번엔 정렬된 순서로' },
     note:'같은 7개를 오름차순 insert — 한쪽으로만 성장',
@@ -44,7 +44,7 @@ const SCENES = [
             { id:'1', lvl:0, keys:'root', fill:.5 },
             { id:'2', lvl:1, keys:'오른쪽만', fill:.5 },
             { id:'3', lvl:2, keys:'오른쪽만', fill:.5 },
-            { id:'…', lvl:3, keys:'7 까지', fill:.5 } ] } } },
+            { id:'…', lvl:3, keys:'7 까지', fill:.5, upto:7 } ] } } },
 
   { look:{ bst:true, cost:true },
     note:'pathological tree — 같은 데이터, 다른 순서',
@@ -63,7 +63,7 @@ const SCENES = [
           'which means that node child pointers may span across several disk pages'],
     ops:{ bst:{ del:['1','2','3','…'], add:[
             { id:'4', lvl:0, keys:'root', fill:.5 },
-            { id:'2', lvl:1, keys:'1 · 3', fill:.5 }, { id:'6', lvl:1, keys:'5 · 7', fill:.5 } ] },
+            { id:'2', lvl:1, keys:'1 · 3', fill:.5, kids:[1,3] }, { id:'6', lvl:1, keys:'5 · 7', fill:.5, kids:[5,7] } ] },
           op:{ set:{ '트리 높이':'3|green', '최악 탐색':'3 회|green' } } } },
 
   { look:{ cost:true, op:true },
@@ -88,9 +88,9 @@ const SCENES = [
   init:{
     op:{ kv:{ '항목 수':'1,000,000', 'fan-out':'2', '트리 높이':'20' } },
     bst:{ items:[
-      { id:'root', lvl:0, keys:'키 1개', fill:.5 },
-      { id:'…', lvl:1, keys:'키 1개', fill:.5 },
-      { id:'leaf', lvl:2, keys:'키 1개', fill:.5 } ] },
+      { id:'root', lvl:0, keys:'키 1개', fill:.08 },
+      { id:'…', lvl:1, keys:'키 1개', fill:.08, rep:18 },
+      { id:'leaf', lvl:2, keys:'키 1개', fill:.08 } ] },
     cost:{ kv:{ '비교 횟수':'20', '블록 전송':'20' } },
     io:{ kv:{ '시크':'0', '읽은 바이트':'0' } },
     blk:{ items:[
@@ -244,8 +244,8 @@ const SCENES = [
     op:{ kv:{ '매체':'SSD', '최소 전송 단위':'페이지 2 ~ 16KB', '비싼 것':'지우기 · 쓰기 증폭' } },
     ssd:{ kv:{ '순차 읽기':'싸다', '임의 읽기':'거의 같다 · 헤드가 없다', '쓰기':'빈 셀에만 가능' } },
     ftl:{ items:[
-      { id:'블록 A', tag:'hold', sub:'살아있는 페이지 4 · 버려진 5' },
-      { id:'블록 B', tag:'clean', sub:'비었다 · 쓸 수 있다' } ] },
+      { id:'블록 A', tag:'hold', sub:'살아있는 페이지 4 · 버려진 5', live:4, dead:5 },
+      { id:'블록 B', tag:'clean', sub:'비었다 · 쓸 수 있다', live:0, dead:0 } ] },
     io:{ kv:{ '작업':'—', '비용':'—' } },
   },
   cite:[
@@ -279,7 +279,7 @@ const SCENES = [
     beat:1,
     fact:['auto offset = (os_offset_t)page_no * page_size.physical();'],
     cite:['mapping page IDs to their physical locations, tracking empty, written, and discarded pages'],
-    ops:{ ftl:{ set:{ '블록 A':{ tag:'x', sub:'살아있는 3 · 버려진 6' } } } } },
+    ops:{ ftl:{ set:{ '블록 A':{ tag:'x', sub:'살아있는 3 · 버려진 6', live:3, dead:6 } } } } },
 
   { act:{ f:'ftl', t:'ssd', lb:'가비지 컬렉션 : 살아있는 페이지를 옮기고 블록을 지운다' },
     note:'block erase 전 live page 를 relocate — garbage collection',
@@ -288,8 +288,8 @@ const SCENES = [
     beat:1,
     cite:['it relocates live pages from these blocks to new locations and remaps page IDs to point there',
           'its effects may negatively impact write performance, especially in cases of random and unaligned write workloads'],
-    ops:{ ftl:{ set:{ '블록 A':{ tag:'clean', sub:'지워졌다 · 쓸 수 있다' },
-                      '블록 B':{ tag:'hold', sub:'옮겨온 3 페이지' } } },
+    ops:{ ftl:{ set:{ '블록 A':{ tag:'clean', sub:'지워졌다 · 쓸 수 있다', live:0, dead:0 },
+                      '블록 B':{ tag:'hold', sub:'옮겨온 3 페이지', live:3 } } },
           io:{ set:{ '비용':'쓰기 증폭|red' } } } },
 
   { look:{ ssd:true, ftl:true },
@@ -401,7 +401,7 @@ const SCENES = [
     op:{ kv:{ '항목 수':'1,000,000', 'fan-out':'371', '트리 높이':'3' } },
     bst:{ items:[{ id:'—', lvl:0, keys:'비교용', fill:0 }] },
     bt:{ items:[
-      { id:'root', lvl:0, keys:'키 370 · 자식 371', fill:.94 },
+      { id:'root', lvl:0, keys:'키 7 · 자식 8', fill:.02 },
       { id:'internal ×8', lvl:1, keys:'각 키 370', fill:.94 },
       { id:'leaf ×2,700', lvl:2, keys:'각 레코드 370', fill:.94 } ] },
     cost:{ kv:{ '블록 전송':'3', '비교 횟수':'약 20' } },
@@ -493,7 +493,7 @@ const SCENES = [
     op:{ kv:{ '항목 수':'1,000,000', 'fan-out':'2', '트리 높이':'20' } },
     bst:{ items:[
       { id:'root', lvl:0, keys:'키 1 · 자식 2', fill:.08 },
-      { id:'…  18 레벨', lvl:1, keys:'각 키 1', fill:.08 },
+      { id:'…  18 레벨', lvl:1, keys:'각 키 1', fill:.08, rep:18 },
       { id:'leaf ×500,000', lvl:2, keys:'각 키 1', fill:.08 } ] },
     bt:{ items:[{ id:'—', lvl:0, keys:'비교용', fill:0 }] },
     cost:{ kv:{ '블록 전송':'20', '비교 횟수':'20' } },
@@ -1185,7 +1185,7 @@ const SCENES = [
   init:{
     op:{ kv:{ '삽입할 키':'11', '트리 높이':'2', '전파':'—' } },
     bt:{ items:[
-      { id:'root', lvl:0, keys:'| 20 | 40 | 60 |', fill:1 },
+      { id:'root', lvl:0, keys:'| 20 | 40 | 60 |', fill:1, page:4 },
       { id:'leaf', lvl:1, keys:'분할 발생', fill:1 } ] },
     node:{ items:[{ id:'root', tag:'x', sub:'꽉 찼다 · 키 3 / 3' }] },
     cost:{ kv:{ '쓴 블록':'0', '높이 변화':'—' } },
@@ -1483,7 +1483,7 @@ const SCENES = [
     beat:1,
     ops:{ op:{ set:{ '표본':'277 B 행 200K', '삭제':'흩어진 80%', '리프 수':'926', '높이':'2|green' } },
           bt:{ del:['parent','L','R'], add:[
-            { id:'root', lvl:0, keys:'page 4 · 자식 926', fill:.74 },
+            { id:'root', lvl:0, keys:'page 4 · 자식 926', fill:.74, lift:'level 1' },
             { id:'leaf', lvl:1, keys:'926 page', fill:.73 } ] },
           node:{ set:{ 'lift':{ tag:'ok', sub:'80% 삭제 · 높이 3 → 2 · 루트 page 4' } } } } },
 
@@ -1513,8 +1513,8 @@ const SCENES = [
     op:{ kv:{ '삭제할 키':'10', '트리 높이':'3', '전파':'—' } },
     bt:{ items:[
       { id:'root', lvl:0, keys:'| 40 |', fill:.2 },
-      { id:'internal L', lvl:1, keys:'| 10 |', fill:.25 },
-      { id:'internal R', lvl:1, keys:'| 60 |', fill:.25 } ] },
+      { id:'internal L', lvl:1, keys:'| 10 |', fill:.33 },
+      { id:'internal R', lvl:1, keys:'| 60 |', fill:.33 } ] },
     node:{ items:[
       { id:'internal L', tag:'clean', sub:'키 1 / 3' },
       { id:'internal R', tag:'clean', sub:'키 1 / 3' } ] },
@@ -1555,7 +1555,7 @@ const SCENES = [
     fact:['rec_t *orig_pred = page_copy_rec_list_start( merge_block, block, page_get_supremum_rec(page), index, mtr);',
           'btr_node_ptr_delete(index, block, mtr);'],
     cite:['If we combine their elements, they fit into one node, so we can have one node instead of two'],
-    ops:{ bt:{ set:{ 'internal L':{ keys:'| 10 | 40 | 60 |', fill:.75 },
+    ops:{ bt:{ set:{ 'internal L':{ keys:'| 10 | 40 | 60 |', fill:1 },
                      'root':{ keys:'| (키 없음) |', fill:.05 } },
                 del:['internal R'] },
           node:{ del:['internal R'], set:{ 'internal L':{ tag:'ok', sub:'키 3 / 3 · 흡수 완료' } } },
@@ -1582,7 +1582,7 @@ const SCENES = [
     fact:['/* Make the father empty */',
           '/* Go upward to root page, decrementing levels by one. */'],
     cite:['or when two nodes are merged to form a new root'],
-    ops:{ bt:{ set:{ 'root':{ keys:'| 10 | 40 | 60 |', fill:.75 } },
+    ops:{ bt:{ set:{ 'root':{ keys:'| 10 | 40 | 60 |', fill:1 } },
                 del:['internal L'] },
           node:{ del:['internal L'], add:[{ id:'root', tag:'ok', sub:'키 3 / 3 · 높이 2' }] },
           op:{ set:{ '트리 높이':'2|green', '전파':'루트 도달 · 완료' } },

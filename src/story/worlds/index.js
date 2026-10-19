@@ -24,9 +24,11 @@ const innodbLock = { id: 'innodb-lock', load: () => import('./innodb-lock.js') }
 const innodbTree = { id: 'innodb-tree', load: () => import('./innodb-tree.js') };
 const innodbMdl = { id: 'innodb-mdl', load: () => import('./innodb-mdl.js') };
 const innodbMx = (n) => ({ id: 'innodb-mx:' + n, load: () => import('./innodb-mx.js') });
+const bookCh2 = { id: 'book-ch2', load: () => import('./ch2.js') };
 const loadStage = () => import('./stage.js');
 
 export const BESPOKE = {
+  'book/ch2': Object.fromEntries(['01', '02', '03', '03v', '04', '05', '05v', '06', '06a', '07', '08', '08a', '08b', '09', '10', '10a', '11'].map((n) => [n, bookCh2])),
   'book/ch3': { '01': ch301, '01v': ch301, '06b': ch306b },
   'postgres/buffer': { '01': pgBuf01, ...Object.fromEntries(['02', '03', '04', '05', '06'].map((n) => [n, pgBuffer])) },
   'aurora/mysql': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07'].map((n) => [n, auroraDeck(n)])),
