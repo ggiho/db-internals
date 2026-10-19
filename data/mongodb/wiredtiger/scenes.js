@@ -168,8 +168,12 @@ const SCENES = [
           [WT + 'txn/txn.c',"Clear the transaction's ID from the global table, to facilitate prepared data visibility, but"],
           [MG + 'wiredtiger/wiredtiger_prepare_conflict.h','re-try f, so any required timeout behavior must be enforced within f.']],
     beat:1,
-    ops:{ chain:{ add:[{ id:'txn 16', tag:'hold', sub:'c = 400  ·  prepare 됨 — 커밋할지 아직 모른다' }], move:[['txn 16', 0]] },
-          snap:{ set:{ 'read_timestamp':'없음 — 최신을 읽는다' } },
+    /* 새 읽기의 snapshot 이다 — prepare 가 16 을 전역 표에서 지운 뒤에 잡았으니 16 은 목록에 없고 snap_max 보다 작다.
+       3 스텝의 snapshot(15 · 15)을 그대로 두면 16 이 snap_max 이상이라 id 판정에서 걸러져 기다릴 일이 없다(세계의 판정이 잡았다).
+       사슬의 '→ 이것' · '안 보임' 은 3 스텝의 ts 25 읽기에 붙인 것이라 이 읽기에서는 지운다 */
+    ops:{ chain:{ add:[{ id:'txn 16', tag:'hold', sub:'c = 400  ·  prepare 됨 — 커밋할지 아직 모른다' }], move:[['txn 16', 0]],
+                  set:{ 'txn 14':{ sub:'c = 300  ·  커밋됨 ts 30' }, 'txn 12':{ sub:'c = 200  ·  커밋됨 ts 20' } } },
+          snap:{ set:{ 'snap_min':'16 보다 크다', 'snap_max':'16 보다 크다', '동시 트랜잭션':'없음 — prepare 한 16 은 표에서 빠졌다', 'read_timestamp':'없음 — 최신을 읽는다' } },
           op:{ set:{ '읽기':'find({_id:1})  ·  최신', '판정':'기다린다 — prepare 가 정해질 때까지' } } } },
   ],
 },
@@ -1076,6 +1080,7 @@ const SCENES = [
     'UUID':{
       4:{ key:'컬렉션 트리는 그대로 append 다 — 키가 RecordId 다. _id 인덱스만 <em>무작위 위치</em>에 넣는다.',
           ops:{ pg:{ set:{ 'insert list [smallest]':{ sub:'RecordId 1 ‥ n — 여전히 꼬리 뒤에 붙는다' } } },
+                bt:{ set:{ 'p1':{ keys:'RecordId 1 ‥ n' } } },
                 op:{ set:{ 'RecordId':'n (증가)', '단계':'append', '_id':'UUID() — 무작위 16 바이트' } },
                 ix:{ set:{ '키':'UUID v4 — 무작위', '삽입 위치':'아무 데나 — 인덱스 잎 곳곳' } } } },
       6:{ key:'잰 값: in-memory page splits 는 16 번이었다(ObjectId 39). 컬렉션은 여전히 오른쪽 끝에서 나뉜다.' },
@@ -1089,6 +1094,7 @@ const SCENES = [
     'Hex16':{
       4:{ key:'16 바이트지만 증가하므로 _id 인덱스도 append 다.',
           ops:{ pg:{ set:{ 'insert list [smallest]':{ sub:'RecordId 1 ‥ n — 언제나 꼬리 뒤에 붙는다' } } },
+                bt:{ set:{ 'p1':{ keys:'RecordId 1 ‥ n' } } },
                 op:{ set:{ 'RecordId':'n (증가)', '단계':'append', '_id':'HexData 16 바이트 순번' } },
                 ix:{ set:{ '키':'16 바이트 순번 — 증가', '삽입 위치':'오른쪽 끝 — 역시 append' } } } },
       10:{ key:'잰 값: 컬렉션 잎 642 · internal 4(13.0MB), _id 인덱스 잎 663(10.7MB) — ObjectId 와 거의 같다. 크기가 아니라 <em>순서와 압축성</em>이 트리를 정한다.',
@@ -1142,7 +1148,9 @@ const SCENES = [
           [WT + 'btree/row_modify.c','WT_PAGE_ALLOC_AND_SWAP(session, page, mod->mod_row_insert, ins_headp, page->entries + 1);'],
           [WT + 'include/btmem.h','WT_INSERT_HEAD array is allocated, with one slot for every existing element in the page, plus one'],
           [WT + 'include/misc.h','#define WT_SKIP_PROBABILITY (UINT32_MAX >> 2)']],
+    /* 트리의 p1 도 이제 비어 있지 않다 — '(비었다)' 로 두자 잎 page 의 글(RecordId 1 · footprint ≥ 8MB)과 어긋났다(세계의 셈이 잡았다) */
     ops:{ pg:{ add:[{ id:'insert list [smallest]', tag:'hold', sub:'WT_INSERT_HEAD → RecordId 1 → WT_UPDATE (BSON)' }] },
+          bt:{ set:{ 'p1':{ keys:'RecordId 1' } } },
           op:{ set:{ '단계':'WT_INSERT + WT_UPDATE' } } } },
 
   { look:{ pg:true, ix:true },
@@ -1155,6 +1163,7 @@ const SCENES = [
           [WT + 'btree/row_srch.c','Fast append search of a row-store insert list, creating a skiplist stack as we go.'],
           [WT + 'include/serial_inline.h','if (ins_head->tail[i] == NULL || ins_stack[i] == &ins_head->tail[i]->next[i])']],
     ops:{ pg:{ set:{ 'insert list [smallest]':{ sub:'RecordId 1 ‥ n — 언제나 꼬리 뒤에 붙는다' } } },
+          bt:{ set:{ 'p1':{ keys:'RecordId 1 ‥ n' } } },
           op:{ set:{ 'RecordId':'n (증가)', '단계':'append' } },
           ix:{ set:{ '삽입 위치':'오른쪽 끝 — 역시 append' } } } },
 
@@ -1169,6 +1178,7 @@ const SCENES = [
           [WT + 'include/btree_inline.h','#define WT_MAX_SPLIT_COUNT 5']],
     ops:{ cache:{ set:{ 'page 크기':'≥ 8MB · 10MB 의 80 %' } },
           pg:{ set:{ 'p1':{ tag:'wait', sub:'footprint ≥ 8MB · split 판정 통과' } } },
+          bt:{ set:{ 'p1':{ keys:'RecordId 1 ‥ n  (≥ 8 MB, 메모리)', fill:.8 } } },
           op:{ set:{ '단계':'split 판정' } },
           cmp:{ set:{ 'WiredTiger':'메모리 page 는 MB 단위로 자란다', 'InnoDB':'16KB 가 차는 순간 split' } } } },
 
@@ -1223,7 +1233,8 @@ const SCENES = [
           [WT + 'include/btree.h','#define WT_SPLIT_DEEPEN_MIN_CHILD_DEF (10 * WT_THOUSAND)'],
           [WT + 'btree/bt_split.c','Page splits trickle up the tree, that is, as leaf pages grow large enough and are evicted,'],
           [WT + 'reconcile/rec_write.c','root page split -> %']],
-    ops:{ bt:{ del:['p1'], add:[{ id:'블록 ref × k', lvl:1, keys:'RecordId 1 ‥ n−1 · 블록마다 ref', fill:.9 }], set:{ 'root':{ keys:'| ref × k | p2 |', fill:.1 } } },
+    /* 잎은 키 순서로 선다 — 블록들(RecordId 1 ‥ n−1)이 p2(RecordId n) 앞이다. add 만 하면 끝에 붙어 p2 뒤에 섰다(root 의 키와 어긋났다) */
+    ops:{ bt:{ del:['p1'], add:[{ id:'블록 ref × k', lvl:1, keys:'RecordId 1 ‥ n−1 · 블록마다 ref', fill:.9 }], move:[['블록 ref × k', 1]], set:{ 'root':{ keys:'| ref × k | p2 |', fill:.1 } } },
           pg:{ del:['p1'] },
           op:{ set:{ '단계':'블록마다 ref' } } } },
 
@@ -1719,7 +1730,9 @@ const SCENES = [
           [MG + 'wiredtiger/wiredtiger_kv_engine.cpp','invariantWTOK(_conn->query_timestamp(_conn, buf, "get=all_durable"), nullptr);'],
           [WT + 'txn/txn_timestamp.c','if (WT_CONFIG_LIT_MATCH("all_durable", cval)) {'],
           ['src/mongo/db/repl/README.md','commit a transaction, it waits for the data that it read to be majority committed _as long as the']],
+    /* 이 읽기는 101 로 읽어 c = 201 을 본다 — 3 스텝의 100 읽기에 붙인 '안 보인다' · '이것' 은 이 읽기와 어긋나므로 처음 글로 되돌린다 */
     ops:{ snap:{ set:{ 'ReadSource':'kAllDurableSnapshot', 'read_timestamp':'101 (all_durable)', 'roundup read':'true', '기다림':'commit 에서 — w:majority' } },
+          chain:{ set:{ 'txn 13':{ sub:'c = 201  ·  커밋됨 ts 101  ·  primary 에만' }, 'txn 12':{ sub:'c = 200  ·  커밋됨 ts 100  ·  과반' } } },
           rd:{ add:[{ id:'txn snapshot @P', tag:'hold', sub:'c = 201 · 과반은 commit 이' }] } } },
 
   { act:{ f:'sec', t:'ts', lb:'S1 이 journal → commit point 101' },

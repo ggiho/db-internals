@@ -13,6 +13,7 @@ const pgBuf01 = { id: 'pg-buffer-01', load: () => import('./pg-buffer-01.js') };
    같은 id 를 쓰면 스텝 수가 같은 두 장면(03 · 06, 05 · 07) 사이를 메뉴로 옮길 때 세계를 다시 만들지 않는다 */
 const auroraDeck = (n) => ({ id: 'aurora:' + n, load: () => import('./aurora.js') });
 const wt01 = { id: 'wt-01', load: () => import('./wt-01.js') };
+const wtDeck = { id: 'wt-deck', load: () => import('./wt-deck.js') };
 const innodb01 = { id: 'innodb-01', load: () => import('./innodb-01.js') };
 const pgBtree = { id: 'pg-btree', load: () => import('./pg-btree.js') };
 const pgMvcc = { id: 'pg-mvcc', load: () => import('./pg-mvcc.js') };
@@ -35,7 +36,7 @@ export const BESPOKE = {
   'book/ch3': { '01': ch301, '01v': ch301, '06b': ch306b, ...Object.fromEntries(CH3P.map((n) => [n, ch3Page])) },
   'postgres/buffer': { '01': pgBuf01, ...Object.fromEntries(['02', '03', '04', '05', '06'].map((n) => [n, pgBuffer])) },
   'aurora/mysql': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07'].map((n) => [n, auroraDeck(n)])),
-  'mongodb/wiredtiger': { '01': wt01 },
+  'mongodb/wiredtiger': { '01': wt01, ...Object.fromEntries(['02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13'].map((n) => [n, wtDeck])) },
   'mysql/innodb': { '01': innodb01, '02': innodbMvcc, '03': innodbLsn, '04': innodbLsn, '05': innodbLru, '05v': innodbLru, '06': innodbLru, '07': innodbLock, '08': innodbLock, '09': innodbMdl, '10': innodbTree },
   'mysql/locks': { ...Object.fromEntries(['01', '02', '02v', '03', '05', '06', '06v', '07', '08', '09', '12'].map((n) => [n, innodbLock])), '04': innodbMx('04'), '10': innodbMx('10'), '11': innodbMdl },
   'postgres/btree': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07'].map((n) => [n, pgBtree])),
