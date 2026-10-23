@@ -29,6 +29,7 @@ export function createField(canvas, N) {
     c: new Uint8Array(N), tc: new Uint8Array(N), seed: f32(),
     W: innerWidth, H: innerHeight, dpr: 1, dark: true,
     overlay: null,    /* (ctx, t) => void — 알갱이 위에 그리는 가는 선 */
+    view: null,       /* { s, ox, oy } — 세계 확대(view.js). 없으면 1 */
   };
   for (let i = 0; i < N; i++) {
     F.seed[i] = Math.random();
@@ -85,7 +86,11 @@ export function createField(canvas, N) {
   /* ── 그리기 : 칸별 계수 정렬 후 칸마다 fillStyle 한 번 ── */
   const counts = new Uint32Array(BUCKETS + 1), order = new Uint32Array(N), keys = new Uint16Array(N);
   F.render = function (t) {
+    ctx.setTransform(F.dpr, 0, 0, F.dpr, 0, 0);
     ctx.clearRect(0, 0, F.W, F.H);
+    /* 세계 확대(view.js) — 알갱이는 가상 좌표에 있고, 그리기만 영역의 왼쪽 위를 중심으로 s 배 */
+    const v = F.view;
+    if (v && v.s !== 1) ctx.setTransform(F.dpr * v.s, 0, 0, F.dpr * v.s, F.dpr * v.ox * (1 - v.s), F.dpr * v.oy * (1 - v.s));
     counts.fill(0);
     for (let i = 0; i < N; i++) {
       const a = F.a[i];

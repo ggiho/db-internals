@@ -3,9 +3,10 @@ import { DECKS } from '../decks.js';
 import { parse, env } from '../route.js';
 import { stepsOf, valuesOf } from '../bake.js';
 import { DEFAULT_DECK, STORY, toLab } from './has.js';
-import { SourceModal, srcKeyOf } from '../Source.jsx';
+import { SourceModal, SourceInline, CiteInline, srcKeyOf } from '../Source.jsx';
 import { createField, U } from './field.js';
 import { worldOf } from './worlds/index.js';
+import { zoomOf, applyView, toScreen, VIEW } from './view.js';
 import './story.css';
 
 /* ══════════ Story — 한 장면을 scroll 로 넘기는 화면 ══════════
@@ -110,6 +111,7 @@ export default function Story() {
   const [mod, setMod] = useState(null);           /* 불러온 세계 모듈 */
   const [active, setActive] = useState(Math.max(0, route.step - 1));
   const [srcOpen, setSrcOpen] = useState(false);
+  const [dtOpen, setDt] = useState(false);     /* 자세히 패널 — why · 근거. 스크롤하면 그 스텝의 내용으로 바뀐다 */
   const [menu, setMenu] = useState(false);
   const [dark, setDark] = useState(isDark);
 
@@ -204,10 +206,11 @@ export default function Story() {
         const cb = Math.max(0, ...[...root.current.querySelectorAll('.st-copy, .st-hero')].map((c) => c.offsetTop + c.offsetHeight));
         return { W, H, narrow, x0: 16, x1: W - 16, y0: Math.round(Math.min(H * 0.54, cb + 18)), y1: H - 30 };
       }
-      const copyR = gutter() + Math.min(W * 0.4, 600);
+      /* 글 칸은 요약(제목 · key)만 담는다 — why · 근거는 '자세히' 패널로 갔다. 폭은 story.css 의 --copyw 와 같은 식 */
+      const copyR = gutter() + Math.min(W * 0.27, Math.max(440, W * 0.2));
       /* 위 끝은 머리글 아래 — 머리글은 다 안 들어가면 두 줄이 된다 */
       const top = root.current.querySelector('.st-top'), y0 = Math.max(92, Math.ceil(top ? top.getBoundingClientRect().bottom : 0) + 16);
-      return { W, H, narrow, x0: Math.round(Math.max(copyR + 56, W * 0.46)), x1: W - 84, y0, y1: H - 70 };
+      return { W, H, narrow, x0: Math.round(Math.max(copyR + 48, W * 0.32)), x1: W - 84, y0, y1: H - 70 };
     }
     function measure() { secs.forEach((s, k) => { tops[k] = s.offsetTop; lens[k] = s.offsetHeight; }); }
     const span = (k) => (k === LAST ? Math.max(1, lens[k] - innerHeight) : lens[k]);
@@ -268,7 +271,14 @@ export default function Story() {
       const top = root.current.querySelector('.st-top');
       if (top) root.current.style.setProperty('--top-h', Math.ceil(top.getBoundingClientRect().bottom) + 'px');
       F.resize(); measure();
-      world.build(layout());
+      world.build(fit(layout()));
+    }
+    /* 세계 확대 — 화면 영역을 배율 s 로 나눈 가상 상자를 세계에 준다. 이름표 그릇과 알갱이에 같은 s 를 건다(view.js) */
+    function fit(R) {
+      const s = zoomOf(R.x1 - R.x0, R.y1 - R.y0, R.narrow);
+      applyView(lbl.current, F, s, R.x0, R.y0);
+      return { ...R, s, screen: { x0: R.x0, x1: R.x1, y0: R.y0, y1: R.y1 },
+        x1: R.x0 + (R.x1 - R.x0) / s, y1: R.y0 + (R.y1 - R.y0) / s };
     }
     rebuild();
     /* 주소가 가리킨 스텝에 선다 — 1 이면 맨 위(장면 제목)부터 */
@@ -314,7 +324,7 @@ export default function Story() {
     /* 검사 도구(tools/storysweep.js)가 알갱이 · 세계 상태를 직접 잰다 — 개발 서버이거나 주소에 ?probe 가 있을 때만.
        스윕은 배포본(build)을 재야 하므로 build 에서도 열 수 있어야 한다 */
     if (import.meta.env.DEV || new URLSearchParams(location.search).has('probe')) {
-      window.__story = { F, world, state, layout, tops: () => tops, lens: () => lens, hold, goStep, secOf, idx: () => idxRef.current };
+      window.__story = { F, world, state, layout: () => fit(layout()), view: VIEW, toScreen, tops: () => tops, lens: () => lens, hold, goStep, secOf, idx: () => idxRef.current };
     }
     api.current = {
       goStep, goSec, secOf, relayout: rebuild,
@@ -327,6 +337,7 @@ export default function Story() {
       removeEventListener('resize', onResize);
       if (world.dispose) world.dispose();
       if (lbl.current) lbl.current.innerHTML = '';
+      applyView(lbl.current, null, 1, 0, 0);
     };
   }, [deck, mod, n, ns, skim, fontsOk, buildKey]);   /* eslint-disable-line react-hooks/exhaustive-deps — 짝을 바꿔도 장은 그대로 */
 
@@ -402,7 +413,8 @@ export default function Story() {
         if (a.goSec) a.goSec(a.secOf(active) + (e.key === 'ArrowRight' ? 1 : -1));
       }
       else if ((e.key === 'b' || e.key === 'B') && canSkim) setSkim((x) => !x);
-      else if (e.key === 'Escape') { setSrcOpen(false); setMenu(false); }
+      else if (e.key === 'Escape') { setSrcOpen(false); setMenu(false); setDt(false); }
+      else if (e.key === 'd' || e.key === 'D') setDt((o) => !o);
       else if (e.key === 's' || e.key === 'S') { if (hasSrc) setSrcOpen((o) => !o); }
       else if (e.key === 'l' || e.key === 'L') toLab(here);
       else if ((e.key === 'v' || e.key === 'V') && pairAB) switchTo(pairAB[0].num === num ? pairAB[1] : pairAB[0]);
@@ -523,16 +535,23 @@ export default function Story() {
               <div className="st-copy">
                 <p className="st-k"><b>{k + 1}</b> / {n}{skim && <span className="sk">  ·  요점 {j + 1} / {ns}</span>}{!skim && s.beat && <span className="sk">  ·  요점</span>}</p>
                 <h2 className="st-note">{rich(s.note)}</h2>
-                {s.why && <p className="st-why">{s.why}</p>}
                 {s.key && <p className="st-key" dangerouslySetInnerHTML={{ __html: s.key }} />}
-                {s.ref && (
-                  <button type="button" className="st-ref" disabled={!hasSrc || k !== active}
-                    onClick={() => setSrcOpen(true)} title="소스 발췌를 연다 (S)">
-                    <span>근거</span>
-                    <code>{s.ref.split('/').pop()}{deck.LINES[s.ref + '#' + s.sym] ? ':' + deck.LINES[s.ref + '#' + s.sym] : ''}</code>
-                    {s.sym && <code className="sym">{s.sym}</code>}
-                  </button>
-                )}
+                <div className="st-act">
+                  {hasDetail(s) && (
+                    <button type="button" className={'st-dbtn' + (dtOpen ? ' on' : '')} disabled={k !== active}
+                      aria-expanded={dtOpen} onClick={() => setDt((o) => !o)} title="설명 · 근거를 연다 (D)">
+                      자세히<kbd>D</kbd>
+                    </button>
+                  )}
+                  {s.ref && (
+                    <button type="button" className="st-ref" disabled={!hasSrc || k !== active}
+                      onClick={() => setSrcOpen(true)} title="소스 발췌를 연다 (S)">
+                      <span>근거</span>
+                      <code>{s.ref.split('/').pop()}{deck.LINES[s.ref + '#' + s.sym] ? ':' + deck.LINES[s.ref + '#' + s.sym] : ''}</code>
+                      {s.sym && <code className="sym">{s.sym}</code>}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </section>
@@ -559,7 +578,38 @@ export default function Story() {
 
 
       <p className="st-cred">{credit(deckId)}</p>
+      <Detail deck={deck} step={step} at={at} k={active} n={n} open={dtOpen} onClose={() => setDt(false)} onSource={() => setSrcOpen(true)} />
       <SourceModal deck={deck} step={step} at={at} open={srcOpen} onClose={() => setSrcOpen(false)} />
     </div>
+  );
+}
+
+/* ── 자세히 — 글 칸에서 뺀 why 와 이 스텝의 근거(소스 발췌 · 다른 파일의 출처 문장 · 원문 인용)를 한곳에 ──
+   소스 발췌는 Lab 과 같은 SourceInline 이다 — 이 스텝이 인용한 줄을 맞춰 보여 준다. 그 파일 밖의 fact 는 목록으로 */
+function hasDetail(s) {
+  return !!(s && (s.why || (s.fact && s.fact.length) || (s.cite && s.cite.length) || s.ref));
+}
+const shortPath = (p) => String(p).split('/').slice(-2).join('/');
+function Detail({ deck, step, at, k, n, open, onClose, onSource }) {
+  if (!step) return null;
+  const code = step.ref && step.sym ? deck.CODE[srcKeyOf(deck, step, at)] : null;
+  const facts = (step.fact || []).map((f) => (Array.isArray(f) ? f : [step.ref, f]))
+    .filter(([file]) => !code || file !== step.ref);
+  return (
+    <aside className={'st-dt' + (open ? ' on' : '')} aria-label="자세히" aria-hidden={!open}>
+      <div className="st-dt-hd"><span>자세히 · <b>{k + 1}</b> / {n}</span>
+        <button type="button" className="st-dt-x" onClick={onClose} tabIndex={open ? 0 : -1}>닫기<kbd>Esc</kbd></button></div>
+      <h3>{rich(step.note)}</h3>
+      {step.why && <p className="st-dt-why">{step.why}</p>}
+      {step.key && <p className="st-dt-key" dangerouslySetInnerHTML={{ __html: step.key }} />}
+      {(code || facts.length > 0 || (step.cite && step.cite.length > 0)) && <h4>근거</h4>}
+      {code && <SourceInline deck={deck} step={step} at={at} onOpen={onSource} />}
+      {facts.length > 0 && (
+        <ul className="st-dt-facts">
+          {facts.map(([file, q], i) => <li key={i}><i>{shortPath(file)}</i>{q}</li>)}
+        </ul>
+      )}
+      {step.cite && step.cite.length > 0 && <CiteInline quotes={step.cite} whose="이 스텝이" />}
+    </aside>
   );
 }
