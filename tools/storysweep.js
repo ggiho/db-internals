@@ -71,6 +71,8 @@ const BREAKS = {
   'vary-load': { js: true },
   /* 옮겨 온 쪽을 다른 스텝에서 재게 한다 — 비교가 정말 다른 세계를 잡는지 */
   'scene-nav': { js: true },
+  /* 자세히 패널을 화면보다 넓게 — 패널 검사가 넘침을 잡는지 */
+  detail: { css: '.st-dt{width:130vw !important}' },
   /* 이름표의 글을 크게 부풀려 알갱이 덩어리를 덮게 한다 */
   'label-grain': { css: '.st-labels > .wl{font-size:60px !important}' },
   /* act 이름표를 글 위로 띄운다 — 서는 자리에서는 이미 사라져 있어 다른 검사는 못 본다 */
@@ -118,7 +120,12 @@ function measure() {
     }
     return op;
   };
-  const R = (el) => el.getBoundingClientRect();
+  /* 세계 확대(src/story/view.js) — 알갱이 목표는 가상 좌표, 이름표의 getBoundingClientRect 도 가상 좌표로 돌아온다.
+     검사는 화면에서 하므로 둘 다 화면 좌표로 옮긴다(screenRect 는 변환 전의 원래 함수) */
+  const SV = (window.__story && window.__story.view) || { s: 1, ox: 0, oy: 0 };
+  const gx = (x) => SV.ox + (x - SV.ox) * SV.s, gy = (y) => SV.oy + (y - SV.oy) * SV.s;
+  const RS = (el) => (el.screenRect ? el.screenRect() : el.getBoundingClientRect());
+  const R = RS;
   const nm = (el) => (el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/).slice(0, 2).join('.') : el.tagName.toLowerCase())
     + (el.textContent ? ' "' + el.textContent.trim().replace(/\s+/g, ' ').slice(0, 28) + '"' : '');
   const bx = (r) => `${r.left | 0},${r.top | 0} ${r.width | 0}×${r.height | 0}`;
@@ -210,7 +217,8 @@ function measure() {
       }
     } };
     for (const sh of document.styleSheets) { try { take(sh.cssRules); } catch { /* 다른 출처(글꼴) */ } }
-    const els = [...document.querySelectorAll('.st *')];
+    /* 자세히 패널은 Lab 의 소스 발췌 · 인용 부품(.srci)을 일부러 그대로 쓴다 — 그 안쪽만 뺀다 */
+    const els = [...document.querySelectorAll('.st *')].filter((e) => !e.closest('.st-dt .srci'));
     const hit = new Map();
     for (const t of sels) {
       let m = null;
@@ -261,7 +269,7 @@ function measure() {
       let n = 0;
       for (let i = 0; i < F.N; i++) {
         if (F.ta[i] < 0.3) continue;
-        const x = F.tx[i], y = F.ty[i];
+        const x = gx(F.tx[i]), y = gy(F.ty[i]);
         if (rs.some((r) => x > r.left + 1 && x < r.right - 1 && y > r.top + 1 && y < r.bottom - 1)) n++;
       }
       if (n >= 4) P.push(['label-grain', `${nm(e)} 위 알갱이 ${n}`]);
@@ -281,7 +289,7 @@ function measure() {
   const lineW = (el) => {
     let b = el;
     while (b.parentElement && getComputedStyle(b).display === 'inline') b = b.parentElement;
-    const cs = getComputedStyle(b), sc = b.offsetWidth ? b.getBoundingClientRect().width / b.offsetWidth : 1;
+    const cs = getComputedStyle(b), sc = b.offsetWidth ? RS(b).width / b.offsetWidth : 1;
     return (b.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)) * sc;
   };
   const tw = document.createTreeWalker(document.querySelector('.st'), NodeFilter.SHOW_TEXT);
@@ -323,7 +331,7 @@ function measure() {
   for (let i = 0; i < F.N; i++) {
     if (F.ta[i] < 0.3) continue;
     total++;
-    const x = F.tx[i], y = F.ty[i];
+    const x = gx(F.tx[i]), y = gy(F.ty[i]);
     if (x < -4 || x > W + 4 || y < -4 || y > H + 4) out++;
     else if (cr && x > cr.left && x < cr.right && y > cr.top && y < cr.bottom) onCopy++;
   }
@@ -338,10 +346,15 @@ function measure() {
    기하 검사는 불투명도 .3 미만을 빼므로 이것을 못 본다 ── */
 async function holdStill() {
   const S = window.__story, j = S.state().k;
+  /* 세계 확대(src/story/view.js) — 알갱이 목표는 가상 좌표, 이름표의 getBoundingClientRect 도 가상 좌표로 돌아온다.
+     검사는 화면에서 하므로 둘 다 화면 좌표로 옮긴다(screenRect 는 변환 전의 원래 함수) */
+  const SV = (window.__story && window.__story.view) || { s: 1, ox: 0, oy: 0 };
+  const gx = (x) => SV.ox + (x - SV.ox) * SV.s, gy = (y) => SV.oy + (y - SV.oy) * SV.s;
+  const RS = (el) => (el.screenRect ? el.screenRect() : el.getBoundingClientRect());
   const raf = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   const snap = () => ({
     L: [...document.querySelectorAll('.st-labels > *')].filter((e) => !e.classList.contains('stn-measure')).map((e) => {
-      const r = e.getBoundingClientRect();
+      const r = RS(e);
       return { e, o: parseFloat(getComputedStyle(e).opacity), x: r.left, y: r.top };
     }),
     tx: Float32Array.from(S.F.tx), ty: Float32Array.from(S.F.ty), ta: Float32Array.from(S.F.ta),
@@ -373,6 +386,11 @@ async function holdStill() {
    알갱이는 밝은 것(ta ≥ .3)의 목표가 글 위에 있으면. 첫 스텝은 제목이 먼저이고 세계가 모이는 중이라 뺀다 ── */
 async function flight() {
   const S = window.__story, j = S.state().k;
+  /* 세계 확대(src/story/view.js) — 알갱이 목표는 가상 좌표, 이름표의 getBoundingClientRect 도 가상 좌표로 돌아온다.
+     검사는 화면에서 하므로 둘 다 화면 좌표로 옮긴다(screenRect 는 변환 전의 원래 함수) */
+  const SV = (window.__story && window.__story.view) || { s: 1, ox: 0, oy: 0 };
+  const gx = (x) => SV.ox + (x - SV.ox) * SV.s, gy = (y) => SV.oy + (y - SV.oy) * SV.s;
+  const RS = (el) => (el.screenRect ? el.screenRect() : el.getBoundingClientRect());
   if (j === 0) return [];
   const raf = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   const vis = (el) => { let e = el, op = 1; while (e && e.nodeType === 1) { const cs = getComputedStyle(e); if (cs.display === 'none' || cs.visibility === 'hidden') return 0; op *= parseFloat(cs.opacity); e = e.parentElement; } return op; };
@@ -389,7 +407,7 @@ async function flight() {
     const rail = document.querySelector('.st-rail'), rr = rail && vis(rail) > 0.05 ? rail.getBoundingClientRect() : null;
     for (const e of document.querySelectorAll('.st-labels > *')) {
       if (e.classList.contains('stn-measure') || vis(e) < 0.3) continue;
-      const r = e.getBoundingClientRect();
+      const r = RS(e);
       if (!r.width || !r.height) continue;
       if (r.left < -1 || r.right > W + 1 || r.top < headB - 1 || r.bottom > H + 1) P.set(nm(e) + ' 화면 밖', p);
       if (cr && ov(cr, r)) P.set(nm(e) + ' × 글', p);
@@ -397,7 +415,7 @@ async function flight() {
     }
     if (cr) {
       let on = 0;
-      for (let i = 0; i < S.F.N; i++) if (S.F.ta[i] >= 0.3 && S.F.tx[i] > cr.left && S.F.tx[i] < cr.right && S.F.ty[i] > cr.top && S.F.ty[i] < cr.bottom) on++;
+      for (let i = 0; i < S.F.N; i++) { if (S.F.ta[i] < 0.3) continue; const x = gx(S.F.tx[i]), y = gy(S.F.ty[i]); if (x > cr.left && x < cr.right && y > cr.top && y < cr.bottom) on++; }
       if (on) P.set(`알갱이 ${on} 개 × 글`, p);
     }
   }
@@ -517,6 +535,27 @@ async function runSize(browser, [w, h]) {
         for (const d of await page.evaluate(holdStill)) res.problems.push([res.size, at, 'hold-still', d]);
         for (const d of await page.evaluate(flight)) res.problems.push([res.size, at, 'flight', d]);
       }
+    }
+    /* detail — 글 칸에서 뺀 why · 근거는 '자세히' 패널(D)에만 있다. 패널이 열리는가, 화면 안인가, 가로로 넘치지 않는가,
+       그 스텝의 글이 실제로 들었는가. 크기마다 배치가 다르므로(좁은 화면은 위에서 내려오는 판) 모든 크기에서, 장면의 첫 스텝만 */
+    {
+      await page.evaluate(() => window.__story.goStep(0, false));
+      await page.keyboard.press('d');
+      /* 슬라이드(.28s)가 끝날 때까지 — 450ms 만 기다리자 2560 에서 패널이 -211px 에 걸린 채 재어졌다 */
+      await page.waitForFunction(() => { const e = document.querySelector('.st-dt'); return e && e.classList.contains('on') && getComputedStyle(e).transform === 'none'; }, null, { timeout: 4000 }).catch(() => {});
+      await page.waitForTimeout(100);
+      const d = await page.evaluate(() => {
+        const e = document.querySelector('.st-dt'), W = innerWidth, H = innerHeight;
+        if (!e || !e.classList.contains('on')) return ['열리지 않는다'];
+        const r = e.screenRect ? e.screenRect() : e.getBoundingClientRect(), out = [];
+        if (r.left < -1 || r.right > W + 1 || r.top < 0 || r.bottom > H + 1) out.push(`화면 밖 ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}×${Math.round(r.height)}`);
+        if (e.scrollWidth > e.clientWidth + 1) out.push(`가로 넘침 ${e.scrollWidth} > ${e.clientWidth}`);
+        for (const c of e.querySelectorAll('*')) { const cr = c.screenRect ? c.screenRect() : c.getBoundingClientRect(); if (cr.width && cr.right > r.right + 1 && getComputedStyle(c).overflowX === 'visible' && !c.closest('.srci-cd')) { out.push(`칸 넘침 ${c.className || c.tagName}`); break; } }
+        if (!e.querySelector('h3') || !e.querySelector('h3').textContent.trim()) out.push('제목이 비었다');
+        return out;
+      });
+      await page.keyboard.press('Escape'); await page.waitForTimeout(350);
+      for (const x of d) res.problems.push([res.size, `${p.deck}/${p.num}/1`, 'detail', x]);
     }
     /* vary-load — 손잡이 값이 실린 주소로 바로 열어도 세계가 그 값을 그리는가. 장면 안에서 값을 바꿔 들어간 자리와 알갱이 목표를
        견준다. Story 가 세계를 싣기 전에 setVary 를 불러 버려, 바로 연 /v2 가 글은 2 의 스텝인데 세계는 기본값을 그렸다(innodb 01).
