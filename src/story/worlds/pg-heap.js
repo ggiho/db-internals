@@ -479,10 +479,12 @@ function make({ F, deck, labels, scene }) {
         const it = s[FSM].find((x) => x.id === id), P = fsmXY(0, j, n), w = Math.min(56, (G.L.x1 - G.L.x0) / n - 8);
         for (let m = 0; m < FN; m++, i++) { if (!it) { put(o, i, dust[i * 2], dust[i * 2 + 1], 0, 0, 2, 1, FAINT); continue; } const [x, y] = into(i, ...rim(P.x, P.y, w, 20, FN, m)); put(o, i, x, y, level(FSM, id), it.tag === 'red' ? 0.3 : 0, 0.02, 1.05, TAGC[it.tag] ?? INK); }
       });
+      /* 노드 고리는 세 자리 값(FSM 범주 0–255)의 글 상자(약 20 × 14)를 모서리까지 품는다 — 13 × 9 로 두자 대각선의 알갱이가
+         상자 안 0.6–0.8px 에 들었고, 세계 확대 2 배에서 1px 허용을 넘어 storysweep label-grain 에 걸렸다(2560 · 05) */
       let nodes = 0;
       for (let d = 1; d < lv.length; d++) for (let j = 0; j < lv[d].length; j++) {
         const P = fsmXY(d, j, n), hot = path.some(([pd, pj]) => pd === d && pj === j);
-        for (let m = 0; m < FN && nodes < FIDS.length * FN; m++, i++, nodes++) { const th = (m / FN) * Math.PI * 2, [x, y] = into(i, P.x + Math.cos(th) * 13, P.y + Math.sin(th) * 9); put(o, i, x, y, (on || hot ? 0.9 : 0.5) * dim * form, hot && !end ? 0.5 : 0, 0.02, 1.05, hot ? GOLD : INK); }
+        for (let m = 0; m < FN && nodes < FIDS.length * FN; m++, i++, nodes++) { const th = (m / FN) * Math.PI * 2, [x, y] = into(i, P.x + Math.cos(th) * 16.5, P.y + Math.sin(th) * 10); put(o, i, x, y, (on || hot ? 0.9 : 0.5) * dim * form, hot && !end ? 0.5 : 0, 0.02, 1.05, hot ? GOLD : INK); }
       }
       for (; i < R.fl[1]; i++) put(o, i, dust[i * 2], dust[i * 2 + 1], 0, 0, 2, 1, FAINT);
     }

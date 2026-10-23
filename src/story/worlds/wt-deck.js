@@ -754,7 +754,7 @@ function make({ F, deck, labels, scene }) {
         return { h: tickY + tr * RH, GW, ax0, ax1, zoneX, per, ly, cuts, tickY };
       },
       lay(g, ox, oy) {
-        lanes.forEach((L, li) => { place(L.title, ox, oy + g.ly[li].top); if (L.nmode === 'g') place(L.note, ox, oy + g.ly[li].top + 15); else place(L.note, ox + g.ax0, oy + g.ly[li].capY); if (L.cap) place(L.cap, ox + g.ax0, oy + g.ly[li].capY); });
+        lanes.forEach((L, li) => { place(L.title, ox, oy + g.ly[li].top); if (L.nmode === 'g') place(L.note, ox, oy + g.ly[li].top + most(L.title).h + 2);   /* geo 의 높이(gh = 제목 + 2 + 글)와 같은 자리 — 15 로 두자 제목 줄(15.95px)과 0.9px 겹쳤고, 2배 확대에서 1.8px 로 드러났다 */ else place(L.note, ox + g.ax0, oy + g.ly[li].capY); if (L.cap) place(L.cap, ox + g.ax0, oy + g.ly[li].capY); });
         if (zoneLb) place(zoneLb, ox + g.zoneX, oy + g.tickY, 'c', 't');
         g.cuts.forEach((cu, j) => place(cutLb[j], ox + g.ax1, oy + cu.y + 4, 'r', 't'));
       },
