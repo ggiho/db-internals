@@ -209,7 +209,7 @@ const SCENES = [
 {
   num:'03', tab:'Pruning', title:'Dead Tuples & On-Access Pruning',
   sub:'out-of-place update 는 dead tuple 을 남긴다 — 1차 정리는 그 페이지를 다음에 읽는 backend 몫',
-  cast:['op','tup','hdr','ph'],
+  cast:['op','tup','hdr','ph','idx'],
   /* 갱신하는 열 k 에 인덱스가 있다 — 그래야 HOT(07 장면)가 아니라서 옛 튜플이 LP_DEAD 로 남는다.
      페이지는 8KB 에 빈 공간 700 바이트(8.5%) — 즉시 정리의 문턱 819 바이트(10%)보다 작다. */
   knobs:[
@@ -223,8 +223,9 @@ const SCENES = [
   init:{
     op:{ kv:{ 'SQL':'—', '단계':'대기', '죽은 튜플':'0' } },
     tup:{ items:[{ id:'튜플 A', tag:'clean', sub:'xmin 100 · xmax 0', lp:1, xmin:100, xmax:0 }] },
-    hdr:{ kv:{ 't_xmin':'100', 't_xmax':'0', 't_ctid':'자기 자신' } },
-    ph:{ kv:{ 'pd_prune_xid':'0  ·  치울 것 없음', '빈 공간':'900 B', 'line pointer':'1 : 튜플 A' } },
+    hdr:{ kv:{ '튜플':'A', 't_xmin':'100', 't_xmax':'0', 't_ctid':'(0,1) · 자기 자신' } },
+    ph:{ kv:{ 'pd_prune_xid':'0  ·  치울 것 없음', '빈 공간':'900 B', '정리 락':'—', 'FSM':'—' } },
+    idx:{ items:[{ id:'k=1', tag:'clean', to:1 }] },
   },
   steps:[
   { act:{ f:'op', t:'tup', lb:'UPDATE' },
@@ -233,11 +234,12 @@ const SCENES = [
     key:'그래서 UPDATE 한 번에 <em>튜플이 하나 늘어난다</em>. InnoDB 는 행을 제자리에서 고치고 옛 값을 undo 에 두므로 heap 이 커지지 않는다 — 여기서 두 엔진의 파일 크기 곡선이 갈린다.',
     ref:'src/backend/access/heap/heapam.c', sym:'heap_update',
     fact:[['src/include/access/htup_details.h','#define HEAP_UPDATED']],
-    ops:{ op:{ set:{ 'SQL':'UPDATE t SET k=2  (k 에 인덱스)', '단계':'새 튜플 삽입', '죽은 튜플':'1' } },
-          tup:{ set:{ '튜플 A':{ tag:'x', sub:'xmin 100 · xmax 110  ·  죽음', xmax:110, ctid:'튜플 B' } },
+    ops:{ op:{ set:{ 'SQL':'UPDATE t SET k=2  (k 에 인덱스)', '단계':'새 튜플 삽입', '죽은 튜플':'0  (110 커밋 전)' } },
+          tup:{ set:{ '튜플 A':{ tag:'hold', sub:'xmin 100 · xmax 110  ·  옛 버전', xmax:110, ctid:'튜플 B' } },
                 add:[{ id:'튜플 B', tag:'dirty', sub:'xmin 110 · xmax 0  ·  새 버전', lp:2, xmin:110, xmax:0 }] },
-          hdr:{ set:{ 't_xmax':'110', 't_ctid':'→ 튜플 B' } },
-          ph:{ set:{ '빈 공간':'700 B  (8.5%)', 'line pointer':'1 : 튜플 A  ·  2 : 튜플 B' } } } },
+          hdr:{ set:{ 't_xmax':'110', 't_ctid':'(0,2) → 튜플 B' } },
+          idx:{ add:[{ id:'k=2', tag:'dirty', to:2 }] },
+          ph:{ set:{ '빈 공간':'700 B  (8.5%)' } } } },
 
   { look:{ ph:true },
     note:'PageSetPrunable — 헤더 pd_prune_xid 에 prune 후보 표시',
@@ -254,7 +256,10 @@ const SCENES = [
     key:'PG 의 부풀음(bloat)은 <em>쓰기량이 아니라 가장 오래된 snapshot</em>이 만든다. 유휴 상태로 열려 있는 트랜잭션이 디스크를 먹는 구조다.',
     ref:'src/backend/access/heap/pruneheap.c', sym:'heap_page_prune_opt',
     fact:['if (!GlobalVisTestIsRemovableXid(vistest, prune_xid))',
-          ['src/backend/access/heap/pruneheap.c','Note: this is called quite often.']] },
+          ['src/backend/access/heap/pruneheap.c','Note: this is called quite often.']],
+    ops:{ ph:{ set:{ 'pd_prune_xid':'110  ·  커밋됐고 horizon 밖 → 치울 수 있다' } },
+          tup:{ set:{ '튜플 A':{ tag:'x', sub:'xmin 100 · xmax 110  ·  죽음 — 볼 snapshot 이 없다' } } },
+          op:{ set:{ '단계':'110 커밋 — 다음에 읽는 쪽이 판정', '죽은 튜플':'1' } } } },
 
   { look:{ ph:true },
     note:'free space 가 넉넉하면 skip — 문턱은 max(fillfactor, 10%)',
@@ -270,19 +275,23 @@ const SCENES = [
     why:'정리하려면 그 버퍼를 다른 누구도 핀하지 않은 상태로 X lock 을 쥐어야 한다. ConditionalLockBufferForCleanup 이 그것을 기다리지 않고 한 번만 시도하고, 못 얻으면 heap_page_prune_opt 는 아무것도 하지 않고 돌아간다.',
     key:'즉시 정리는 <em>읽는 김에 하는 최선 노력</em>이다. 누가 그 페이지를 쥐고 있으면 다음 방문자에게 넘긴다 — 조회가 정리 때문에 멈추는 일은 없다.',
     ref:'src/backend/access/heap/pruneheap.c', sym:'heap_page_prune_opt',
-    fact:['if (!ConditionalLockBufferForCleanup(buffer))'] },
+    fact:['if (!ConditionalLockBufferForCleanup(buffer))'],
+    ops:{ ph:{ set:{ '정리 락':'cleanup lock — 바로 얻음 (못 얻으면 포기)' } } } },
 
-  { look:{ tup:true, ph:true, op:true },
+  { look:{ tup:true, ph:true, op:true, idx:true },
     note:'회수 결과 — tuple storage 는 반환, line pointer 는 LP_DEAD 로 잔존',
     why:'인덱스가 아직 튜플 A 의 TID 를 가리킨다. line pointer 까지 없애면 그 번호를 새 튜플이 받아 인덱스가 엉뚱한 행을 가리키게 된다. 그래서 즉시 정리는 저장 공간만 되찾고 4바이트 line pointer 를 LP_DEAD 로 둔다 — 인덱스에서 지우고 자리를 풀어 주는 것은 VACUUM 이다. 통계도 그래서 LP_DEAD 로 둔 것은 빼고 센다.',
     key:'"자리만 남은 죽은 튜플" 이 생긴다 — 공간은 돌아왔지만 <em>VACUUM 없이는 그 번호를 다시 못 쓴다</em>.',
     ref:'src/backend/access/heap/pruneheap.c', sym:'heap_page_prune_opt',
     fact:['forgetting about items that were set to LP_DEAD, since they',
           'presult.ndeleted minus the number of newly-LP_DEAD-set items.',
-          ['src/include/storage/itemid.h','dead, may or may not have storage']],
+          ['src/include/storage/itemid.h','dead, may or may not have storage'],
+          'Update the page\'s pd_prune_xid field to either zero, or the lowest'],
     beat:1,
     ops:{ tup:{ set:{ '튜플 A':{ sub:'LP_DEAD  ·  저장 공간은 돌아왔다 — 4바이트 자리만', lps:'dead' } } },
-          ph:{ set:{ '빈 공간':'되찾았다', 'line pointer':'1 : LP_DEAD  ·  2 : 튜플 B' } },
+          hdr:{ set:{ 't_xmin':'—', 't_xmax':'—', 't_ctid':'— (LP_DEAD · 헤더도 없다)' } },
+          idx:{ set:{ 'k=1':{ tag:'x', sub:'아직 lp 1 을 가리킨다 — 그래서 번호를 남긴다' } } },
+          ph:{ set:{ 'pd_prune_xid':'0  ·  남은 후보 없음', '빈 공간':'896 B  (A 의 196 B 회수 · lp 1 의 4 B 는 남는다)', '정리 락':'놓음' } },
           op:{ set:{ '단계':'즉시 정리 끝' } } } },
 
   { look:{ ph:true },
@@ -290,7 +299,8 @@ const SCENES = [
     why:'주석이 이유를 적는다 : 관계없는 UPDATE · INSERT 가 이 공간을 가져가지 않게 여기서는 FSM 을 고치지 않는다 — "그 공간은 이 페이지에 대한 UPDATE 가 다시 써야 한다".',
     key:'다음 UPDATE 가 <em>같은 페이지에 새 버전을 둘 자리</em>를 남겨 두는 것이다 — 07 장면 HOT 의 조건이 바로 그것이다.',
     ref:'src/backend/access/heap/pruneheap.c', sym:'heap_page_prune_opt',
-    fact:['free space should be reused by UPDATEs to *this* page.'] },
+    fact:['free space should be reused by UPDATEs to *this* page.'],
+    ops:{ ph:{ set:{ 'FSM':'안 알린다 — 이 페이지의 UPDATE 몫' } } } },
 
   { look:{ tup:true, op:true },
     note:'정리는 두 층 — on-access pruning 과 VACUUM',
