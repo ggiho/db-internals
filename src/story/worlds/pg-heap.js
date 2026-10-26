@@ -48,7 +48,12 @@ function make({ F, deck, labels, scene }) {
     const s = { step: step || {}, touch: touch || new Set(), chg: chg || {}, look: (step && step.look) || {} };
     for (const a of cast) {
       if (A[a].kind === 'kv') s[a] = (st[a] && st[a].kv) || {};
-      else s[a] = ((st[a] && st[a].items) || []).map((it) => ({ ...it, id: String(it.id), tag: it.tag || 'clean', sub: it.sub || '' }));
+      else {
+        /* byl(띠 아래 설명)은 items 바깥의 필드다 — 새 배열에 다시 붙인다(빠뜨리면 띠 설명이 영영 안 나온다) */
+        const arr = ((st[a] && st[a].items) || []).map((it) => ({ ...it, id: String(it.id), tag: it.tag || 'clean', sub: it.sub || '' }));
+        if (st[a] && st[a].byl) arr.byl = st[a].byl;
+        s[a] = arr;
+      }
     }
     return s;
   };
@@ -73,6 +78,17 @@ function make({ F, deck, labels, scene }) {
   const SIDS = Object.fromEntries(STRIPS.map((a) => [a, ids(a)]));
   const RIDS = Object.fromEntries(ROWS.map((a) => [a, ids(a)]));
   const SEEK = TEXTS.find((a) => all.some((s) => nums(s[a]['찾는 범주'])[0] > 0)) || null;
+  /* 띠의 눈금 — 칸 폭은 sz 다. 한 띠는 모든 스텝에서 같은 눈금(가장 긴 스텝이 폭 전체)이라 줄면 짧아 보이고,
+     배우의 scale 이 같은 띠들(08 의 두 행)은 눈금을 함께 쓴다 */
+  const szOf = (its) => (its || []).reduce((p, x) => p + (x.sz || 1), 0);
+  const grpOf = (a) => A[a].scale || a, STOT = {};
+  for (const a of STRIPS) STOT[grpOf(a)] = Math.max(STOT[grpOf(a)] || 1, ...all.map((s) => szOf(s[a])));
+  /* 트리(kind tree, 항목에 lvl) — 단마다 한 줄로 쌓는다 */
+  const TREE = ROWS.filter((a) => A[a].kind === 'tree' && all.some((s) => s[a].some((x) => x.lvl != null)));
+  const TLV = Object.fromEntries(TREE.map((a) => [a, 1 + Math.max(0, ...all.flatMap((s) => s[a].map((x) => x.lvl || 0)))]));
+  /* 레인 — 배우의 lane 순서로 쌓고, EDGE 는 그 레인과 다음 레인 사이(한쪽이 비면 긋지 않는다) */
+  const LORD = [...new Set([...(deck.LANES || []).map((l) => l.id), ...cast.map((a) => A[a].lane)])];
+  const LUSE = LORD.filter((ln) => cast.some((a) => A[a].lane === ln));
   /* 영역에서 셈한다 — pd_lower 는 lp 의 끝(없으면 헤더 끝 24), pd_upper 는 가장 앞 튜플(없으면 spc 앞, 그도 없으면 8192).
      gap(저장을 거뒀지만 아직 메우지 않은 바이트)도 튜플 쪽에 센다 — 조각 모으기 전까지 pd_upper 는 그대로다 */
   const bounds = (s) => {
@@ -181,7 +197,11 @@ function make({ F, deck, labels, scene }) {
   const kvHtml = (kv, skip = []) => Object.entries(kv).filter(([k]) => !skip.includes(k)).map(([k, v]) => `${esc(k)}  <span class="q-v">${val(v)}</span>`).join('\n');
   const capOf = (its) => its.filter((x) => x.sub).map((x) => `<span class="q-i">${esc(x.id)}</span> ${esc(x.sub)}`).join('\n');
   /* 지금 보는 line pointer — look 이 가리키거나 이번에 바뀐 것, 없으면 첫 항목 */
-  const lpFocus = (s) => { const its = s[LPA] || []; const f = focusOf(s, LPA), m = modOf(s, LPA); return its.find((x) => (f ? f.has(x.id) : m.has(x.id))) || its[0] || null; };
+  const lpFocus = (s) => {
+    const its = s[LPA] || [], f = focusOf(s, LPA), c = s.chg[LPA] || {}, add = new Set((c.add || []).map(String)), m = modOf(s, LPA);
+    /* 이번에 더한 항목이 고친 항목보다 앞선다 — 06/3 은 lp 2 를 더하면서 lp 1 의 표만 바꿨다 */
+    return (f ? its.find((x) => f.has(x.id)) : its.find((x) => add.has(x.id)) || its.find((x) => m.has(x.id))) || its[0] || null;
+  };
   /* REDIRECT 는 lp_off 에 대상 lp 번호를, DEAD(저장 없음)는 0 을 담는다(ItemIdSetRedirect · ItemIdSetDead) — 데이터의 off 그대로 */
   const lpBits = (it) => (it ? [+it.off || 0, flagOf(it.fl), +it.len || 0] : [0, 0, 0]);
   const texts = (S) => S.map((s) => {
@@ -200,11 +220,13 @@ function make({ F, deck, labels, scene }) {
       const mod = modOf(s, a);
       for (const id of SIDS[a]) {
         const it = s[a].find((x) => x.id === id), hot = on(a) && !!it && hotIt(s, a, id);
-        t.set(sLb[a][id].n, [it ? id : '', hot, mod.has(id) && on(a) ? 'gold' : '', !!it]);
+        /* 빨강 · 초록 표가 붙은 칸(패딩 · 남은 것)은 그 색이 '바뀜' 의 금빛보다 앞선다 */
+        const tc = it && ['red', 'x'].includes(it.tag) ? 'red' : it && ['green', 'ok'].includes(it.tag) ? 'green' : mod.has(id) && on(a) ? 'gold' : '';
+        t.set(sLb[a][id].n, [it ? id : '', hot, tc, !!it]);
         t.set(sLb[a][id].v, [it ? esc(it.sub) : '', hot, '', !!it && !!it.sub, true]);
       }
       const byl = (s[a].byl || null);
-      t.set(sCap[a], [byl ? `${esc(byl.l || '')}${byl.r ? '  ·  ' + esc(byl.r) : ''}` : '', on(a), '', !!byl, true]);
+      t.set(sCap[a], [byl ? `${esc(byl.l || '')}${byl.r ? '  ·  ' + esc(byl.r) : ''}` : s[a].length ? '' : '— 아직 없다', on(a), '', !!byl || !s[a].length, true]);
     }
     if (LPA) {
       for (const id of LIDS) { const it = s[LPA].find((x) => x.id === id), f = it ? flagOf(it.fl) : 0; t.set(lLb[id], [it ? id : '', on(LPA) && !!it && hotIt(s, LPA, id), f === 3 ? 'red' : f === 2 ? 'gold' : '', !!it]); }
@@ -224,13 +246,16 @@ function make({ F, deck, labels, scene }) {
       let k = 0;
       for (let d = 1; d < lv.length; d++) for (let j = 0; j < lv[d].length; j++) { const lb = fNode[k++]; if (lb) t.set(lb, [String(lv[d][j]), on(FSM) || (SEEK && on(SEEK)), path.some(([pd, pj]) => pd === d && pj === j) ? 'gold' : '', true]); }
       for (; k < fNode.length; k++) t.set(fNode[k], ['', false, '', false]);
-      t.set(fCap, [s[FSM].byl ? `${esc(s[FSM].byl.l || '')}  ·  ${esc(s[FSM].byl.r || '')}` : '', on(FSM), '', !!s[FSM].byl, true]);
+      /* 잎의 sub 에서 숫자 뒤의 말(예 : '0 · 실제로는 비었는데')은 잎 칸에 안 들어가므로 설명 줄로 */
+      const rest = s[FSM].map((x) => [x, bare(x.sub).replace(/^\s*\d[\d,]*\s*(·\s*)?/, '').trim()]).filter(([, r]) => r).map(([x, r]) => `<span class="q-i">${esc(x.id)}</span> ${esc(nums(x.sub)[0])}  ·  ${esc(r)}`);
+      const head = s[FSM].byl ? `${esc(s[FSM].byl.l || '')}  ·  ${esc(s[FSM].byl.r || '')}` : '';
+      t.set(fCap, [[head, ...rest].filter(Boolean).join('\n'), on(FSM), '', !!head || rest.length > 0, true]);
     }
     for (const a of ROWS) {
       for (const id of RIDS[a]) { const it = s[a].find((x) => x.id === id); t.set(rowLb[a][id], [it ? id : '', on(a) && !!it && hotIt(s, a, id), it && (it.tag === 'x' || it.tag === 'red') ? 'red' : '', !!it]); }
       t.set(rowCap[a], [s[a].map((x) => x.sub || x.keys ? `<span class="q-i">${esc(x.id)}</span> ${esc(x.sub || x.keys || '')}` : '').filter(Boolean).join('\n') || (s[a].length ? '' : '—'), on(a), '', true, true]);
     }
-    if (EDGE) t.set(edgeLb, [EDGE.lb, false, (s.step.hot || (s.step.act && s.step.act.hot)) === EDGE.hot ? 'gold' : '']);
+    if (EDGE) t.set(edgeLb, [EDGE.lb, false, (s.step.hot || (s.step.act && s.step.act.hot)) === EDGE.hot ? 'gold' : '', LUSE.some((ln, j) => j > 0 && LUSE[j - 1] === EDGE.after)]);
     return t;
   });
   for (const b of BAKES.values()) b.TX = texts(b.S);
@@ -258,14 +283,16 @@ function make({ F, deck, labels, scene }) {
   function build(L) {
     const ww = L.x1 - L.x0, wh = L.y1 - L.y0, gap = 18, HD = 18;
     G = { L, anc: {}, slot: {}, strip: {} };
-    const tn = Math.max(1, Math.min(3, TEXTS.length)), tW = (ww - (tn - 1) * gap) / tn;
-    for (const a of TEXTS) wrap(tx[a], tW);
-    const tRows = Math.ceil(TEXTS.length / tn), tH = TEXTS.length ? hMax(TEXTS.map((a) => tx[a])) : 0;
+    const TL = Object.fromEntries(LUSE.map((ln) => {
+      const as = TEXTS.filter((a) => A[a].lane === ln), n = Math.max(1, Math.min(3, as.length)), w = (ww - (n - 1) * gap) / n;
+      for (const a of as) wrap(tx[a], w);
+      return [ln, { as, n, w, rows: Math.ceil(as.length / n), h: as.length ? hMax(as.map((a) => tx[a])) : 0 }];
+    }));
     /* 확대 띠 — 이름 · 설명의 줄은 모든 스텝의 칸 자리로 나눈다(칸이 스텝마다 바뀌면 자리도 바뀐다) */
     const SW = {};
     for (const a of STRIPS) {
       wrap(sCap[a], ww);
-      const pos = (s) => { const its = s[a], tot = its.reduce((p, x) => p + (x.sz || 1), 0) || 1; let x = L.x0; return Object.fromEntries(its.map((it) => { const w = (ww * (it.sz || 1)) / tot, r = [x, w]; x += w; return [it.id, r]; })); };
+      const pos = (s) => { const its = s[a], tot = STOT[grpOf(a)]; let x = L.x0; return Object.fromEntries(its.map((it) => { const w = (ww * (it.sz || 1)) / tot, r = [x, w]; x += w; return [it.id, r]; })); };
       let nr = 1, vr = 1;
       const per = new Map();
       for (const b of BAKES.values()) b.S.forEach((s, kk) => {
@@ -282,6 +309,8 @@ function make({ F, deck, labels, scene }) {
     const cell = ww / ROWB;
     if (GRID) { wrap(gCap, ww); }
     const gcH = GRID ? most(gCap).h : 0;
+    /* 페이지의 셈(pd_lower · pd_upper · 빈 공간)은 제목 줄 오른쪽에 — 들어가면. 페이지와 lp 칸 사이를 lp → 튜플 선에 비워 준다 */
+    const legTop = GRID && most(gLeg).w + most(hd[GRID]).w + 30 <= ww;
     /* line pointer 칸 줄과 32 비트 */
     const lw = LPA ? Object.fromEntries(LIDS.map((id) => [id, Math.max(40, Math.ceil(most(lLb[id]).w) + 14)])) : {};
     /* 설명은 칸 줄 오른쪽에 — 남는 폭이 180 이상일 때. 아니면 아래 */
@@ -298,26 +327,34 @@ function make({ F, deck, labels, scene }) {
     const rcH = Object.fromEntries(ROWS.map((a) => [a, most(rowCap[a]).h]));
     const lay = (y0, k = 1, gr = 18) => {
       let y = y0;
-      TEXTS.forEach((a, i) => { const x = L.x0 + (i % tn) * (tW + gap), yy = y + Math.floor(i / tn) * (HD + tH + 12 * k); place(hd[a], x, yy); place(tx[a], x, yy + HD); G.anc[a] = { x: x + tW - 18, y: yy + 8 }; });
-      y += tRows * (HD + tH + 12 * k);
-      for (const a of STRIPS) {
+      const texts = (ln) => {
+        const T = TL[ln];
+        T.as.forEach((a, i) => { const x = L.x0 + (i % T.n) * (T.w + gap), yy = y + Math.floor(i / T.n) * (HD + T.h + 12 * k); place(hd[a], x, yy); place(tx[a], x, yy + HD); G.anc[a] = { x: x + T.w - 18, y: yy + 8 }; });
+        y += T.rows * (HD + T.h + 12 * k);
+      };
+      const strip = (a) => {
         place(hd[a], L.x0, y); y += HD + 6 + SW[a].nr * RH;
         G.strip[a] = { y, ...SW[a] }; G.anc[a] = { x: L.x0 + ww / 2, y: y + 13 };
         y += 26 + 5 + SW[a].vr * RH + 4; G.strip[a].capY = y; place(sCap[a], L.x0, y); y += SW[a].capH + (SW[a].capH > 1 ? 6 : 0) + 12 * k;
-      }
-      /* 경계 이름은 선 아래 오른쪽 — 위쪽 글 블록은 오른쪽 끝까지 찬다 */
-      y += 6 * k; G.edgeY = y; if (EDGE) place(edgeLb, L.x1, y + 2, 'r', 't'); y += 8 + 8 * k;
-      if (GRID) {
-        place(hd[GRID], L.x0, y); y += HD + 4;
+      };
+      const grid = () => {
+        place(hd[GRID], L.x0, y);
+        if (legTop) G.leg = { x: L.x1, y, al: 'r' };
+        y += HD + 4;
         G.grid = { x0: L.x0, y, cell, gr }; G.anc[GRID] = { x: L.x0 + ww / 2, y: y + (NR * gr) / 2 };
-        y += NR * gr + 6; G.legY = y; place(gLeg, L.x0, y); y += 16; G.capY = y; place(gCap, L.x0, y); y += gcH + 14 * k;
-      }
-      if (LPA) {
-        place(hd[LPA], L.x0, y); G.lps = { y: y + HD, w: lw }; G.anc[LPA] = { x: L.x0 + 30, y: y + HD + 13 };
-        if (lSide) { G.lpCapX = L.x0 + lsW + 20; G.lpCapY = y + HD - 1; }
+        y += NR * gr + 6;
+        if (!legTop) { G.leg = { x: L.x0, y, al: 'l' }; y += 16; }
+        if (!LPA) { G.capY = y; place(gCap, L.x0, y); y += gcH + 14 * k; }
+      };
+      const lps = () => {
+        /* lp 칸은 페이지 바로 아래 — 칸 위쪽이 lp → 튜플 선의 길이고, 제목 · 설명은 칸 아래로 비킨다 */
+        if (GRID) y += 16 + 10 * k;
+        G.lps = { y, w: lw }; G.anc[LPA] = { x: L.x0 + 30, y: y + 13 };
+        if (lSide) { G.lpCapX = L.x0 + lsW + 20; G.lpCapY = y - 1; }
+        y += (lSide ? Math.max(26, lcH) : 26) + 4;
         /* 지금 보는 항목의 이름은 제목 줄 오른쪽 — 32 비트 띠 위에 따로 한 줄을 쓰지 않는다 */
-        place(bitHd, L.x1, y, 'r', 't');
-        y += HD + (lSide ? Math.max(26, lcH) : 26) + 12;
+        place(hd[LPA], L.x0, y); place(bitHd, L.x1, y, 'r', 't');
+        y += HD + 4;
         G.bits = { y: y + 8, cw: ww / 32 };
         const bx = { lp_off: L.x0, lp_flags: L.x0 + (ww * 15) / 32, lp_len: L.x0 + (ww * 17) / 32 }, bw = { lp_off: (ww * 15) / 32, lp_flags: (ww * 2) / 32, lp_len: (ww * 15) / 32 };
         const BL = stagger(LPF.map(([f]) => ({ f, cx: bx[f] + bw[f] / 2, w: bitW[f] })), L.x0, L.x1);
@@ -326,16 +363,26 @@ function make({ F, deck, labels, scene }) {
         y += 16 + 10 + BL.rows * RH + 6;
         if (!lSide) { G.lpCapX = L.x0; G.lpCapY = y; y += lcH + 14 * k; } else y += 8 * k;
         place(lCap, G.lpCapX, G.lpCapY);
-      }
-      if (FSM) {
+        /* 페이지 영역의 설명은 lp 띠 다음 — 페이지와 lp 칸 사이에 두면 lp → 튜플 선이 그 글을 지난다 */
+        if (GRID) { G.capY = y; place(gCap, L.x0, y); y += gcH + 14 * k; }
+      };
+      const fsm = () => {
         place(hd[FSM], L.x0, y); y += HD + 8;
         G.fsm = { y, lh: 34, depth: fDepth }; G.anc[FSM] = { x: L.x0 + ww / 2, y: y + 10 };
         y += (fDepth - 1) * 34 + 22 + 30; place(fCap, L.x0, y); y += fcH + 14 * k;
-      }
-      for (const a of ROWS) {
-        place(hd[a], L.x0, y); G.slot[a] = { y: y + HD, sw: sw[a] }; G.anc[a] = { x: L.x0 + 30, y: y + HD + 13 };
-        y += HD + 26 + 8; place(rowCap[a], L.x0, y); y += rcH[a] + 16 * k;
-      }
+      };
+      const rows = (a) => {
+        const nl = TREE.includes(a) ? TLV[a] : 1;
+        place(hd[a], L.x0, y); G.slot[a] = { y: y + HD, sw: sw[a], tree: nl > 1 || TREE.includes(a) }; G.anc[a] = { x: L.x0 + 30, y: y + HD + 13 };
+        y += HD + 26 + (nl - 1) * 34 + 8; place(rowCap[a], L.x0, y); y += rcH[a] + 16 * k;
+      };
+      const BLK = [['', texts], ...STRIPS.map((a) => [a, () => strip(a)]), [GRID, grid], [LPA, lps], [FSM, fsm], ...ROWS.map((a) => [a, () => rows(a)])].filter(([a]) => a !== null);
+      G.edgeY = null;
+      LUSE.forEach((ln, j) => {
+        /* 경계 이름은 선 아래 오른쪽 — 위쪽 글 블록은 오른쪽 끝까지 찬다 */
+        if (j) { y += 6 * k; if (EDGE && EDGE.after === LUSE[j - 1]) { G.edgeY = y; place(edgeLb, L.x1, y + 2, 'r', 't'); } y += 8 + 8 * k; }
+        for (const [a, f] of BLK) if (a ? A[a].lane === ln : TL[ln].as.length) f(ln);
+      });
       return y - y0;
     };
     let k = 1, gr = 18, total = lay(L.y0, 1, gr);
@@ -355,7 +402,9 @@ function make({ F, deck, labels, scene }) {
     return out;
   };
   const lpSlot = (s, id) => { let x = G.L.x0; for (const it of s[LPA]) { const w = G.lps.w[it.id]; if (it.id === id) return { x: x + w / 2, y: G.lps.y + 13, w }; x += w + 6; } return null; };
-  const rowSlot = (s, a, id) => { let x = G.L.x0; for (const it of s[a]) { const w = G.slot[a].sw[it.id]; if (it.id === id) return { x: x + w / 2, y: G.slot[a].y + 13, w }; x += w + 6; } return null; };
+  const rowSlot = (s, a, id) => {
+    if (G.slot[a].tree) { const it = s[a].find((q) => q.id === id); return it ? { x: (G.L.x0 + G.L.x1) / 2, y: G.slot[a].y + 13 + (it.lvl || 0) * 34, w: G.slot[a].sw[id] } : null; }
+    let x = G.L.x0; for (const it of s[a]) { const w = G.slot[a].sw[it.id]; if (it.id === id) return { x: x + w / 2, y: G.slot[a].y + 13, w }; x += w + 6; } return null; };
   const regionAt = (s, id) => { const it = (s[GRID] || []).find((x) => x.id === id); if (!it) return null; const sg = segs(it.off, it.len), lg = sg.reduce((p, q) => (q[1] - q[0] > p[1] - p[0] ? q : p), sg[0]); const [x0, y0] = bxy(lg[0]); return { x: x0 + ((lg[1] - lg[0]) * G.grid.cell) / 2, y: y0 + G.grid.gr / 2, w: (lg[1] - lg[0]) * G.grid.cell }; };
   /* FSM 노드 자리 — 잎은 아래 줄, 부모는 두 자식의 가운데 위 */
   const fsmXY = (d, j, n) => { const ww = G.L.x1 - G.L.x0, cw = ww / n, span = 2 ** d; return { x: G.L.x0 + cw * (j * span + span / 2), y: G.fsm.y + (G.fsm.depth - 1 - d) * G.fsm.lh }; };
@@ -440,15 +489,19 @@ function make({ F, deck, labels, scene }) {
     for (const a of STRIPS) {
       const [s0, s1] = R['s:' + a], n = s1 - s0, info = G.strip[a].per.get(s), mod = modOf(s, a), on = s.touch.has(a) && !end;
       if (!info || !s[a].length) { hide('s:' + a); continue; }
-      const cuts = Object.values(info.P).map(([x]) => x).slice(1), nc = Math.min(cuts.length * 4, 40), nl = n - nc;
+      /* 띠는 눈금대로 — 끝(xe)에 닫는 칸막이 */
+      const xe = Math.max(...Object.values(info.P).map(([x, w]) => x + w)), cuts = Object.values(info.P).map(([x]) => x).slice(1).concat(xe < G.L.x1 - 1 ? [xe] : []);
+      const nc = Math.min(cuts.length * 4, 40), nl = n - nc;
       for (let m = 0; m < n; m++) {
         const i = s0 + m;
         let x, y, col = INK, hot = false;
         if (m < nl) {
-          const u = Math.floor(m / 2) / Math.ceil(nl / 2); x = G.L.x0 + u * (G.L.x1 - G.L.x0); y = G.strip[a].y + (m % 2 ? 26 : 0);
+          const u = Math.floor(m / 2) / Math.ceil(nl / 2); x = G.L.x0 + u * (xe - G.L.x0); y = G.strip[a].y + (m % 2 ? 26 : 0);
           const id = Object.keys(info.P).find((q) => x >= info.P[q][0] && x < info.P[q][0] + info.P[q][1]);
           const it = id && s[a].find((q) => q.id === id);
-          hot = !!id && mod.has(id) && on; col = hot ? GOLD : it && it.tag !== 'hdr' && it.tag !== 'clean' ? TAGC[it.tag] ?? INK : INK;
+          hot = !!id && mod.has(id) && on;
+          /* 빨강 · 초록 표가 붙은 칸은 그 색 — 바뀐 칸의 금빛보다 앞선다 */
+          col = it && ['red', 'x', 'green', 'ok'].includes(it.tag) ? TAGC[it.tag] : hot ? GOLD : it && it.tag !== 'hdr' && it.tag !== 'clean' ? TAGC[it.tag] ?? INK : INK;
         } else { const c = Math.floor((m - nl) / 4); if (c >= cuts.length) { put(o, i, dust[i * 2], dust[i * 2 + 1], 0, 0, 2, 1, FAINT); continue; } x = cuts[c]; y = G.strip[a].y + 5 + ((m - nl) % 4) * 5.3; }
         const [xx, yy] = into(i, x, y);
         put(o, i, xx, yy, (on ? 0.85 : 0.45) * dim * form, hot ? 0.5 : 0, 0.02, 1.05, col);
@@ -494,9 +547,9 @@ function make({ F, deck, labels, scene }) {
       if (!it && !(pv && !end)) { hide(key); continue; }
       const P = it ? rowSlot(s, a, id) : rowSlot(prev, a, id);
       if (!P) { hide(key); continue; }
-      const born = it && !pv && !end, from = born && act && act.t === a ? src : null, cur3 = it || pv, fr = cur3.free != null ? U.clamp(cur3.free / (PG - 24)) : null;
-      box(o, R[key][0], fr == null ? SL : SL - 12, P, P.w, 24, cur3.tag, level(a, id), it && modOf(s, a).has(id) && !end, from, it ? 0 : show(p, 0.1, 0.4), into, fly);
-      if (fr != null) for (let m = 0; m < 12; m++) { const i = R[key][0] + SL - 12 + m, [x, y] = into(i, P.x - P.w / 2 + 3 + Math.max(1, (P.w - 6) * fr) * (m / 11), P.y + 8); put(o, i, x, y, level(a, id) * (it ? 1 : 1 - show(p, 0.1, 0.4)), 0, 0.02, 1.2, GREEN); }
+      const born = it && !pv && !end, from = born && act && act.t === a ? src : null, cur3 = it || pv;
+      /* 여유(free)는 칸 안의 막대로 overlay 가 긋는다 — 알갱이 12 개로는 2px 점선이 되어 읽히지 않았다 */
+      box(o, R[key][0], SL, P, P.w, 24, cur3.tag, level(a, id), it && modOf(s, a).has(id) && !end, from, it ? 0 : show(p, 0.1, 0.4), into, fly);
     }
     /* act — 덩어리가 f 에서 t 로 */
     const [t0, t1] = R.tok, tn = t1 - t0;
@@ -529,10 +582,12 @@ function make({ F, deck, labels, scene }) {
         /* 영역 이름은 가장 긴 조각의 가운데 — 이름이 조각보다 넓으면 숨긴다(설명 줄에 남아 있다) */
         for (const it of s[GRID]) { const P = regionAt(s, it.id); place(gLb[it.id], P.x, P.y, 'c', 'c'); G.gHide = G.gHide || {}; G.gHide[it.id] = P.w < gLb[it.id].el.getBoundingClientRect().width + 6; }
         const bd = bounds(s), [lx, ly] = bxy(bd.lower), [ux, uy] = bxy(Math.min(PG - 1, bd.upper));
-        place(mkLb.lo, lx + 4, ly + G.grid.gr / 2, 'l', 'c'); place(mkLb.up, ux - 4, uy + G.grid.gr / 2, 'r', 'c');
+        /* pd_upper 가 줄의 맨 앞이면 이름을 눈금 오른쪽에 — 왼쪽은 무대 밖이다 */
+        const upL = ux - 4 - mkLb.up.el.getBoundingClientRect().width < G.L.x0;
+        place(mkLb.lo, lx + 4, ly + G.grid.gr / 2, 'l', 'c'); place(mkLb.up, upL ? ux + 4 : ux - 4, uy + G.grid.gr / 2, upL ? 'l' : 'r', 'c');
         const free = (bd.upper - bd.lower) * G.grid.cell, wl = mkLb.lo.el.getBoundingClientRect().width, wu = mkLb.up.el.getBoundingClientRect().width;
         G.mkShow = { lo: free > wl + 12 && (ly !== uy || ux - lx > wl + wu + 24), up: free > wu + 12 && (ly !== uy || ux - lx > wl + wu + 24) };
-        place(gLeg, G.L.x0, G.legY); place(gCap, G.L.x0, G.capY);
+        place(gLeg, G.leg.x, G.leg.y, G.leg.al, 't'); place(gCap, G.L.x0, G.capY);
       }
       for (const a of STRIPS) {
         const info = G.strip[a].per.get(s);
@@ -584,7 +639,8 @@ function make({ F, deck, labels, scene }) {
     const form = k === 0 ? show(p, 0.18, 0.36) : 1, o = (end ? 0.25 : 1) * form, { L } = G;
     ctx.save(); ctx.lineWidth = 1;
     ctx.globalAlpha = 0.45 * o; ctx.strokeStyle = css.faint; ctx.setLineDash([3, 4]);
-    seg(ctx, L.x0, G.edgeY, L.x1, G.edgeY); ctx.setLineDash([]);
+    if (G.edgeY != null) seg(ctx, L.x0, G.edgeY, L.x1, G.edgeY);
+    ctx.setLineDash([]);
     if (GRID) {
       const g = G.grid;
       /* 16 줄의 안내선 — 한 줄이 512 바이트 */
@@ -609,6 +665,41 @@ function make({ F, deck, labels, scene }) {
         ctx.beginPath(); ctx.moveTo(P.x, P.y - 12); ctx.bezierCurveTo(P.x, P.y - 40, Q.x, Q.y + 30, Q.x, Q.y + g.gr / 2); ctx.stroke();
       }
     }
+    /* LP_REDIRECT — lp_off 가 가리키는 lp 칸으로 짧은 금빛 호(HOT 사슬의 이음매) */
+    if (LPA) for (const it of s[LPA]) {
+      if (flagOf(it.fl) !== 2) continue;
+      const P = lpSlot(s, it.id), Q = lpSlot(s, 'lp ' + it.off);
+      if (!P || !Q) continue;
+      const x0 = P.x, x1 = Q.x, yb = P.y + 12, my = yb + 9;
+      ctx.globalAlpha = 0.9 * o; ctx.strokeStyle = css.gold; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(x0, yb); ctx.quadraticCurveTo((x0 + x1) / 2, my + 4, x1, yb); ctx.stroke();
+      const an = Math.atan2(yb - (my + 4), x1 - (x0 + x1) / 2);
+      ctx.beginPath(); ctx.moveTo(x1, yb); ctx.lineTo(x1 - 5 * Math.cos(an - 0.45), yb - 5 * Math.sin(an - 0.45)); ctx.moveTo(x1, yb); ctx.lineTo(x1 - 5 * Math.cos(an + 0.45), yb - 5 * Math.sin(an + 0.45)); ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+    /* 칸 줄의 여유(free) — 칸 안 아래쪽 3px 막대, 폭이 여유의 비율 */
+    for (const a of ROWS) for (const it of s[a]) {
+      if (it.free == null) continue;
+      const P = rowSlot(s, a, it.id);
+      if (!P) continue;
+      ctx.globalAlpha = (s.touch.has(a) && !end ? 0.85 : 0.5) * o; ctx.fillStyle = css.green;
+      ctx.fillRect(P.x - P.w / 2 + 4, P.y + 8, Math.max(2, (P.w - 8) * U.clamp(it.free / (PG - 24))), 2.5);
+    }
+    /* 트리 — 단 사이 선. act 가 트리에서 나가거나 들어오면 금빛(위에서 아래로 내려가는 길) */
+    for (const a of TREE) {
+      const act = !end && s.step.act, hot = !!act && (act.f === a || act.t === a);
+      const its = [...s[a]].sort((p2, q2) => (p2.lvl || 0) - (q2.lvl || 0));
+      for (const c of its) {
+        const par = its.filter((q2) => (q2.lvl || 0) === (c.lvl || 0) - 1);
+        for (const pp of par) {
+          const P = rowSlot(s, a, pp.id), Q = rowSlot(s, a, c.id);
+          if (!P || !Q) continue;
+          ctx.globalAlpha = (hot ? 0.9 : 0.35) * o; ctx.strokeStyle = hot ? css.gold : css.ink; ctx.lineWidth = hot ? 1.6 : 1;
+          seg(ctx, P.x, P.y + 13, Q.x, Q.y - 13);
+        }
+      }
+      ctx.lineWidth = 1;
+    }
     for (const a of STRIPS) {
       const info = G.strip[a].per.get(s);
       if (!info) continue;
@@ -617,8 +708,8 @@ function make({ F, deck, labels, scene }) {
       for (const q of info.NM) if (off(q)) seg(ctx, q.cx, y - 3 - q.row * RH + 1, q.cx, y - 2);
       for (const q of info.VL) if (off(q)) seg(ctx, q.cx, y + 28, q.cx, y + 26 + 5 + q.row * RH - 1);
     }
-    if (LPA) {
-      /* 32 비트 칸 경계 — 필드 사이는 진하게 */
+    if (LPA && lpFocus(s)) {
+      /* 32 비트 칸 경계 — 필드 사이는 진하게. 볼 항목이 없으면 긋지 않는다 */
       const y = G.bits.y, cw = G.bits.cw;
       ctx.globalAlpha = 0.35 * o; ctx.strokeStyle = css.faint;
       for (let c = 0; c <= 32; c++) { const x = L.x0 + c * cw; ctx.globalAlpha = (c === 0 || c === 15 || c === 17 || c === 32 ? 0.7 : 0.2) * o; seg(ctx, x, y - 8, x, y + 8); }
@@ -644,7 +735,7 @@ function make({ F, deck, labels, scene }) {
     build(L) { this.theme(); build(L); },
     theme() {
       const cs = getComputedStyle(document.documentElement), v = (n) => cs.getPropertyValue(n).trim();
-      css = { faint: v('--faint'), gold: v('--gold'), ink: v('--ink'), red: v('--red'), accent: v('--accent') };
+      css = { faint: v('--faint'), gold: v('--gold'), ink: v('--ink'), red: v('--red'), accent: v('--accent'), green: v('--green') };
     },
     setVary(v) { const b = BAKES.get(keyOf(v)); if (b && b !== cur) { cur = b; shown = -2; } },
     pose, paint, overlay,
