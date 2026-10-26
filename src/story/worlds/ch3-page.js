@@ -1978,6 +1978,11 @@ PANEL.space = (W, M, sp) => {
   const lbs = [hd0, hdF, hdI, ...b0, ...Object.values(fn), ...Object.values(fv), ...Object.values(xl), ...Object.values(il).flatMap((x) => [x.n, x.v])];
   const valOf = (s, n) => { const a = s.fsA || {}, l = s.fsL || {}; const v = a[n] ?? l[n]; return v == null || bare(v) === '—' ? null : v; };
   const hotF = (s, n) => (touchOf(s, 'fsA') && modOf(s, 'fsA').has(n) && tone(s.fsA[n]) === 'gold') || (touchOf(s, 'fsL') && modOf(s, 'fsL').has(n) && tone(s.fsL[n]) === 'gold');
+  /* 짚는 inode — 화살표('   ←')를 단 칸이 있으면 그것만, 없으면 look · 바뀐 칸 */
+  const arrowed = (s, a) => (s[a] || []).some((x) => /←\s*$/.test(x.sub));
+  const listHot = (a) => (s, id) => { if (!touchOf(s, a)) return false; const it = (s[a] || []).find((x) => x.id === id); return arrowed(s, a) ? !!it && /←\s*$/.test(it.sub) : hotIt(s, a, id); };
+  const inoHot = listHot('ino'), xdHot = listHot('xd');
+  const inoHtml = (t) => { const p = bare(t).split(/\s{2}([·+])\s{2}/), out = [p[0]]; for (let j = 1; j < p.length; j += 2) out.push((p[j] === '+' ? '+ ' : '') + p[j + 1]); return out.map((x) => `<span style="white-space:nowrap">${esc(x.trim())}</span>`).join('<br>'); };
   let geo = null;
   const fx = (o) => geo.x0 + (o / 112) * geo.ww;
   const p0x = (o, f) => geo.x0 + (o / (150 + 40 * 9)) * geo.ww;
@@ -1991,9 +1996,11 @@ PANEL.space = (W, M, sp) => {
       T.set(hdF, [`FSP header  ·  38 – 149  ·  ${bare((s.fsA || {}).file || '—')}`, on]);
       T.set(hdI, [`page 2  ·  INODE  ·  50 + 192 × k`, touchOf(s, 'ino')]);
       ['0', '38', '150'].forEach((t, j) => T.set(b0[j], [t, false, '', true]));
-      for (const [n] of C.FSP_FIELDS) { const v = valOf(s, n), hot = hotF(s, n); T.set(fn[n], [n, hot || (on && !!v), hot ? 'gold' : '', true]); T.set(fv[n], [v ? bare(v) : '', hot || on, hot ? 'gold' : TAGL[tone(v)] || '', !!v]); }
-      for (const id of XI) { const it = (s.xd || []).find((x) => x.id === id); T.set(xl[id], [it ? `${id}   ${it.sub}` : '', touchOf(s, 'xd') && hotIt(s, 'xd', id), '', !!it, false]); }
-      for (const id of II) { const it = (s.ino || []).find((x) => x.id === id); T.set(il[id].n, [it ? id : '', touchOf(s, 'ino') && hotIt(s, 'ino', id), '', !!it]); T.set(il[id].v, [it ? it.sub : '', touchOf(s, 'ino') && hotIt(s, 'ino', id), / ←$/.test(it ? it.sub : '') ? 'gold' : '', !!it && bare(it.sub) !== '—']); }
+      /* 값의 금빛은 그 스텝이 짚은 칸에만 — 앞 스텝의 '|gold' 가 남아 있어도 칠하지 않는다(04c 5 · 7 – 11 의 남은 금빛) */
+      for (const [n] of C.FSP_FIELDS) { const v = valOf(s, n), hot = hotF(s, n); T.set(fn[n], [n, hot || (on && !!v), hot ? 'gold' : '', true]); T.set(fv[n], [v ? bare(v) : '', hot || on, hot ? 'gold' : tone(v) === 'gold' ? '' : TAGL[tone(v)] || '', !!v]); }
+      for (const id of XI) { const it = (s.xd || []).find((x) => x.id === id); T.set(xl[id], [it ? `${id}   ${it.sub}` : '', xdHot(s, id), '', !!it, false]); }
+      /* inode 값 — '  ·  ' · '  +  ' 에서만 줄을 바꾼다(조각마다 nowrap). 칸 폭에서 아무 데나 끊었더니 'frag' / '1' 처럼 값이 갈렸다 */
+      for (const id of II) { const it = (s.ino || []).find((x) => x.id === id); T.set(il[id].n, [it ? id : '', inoHot(s, id), '', !!it]); T.set(il[id].v, [it ? inoHtml(it.sub) : '', inoHot(s, id), / ←$/.test(it ? it.sub : '') ? 'gold' : '', !!it && bare(it.sub) !== '—', true]); }
     },
     layout(x0, y, ww, k, z) {
       geo = { x0, ww, per: new Map() };
@@ -2018,7 +2025,7 @@ PANEL.space = (W, M, sp) => {
       const IST = rowsOf(W, II.map((id, k2) => ({ id, cx: ix(C.INODE_AT + k2 * C.INODE_SIZE + C.INODE_SIZE / 2), w: W.most(il[id].n).w })), x0, x0 + ww, 4);
       geo.ist = IST.out; geo.inr = IST.rows;
       geo.ih = yy + HD; geo.ib = geo.ih + IST.rows * RH + 2; geo.ibh = 14; geo.iv = geo.ib + geo.ibh + 5;
-      const iw = (C.INODE_SIZE / (C.INODE_AT + 6 * C.INODE_SIZE)) * ww - 6;
+      const iw = (C.INODE_SIZE / (C.INODE_AT + 6 * C.INODE_SIZE)) * ww - 10;
       for (const id of II) W.wrap(il[id].v, iw);
       const ivh = Math.max(14, ...II.map((id) => W.most(il[id].v).h));
       yy = geo.iv + ivh;
@@ -2048,7 +2055,7 @@ PANEL.space = (W, M, sp) => {
       /* extent 줄 — 0 · 1 은 page 칸, 2–8 은 아직 깔리지 않은 한 줄 */
       [r0, r1] = W.R.spx; i = r0;
       for (let e = 0; e < 2; e++) {
-        const x = xd[e], y = geo.xr[e].y, hot = touchOf(s, 'xd') && hotIt(s, 'xd', XI[e]);
+        const x = xd[e], y = geo.xr[e].y, hot = xdHot(s, XI[e]);
         for (let p = 0; p < 64; p++) {
           const pg = e * 64 + p, inFile = pg < f.nPages, used = x && x.used.includes(pg), o = own[pg] || (pg < 3 ? 'sys' : e === 1 && x && x.XDES_STATE === 'XDES_FSEG' && used ? 'PRIMARY leaf' : null);
           const col = !used ? FAINT : o === 'sys' ? FAINT : SEGC[o] ?? INK, a = !x ? 0 : !inFile ? 0.12 : used ? 0.95 : 0.35;
@@ -2059,12 +2066,12 @@ PANEL.space = (W, M, sp) => {
           }
         }
       }
-      { const y = geo.xr[2].y, rest = xd.length > 2, hot = touchOf(s, 'xd') && hotIt(s, 'xd', XI[2]);
+      { const y = geo.xr[2].y, rest = xd.length > 2, hot = xdHot(s, XI[2]);
         for (let m = 0; m < 120 && i < r1; m++, i++) { const [x, y2] = rim(geo.x0 + 32 * geo.cw, y + geo.ch / 2, 64 * geo.cw - 2, geo.ch, 120, m), [xx, yy] = P.into(i, x, y2); W.put(P.o, i, xx, yy, (rest ? 0.45 : 0.12) * (m % 2) * P.level('xd', hot) * P.form, 0, 0.02, 1, FAINT); } }
       /* inode 여섯 칸 */
       [r0, r1] = W.R.spi; i = r0;
       II.forEach((id, k2) => {
-        const it = (s.ino || []).find((x) => x.id === id), hot = touchOf(s, 'ino') && hotIt(s, 'ino', id), o = C.INODE_AT + k2 * C.INODE_SIZE, role = roleOf(f, C.lead(id.split('seg')[1] || '') || k2 + 1);
+        const it = (s.ino || []).find((x) => x.id === id), hot = inoHot(s, id), o = C.INODE_AT + k2 * C.INODE_SIZE, role = roleOf(f, C.lead(id.split('seg')[1] || '') || k2 + 1);
         const col = hot ? GOLD : SEGC[role] ?? INK;
         for (let m = 0; m < 40 && i < r1; m++, i++) { const [x, y] = rim((ix(o) + ix(o + C.INODE_SIZE)) / 2, geo.ib + geo.ibh / 2, ix(o + C.INODE_SIZE) - ix(o) - 3, geo.ibh, 40, m), [xx, yy] = P.into(i, x, y); W.put(P.o, i, xx, yy, (it ? 0.85 : 0.3) * P.level('ino', hot) * P.form, hot ? 0.4 : 0, 0.02, 1.05, col); }
       });
@@ -2085,21 +2092,31 @@ PANEL.space = (W, M, sp) => {
         if (pg === 0) { const xb = p0x(by); ctx.beginPath(); ctx.moveTo(xa, geo.fb); ctx.bezierCurveTo(xa, geo.fb - 30, xb, geo.p0 + 40, xb, geo.p0 + 12); ctx.stroke(); arrowHead(ctx, xb, geo.p0 + 12, -Math.PI / 2, 4); }
         else { const xb = ix(by); ctx.beginPath(); ctx.moveTo(xa, geo.fb + geo.fbh); ctx.bezierCurveTo(xa, geo.ib - 40, xb, geo.ib - 30, xb, geo.ib); ctx.stroke(); arrowHead(ctx, xb, geo.ib, Math.PI / 2, 4); }
       }
-      /* inode → 그 segment 의 낱장 page(extent 0 · 1 의 칸). NOT_FULL extent 는 그 줄 전체로 */
-      II.forEach((id, k2) => {
-        const node = f.p2.f[k2];
-        if (!node) return;
-        const hot = touchOf(s, 'ino') && hotIt(s, 'ino', id), o = C.INODE_AT + k2 * C.INODE_SIZE, xa = (ix(o) + ix(o + C.INODE_SIZE)) / 2;
-        ctx.globalAlpha = (hot ? 0.55 : 0.12) * O.o; ctx.strokeStyle = hot ? O.css.gold : O.css.faint;
-        for (const pg of node.frag) { const e = Math.floor(pg / 64); if (e > 1) continue; const xb = cx(pg) + geo.cw / 2, yb = geo.xr[e].y + geo.ch; ctx.beginPath(); ctx.moveTo(xa, geo.ib); ctx.bezierCurveTo(xa, geo.ib - 24, xb, yb + 24, xb, yb + 1); ctx.stroke(); }
-        if (node.FSEG_NOT_FULL.len) { const yb = geo.xr[1].y + geo.ch; ctx.beginPath(); ctx.moveTo(xa, geo.ib); ctx.bezierCurveTo(xa, geo.ib - 24, geo.x0 + 32 * geo.cw, yb + 30, geo.x0 + 32 * geo.cw, yb + 1); ctx.stroke(); }
-      });
+      /* inode → 그 segment 의 낱장 page(extent 0 · 1 의 칸). NOT_FULL extent 는 그 줄 전체로.
+         inode 를 보는 스텝에서만, 짚은 inode 는 금빛 · 나머지는 흐리게. 이름표(extent 줄 · inode 이름) 위를 지날 때는 더 흐리게 —
+         big.ibd 의 쉰 줄이 extent 이름표를 덮어 읽을 수 없었다 */
+      if (touchOf(s, 'ino')) {
+        const boxes = [...XI.map((id, e) => { const m = W.most(xl[id]); return [geo.x0 - 2, geo.xr[e].lb - 1, m.w + 4, m.h + 2]; }),
+          ...(geo.ist || []).map((q2) => { const m = W.most(il[q2.id].n); return [q2.l - 2, geo.ih + (geo.inr - 1 - q2.row) * RH - 1, m.w + 4, m.h + 2]; })];
+        const any = II.some((id) => inoHot(s, id));
+        const curves = (k3) => II.forEach((id, k2) => {
+          const node = f.p2.f[k2];
+          if (!node) return;
+          const hot = inoHot(s, id), o = C.INODE_AT + k2 * C.INODE_SIZE, xa = (ix(o) + ix(o + C.INODE_SIZE)) / 2;
+          /* 화살표로 고른 inode 는 진하게, 전부 짚는 스텝(정리)은 옅은 금빛 — 쉰 줄이 다 진하면 extent 줄이 덮인다 */
+          ctx.globalAlpha = (hot ? (arrowed(s, 'ino') ? 0.55 : 0.28) : any ? 0.07 : 0.2) * k3 * O.o; ctx.strokeStyle = hot ? O.css.gold : O.css.faint;
+          for (const pg of node.frag) { const e = Math.floor(pg / 64); if (e > 1) continue; const xb = cx(pg) + geo.cw / 2, yb = geo.xr[e].y + geo.ch; ctx.beginPath(); ctx.moveTo(xa, geo.ib); ctx.bezierCurveTo(xa, geo.ib - 24, xb, yb + 24, xb, yb + 1); ctx.stroke(); }
+          if (node.FSEG_NOT_FULL.len) { const yb = geo.xr[1].y + geo.ch; ctx.beginPath(); ctx.moveTo(xa, geo.ib); ctx.bezierCurveTo(xa, geo.ib - 24, geo.x0 + 32 * geo.cw, yb + 30, geo.x0 + 32 * geo.cw, yb + 1); ctx.stroke(); }
+        });
+        ctx.save(); ctx.beginPath(); ctx.rect(-1e5, -1e5, 2e5, 2e5); for (const b of boxes) ctx.rect(...b); ctx.clip('evenodd'); curves(1); ctx.restore();
+        ctx.save(); ctx.beginPath(); for (const b of boxes) ctx.rect(...b); ctx.clip(); curves(0.18); ctx.restore();
+      }
     },
     anchor(a, s) {
       if (!geo) return null;
       if (a === 'fsA' || a === 'fsL') { const n = C.FSP_FIELDS.find(([n2]) => hotF(s, n2)) || C.FSP_FIELDS[2]; return [fx(n[1] + n[2] / 2), geo.fb + geo.fbh / 2]; }
-      if (a === 'xd') { const e = Math.max(0, XI.findIndex((id) => hotIt(s, 'xd', id))); return [geo.x0 + 16 * geo.cw, geo.xr[e].y + geo.ch / 2]; }
-      if (a === 'ino') { const k2 = Math.max(0, II.findIndex((id) => hotIt(s, 'ino', id))); return [ix(C.INODE_AT + k2 * C.INODE_SIZE + 96), geo.ib + geo.ibh / 2]; }
+      if (a === 'xd') { const e = Math.max(0, XI.findIndex((id) => xdHot(s, id))); return [geo.x0 + 16 * geo.cw, geo.xr[e].y + geo.ch / 2]; }
+      if (a === 'ino') { const k2 = Math.max(0, II.findIndex((id) => inoHot(s, id))); return [ix(C.INODE_AT + k2 * C.INODE_SIZE + 96), geo.ib + geo.ibh / 2]; }
       return null;
     },
   };

@@ -1275,7 +1275,9 @@ const SCENES = [
           'free list has not been initialized',
           'extent descriptor is not initialized',
           'tablespace where size < 64 pages, this number is 64'],
-    ops:{ ...op('fsA', fsAOf('big', ['SIZE', 'FREE_LIMIT'])),
+    /* 실측 조건이 big.ibd 로 바뀌면 header 두 판(fsA · fsL)도 big.ibd 의 것 — ch3-check 가 파일을 맞춘다 */
+    ops:{ ...op('fsA', fsAOf('big', ['SIZE', 'FREE_LIMIT'])), ...op('fsL', fsLOf('big')),
+          ...op('xd', xdOf('big', (x) => (x.XDES_STATE === 'XDES_NOT_INITED' ? 'NOT_INITED' : x.XDES_STATE.replace('XDES_', '')), [2])),
           src:{ set:{ '파일':`big.ibd  ·  space ${P0('big').FSP_SPACE_ID}`, '작업':`INSERT ${SM.big.rows.toLocaleString('en-US')} 행 (순차)`, '크기':`${SD.big.nPages} page  ·  ${SM.big.fileSize.toLocaleString('en-US')} B` } },
           fld:{ set:{ '이름':'FSP_SIZE · FSP_FREE_LIMIT', '오프셋 · 폭':'38 + 8 · 38 + 12  ·  4 B 씩', '쓰는 곳':'파일을 늘릴 때 · extent 를 깔 때', '읽는 곳':'다음 extent 를 어디서 깔지' } },
           addr:{ set:{ '식':`I_S FILE_SIZE ${SM.big.fileSize.toLocaleString('en-US')} B`, '실측':`= ${SM.big.fileSize / 16384} page  =  SIZE`, '판정':`깔린 것 ${P0('big').FSP_FREE_LIMIT} page 뿐|gold` } } } },
@@ -1290,6 +1292,7 @@ const SCENES = [
           'constexpr uint32_t FSP_FLAGS_WIDTH_SDI = 1;',
           ['storage/innobase/include/page0size.h','ssize = (0 == ssize) ? UNIV_PAGE_SSIZE_ORIG : ssize;']],
     ops:{ ...op('fsA', fsAOf('big', ['SPACE_FLAGS'])),
+          ...op('xd', xdOf('big', (x) => (x.XDES_STATE === 'XDES_NOT_INITED' ? 'NOT_INITED' : x.XDES_STATE.replace('XDES_', '')))),
           fld:{ set:{ '이름':'FSP_SPACE_FLAGS', '오프셋 · 폭':'38 + 16  ·  4 B', '쓰는 곳':'tablespace 를 만들 때', '읽는 곳':'파일을 열 때 — page size · 형식 판정' } },
           addr:{ set:{ '식':`0x${P0('big').FSP_SPACE_FLAGS.toString(16)}`, '실측':`bit ${FLAG_BITS(P0('big').FSP_SPACE_FLAGS).join(' · ')}`, '판정':'POST_ANTELOPE · ATOMIC_BLOBS · SDI|green' } } } },
 
@@ -1301,7 +1304,8 @@ const SCENES = [
     fact:['constexpr ulint FLST_BASE_NODE_SIZE = 4 + 2 * FIL_ADDR_SIZE;',
           ['storage/innobase/include/fut0lst.ic','constexpr uint32_t FLST_FIRST = 4;'],
           ['storage/innobase/include/fsp0fsp.h','constexpr uint32_t XDES_FLST_NODE = 8;']],
-    ops:{ ...op('fsL', fsLOf('small', ['FREE_FRAG'])),
+    ops:{ ...op('fsL', fsLOf('small', ['FREE_FRAG'])), ...op('fsA', fsAOf('small')),
+          fld:{ set:{ '이름':'FSP_FREE_FRAG  (base node)', '오프셋 · 폭':'38 + 40  ·  16 B', '쓰는 곳':'FREE extent 를 낱장용으로 바꿀 때 목록 끝에', '읽는 곳':'fsp_alloc_page_no — 머리 extent 에서 낱장' } },
           src:{ set:{ '파일':`t.ibd  ·  space ${P0('small').FSP_SPACE_ID}`, '작업':SM.small.note.replace(/^.*— /, ''), '크기':`${SD.small.nPages} page  ·  ${(SD.small.nPages * 16384).toLocaleString('en-US')} B` } },
           ...op('xd', xdOf('small', (x) => `${x.XDES_STATE.replace('XDES_', '')}  ·  seg ${x.XDES_ID}  ·  ${x.used.length} 장`, [0])),
           addr:{ set:{ '식':'150 + XDES_FLST_NODE', '실측':'= 158', '판정':'FREE_FRAG 의 머리 = extent 0|green' } } } },
@@ -1317,7 +1321,7 @@ const SCENES = [
           'ulint index = bit + XDES_BITS_PER_PAGE * offset;'],
     cite:['it is necessary to track which segments are already released and which ones are still in use'],
     ops:{ ...op('xd', xdOf('small', (x) => `${x.XDES_STATE.replace('XDES_', '')}  ·  used ${span(x.used)}`, [0])),
-          ...op('fsA', fsAOf('small', ['FRAG_N_USED'])),
+          ...op('fsA', fsAOf('small', ['FRAG_N_USED'])), ...op('fsL', fsLOf('small')),
           fld:{ set:{ '이름':'XDES  (extent descriptor)', '오프셋 · 폭':'150 + 40 × extent  ·  40 B', '쓰는 곳':'page 를 줄 때 · 돌려받을 때 bit 를 뒤집는다', '읽는 곳':'xdes_get_bit — 빈 page 찾기' } },
           addr:{ set:{ '식':'bitmap 에서 FREE bit 가 0 인 page', '실측':`${xdesOf('small', 0).used.length} 장`, '판정':`FSP_FRAG_N_USED ${P0('small').FSP_FRAG_N_USED} 과 같다|green` } } } },
 
@@ -1331,7 +1335,9 @@ const SCENES = [
           'constexpr uint32_t FSEG_INODE_PAGE_NODE = FSEG_PAGE_DATA;',
           ['storage/innobase/fsp/fsp0fsp.cc','mlog_write_ull(header + FSP_SEG_ID, 1, mtr);']],
     ops:{ ...op('fsA', fsAOf('small', ['SEG_ID'])), ...op('fsL', fsLOf('small', ['SEG_INODES_FREE'])),
+          ...op('xd', xdOf('small', (x) => `${x.XDES_STATE.replace('XDES_', '')}  ·  used ${span(x.used)}`)),
           ...op('ino', inoOf('small', (i, r) => `${r}`)),
+          fld:{ set:{ '이름':'FSP_SEG_ID  ·  FSP_SEG_INODES_FREE', '오프셋 · 폭':'38 + 72 · 8 B  ·  38 + 96 · 16 B', '쓰는 곳':'fseg_create_general — 다음 id 를 주고 1 늘린다', '읽는 곳':'fsp_alloc_seg_inode — 빈 칸이 있는 inode page' } },
           addr:{ set:{ '식':'(16384 − 50 − 10) / 192', '실측':`= 85 칸 · 쓴 것 ${INO('small').length}`, '판정':'SEG_INODES_FREE 에 남는다|gold' } } } },
 
   { act:{ f:'ino', t:'fld', lb:'inode 192 B' },
@@ -1343,6 +1349,7 @@ const SCENES = [
           'constexpr uint32_t FSEG_MAGIC_N_VALUE = 97937874;',
           '#define FSEG_FRAG_ARR_N_SLOTS (FSP_EXTENT_SIZE / 2)'],
     ops:{ ...op('ino', inoOf('small', (i, r) => `${r}  ·  frag ${i.frag.length}  ·  extent ${i.FSEG_FREE.len + i.FSEG_NOT_FULL.len + i.FSEG_FULL.len}`)),
+          ...op('fsA', fsAOf('small')), ...op('fsL', fsLOf('small')),
           fld:{ set:{ '이름':'segment inode', '오프셋 · 폭':'page 2 의 50 + 192 × k  ·  192 B', '쓰는 곳':'fseg_create · page 를 줄 때', '읽는 곳':'fseg_alloc_page_no' } } } },
 
   { act:{ f:'ino', t:'addr', lb:'누가 어느 page 를' },
@@ -1367,6 +1374,7 @@ const SCENES = [
           ['storage/innobase/include/fsp0fsp.h','#define FSEG_FRAG_LIMIT FSEG_FRAG_ARR_N_SLOTS']],
     cite:['pages composed of cells, sections composed of pages, regions composed of sections'],
     ops:{ ...op('ino', inoOf('big', (i, r) => `${r}  ·  frag ${i.frag.length}${i.FSEG_NOT_FULL.len ? '  +  extent ' + i.FSEG_NOT_FULL.len + ' (' + i.FSEG_NOT_FULL_N_USED + ' 장)' : ''}`, [BIG_LEAF.FSEG_ID])),
+          ...op('fsA', fsAOf('big')), ...op('fsL', fsLOf('big')),
           src:{ set:{ '파일':`big.ibd  ·  space ${P0('big').FSP_SPACE_ID}`, '작업':`INSERT ${SM.big.rows.toLocaleString('en-US')} 행 (순차)`, '크기':`${SD.big.nPages} page  ·  ${SM.big.fileSize.toLocaleString('en-US')} B` } },
           ...op('xd', xdOf('big', (x) => (x.XDES_STATE === 'XDES_NOT_INITED' ? 'NOT_INITED' : x.XDES_ID ? `FSEG  ·  seg ${x.XDES_ID} 의 extent` : 'FREE_FRAG  ·  공용 낱장'), [1])),
           addr:{ set:{ '식':`frag ${BIG_LEAF.frag.length} + extent 의 ${BIG_LEAF.FSEG_NOT_FULL_N_USED}`, '실측':`= ${segPages(BIG_LEAF)} 장`, '판정':`root N_RECS ${SD.big.roots[4].f.PAGE_N_RECS} 과 같다|green` } } } },
@@ -1380,6 +1388,7 @@ const SCENES = [
           'extent belongs to a segment'],
     ops:{ ...op('xd', xdOf('big', (x) => (x.XDES_STATE === 'XDES_NOT_INITED' ? 'NOT_INITED  ·  아직 안 깔렸다' : `${x.XDES_STATE.replace('XDES_', '')}  ·  seg ${x.XDES_ID}  ·  ${x.used.length} 장`), [0, 1])),
           ...op('fsA', fsAOf('big', ['FRAG_N_USED'])),
+          fld:{ set:{ '이름':'XDES_ID', '오프셋 · 폭':'150 + 40 × e  ·  8 B', '쓰는 곳':'extent 를 segment 에 줄 때 — xdes_set_segment_id', '읽는 곳':'xdes_get_segment_id — 이 1 MB 의 주인' } },
           addr:{ set:{ '식':`4 + 2 + ${BIG_LEAF.frag.length} + ${BIG_IDX.frag.length}`, '실측':`= ${4 + 2 + BIG_LEAF.frag.length + BIG_IDX.frag.length} 장`, '판정':`FRAG_N_USED ${P0('big').FSP_FRAG_N_USED} 과 같다|green` } } } },
 
   { look:{ fsA:true, xd:true, ino:true },
