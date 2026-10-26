@@ -98,7 +98,7 @@ const SCENES = [
     op:{ kv:{ '항목 수':'1,000,000', 'fan-out':'2', '트리 높이':'20' } },
     bst:{ items:[
       { id:'root', lvl:0, keys:'키 1개', fill:.08 },
-      { id:'…', lvl:1, keys:'키 1개', fill:.08, rep:18 },
+      { id:'…  18 레벨', lvl:1, keys:'각 키 1개', fill:.08, rep:18 },
       { id:'leaf', lvl:2, keys:'키 1개', fill:.08 } ] },
     cost:{ kv:{ '비교 횟수':'20', '블록 전송':'20' } },
     io:{ kv:{ '시크':'0', '읽은 바이트':'0' } },
@@ -120,7 +120,9 @@ const SCENES = [
     fact:['*err = fil_io(request, sync, page_id, page_size, 0, page_size.physical(), dst, bpage);'],
     cite:['to follow a pointer to the specific location within the block, we have to fetch an entire block',
           "when we're reading a single word from a block device, the whole block containing it is read"],
-    beat:1 },
+    beat:1,
+    ops:{ io:{ set:{ '시크':'1', '읽은 바이트':'16 KB' } },
+          cost:{ set:{ '비교 횟수':'1', '블록 전송':'1' } } } },
 
   { act:{ f:'bst', t:'io', lb:'루트 → 리프 20 단계' },
     note:'1M keys → leaf 까지 20 level, level 마다 block 하나',
@@ -131,7 +133,8 @@ const SCENES = [
           'block = buf_page_get_gen( page_id, page_size, rw_latch,',
           'page_id.reset(space, btr_node_ptr_get_child_page_no(node_ptr, offsets));'],
     cite:['we have to perform O(log2 N) seeks to locate the searched element and, subsequently, perform the same number of disk transfers'],
-    ops:{ io:{ set:{ '시크':'20|red', '읽은 바이트':'320 KB|red' } } } },
+    ops:{ io:{ set:{ '시크':'20|red', '읽은 바이트':'320 KB|red' } },
+          cost:{ set:{ '비교 횟수':'20', '블록 전송':'20|red' } } } },
 
   { look:{ cost:true, io:true },
     note:'key 하나에 320KB read',
@@ -151,6 +154,7 @@ const SCENES = [
 
   { look:{ op:true, blk:true },
     note:'필요한 성질 둘 — high fan-out, low height',
+    ops:{ op:{ set:{ '트리 높이':'20  ← fan-out 2 의 결과|red' } } },
     why:'둘은 반비례한다. 한 노드가 자식을 많이 가지면 같은 항목 수를 담는 데 필요한 레벨이 줄어든다.',
     key:'그리고 InnoDB 에서는 <em>page 크기가 fan-out 의 상한</em>이다. 노드 하나가 page 하나라 16KB 에 들어가는 만큼만 자식을 가진다. 책은 노드가 연속된 여러 블록에 걸칠 수도 있다고 적는다.',
     fact:[['storage/innobase/btr/btr0btr.cc',"On levels n > 0 we store 'node pointers' to pages on level n - 1. For each page there is exactly one node pointer stored"]],

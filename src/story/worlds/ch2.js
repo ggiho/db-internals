@@ -26,8 +26,8 @@ const val = (v) => (tone(v) ? `<span class="${span[tone(v)]}">${esc(bare(v))}</s
 const TAGC = { clean: INK, x: RED, red: RED, dirty: GOLD, gold: GOLD, hold: GOLD, pin: GOLD, hdr: ACCENT, free: FAINT, ok: GREEN, green: GREEN, wait: ACCENT, sep: ACCENT };
 const TONEC = { gold: GOLD, red: RED, green: GREEN };
 /* 알갱이 몫 */
-const TOK = 150, RIM = 96, GAU = 28, CHIP = 26, STUB = 22, MINI = 16, BAND = 200, BKEY = 40, TOWR = 18;
-const AXL = 110, TICK = 9, SPAN = 52, MARK = 12, SL = 48, CELL = 20, BLKR = 56, SPK = 6;
+const TOK = 150, RIM = 96, GAU = 28, CHIP = 26, STUB = 22, MINI = 16, BAND = 200, BKEY = 40, TOWR = 34;
+const AXL = 110, TICK = 9, SPAN = 52, MARK = 12, SL = 48, CELL = 20, BLKR = 56, SPK = 6, TWK = 6, TWE = 4;
 const PLAT = 120, SPIN = 16, TRK = 5, SEC = 28, SECG = 3, HEAD = 12, SQ = 16, SEEK = 3, STRIP = 200, CUTS = 40, IMAX = 820;
 const NG = 14, PADX = 7, PADY = 5, IDH = 15, CHH = 19, GAH = 9, RH = 15;
 
@@ -392,7 +392,9 @@ function model(F, deck, labels, sc, cssOf) {
         Z.lvls = Math.max(...T.st.map((st) => st.depth || 0));
         Z.h = HD + 4 + Z.lvls * Z.bh + (Z.lvls - 1) * Z.LG + 6;
       } else {
-        Z.rows = T.rows; Z.rh = 10; Z.rg = 3; Z.bw = Math.round(U.clamp(ww * 0.3, 90, 210));
+        /* 탑의 블록 폭 — 옆의 이름이 들어가는 만큼 넓게(좁으면 16KB 상자가 점 기둥으로 보였다, 02 · 05v) */
+        const lw = Math.max(0, ...T.ids.map((id) => most(lb.id[id]).w));
+        Z.rows = T.rows; Z.rh = 10; Z.rg = 3; Z.bw = Math.round(U.clamp(Math.min(ww * 0.45, ww - lw - 24), 90, 300));
         Z.h = HD + 4 + Z.rows * (Z.rh + Z.rg) + 6;
       }
     }
@@ -422,7 +424,7 @@ function model(F, deck, labels, sc, cssOf) {
       G.ssd = { cols, rows, cs, cg, bw, bh, bgap, vh, h: HD + 16 + bh + 8 + vh };
     }
     if (HDD) { const R0 = U.clamp(Math.min(ww * 0.21, wh * 0.2), 46, 112); G.hdd = { R: R0, h: 2 * R0 + 16 }; }
-    if (TRAY) G.tray = { h: (PL.SKN ? 14 : 0) + SQ + 6 + 15 };
+    if (TRAY) G.tray = { h: (PL.SKN ? 14 : 0) + SQ + 6 + 15 + RH * 0.7 };
     /* 블록 띠 — 이름 · 설명의 줄은 모든 스텝의 칸 자리로 나눈다 */
     for (const a of BLK) {
       wrap(bLb[a].cap, ww);
@@ -821,11 +823,15 @@ function model(F, deck, labels, sc, cssOf) {
           if (!b1 && !(b0 && !end)) { hide(key); continue; }
           const B = b1 || b0, n = B.n, hot = on && hotIt(s, a, n.id), lit = readRow(kk, p, j, end, T.rows);
           const a0 = (on ? (hot ? 0.92 : 0.6) : 0.45) * dim * form;
+          /* 줄 하나 = 블록 하나 : 왼쪽에 fill 만큼 키, 그 뒤 빈 자리를 점선으로 블록 끝까지, 끝에 세로 눈금 */
+          const NR = TOWR - TWK - TWE;
           for (let m = 0; m < TOWR; m++) {
-            const i = r0 + m, key1 = m >= 12, kw = Math.max(4, B.w * (n.fill || 0));
-            let [x, y] = key1 ? [B.x - B.w / 2 + ((m - 12 + 0.5) / 6) * kw, B.y + ((m - 12) % 2 ? 1.2 : -1.2)] : [B.x - B.w / 2 + kw + 3 + ((m + ((j * 0.37) % 1)) / 12) * (B.w - kw - 3), B.y];
+            const i = r0 + m, key1 = m < TWK, cap = m >= TOWR - TWE, kw = Math.max(4, B.w * (n.fill || 0));
+            let [x, y] = key1 ? [B.x - B.w / 2 + ((m + 0.5) / TWK) * kw, B.y + (m % 2 ? 1.2 : -1.2)]
+              : cap ? [B.x + B.w / 2, B.y - B.h / 2 + ((m - (TOWR - TWE)) / (TWE - 1)) * B.h]
+              : [B.x - B.w / 2 + kw + 3 + ((m - TWK + 0.5) / NR) * (B.w - kw - 3), B.y];
             [x, y] = into(i, x, y);
-            put(o, i, x, y, a0 * (key1 ? 1 : 0.55), lit && key1 ? 0.7 : 0, 0.02, key1 ? 1.6 : 1, key1 ? (lit ? ACCENT : INK) : FAINT);
+            put(o, i, x, y, a0 * (key1 ? 1 : 0.7), lit && key1 ? 0.7 : 0, 0.02, key1 ? 1.6 : 1, key1 ? (lit ? ACCENT : INK) : INK);
           }
         }
       }
@@ -1033,8 +1039,8 @@ function model(F, deck, labels, sc, cssOf) {
     if (end || !TRAY) return false;
     const s = S[k], n1 = sqOf(s), n0 = refly(k) ? 0 : sqOf(stOf(prevIdx[k]));
     if (n1 <= n0) return false;
-    /* 하강(트리에서 시작하는 act)이 아니면 다시 읽는 것은 아래 줄이다 — 02/4 의 회전은 리프 가까이에서 일어난다 */
-    const r = s.step.act && TREES.includes(s.step.act.f) ? j : rows - 1 - j;
+    /* 하강(트리에서 시작하는 act)이거나 첫 읽기(02/1 의 루트)면 위부터, 아니면 다시 읽는 것은 아래 줄이다 — 02/4 의 회전은 리프 가까이에서 일어난다 */
+    const r = (s.step.act && TREES.includes(s.step.act.f)) || n0 === 0 ? j : rows - 1 - j;
     return r >= 0 && r < n1 - n0 && p >= 0.08 + (r / Math.max(1, n1 - n0)) * 0.3;
   }
   /* 트리에서 io 로 가는 act — 수가 그대로여도(init 에 이미 적힌 셈) 그 하강을 다시 보인다 */
@@ -1054,11 +1060,12 @@ function model(F, deck, labels, sc, cssOf) {
         return Array.from({ length: n }, (_, j) => { const b = per[Math.min(j, per.length - 1)]; return [b.x, b.y]; });
       }
     }
-    /* act 없이 늘어난 읽기(02/4 의 회전) — 탑이 있으면 그 아래 줄들에서 */
+    /* act 없이 늘어난 읽기 — 탑이 있으면 첫 읽기는 루트 줄부터(02/1), 다시 읽기는 아래 줄들에서(02/4 의 회전) */
+    const first = sqOf(stOf(prevIdx[k])) === 0;
     for (const a of TREES) {
       if (!TS[a].real || TS[a].mode !== 'tower') continue;
       const bs = [...nodesAt(a, k).box.values()];
-      if (bs.length) return Array.from({ length: n }, (_, j) => { const b = bs[Math.max(0, bs.length - 1 - j)]; return [b.x, b.y]; });
+      if (bs.length) return Array.from({ length: n }, (_, j) => { const b = bs[first ? Math.min(j, bs.length - 1) : Math.max(0, bs.length - 1 - j)]; return [b.x, b.y]; });
     }
     return Array.from({ length: n }, () => src || [G.L.x0, G.L.y0]);
   }
