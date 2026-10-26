@@ -136,6 +136,9 @@
 .st-dt h4{margin:24px 0 8px;font:500 11px var(--mono2);letter-spacing:.04em;color:var(--faint)}
 .st-dt .srci{margin-top:8px}
 .st-dt .srci .srci-cd{max-height:min(38vh,340px)}
+/* 인용 원문은 Story 의 글꼴로 — Lab 의 작은 sans 그대로 두자 패널의 why(15px serif) 옆에서 11–12px 로 낮았다 */
+.st-dt .srci.cite blockquote{font:400 13.5px/1.7 var(--serif);color:var(--body);margin:0 0 10px}
+.st-dt .srci-hd{font-family:var(--mono2)}
 .st-dt .st-dt-facts{margin:8px 0 0;padding:0;list-style:none;display:grid;gap:8px}
 .st-dt .st-dt-facts li{font:400 12px/1.55 var(--mono2);color:var(--body);overflow-wrap:anywhere}
 .st-dt .st-dt-facts li i{display:block;font-style:normal;font-size:10.5px;color:var(--faint)}
@@ -144,8 +147,10 @@
 .st-hero{position:absolute;left:var(--gut);top:50%;width:var(--copyw);transform:translateY(-50%);
   opacity:var(--show,1);visibility:visible}
 .st-deck{margin:0 0 18px;font:400 13px var(--serif);color:var(--faint)}
-.st-title{margin:0;font:400 min(3.7vw,7vh,60px)/1.12 var(--serif);color:var(--ink);letter-spacing:-.022em;text-wrap:balance}
-.st-sub{margin:24px 0 0;font:300 clamp(15px,1.2vw,19px)/1.7 var(--serif);color:var(--body);word-break:keep-all}
+/* 장면 제목 — 글 칸이 27vw 로 좁아진 뒤 56px 제목이 네 줄로 접혔다(1512 innodb 01). 칸은 넓히지 않는다 —
+   세계가 첫 구간 p 0.2 부터(ch3 01 은 0 부터) 그 오른쪽에 나타나 제목과 겹친다 */
+.st-title{margin:0;font:400 min(2.6vw,5vh,max(42px,1.8vw))/1.14 var(--serif);color:var(--ink);letter-spacing:-.022em;text-wrap:balance}
+.st-sub{margin:20px 0 0;font:300 clamp(14px,1vw,17px)/1.7 var(--serif);color:var(--body);word-break:keep-all}
 .st-title .nb{white-space:nowrap}
 .st-hint{margin:34px 0 0;font:400 13px var(--serif);color:var(--faint)}
 
