@@ -40,15 +40,15 @@ export const CORE = {
     a: 'max_wal_size 만큼 쌓임, checkpoint_timeout 경과',
     x: ['shared_buffers 가 가득 참, 커밋 수', 'wal_buffers 가 가득 참, bgwriter 주기', 'dirty page 비율 90% 도달, checkpoint_timeout 경과'],
   },
-  '03/3': {
-    q: 'checkpoint 가 끝날 때 하는 핵심 일은?',
-    a: '복구 기준점(RedoRecPtr)을 새 위치로 옮긴다',
-    x: ['지난 WAL 세그먼트를 모두 지운다', 'shared_buffers 를 비워 둔다', '모든 트랜잭션을 잠깐 멈춰 커밋시킨다'],
+  '03/2': {
+    q: 'online checkpoint 가 시작되자마자(아직 flush 전) 페이지를 고치면?',
+    a: '어느 페이지든 첫 수정이 되어 이미지가 붙는다',
+    x: ['flush 가 끝난 페이지만 이미지가 붙는다', '이미지는 checkpoint 가 끝날 때까지 붙지 않는다', 'dirty 였던 적 없는 페이지만 이미지가 붙는다'],
   },
   '03/4': {
-    q: 'checkpoint 가 기준점을 옮긴 직후 페이지를 고치면?',
-    a: '어느 페이지든 첫 수정이 되어 이미지가 붙는다',
-    x: ['방금 flush 한 페이지만 이미지가 붙는다', '이미지는 다음 checkpoint 까지 붙지 않는다', 'dirty 였던 적 없는 페이지만 이미지가 붙는다'],
+    q: 'checkpoint 의 약속("redo 지점 앞의 변경은 데이터 파일에 있다")이 서는 때는?',
+    a: 'pg_control 이 새 checkpoint 레코드를 가리킬 때',
+    x: ['RedoRecPtr 를 새 위치로 옮기는 순간', 'dirty page flush 를 시작하는 순간', '옛 WAL 세그먼트를 지우거나 재활용할 때'],
   },
   '03/5': {
     q: 'checkpoint 를 자주 하면?',
