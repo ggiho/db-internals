@@ -1016,7 +1016,7 @@ const SCENES = [
     ['SELECT mxid_age(datminmxid) FROM pg_database','MultiXactId 의 나이 — XID 의 나이와 따로 본다'] ],
   links:[['01','튜플 헤더 — t_xmax 는 겸용'],['06','XID wraparound'],['08','동시 UPDATE']],
   init:{
-    op:{ kv:{ 'SQL':'—', '잠금':'—' } },
+    op:{ kv:{ 'SQL':'—', '잠금':'—', '참고':'—' } },
     hdr:{ kv:{ 't_xmin':'100', 't_xmax':'0', 't_cid':'—', 't_ctid':'자기 자신', 't_infomask2':'natts 2', 't_infomask':'XMIN_COMMITTED · XMAX_INVALID', 't_hoff':'24' } },
     mx:{ items:[] },
     tup:{ items:[{ id:'튜플 A', tag:'clean', sub:'부모 행 id=1', lp:1, xmin:100, xmax:0 }] },
@@ -1033,7 +1033,7 @@ const SCENES = [
           ['src/include/access/htup_details.h','#define HEAP_XMAX_KEYSHR_LOCK']],
     ops:{ op:{ set:{ 'SQL':'INSERT INTO child … (parent_id = 1)  — FK 검사', '잠금':'300 : FOR KEY SHARE' } },
           hdr:{ set:{ 't_xmax':'300', 't_infomask':'XMIN_COMMITTED · XMAX_KEYSHR_LOCK · XMAX_LOCK_ONLY' } },
-          tup:{ set:{ '튜플 A':{ xmax:300, sub:'부모 행 id=1  ·  xmax 300 은 잠금일 뿐' } } } } },
+          tup:{ set:{ '튜플 A':{ xmax:300, xk:'lock', sub:'부모 행 id=1  ·  xmax 300 은 잠금일 뿐' } } } } },
 
   { act:{ f:'op', t:'mx', lb:'FOR KEY SHARE (301)' },
     note:'둘째 잠금 — t_xmax 칸은 하나, 그래서 MultiXactId 를 만든다',
@@ -1046,7 +1046,7 @@ const SCENES = [
     ops:{ op:{ set:{ '잠금':'300 · 301 : FOR KEY SHARE' } },
           hdr:{ set:{ 't_xmax':'7 (multi)', 't_infomask':'XMIN_COMMITTED · XMAX_KEYSHR_LOCK · XMAX_LOCK_ONLY · XMAX_IS_MULTI' } },
           mx:{ add:[{ id:'multi 7', tag:'dirty', sub:'300 ForKeyShare · 301 ForKeyShare' }] },
-          tup:{ set:{ '튜플 A':{ xmax:7, sub:'부모 행 id=1  ·  xmax 7 은 MultiXactId' } } } } },
+          tup:{ set:{ '튜플 A':{ xmax:7, xk:'multi', sub:'부모 행 id=1  ·  xmax 7 은 XID 가 아니라 MultiXactId' } } } } },
 
   { act:{ f:'op', t:'mx', lb:'FOR KEY SHARE (302)' },
     note:'셋째 — 명단을 고치지 않고 새 MultiXact 8 을 만든다',
@@ -1060,7 +1060,7 @@ const SCENES = [
           hdr:{ set:{ 't_xmax':'8 (multi)' } },
           mx:{ set:{ 'multi 7':{ tag:'clean', sub:'300 · 301 — 이제 아무 튜플도 안 가리킨다' } },
                add:[{ id:'multi 8', tag:'dirty', sub:'300 · 301 · 302 — 모두 ForKeyShare' }] },
-          tup:{ set:{ '튜플 A':{ xmax:8, sub:'부모 행 id=1  ·  xmax 8 은 MultiXactId' } } } } },
+          tup:{ set:{ '튜플 A':{ xmax:8, sub:'부모 행 id=1  ·  xmax 8 은 XID 가 아니라 MultiXactId' } } } } },
 
   { act:{ f:'op', t:'tup', lb:'DELETE (303)' },
     note:'303 의 DELETE — 멤버마다 충돌을 보고 300 · 301 · 302 를 차례로 기다린다',
@@ -1072,6 +1072,7 @@ const SCENES = [
           'XactLockTableWait(memxid, rel, ctid, oper);'],
     beat:1,
     ops:{ op:{ set:{ 'SQL':'DELETE FROM parent WHERE id = 1', '잠금':'303 : 기다림 — 300 · 301 · 302 를 차례로' } },
+          mx:{ set:{ 'multi 8':{ tag:'wait', sub:'300 · 301 · 302 — 303 이 멤버마다 XactLockTableWait' } } },
           tup:{ set:{ '튜플 A':{ tag:'wait', sub:'부모 행 id=1  ·  303 이 기다린다' } } } } },
 
   { act:{ f:'op', t:'hdr', lb:'COMMIT ×3' },
@@ -1085,7 +1086,7 @@ const SCENES = [
     ops:{ op:{ set:{ '잠금':'303 : 지움 — 기다림 끝' } },
           hdr:{ set:{ 't_xmax':'303', 't_infomask':'XMIN_COMMITTED', 't_infomask2':'natts 2 · KEYS_UPDATED' } },
           mx:{ set:{ 'multi 8':{ tag:'clean', sub:'300 · 301 · 302 — 모두 끝났다' } } },
-          tup:{ set:{ '튜플 A':{ tag:'x', xmax:303, sub:'부모 행 id=1  ·  303 이 지웠다' } } } } },
+          tup:{ set:{ '튜플 A':{ tag:'x', xmax:303, xk:'', sub:'부모 행 id=1  ·  303 이 지웠다' } } } } },
 
   { look:{ op:true, hdr:true },
     note:'키가 아닌 열의 UPDATE 였다면 — 기다리지 않는다',
@@ -1096,6 +1097,7 @@ const SCENES = [
           '/* LockTupleKeyShare */ AccessShareLock, MultiXactStatusForKeyShare,',
           '/* LockTupleNoKeyExclusive */ ExclusiveLock, MultiXactStatusForNoKeyUpdate,',
           ['src/backend/storage/lmgr/lock.c','/* AccessShareLock */ LOCKBIT_ON(AccessExclusiveLock),']],
+    ops:{ op:{ set:{ '참고':'키 아닌 열의 UPDATE 였다면 — NoKeyExclusive, KEY SHARE 와 충돌 없음 → 바로 진행' } } },
     beat:1 },
 
   { look:{ mx:true },
@@ -1105,7 +1107,8 @@ const SCENES = [
     ref:'src/backend/access/transam/multixact.c', sym:'MultiXactIdCreate',
     fact:['corresponding 4 Xids.  Each such 5-word (20-byte) set we call a "group", and',
           '#define MULTIXACT_FLAGBYTES_PER_GROUP 4',
-          ['src/backend/utils/activity/wait_event_names.txt','MultiXactMemberSLRU']] },
+          ['src/backend/utils/activity/wait_event_names.txt','MultiXactMemberSLRU']],
+    ops:{ mx:{ add:[{ id:'pg_multixact', tag:'sep', sub:'offsets 7 → N · 8 → N+2  ·  members group 20 B = 플래그 4 B + XID 4 개' }] } } },
 
   { look:{ mx:true, op:true },
     note:'MultiXactId 도 32 비트 — 따로 얼려야 하고, 멤버 공간이 차면 문턱이 내려간다',
@@ -1116,6 +1119,7 @@ const SCENES = [
           'if (members <= MULTIXACT_MEMBER_SAFE_THRESHOLD)',
           'return autovacuum_multixact_freeze_max_age;',
           ['src/backend/utils/misc/guc_tables.c','&autovacuum_multixact_freeze_max_age, 400000000, 10000, 2000000000,']],
+    ops:{ op:{ set:{ '참고':'MultiXactId 한계 — datminmxid + 2^31  ·  autovacuum_multixact_freeze_max_age 4억' } } },
     beat:1 },
   ],
 },

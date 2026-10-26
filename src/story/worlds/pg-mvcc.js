@@ -235,7 +235,7 @@ function make({ F, deck, labels, scene }) {
   /* 튜플 칸 안의 글 — 이름, 헤더의 xmin · xmax, 헤더 비트(hb) */
   const tupText = (t) => {
     const ln = [`<span class="q-i">${esc(t.id)}</span>`];
-    if (t.xmin != null) ln.push('xmin ' + t.xmin, 'xmax ' + (t.xmax || 0) + (t.xk ? ' ' + t.xk : ''));
+    if (t.xmin != null) ln.push('xmin ' + t.xmin, 'xmax ' + (t.xmax || 0) + (t.xk ? ` (${t.xk})` : ''));
     if (t.hb) ln.push(...String(t.hb).split(/\s*·\s*/).map(esc));
     return ln.join('\n');
   };
@@ -327,6 +327,21 @@ function make({ F, deck, labels, scene }) {
     lb.el.innerHTML = keep;
     return { w, h };
   };
+  /* 줄 나누기 뒤 — 아랫줄 이름표의 선이 윗줄 이름표를 가르면, 윗줄 이름표를 그 선 옆으로 민다
+     (제 비트는 덮은 채로, 같은 줄의 이웃과 겹치지 않을 때만) */
+  const unclip = (S, x0, x1) => {
+    for (const o of S.out) for (const q of S.out) if (q.row > o.row) for (const x of q.pins) {
+      if (x <= o.l - 6 || x >= o.r + 6) continue;
+      const w = o.r - o.l;
+      for (const l of [x - 8 - w, x + 8]) {
+        const r = l + w;
+        if (l < x0 || r > x1 || !o.pins.every((p) => p >= l + 2 && p <= r - 2)) continue;
+        if (S.out.some((z) => z !== o && ((z.row === o.row && l < z.r + 6 && z.l < r + 6) || (z.row > o.row && z.pins.some((px) => px > l - 2 && px < r + 2))))) continue;
+        o.l = l; o.r = r; break;
+      }
+    }
+    return S;
+  };
   const hMax = (lbs) => Math.max(14, ...lbs.map((lb) => most(lb).h));
 
   /* ── 자리 ── */
@@ -366,7 +381,7 @@ function make({ F, deck, labels, scene }) {
     const FL = Object.fromEntries(STR.map(([k, T]) => {
       const its = FLU[k].map((f) => { const pins = bitsIn(T[f]).map(bitX); return { f, cx: pins.reduce((p, q) => p + q, 0) / pins.length, w: most(stripLb[k].fl[f]).w, pins }; });
       if (NAT[k]) its.push({ f: '', nat: true, cx: (bitX(0) + bitX(10)) / 2, w: most(stripLb[k].nat).w, pins: [(bitX(0) + bitX(10)) / 2] });
-      return [k, stagger(its, L.x0, L.x1)];
+      return [k, unclip(stagger(its, L.x0, L.x1), L.x0, L.x1)];
     }));
     if (SNAP) wrap(snapLb.rest, ww);
     const srH = SNAP ? most(snapLb.rest).h : 0;
@@ -519,6 +534,7 @@ function make({ F, deck, labels, scene }) {
     };
     let k = 1, rr = 120, total = lay(L.y0, 1, rr);
     if (total > wh) { k = 0.2; total = lay(L.y0, k, rr); }
+    if (total > wh) { k = 0; total = lay(L.y0, k, rr); }
     if (total > wh && RINGA) { rr = 70; total = lay(L.y0, k, rr); }
     if (total > wh + 1) console.error(`pg mvcc ${sc.num} 세계 : 높이 ${Math.round(total)} 가 무대 ${Math.round(wh)} 를 넘는다 (${L.W}×${L.H})`);
     const dy = L.narrow ? 0 : Math.max(0, (wh - total) / 2);
