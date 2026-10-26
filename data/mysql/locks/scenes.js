@@ -1182,7 +1182,7 @@ const SCENES = [
 {
   num:'08', tab:'Foreign Keys', title:'Foreign Key Checks: Shared Locks on the Parent Row',
   sub:'참조 무결성은 parent row 의 S lock 으로 — child trx 가 끝날 때까지',
-  cast:['stmt','rl','row','sec'],
+  cast:['stmt','tl','rl','row','sec'],
   knobs:[
     ['foreign_key_checks','ON','세션 변수 — 끈 세션의 검사와 락만 사라진다'],
     ['innodb_lock_wait_timeout','50','부모가 잠겨 있으면 부모 쪽 DELETE 가 여기서 기다린다']],
@@ -1206,8 +1206,8 @@ const SCENES = [
                 ['storage/innobase/include/trx0trx.h','bool check_foreigns; /*!< normally true, but if the user'],
                 ['storage/innobase/include/trx0trx.h','wants to suppress foreign key checks,'],
                 ['storage/innobase/handler/ha_innodb.cc','trx->check_foreigns = !thd_test_options(thd, OPTION_NO_FOREIGN_KEY_CHECKS);']],
-          ops:{ stmt:{ set:{ '검사':'건너뜀|red', 'data_locks':'1 줄' } },
-                rl:{ del:['(비었다)'], add:[{ id:'child  TABLE', tag:'hold', sub:'IX' }] } } },
+          ops:{ stmt:{ set:{ 'SQL':'INSERT INTO child(pid) VALUES(99)', '검사':'건너뜀|red', 'data_locks':'1 줄' } },
+                tl:{ del:['(비었다)'], add:[{ id:'A · child', tag:'hold', sub:'IX' }] } } },
 
       2:{ act:{ f:'stmt', t:'sec', lb:'부모 없는 값도 들어간다' },
           note:'없는 parent 를 가리키는 row 도 수락',
@@ -1218,8 +1218,7 @@ const SCENES = [
                 'err = DB_NO_REFERENCED_ROW;'],
           beat:1,
           ops:{ sec:{ del:['(비었다)'],
-                      add:[{ id:'child pid=99', tag:'x', sub:'부모 없음  ·  고아' }] },
-                stmt:{ set:{ 'SQL':'INSERT INTO child(pid) VALUES(99)' } } } },
+                      add:[{ id:'child pid=99', tag:'x', sub:'부모 없음  ·  고아' }] } } },
 
       3:{ note:'parent row 에 lock 없음', act:{ f:'stmt', t:'sec', lb:'자식 행만  ·  implicit X' },
           why:'잠그는 코드는 검사 안에 있다. 검사를 건너뛰었으므로 부모 인덱스를 읽지도 않았다. 잰 값: pid=99 와 pid=20 을 넣은 뒤 data_locks 는 child TABLE IX 한 줄이다.',
@@ -1227,7 +1226,7 @@ const SCENES = [
           ref:'storage/innobase/row/row0ins.cc', sym:'row_ins_check_foreign_constraint',
           fact:['err = lock_table(0, check_table, LOCK_IS, thr);',
                 'err = row_ins_set_rec_lock(LOCK_S, LOCK_REC_NOT_GAP, block, rec,'],
-          look:{ rl:true, sec:true },
+          look:{ tl:true, sec:true },
           ops:{ sec:{ add:[{ id:'child pid=20', tag:'x', sub:'새 행  ·  implicit X' }] },
                 stmt:{ set:{ 'SQL':'INSERT INTO child(pid) VALUES(20)', '검사':'건너뜀' } } } },
 
@@ -1241,8 +1240,13 @@ const SCENES = [
                 'err = row_ins_check_foreign_constraint(false, foreign, table, entry, thr);',
                 ['storage/innobase/lock/lock0lock.cc','lock_rec_convert_impl_to_expl(block, rec, index, offsets);']],
           beat:1,
+          /* data_locks 6 줄 = A 의 child IX · B 의 parent IX · child IS(자식 검사) · B parent X · A child pid X · B child pid S WAITING */
           ops:{ row:{ set:{ 'parent id=20':{ tag:'x', sub:'B 가 X,REC_NOT_GAP' } } },
-                rl:{ add:[{ id:'A  child pid (20,2)', tag:'x', sub:'X,REC_NOT_GAP  ·  implicit 에서 바뀜' },
+                sec:{ set:{ 'child pid=20':{ tag:'x', sub:'A 의 X → explicit  ·  B 가 기다림' } } },
+                tl:{ add:[{ id:'B · parent', tag:'hold', sub:'IX' }, { id:'B · child', tag:'hold', sub:'IS  ·  자식 검사' }] },
+                rl:{ del:['(비었다)'],
+                     add:[{ id:'B  parent 20', tag:'x', sub:'X,REC_NOT_GAP' },
+                          { id:'A  child pid (20,2)', tag:'x', sub:'X,REC_NOT_GAP  ·  implicit 에서 바뀜' },
                           { id:'B  child pid (20,2)', tag:'wait', sub:'S,REC_NOT_GAP  ·  WAITING' }] },
                 stmt:{ set:{ 'SQL':'B : DELETE FROM parent WHERE id=20', '검사':'B 는 ON → 자식을 훑는다', 'data_locks':'6 줄  (B 의 테이블 락 둘 포함)' } } } },
 
@@ -1254,10 +1258,12 @@ const SCENES = [
           fact:['if (trx->check_foreigns == false) {',
                 '/* The user has suppressed foreign key checks currently for',
                 ['storage/innobase/row/row0upd.cc','Checks if possible foreign key constraints hold after a delete of the record']],
-          ops:{ row:{ set:{ 'parent id=20':{ tag:'free', sub:'삭제됨  ·  참조가 남아 있는데' } } },
+          /* 4 의 끝에 A 는 커밋했고 B 는 1451 로 되돌아갔다 — 새 B(OFF) 의 락만 남는다 */
+          ops:{ row:{ set:{ 'parent id=20':{ tag:'x', sub:'삭제 표시  ·  B 가 X  ·  참조가 남아 있는데' } } },
                 sec:{ set:{ 'child pid=20':{ tag:'x', sub:'부모가 사라짐  ·  고아' } } },
-                rl:{ del:['A  child pid (20,2)', 'B  child pid (20,2)'] },
-                stmt:{ set:{ 'SQL':'B (OFF) : DELETE FROM parent WHERE id=20', '검사':'양쪽 다 건너뜀|red', 'data_locks':'B 의 parent X 뿐' } } } },
+                tl:{ del:['A · child', 'B · child'] },
+                rl:{ del:['A  child pid (20,2)', 'B  child pid (20,2)'], set:{ 'B  parent 20':{ sub:'X,REC_NOT_GAP  ·  지운 행' } } },
+                stmt:{ set:{ 'SQL':'B (OFF) : DELETE FROM parent WHERE id=20', '검사':'양쪽 다 건너뜀|red', 'data_locks':'2 줄  (B 의 parent IX · X)' } } } },
 
       6:{ look:{ stmt:true, sec:true },
           note:'다시 켜도 기존 orphan 은 재검사되지 않는다',
@@ -1268,7 +1274,7 @@ const SCENES = [
                 'innobase_trx_init(thd, trx);',
                 ['storage/innobase/include/trx0trx.h','(in table imports, for example) we']],
           beat:1,
-          ops:{ stmt:{ set:{ '검사':'다시 ON  ·  과거는 확인 안 함|red' } } } },
+          ops:{ stmt:{ set:{ 'SQL':'SET foreign_key_checks = 1', '검사':'다시 ON  ·  과거는 확인 안 함|red' } } } },
     },
   } },
   init:{
@@ -1278,6 +1284,8 @@ const SCENES = [
       { id:'parent id=20', tag:'clean', sub:'참조 가능' },
       { id:'parent id=30', tag:'clean', sub:'참조 가능' }] },
     sec:{ items:[{ id:'(비었다)', tag:'free', sub:'child 아직 없음' }] },
+    /* 테이블 락은 TABLE LOCKS 에(01 – 07 과 같은 배우). 어느 trx 의 것인지 id 에 — 4 스텝부터 B 가 들어온다 */
+    tl:{ items:[{ id:'(비었다)', tag:'free', sub:'아직' }] },
     rl:{ items:[{ id:'(비었다)', tag:'free', sub:'아직' }] },
   },
   steps:[
@@ -1290,9 +1298,11 @@ const SCENES = [
           'which lock either the success or the failure of the constraint. NOTE that',
           'pcur.open(check_index, 0, entry, PAGE_CUR_GE, BTR_SEARCH_LEAF, &mtr,',
           'err = row_ins_check_foreign_constraint(true, foreign, table, entry, thr);'],
+    /* 검사는 pid 항목을 넣기 직전 — 클러스터 행은 들어갔고 pid 항목은 아직이다 */
     ops:{ stmt:{ set:{ '검사':'부모 존재 확인', 'data_locks':'1 줄' } },
-          rl:{ del:['(비었다)'], add:[{ id:'child  TABLE', tag:'hold', sub:'IX' }] },
-          sec:{ del:['(비었다)'], add:[{ id:'child pid=20', tag:'x', sub:'클러스터 행 먼저  ·  implicit X' }] } } },
+          tl:{ del:['(비었다)'], add:[{ id:'A · child', tag:'hold', sub:'IX' }] },
+          row:{ set:{ 'parent id=20':{ tag:'pin', sub:'찾는 중  ·  PAGE_CUR_GE' } } },
+          sec:{ del:['(비었다)'], add:[{ id:'child pid=20', tag:'free', sub:'아직 — 클러스터 행만, pid 항목은 검사 뒤' }] } } },
 
   { look:{ row:true },
     note:'parent 가 없으면 1452 — 그래도 S,GAP 은 남는다',
@@ -1304,7 +1314,8 @@ const SCENES = [
           '@return DB_SUCCESS, DB_NO_REFERENCED_ROW, or DB_ROW_IS_REFERENCED */',
           'err = row_ins_set_rec_lock(LOCK_S, LOCK_GAP, block, rec, check_index,',
           'err = DB_NO_REFERENCED_ROW;',
-          'row_ins_foreign_report_add_err(trx, foreign, rec, entry);'] },
+          'row_ins_foreign_report_add_err(trx, foreign, rec, entry);'],
+    ops:{ row:{ set:{ 'parent id=30':{ sub:'pid=25 였다면 여기에 S,GAP' } } } } },
 
   { act:{ f:'row', t:'rl', lb:'부모 테이블 IS · 부모 행 S' },
     note:'parent row 에 S,REC_NOT_GAP — child trx 종료까지',
@@ -1315,9 +1326,9 @@ const SCENES = [
           'a record because we can allow inserts',
           'err = row_ins_set_rec_lock(LOCK_S, LOCK_REC_NOT_GAP, block, rec,',
           'err = lock_table(0, check_table, LOCK_IS, thr);'],
-    ops:{ row:{ set:{ 'parent id=20':{ tag:'hold', sub:'S,REC_NOT_GAP  ·  FK 보호' } } },
-          rl:{ add:[{ id:'parent  TABLE', tag:'hold', sub:'IS' },
-                    { id:'parent  20', tag:'hold', sub:'S,REC_NOT_GAP  ·  외래키' }] },
+    ops:{ row:{ set:{ 'parent id=20':{ tag:'hold', sub:'S,REC_NOT_GAP  ·  FK 보호' }, 'parent id=30':{ sub:'참조 가능' } } },
+          tl:{ add:[{ id:'A · parent', tag:'hold', sub:'IS' }] },
+          rl:{ del:['(비었다)'], add:[{ id:'A  parent 20', tag:'hold', sub:'S,REC_NOT_GAP  ·  외래키' }] },
           sec:{ set:{ 'child pid=20':{ tag:'x', sub:'새 행  ·  implicit X' } } },
           stmt:{ set:{ '검사':'부모 잠금 완료', 'data_locks':'3 줄' } } } },
 
@@ -1329,6 +1340,9 @@ const SCENES = [
     fact:['/* S */ {true, false, true, false, false},',
           '/* X */ {false, false, false, false, false},',
           ['storage/innobase/include/lock0priv.ic','return (lock_compatibility_matrix[mode1][mode2]);']],
+    ops:{ tl:{ add:[{ id:'B · parent', tag:'hold', sub:'IX' }] },
+          rl:{ add:[{ id:'B  parent 20', tag:'wait', sub:'X,REC_NOT_GAP  ·  WAITING → 1205' }] },
+          stmt:{ set:{ 'data_locks':'5 줄  (B 의 둘 포함)' } } },
     beat:1 },
 
   { look:{ rl:true },
@@ -1341,7 +1355,11 @@ const SCENES = [
           ['storage/innobase/row/row0upd.cc','err = row_ins_check_foreign_constraint(false, foreign, table, entry, thr);'],
           'row_ins_foreign_report_err("Trying to delete or update", thr, foreign,',
           '/* Set an X-lock on the row to delete or update in the child table */',
-          ['storage/innobase/include/dict0mem.h','constexpr uint32_t FK_MAX_CASCADE_DEL = 15;']] },
+          ['storage/innobase/include/dict0mem.h','constexpr uint32_t FK_MAX_CASCADE_DEL = 15;']],
+    ops:{ tl:{ del:['B · parent'] },
+          rl:{ del:['B  parent 20'] },
+          sec:{ set:{ 'child pid=20':{ sub:'새 행  ·  부모를 지우면 여기를 훑는다 (CASCADE 면 X)' } } },
+          stmt:{ set:{ 'data_locks':'3 줄' } } } },
 
   { look:{ stmt:true },
     note:'foreign_key_checks=OFF — lock 도 무결성도 사라진다',
