@@ -728,14 +728,14 @@ PANEL.bytes = (W, M, sp) => {
   const lead = (a, s) => s.byl[a];
   let geo = null;
   /* 짚는 칸 — 그 배우에 금빛 칸이 있으면 금빛 칸(04a 의 '← 지금'), 없으면 look · 바뀐 칸, act 이름이 대는 칸 */
-  /* 금빛을 끄는 칸(앞 상태 gold → 지금 아님)은 바뀌었어도 짚는 칸이 아니다 — hexdump 와 같은 규칙(06a 3 의 '2B × 9') */
+  /* 금빛을 끄는 칸(앞 상태 gold → 지금 아님)은 바뀌었어도 짚는 칸이 아니다 — hexdump 와 같은 규칙(06a 3 의 2B × 9 · 08 의 앞 셀) */
   const PVB = new Map();
   for (const b of M.B.values()) b.S.forEach((s2, i) => PVB.set(s2, i ? b.S[i - 1] : b.S0));
   const reset = (s, a, it) => { const pv = PVB.get(s), was = pv && (pv[a] || []).find((x) => x.k === it.k); return !!was && was.tag === 'gold' && it.tag !== 'gold'; };
   const isHot = (s, a, it) => {
     if (!touchOf(s, a)) return false;
     if ((s[a] || []).some((x) => x.tag === 'gold') && TRUE_B.has(a)) return it.tag === 'gold' || it.tag === 'red';
-    if (TRUE_B.has(a) && reset(s, a, it) && !(focusOf(s, a) && focusOf(s, a).has(it.id))) return false;
+    if (reset(s, a, it) && !(focusOf(s, a) && focusOf(s, a).has(it.id))) return false;
     return hotIt(s, a, it.id) || actNames(s, a, it.id) || it.tag === 'gold' || it.tag === 'red';
   };
   const cellX = (row, c) => { const b = c.org ? geo.ox : geo.left; return [b + c.u0 * geo.px, b + c.u1 * geo.px]; };

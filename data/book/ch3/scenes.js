@@ -2312,7 +2312,7 @@ const SCENES = [
     ['I_S.INNODB_BUFFER_PAGE','NUMBER_RECORDS 로 셀 수를 확인']],
   links:[['06','슬롯 배치'],['09','삭제하면 어떻게 되나'],['05','고정 배치라면 못 하는 일']],
   init:{
-    op:{ kv:{ '삽입 순서':'—', '정렬 순서':'—', '옮긴 바이트':'0' } },
+    op:{ kv:{ '삽입 순서':'—', '정렬 순서':'—', '옮긴 바이트 (누적)':'0' } },
     pg:{ items:[
       { id:'헤더', sz:3, tag:'hdr', sub:'FIL + 페이지' },
       { id:'빈 곳', sz:8, tag:'free', sub:'' },
@@ -2334,8 +2334,10 @@ const SCENES = [
     cite:['New data is appended at the upper boundary of the free space of the page'],
     ops:{ cells:{ add:[{ id:'셀 0  Tom', tag:'ok', sub:'삽입 순서 0' }] },
           dir:{ add:[{ id:'슬롯 → 셀 0', tag:'ok', sub:'Tom' }] },
-          pg:{ set:{ '빈 곳':{ id:'셀 → · 빈 곳', sz:8, tag:'free', sub:'Tom 이 앞에' },
-                     '←슬롯':{ sub:'1개' } } },
+          /* 셀이 빈 곳의 앞(HEAP_TOP)에 붙는다 — 빈 곳을 그 셀로 바꾸고 남은 빈 곳을 뒤에 다시 둔다 */
+          pg:{ set:{ '빈 곳':{ id:'Tom', sz:1, tag:'gold', sub:'셀 0' }, '←슬롯':{ sub:'1개' } },
+               add:[{ id:'빈 곳', sz:7, tag:'free', sub:'' }], move:[['빈 곳', 2]],
+               byl:{ l:'Tom 하나', r:'셀 1 · 슬롯 1' } },
           op:{ set:{ '삽입 순서':'Tom', '정렬 순서':'Tom' } } } },
 
   { act:{ f:'op', t:'cells', lb:'Leslie 추가' },
@@ -2352,12 +2354,15 @@ const SCENES = [
           dir:{ del:['슬롯 → 셀 0'],
                 add:[{ id:'슬롯 0 → 셀 1', tag:'ok', sub:'Leslie' },
                      { id:'슬롯 1 → 셀 0', tag:'clean', sub:'Tom  · 한 칸 밀림' }] },
+          pg:{ set:{ 'Tom':{ tag:'' }, '빈 곳':{ id:'Leslie', sz:1, tag:'gold', sub:'셀 1' }, '←슬롯':{ sub:'2개' } },
+               add:[{ id:'빈 곳', sz:6, tag:'free', sub:'' }], move:[['빈 곳', 3]],
+               byl:{ l:'Tom · Leslie', r:'셀 2 · 슬롯 2' } },
           op:{ set:{ '삽입 순서':'Tom · Leslie', '정렬 순서':'Leslie · Tom|gold',
-                     '옮긴 바이트':'2  (슬롯 하나)' } } } },
+                     '옮긴 바이트 (누적)':'2  (슬롯 하나)' } } } },
 
   { act:{ f:'op', t:'dir', lb:'Ron 추가' },
     note:'Ron — slot array 가운데에 끼워 넣기',
-    why:'Leslie < Ron < Tom 이다. 셀은 또 append 지만, 슬롯은 삽입 지점 뒤쪽을 오른쪽으로 밀어 자리를 만든다.',
+    why:'Leslie < Ron < Tom 이다. 셀은 또 append 지만, 슬롯은 삽입 지점 뒤쪽을 오른쪽으로 밀어 자리를 만든다. 무대의 슬롯은 InnoDB 처럼 page 끝에서 거꾸로 자라게 그려서, 책의 "오른쪽으로" 가 왼쪽으로 보인다.',
     key:'책의 설계에서 밀리는 것은 <em>2바이트 포인터 하나</em>다. InnoDB 는 그마저 안 민다 — 세 record 를 supremum 슬롯 하나가 소유하므로 <em>next 두 칸</em>만 고친다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_insert_rec_low',
     beat:1,
@@ -2369,9 +2374,11 @@ const SCENES = [
           dir:{ del:['슬롯 1 → 셀 0'],
                 add:[{ id:'슬롯 1 → 셀 2', tag:'ok', sub:'Ron  ← 끼워 넣음' },
                      { id:'슬롯 2 → 셀 0', tag:'clean', sub:'Tom  · 또 밀림' }] },
-          pg:{ set:{ '←슬롯':{ sub:'3개' } } },
+          pg:{ set:{ 'Leslie':{ tag:'' }, '빈 곳':{ id:'Ron', sz:1, tag:'gold', sub:'셀 2' }, '←슬롯':{ sub:'3개' } },
+               add:[{ id:'빈 곳', sz:5, tag:'free', sub:'' }], move:[['빈 곳', 4]],
+               byl:{ l:'Tom · Leslie · Ron', r:'셀 3 · 슬롯 3' } },
           op:{ set:{ '삽입 순서':'Tom · Leslie · Ron',
-                     '정렬 순서':'Leslie · Ron · Tom|green', '옮긴 바이트':'4  (슬롯 둘)' } } } },
+                     '정렬 순서':'Leslie · Ron · Tom|green', '옮긴 바이트 (누적)':'4  (2 B × 2번)' } } } },
 
   { look:{ cells:true, dir:true },
     note:'cell 은 한 번도 이동하지 않았다',
