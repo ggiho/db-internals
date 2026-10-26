@@ -579,13 +579,13 @@ const SCENES = [
   cast:['op','bt','sep','node'],
   knobs:[
     ['innodb_page_size','16 KB','한 노드에 담기는 분리 키 수'],
-    ['innodb_online_alter_log_max_size','128 MB','인덱스를 새로 만들 때 정렬된 순서로 채운다']],
+    ['innodb_sort_buffer_size','1 MB','인덱스를 새로 만들 때 레코드를 정렬하는 버퍼 — 정렬된 순서로 채운다']],
   watch:[
     ['I_S.INNODB_INDEXES','인덱스별 루트 페이지 번호(PAGE_NO)와 레벨'],
     ['SHOW ENGINE INNODB STATUS','ROW OPERATIONS 절 : 범위 스캔이 sibling pointer 를 타는 흔적']],
   links:[['04','sibling pointer 는 페이지 헤더에 있다'],['07','이 불변식으로 하강한다'],['08','분할이 이 불변식을 유지한다']],
   init:{
-    op:{ kv:{ '노드':'internal 하나', '분리 키':'20 · 40 · 60', '자식 포인터':'4' } },
+    op:{ kv:{ '노드':'internal 하나', '분리 키':'20 · 40 · 60', '자식 포인터':'4', '하강':'—' } },
     bt:{ items:[
       { id:'internal', lvl:0, keys:'| 20 | 40 | 60 |', fill:.6 },
       { id:'c0', lvl:1, keys:'< 20', fill:.5 }, { id:'c1', lvl:1, keys:'20 ‥ 39', fill:.5 },
@@ -598,7 +598,6 @@ const SCENES = [
       { id:'FIL_PAGE_NEXT', tag:'hold', sub:'오프셋 12 · 오른쪽 sibling' } ] },
   },
   cite:[
-    "tree storage utilization can get as low as 50%",
     "MySQL InnoDB refers to its B+-Tree implementation as B-tree",
     "The first pointer in the node points to the subtree holding items less than the first key" ],
   steps:[
@@ -618,7 +617,7 @@ const SCENES = [
       { id:'s2', from:40, to:60, kind:'gap',  lb:'c2  40‥59',   row:1 },
       { id:'s3', from:60, to:80, kind:'next', lb:'c3  ≥ 60',    row:1 }] } } } },
 
-  { act:{ f:'op', t:'sep', lb:'키 45 를 찾는다' },
+  { act:{ f:'op', t:'sep', lb:'키 45 를 찾는다' }, look:{ sep:true, op:true, bt:['internal','c2'] },
     note:'45 — 40 이상 60 미만 → 세 번째 pointer',
     why:'노드 안에서 이진 탐색으로 45보다 큰 첫 분리 키(60)를 찾고, 그 앞 포인터를 고른다.',
     key:'하강은 <em>불변식을 한 번 적용하는 것</em>이다. 레벨마다 같은 판정을 반복하면 리프에 닿는다.',
@@ -628,10 +627,10 @@ const SCENES = [
     cite:['until it finds the first separator key that is greater than the searched value',
           'Keys are stored in sorted order to allow binary search'],
     ops:{ sep:{ span:{ set:{ 's2':{ kind:'ii', lb:'c2  ← 45 는 여기' } } } },
-          bt:{ set:{ 'c2':{ keys:'40 ‥ 59  ← 하강', fill:.5 } } },
-          op:{ set:{ '노드':'c2 로 하강|green' } } } },
+          bt:{ set:{ 'internal':{ keys:'| 20 | 40 | [60] |' }, 'c2':{ keys:'40 ‥ 59  ← 하강', fill:.5 } } },
+          op:{ set:{ '하강':'45 < 60 → c2|green' } } } },
 
-  { look:{ sep:true },
+  { look:{ sep:true, op:true, bt:['internal'] },
     note:'separator key 는 data 가 아니라 boundary',
     why:'내부 노드의 항목은 (분리 키, 자식 포인터) 짝이고 그 키가 실제 행을 가리킬 필요가 없다. InnoDB 는 이런 항목을 노드 포인터 레코드로 따로 구분한다 — REC_STATUS_NODE_PTR 이 그것이다.',
     key:'그래서 <em>분리 키는 지워진 행의 것이어도 상관없다</em>. InnoDB 도 리프의 첫 행을 지울 때는 부모 node pointer 를 그대로 둔다 — 다시 만드는 것은 비리프(level > 0)에서뿐이다.',
@@ -640,7 +639,9 @@ const SCENES = [
           'constexpr uint32_t REC_STATUS_NODE_PTR = 1;',
           'case REC_STATUS_NODE_PTR: return (dict_index_get_n_unique_in_tree(index) + 1);',
           ['storage/innobase/btr/btr0cur.cc','if (level > 0 && UNIV_UNLIKELY(rec == page_rec_get_next(page_get_infimum_rec(page)))) {']],
-    cite:['Internal nodes store only separator keys used to guide the search algorithm to the associated value stored on the leaf level'] },
+    cite:['Internal nodes store only separator keys used to guide the search algorithm to the associated value stored on the leaf level'],
+    ops:{ bt:{ set:{ 'internal':{ keys:'| 20 | 40 | 60 |' } } },
+          op:{ set:{ '분리 키':'20 · 40 · 60 — 경계 (행 아님)|gold' } } } },
 
   { look:{ node:true },
     note:'leaf level 의 sibling pointer — range scan 이 parent 로 안 올라간다',
@@ -653,7 +654,8 @@ const SCENES = [
           'These pointers help avoid going back to the parent to find the next sibling'],
     beat:1 },
 
-  { note:'B-Tree 가 아니라 B+-Tree',
+  { look:{ bt:['internal','c0','c1','c2','c3'], op:true },
+    note:'B-Tree 가 아니라 B+-Tree',
     why:'값이 리프에만 있다. internal 노드는 분리 키만 갖는다. 그래서 internal 이 더 많은 키를 담고 fan-out 이 커진다.',
     key:'책도 짚는다 — MySQL InnoDB 는 자기 B+-Tree 구현을 <em>그냥 B-tree 라고 부른다</em>. 소스 머리말도 "The B-tree" 다. 책 자신도 같은 관례로 <em>B-Tree</em> 라고 쓴다.',
     ref:'storage/innobase/rem/rec.h', sym:'rec_get_n_fields',
@@ -664,11 +666,13 @@ const SCENES = [
     cite:['MySQL InnoDB refers to its B+-Tree implementation as B-tree',
           'B+-Trees became widespread, and we refer to them as B-Trees',
           'B+-Trees store values only in leaf nodes'],
-    ops:{ op:{ set:{ '노드':'internal — 값 없음 · 키만|gold' } } } },
+    ops:{ op:{ set:{ '노드':'internal — 값 없음 · 키만|gold' } },
+          bt:{ set:{ 'c0':{ keys:'< 20 · 행' }, 'c1':{ keys:'20 ‥ 39 · 행' }, 'c2':{ keys:'40 ‥ 59 · 행' }, 'c3':{ keys:'≥ 60 · 행' } } } } },
   ],
 },
 {
   num:'06a', tab:'Counting Keys', title:'Counting Keys: N+1 Pointers vs. Node Pointer Records',
+  names:{ blk:'NODE POINTER RECORD' },
   sub:'책은 키 N 개에 포인터 N+1 개 — InnoDB 는 포인터마다 키를 붙여 레코드 수가 곧 자식 수',
   cast:['op','bt','node','blk'],
   knobs:[
@@ -693,7 +697,7 @@ const SCENES = [
     blk:{ items:[
       { id:'키', sz:4, tag:'', sub:'32428' },
       { id:'자식 page', sz:4, tag:'gold', sub:'p38' } ],
-      byl:{ l:'node pointer 레코드 하나', r:'INT 주키 · 13 B' } },
+      byl:{ l:'node pointer 레코드 하나', r:'INT 주키 · 키 + page no = 8 B' } },
   },
   cite:[
     "you can find different ways to describe key and child offset counts",
@@ -736,7 +740,8 @@ const SCENES = [
           ['storage/innobase/rem/rec.h','constexpr int32_t REC_N_NEW_EXTRA_BYTES = 5;'],
           ['storage/innobase/rem/rec.h','constexpr uint32_t REC_NODE_PTR_SIZE = 4;']],
     ops:{ blk:{ set:{ '키':{ sub:'INT 4 B' }, '자식 page':{ sub:'page no 4 B' } },
-                add:[{ id:'헤더', sz:5, tag:'hdr', sub:'5 B' }], move:[['헤더', 0]] } } },
+                add:[{ id:'헤더', sz:5, tag:'hdr', sub:'5 B' }], move:[['헤더', 0]],
+                byl:{ r:'INT 주키 · 헤더 5 + 8 = 13 B' } } } },
 
   { look:{ bt:['p38','p39'] },
     note:'꽉 찬 level-1 page 는 1,203개 — 계산과 같다',
@@ -764,7 +769,7 @@ const SCENES = [
     ops:{ bt:{ set:{ 'p37':{ keys:'첫 키 1 · 601개' }, 'p38':{ keys:'첫 키 32428 · 1,203개' },
                      'p39':{ keys:'첫 키 97390 · 1,203개' }, 'p40':{ keys:'첫 키 162352 · 698개' } } } } },
 
-  { look:{ node:['1 → p37'] },
+  { look:{ node:['1 → p37'], bt:['root','p37'] },
     note:'MIN_REC — 책의 "첫 키 미만" 을 맡는 bit',
     why:'루트 첫 레코드에는 키 1 이 그대로 있지만 info bits 에 0x10 이 서 있다. 비교 함수는 이 레코드를 어떤 node pointer 보다도 작다고 본다.',
     key:'실측 — 이 bit 는 non-leaf 레벨마다 맨 왼쪽 page 의 첫 레코드에만 있었다(level 1 은 p37, 그리고 루트). leaf 3,705 page 에는 없었다. 책의 <em>키 없는 첫 포인터</em> 자리다.',
@@ -776,7 +781,7 @@ const SCENES = [
     beat:1,
     ops:{ node:{ set:{ '1 → p37':{ tag:'pin', sub:'info bits 0x10 · −∞ 로 비교' } } },
           op:{ set:{ 'MIN_REC':'레벨마다 맨 왼쪽 첫 레코드|gold' } },
-          bt:{ set:{ 'root':{ keys:'| −∞(1) | 32428 | 97390 | 162352 |' } } } } },
+          bt:{ set:{ 'root':{ keys:'| −∞(1) | 32428 | 97390 | 162352 |' }, 'p37':{ keys:'첫 키 1 · MIN_REC · 601개' } } } } },
   ],
 },
 {
@@ -792,7 +797,7 @@ const SCENES = [
     ['Innodb_buffer_pool_reads','그중 디스크로 내려간 것']],
   links:[['05','fan-out 이 이 단계 수를 정한다'],['06','하강의 판정 규칙'],['08','삽입도 같은 하강으로 시작한다']],
   init:{
-    op:{ kv:{ '찾는 키':'45', '현재 레벨':'—', '결과':'—' } },
+    op:{ kv:{ '트리':'05 의 백만 개 트리 — 칸은 줄여 그림', '찾는 키':'45', '현재 레벨':'—', '결과':'—' } },
     bt:{ items:[
       { id:'root', lvl:0, keys:'| 20 | 40 | 60 |', fill:.6 },
       { id:'internal', lvl:1, keys:'| 44 | 48 | 52 |', fill:.6 },
@@ -821,7 +826,7 @@ const SCENES = [
 
   { act:{ f:'bt', t:'node', lb:'노드 안 이진 탐색' },
     note:'block 내에서 45 보다 큰 첫 key 탐색 — disk 가 아니라 memory 연산',
-    why:'page_cur_search_with_match 는 슬롯 디렉터리를 이진 탐색하고 그 슬롯의 4~8개 레코드를 선형으로 본다. 꽉 찬 노드(370개)면 약 9번, 자식이 8개인 백만 개 트리의 루트는 3번이다.',
+    why:'page_cur_search_with_match 는 슬롯 디렉터리를 이진 탐색하고 그 슬롯의 4~8개 레코드를 선형으로 본다. 꽉 찬 노드(370개)면 약 9번, 자식이 8개인 05 의 루트는 3번이다 — 그림의 칸은 줄였다.',
     key:'이 비교는 <em>블록 전송을 늘리지 않는다</em>. 이미 손에 있는 16KB 안에서 끝난다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_search_with_match',
     fact:['Perform binary search. First the search is done through the page',
@@ -831,11 +836,12 @@ const SCENES = [
     beat:1,
     cite:['from the perspective of number of comparisons, the logarithm base is 2, since searching a key inside each node is done using binary search'],
     ops:{ node:{ add:[{ id:'슬롯 이진 탐색', tag:'ok', sub:'3회 비교 · 메모리' }] },
+          bt:{ set:{ 'root':{ keys:'| 20 | 40 | [60] |  ← 45 보다 큰 첫 키' } } },
           cost:{ set:{ '비교 횟수':'3' } } } },
 
   { act:{ f:'bt', t:'bt', lb:'internal 로 하강' },
     note:'40 ≤ 45 < 60 → 세 번째 pointer, 다음 block read',
-    why:'같은 판정을 한 레벨 아래에서 반복한다. 범위는 그 노드의 fan-out 만큼 좁아진다 — 꽉 찬 노드면 371배, 이 트리의 루트는 8배다.',
+    why:'같은 판정을 한 레벨 아래에서 반복한다. 범위는 그 노드의 fan-out 만큼 좁아진다 — 꽉 찬 노드면 371배, 05 의 루트는 8배다.',
     key:'레벨마다 <em>범위가 좁아지고 정밀해진다</em>. 책의 표현대로 거친 눈금에서 시작해 세밀한 눈금으로 내려간다.',
     ref:'storage/innobase/btr/btr0cur.cc', sym:'btr_cur_search_to_nth_level',
     fact:['/* Go to the child node */ page_id.reset(space, btr_node_ptr_get_child_page_no(node_ptr, offsets));'],
@@ -844,7 +850,7 @@ const SCENES = [
     ops:{ op:{ set:{ '현재 레벨':'internal' } },
           cost:{ set:{ '블록 전송':'2', '비교 횟수':'12' } },
           io:{ set:{ '논리 읽기':'2' } },
-          bt:{ set:{ 'internal':{ keys:'| 44 | 48 | 52 |  ← 읽음', fill:.6 } } } } },
+          bt:{ set:{ 'internal':{ keys:'| 44 | [48] | 52 |  ← 45 보다 큰 첫 키', fill:.6 } } } } },
 
   { act:{ f:'bt', t:'bt', lb:'leaf 도달' },
     note:'leaf 에서 45 hit — transfer 3, comparison 21',
@@ -869,6 +875,7 @@ const SCENES = [
           'auto next_block = btr_block_get(page_id_t(block->page.id.space(), next_page_no),'],
     cite:['continues by following sibling pointers until the end of the range is reached'],
     ops:{ node:{ add:[{ id:'FIL_PAGE_NEXT 추적', tag:'hold', sub:'하강 없이 다음 리프' }] },
+          bt:{ add:[{ id:'다음 leaf', lvl:2, keys:'48 49 50 51', fill:.7 }] },
           op:{ set:{ '결과':'범위 스캔 계속|gold' } } } },
   ],
 },

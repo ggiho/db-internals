@@ -299,11 +299,10 @@ export function checks(deck, sc) {
       }
     });
     if (!block) {
-      const want = nums((S[0].byl || {}).r || '').pop();
-      if (want) {
-        S.forEach((s, i) => { if (tot[i] > want) E.push(`${at(i)} 의 ${a} 칸 크기 합 ${tot[i]} B 가 밝힌 ${want} B 를 넘는다`); });
-        if (!tot.includes(want)) E.push(`${at(0)} ‥ 끝 의 ${a} 칸 크기 합이 한 번도 밝힌 ${want} B 가 되지 않는다`);
-      }
+      /* 바이트 띠(블록이 아닌 레코드) — 스텝마다 그 스텝의 byl.r 이 밝힌 B 를 넘지 않고, 밝힌 수에 한 번은 닿는다(byl 은 스텝마다 바뀔 수 있다) */
+      const want = S.map((s) => nums((s.byl || {}).r || '').pop());
+      S.forEach((s, i) => { if (want[i] && tot[i] > want[i]) E.push(`${at(i)} 의 ${a} 칸 크기 합 ${tot[i]} B 가 밝힌 ${want[i]} B 를 넘는다`); });
+      for (const w of new Set(want.filter(Boolean))) if (!S.some((s, i) => want[i] === w && tot[i] === w)) E.push(`${at(0)} ‥ 끝 의 ${a} 칸 크기 합이 한 번도 밝힌 ${w} B 가 되지 않는다`);
     }
   }
   /* C8 전송 — KB = 16 × 전송 블록 수, 물리 ≤ 논리 */

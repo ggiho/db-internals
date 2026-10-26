@@ -201,6 +201,8 @@ function model(F, deck, labels, sc, cssOf) {
     lb.el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(${tx}, ${ty})`;
   }
   const wrap = (lb, w) => { lb.el.classList.add('st-wrap'); lb.el.style.maxWidth = Math.max(40, Math.floor(w)) + 'px'; };
+  /* 배우 머리 이름 — 장면이 names 로 바꿀 수 있다(06a 의 띠는 16KB 블록이 아니라 node pointer 레코드 하나다) */
+  const nmOf = (a) => (sc.names && sc.names[a]) || A[a].nm;
   const DRAWN = [...TL, ...TP, ...TREES, ...(SEP ? [SEP] : []), ...(NODE ? [NODE] : []), ...(FTL ? [FTL] : []), ...BLK];
   const hd = Object.fromEntries(DRAWN.map((a) => [a, label('aq')]));
   const tx = Object.fromEntries([...TL, ...TP].map((a) => [a, label('aq ml aq-b')]));
@@ -233,7 +235,7 @@ function model(F, deck, labels, sc, cssOf) {
   const nodeText = (n) => (n.P.chips && n.P.chips.length ? '' : n.P.text);
   const texts = () => S.map((s, k) => {
     const t = new Map(), on = (a) => s.touch.has(a);
-    for (const a of DRAWN) t.set(hd[a], [A[a].nm, on(a)]);
+    for (const a of DRAWN) t.set(hd[a], [nmOf(a), on(a)]);
     for (const a of [...TL, ...TP]) t.set(tx[a], [kvHtml(s[a]), on(a), '', true, true]);
     for (const a of TREES) {
       const T = TS[a], st = TI(a, k), lb = TLB[a];
@@ -472,7 +474,7 @@ function model(F, deck, labels, sc, cssOf) {
       for (const a of TREES) {
         const Z = G.tree[a];
         place(hd[a], L.x0, y);
-        if (!TS[a].real) { place(TLB[a].ph, L.x0 + wOf(hd[a], A[a].nm) + 10, y); y += Z.h + 6 * k; continue; }
+        if (!TS[a].real) { place(TLB[a].ph, L.x0 + wOf(hd[a], nmOf(a)) + 10, y); y += Z.h + 6 * k; continue; }
         Z.y = y + HD + 4;
         if (Z.mode === 'bt') { Z.LGk = k < 0.1 ? 12 : k < 0.5 ? 18 : Math.max(18, Z.LG * (0.6 + 0.4 * k)); y += HD + 4 + Z.lvls * Z.NH + (Z.lvls - 1) * Z.LGk + 6; }
         else if (Z.mode === 'keyed') { Z.LGk = Math.max(8, Z.LG * (0.5 + 0.5 * k)); y += HD + 4 + Z.lvls * Z.bh + (Z.lvls - 1) * Z.LGk + 6; }
