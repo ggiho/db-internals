@@ -26,8 +26,29 @@ export default {
   make,
 };
 
+/* 짝 장면(locks 02 · 02v, 06 · 06v)은 한 세계가 둘을 다 들고 setScene 으로 바꾼다 — Story 는 짝을 바꿔도 세계를 다시 만들지 않는다
+   (열쇠가 짝의 A). 둘 다 없었을 때는 V 로 B 를 골라도 A 의 그림이 남았다. 둘은 더 높은 쪽의 높이로 가운데를 맞춘다 —
+   제 높이로 맞췄더니 A ↔ B 에서 세계가 10 · 19px 뛰었다 */
 function make({ F, deck, labels, scene }) {
-  const N = F.N, sc = scene(), A = deck.ACTORS;
+  const sc = scene();
+  const mate = (deck.SCENES || []).find((s) => s !== sc && (s.num === sc.pair || s.pair === sc.num) && s.steps.length === sc.steps.length);
+  const W = new Map([[sc.num, one({ F, deck, labels, sc })]]);
+  if (mate) W.set(mate.num, one({ F, deck, labels, sc: mate }));
+  let cur = W.get(sc.num);
+  return {
+    build(L) { const ws = [...W.values()], T = Math.max(...ws.map((w) => w.build(L))); ws.forEach((w) => w.fin(T)); },
+    theme() { W.forEach((w) => w.theme()); },
+    setScene(n2) { const w = W.get(n2); if (w && w !== cur) { cur.hide(); cur = w; cur.reset(); } },
+    setVary(v) { W.forEach((w) => w.setVary(v)); },
+    pose: (...a) => cur.pose(...a),
+    paint: (...a) => cur.paint(...a),
+    overlay: (...a) => cur.overlay(...a),
+    dispose() { W.forEach((w) => w.dispose()); },
+  };
+}
+
+function one({ F, deck, labels, sc }) {
+  const N = F.N, A = deck.ACTORS;
   const cast = sc.cast.filter((a) => A[a]);
   const VALS = valuesOf(sc).length ? valuesOf(sc) : [null];
   const base = sc.vary ? String(sc.vary.base) : null;
@@ -53,6 +74,14 @@ function make({ F, deck, labels, scene }) {
   const IDX = cast.find((a) => A[a].kind === 'axis') || null;
   const GR = cast.find((a) => A[a].kind === 'graph') || null;
   const ROWS = cast.filter((a) => A[a].kind === 'list' || A[a].kind === 'frames');
+  /* 층 — 배우의 lane 대로 위에서 아래로 : 서버(sql) | 경계 0 | InnoDB 메모리 | 경계 1 | 디스크.
+     글 블록을 늘 맨 위에, 경계 0 을 그 바로 아래에 두었더니 MDL QUEUE(lane sql)가 InnoDB 쪽에 그려졌다(locks 01 · 11 · 12),
+     경계 1 은 아예 그리지 않아 ROW LOCKS 와 행 (클러스터)(lane disk, '락은 여기 없다') 사이에 선이 없었다(locks 07 · 08 · 09) */
+  const laneOf = (a) => (A[a].lane === 'sql' ? 0 : A[a].lane === 'disk' ? 2 : 1);
+  const SQLT = TEXTS.filter((a) => laneOf(a) === 0), MEMT = TEXTS.filter((a) => laneOf(a) !== 0);
+  const SQLR = ROWS.filter((a) => laneOf(a) === 0), MEMR = ROWS.filter((a) => laneOf(a) === 1), DSKR = ROWS.filter((a) => laneOf(a) === 2);
+  const HAS = [SQLT.length + SQLR.length > 0, MEMT.length + MEMR.length + (IDX ? 1 : 0) + (GR ? 1 : 0) > 0, DSKR.length > 0];
+  const EDGE_ON = [HAS[0] && (HAS[1] || HAS[2]), HAS[1] && HAS[2]];
   const ids = (a) => [...new Set(all.flatMap((s) => s[a].map((x) => x.id)))];
   const RIDS = Object.fromEntries(ROWS.map((a) => [a, ids(a)]));
   const RECS = IDX ? ids(IDX) : [];
@@ -136,7 +165,7 @@ function make({ F, deck, labels, scene }) {
       for (const id of RIDS[a]) { const it = s[a].find((x) => x.id === id); t.set(rowLb[a][id], [it ? id : '', on(a) && !!it && hotIt(s, a, id), it && it.tag === 'x' ? 'red' : '', !!it]); }
       t.set(rowCap[a], [capOf(s[a]) || (s[a].length ? '' : '—'), on(a), '', true, true]);
     }
-    EDG.forEach((e, i) => t.set(edgeLb[i], [e.lb, false, (s.step.hot || (s.step.act && s.step.act.hot)) === e.hot ? 'gold' : '', i === 0 ? TEXTS.length > 0 : false]));
+    EDG.forEach((e, i) => t.set(edgeLb[i], [e.lb, false, (s.step.hot || (s.step.act && s.step.act.hot)) === e.hot ? 'gold' : '', !!EDGE_ON[i]]));
     return t;
   });
   for (const b of BAKES.values()) b.TX = texts(b.S);
@@ -153,11 +182,16 @@ function make({ F, deck, labels, scene }) {
   function build(L) {
     const ww = L.x1 - L.x0, wh = L.y1 - L.y0, gap = 18, HD = 18;
     G = { L, anc: {}, slot: {}, ix: { x0: L.x0 + 14, x1: L.x1 - 14 } };
-    let tn = Math.max(1, Math.min(3, TEXTS.length));
-    while (tn > 1 && (ww - (tn - 1) * gap) / tn < 150) tn--;
-    const tW = (ww - (tn - 1) * gap) / tn;
-    for (const a of TEXTS) wrap(tx[a], tW);
-    const tRows = Math.ceil(TEXTS.length / tn), tHs = Array.from({ length: tRows }, (_, r) => hMax(TEXTS.slice(r * tn, r * tn + tn).map((a) => tx[a])));
+    /* 글 블록의 격자 — 층마다 따로(서버 층의 SESSION · STATEMENT, InnoDB 층의 READ VIEW) */
+    const grid = (list) => {
+      let tn = Math.max(1, Math.min(3, list.length));
+      while (tn > 1 && (ww - (tn - 1) * gap) / tn < 150) tn--;
+      const tW = (ww - (tn - 1) * gap) / tn;
+      for (const a of list) wrap(tx[a], tW);
+      const tRows = Math.ceil(list.length / tn);
+      return { list, tn, tW, tRows, tHs: Array.from({ length: tRows }, (_, r) => hMax(list.slice(r * tn, r * tn + tn).map((a) => tx[a]))) };
+    };
+    const GT = [grid(SQLT), grid(MEMT)];
     /* 범위의 줄 — 데이터의 row(0 이 수직선에 가깝다). 이름표는 그 줄의 막대 위에서 줄 나누기 —
        같은 줄의 (10,20] 과 (20,30] 이름표가 겹쳤다. 줄마다 이름표가 쌓인 만큼 띠를 높인다 */
     const nRow = IDX ? Math.max(1, ...all.flatMap((s) => s[IDX + '#sp'].map((q) => (q.row ?? 0) + 1))) : 0;
@@ -181,15 +215,18 @@ function make({ F, deck, labels, scene }) {
     const nw = GR ? Math.min(nCap, Math.max(90, ...NODES.map((id) => Math.max(most(nLb[id].n).w, most(nLb[id].v).w) + 18))) : 0;
     if (GR) for (const id of NODES) wrap(nLb[id].v, nw - 10);
     const sw = Object.fromEntries(ROWS.map((a) => [a, Object.fromEntries(RIDS[a].map((id) => [id, Math.max(30, Math.ceil(most(rowLb[a][id]).w) + 14)]))]));
-    /* 그래프와 첫 칸 줄은 나란히 — 반 폭에 들어갈 때 */
+    /* 그래프와 InnoDB 층의 첫 칸 줄은 나란히 — 반 폭에 들어갈 때 */
     const rc = ww >= 400 ? 2 : 1, rW = (ww - (rc - 1) * gap) / rc;
-    const usedW = (a) => RIDS[a].reduce((t, id) => t + sw[a][id] + 6, -6);
-    const side = GR && rc > 1 && NODES.length * (nw + NG) - NG <= rW && ROWS.length && usedW(ROWS[0]) <= rW;
+    /* 칸 줄의 폭 — 한 상태에 함께 있는 칸들의 폭 중 가장 넓은 것. 줄이 가진 적 있는 id 를 모두 더했더니 '(비었다)' 처럼
+       다른 칸과 함께 있지 않는 자리 칸까지 더해져, 설명이 칸 끝에서 150 – 480px 떨어졌다(locks 03 · 05 · 06 · 06v · 07) */
+    const usedW = (a) => Math.max(0, ...all.map((s) => s[a].reduce((t, x) => t + sw[a][x.id] + 6, -6)));
+    const side = GR && rc > 1 && NODES.length * (nw + NG) - NG <= rW && MEMR.length && usedW(MEMR[0]) <= rW;
+    const sideR = side ? MEMR[0] : null;
     G.ng = NG;
     if (GR && NODES.length * (nw + NG) - NG > ww + 1) console.error(`innodb ${sc.num} 세계 : 그래프가 무대보다 넓다 (${L.W}×${L.H})`);
     const rcH = {}, rSide = {};
-    for (const [j, a] of ROWS.entries()) {
-      const W0 = side && j === 0 ? rW : ww, used = usedW(a), sideW = W0 - used - 12;
+    for (const a of ROWS) {
+      const W0 = a === sideR ? rW : ww, used = usedW(a), sideW = W0 - used - 12;
       wrap(rowCap[a], W0); const hb = most(rowCap[a]).h;
       let hs = Infinity; if (sideW >= 150) { wrap(rowCap[a], sideW); hs = most(rowCap[a]).h; }
       rSide[a] = Math.max(26, hs) < 26 + 8 + hb ? used + 12 : 0; if (!rSide[a]) wrap(rowCap[a], W0);
@@ -198,38 +235,52 @@ function make({ F, deck, labels, scene }) {
     const nvH = GR ? hMax(NODES.map((id) => nLb[id].v)) : 0;
     const lay = (y0, k = 1) => {
       let y = y0;
-      const rowY = [y]; for (let r = 0; r < tRows; r++) rowY.push(rowY[r] + HD + tHs[r] + 12 * k);
-      TEXTS.forEach((a, i) => { const x = L.x0 + (i % tn) * (tW + gap), yy = rowY[Math.floor(i / tn)]; place(hd[a], x, yy); place(tx[a], x, yy + HD); G.anc[a] = { x: x + tW - 18, y: yy + 8 }; });
-      y = rowY[tRows];
-      G.edgeY = null;
-      if (TEXTS.length && EDG[0]) { y += 2 * k; G.edgeY = y; place(edgeLb[0], L.x1, y + 2, 'r', 't'); y += 8 + 8 * k; }
+      const texts = (g) => {
+        const rowY = [y]; for (let r = 0; r < g.tRows; r++) rowY.push(rowY[r] + HD + g.tHs[r] + 12 * k);
+        g.list.forEach((a, i) => { const x = L.x0 + (i % g.tn) * (g.tW + gap), yy = rowY[Math.floor(i / g.tn)]; place(hd[a], x, yy); place(tx[a], x, yy + HD); G.anc[a] = { x: x + g.tW - 18, y: yy + 8 }; });
+        y = rowY[g.tRows];
+      };
+      const placeGraph = (x0, yy) => { place(hd[GR], x0, yy); G.gr = { x0, y: yy + HD + 15, nw }; G.anc[GR] = { x: x0 + nw / 2, y: yy + HD + 15 }; return HD + 30 + 6 + nvH + 6; };
+      const rows = (list) => {
+        for (const a of list) {
+          const x0 = a === sideR ? L.x0 + rW + gap : L.x0;
+          place(hd[a], x0, y); G.slot[a] = { x0, y: y + HD, sw: sw[a] }; G.anc[a] = { x: x0 + 30, y: y + HD + 13 };
+          let hh;
+          if (rSide[a]) { G.cap[a] = y + HD + 4; place(rowCap[a], x0 + rSide[a], G.cap[a]); hh = HD + Math.max(26, rcH[a] + 4); }
+          else { G.cap[a] = null; place(rowCap[a], x0, y + HD + 26 + 8); hh = HD + 26 + 8 + rcH[a]; }
+          if (a === sideR) hh = Math.max(hh, placeGraph(L.x0, y));
+          y += hh + 14 * k;
+        }
+      };
+      const edge = (i) => { if (!EDGE_ON[i] || !EDG[i]) return; y += (i ? 4 : 2) * k; G.edgeY[i] = y; place(edgeLb[i], L.x1, y + 2, 'r', 't'); y += 8 + 8 * k; };
+      G.edgeY = [null, null]; G.cap = {};
+      texts(GT[0]); rows(SQLR);
+      edge(0);
+      texts(GT[1]);
       if (IDX) {
         place(hd[IDX], L.x0, y); y += HD + 6;
         G.ix.top = y; y += bandH.reduce((p, q) => p + q, 0) + 6; G.ix.y = y; G.anc[IDX] = { x: L.x0 + ww / 2, y }; y += 10 + 16 + 10 * k;
         /* 줄 r 의 막대 y — 수직선에서 위로 띠를 쌓는다 */
         G.barY = bandH.map((_, r) => G.ix.y - 12 - bandH.slice(0, r).reduce((p, q) => p + q, 0));
       }
-      const placeGraph = (x0, yy) => { place(hd[GR], x0, yy); G.gr = { x0, y: yy + HD + 15, nw }; G.anc[GR] = { x: x0 + nw / 2, y: yy + HD + 15 }; return HD + 30 + 6 + nvH + 6; };
-      let first = true;
-      for (const [j, a] of ROWS.entries()) {
-        const x0 = side && j === 0 ? L.x0 + rW + gap : L.x0;
-        place(hd[a], x0, y); G.slot[a] = { x0, y: y + HD, sw: sw[a] }; G.anc[a] = { x: x0 + 30, y: y + HD + 13 };
-        let hh;
-        if (rSide[a]) { place(rowCap[a], x0 + rSide[a], y + HD + 4); hh = HD + Math.max(26, rcH[a] + 4); }
-        else { place(rowCap[a], x0, y + HD + 26 + 8); hh = HD + 26 + 8 + rcH[a]; }
-        if (first && side) hh = Math.max(hh, placeGraph(L.x0, y));
-        first = false;
-        y += hh + 14 * k;
-      }
+      rows(MEMR);
       if (GR && !side) y += placeGraph(L.x0, y) + 10 * k;
+      edge(1);
+      rows(DSKR);
       return y - y0;
     };
     let k = 1, total = lay(L.y0, 1);
     if (total > wh) { k = 0.2; total = lay(L.y0, k); }
     if (total > wh + 1) console.error(`innodb ${sc.num} 세계 : 높이 ${Math.round(total)} 가 무대 ${Math.round(wh)} 를 넘는다 (${L.W}×${L.H})`);
-    const dy = L.narrow ? 0 : Math.max(0, (wh - total) / 2);
-    if (dy) lay(L.y0 + dy, k);
+    G.lay = lay; G.k = k; G.total = total;
     for (let i = 0; i < N; i++) { dust[i * 2] = L.x0 + rnd() * ww; dust[i * 2 + 1] = L.y0 + rnd() * wh; }
+    shown = -2;
+    return total;
+  }
+  /* 가운데 맞추기 — T 는 짝까지 본 높이 */
+  function fin(T) {
+    const { L } = G, dy = L.narrow ? 0 : Math.max(0, (L.y1 - L.y0 - Math.max(G.total, T)) / 2);
+    if (dy) G.lay(L.y0 + dy, G.k);
     shown = -2;
   }
   const rowSlot = (s, a, id) => { let x = G.slot[a].x0; for (const it of s[a]) { const w = G.slot[a].sw[it.id]; if (it.id === id) return { x: x + w / 2, y: G.slot[a].y + 13, w }; x += w + 6; } return null; };
@@ -370,6 +421,9 @@ function make({ F, deck, labels, scene }) {
       }
       if (GR) for (const id of NODES) { const P = nodeAt(s, id); if (P) { place(nLb[id].n, P.x, P.y, 'c', 'c'); place(nLb[id].v, P.x, P.y + 21, 'c', 't'); } }
       for (const a of ROWS) for (const it of s[a]) { const P = rowSlot(s, a, it.id); if (P) place(rowLb[a][it.id], P.x, P.y, 'c', 'c'); }
+      /* 옆 설명은 그 스텝의 칸 끝 바로 옆 — 줄 폭(가장 넓은 상태)에 두면 칸이 적은 스텝에서 멀리 떨어졌다. 설명의 줄바꿈 폭은
+         가장 넓은 상태의 것 그대로라 높이는 변하지 않는다. 칸이 바뀌면 설명 글도 바뀌므로(사라졌다 나타난다) 자리를 옮겨도 튀지 않는다 */
+      for (const a of ROWS) if (G.cap[a] != null) place(rowCap[a], G.slot[a].x0 + Math.max(0, s[a].reduce((t, x) => t + G.slot[a].sw[x.id] + 6, -6)) + 12, G.cap[a]);
     }
     const form = k === 0 ? show(p, 0.18, 0.36) : 1, dimO = (end ? 0.18 : 1) * form, fade = Math.abs(1 - 2 * b);
     for (const [lb, [txt, emph, , vis = true]] of T) {
@@ -397,7 +451,9 @@ function make({ F, deck, labels, scene }) {
     const { S, NK } = cur, kk = Math.min(b > 0.5 ? next : k, NK - 1), end = (b > 0.5 ? next : k) >= NK, s = S[kk];
     const form = k === 0 ? show(p, 0.18, 0.36) : 1, o = (end ? 0.25 : 1) * form, { L } = G;
     ctx.save(); ctx.lineWidth = 1;
-    if (G.edgeY != null) { ctx.globalAlpha = 0.45 * o; ctx.strokeStyle = css.faint; ctx.setLineDash([3, 4]); seg(ctx, L.x0, G.edgeY, L.x1, G.edgeY); ctx.setLineDash([]); }
+    ctx.globalAlpha = 0.45 * o; ctx.strokeStyle = css.faint; ctx.setLineDash([3, 4]);
+    for (const y of G.edgeY) if (y != null) seg(ctx, L.x0, y, L.x1, y);
+    ctx.setLineDash([]);
     if (IDX) {
       /* 축의 양 끝 값과 범위 막대 끝에서 레코드까지의 점선 */
       ctx.globalAlpha = 0.3 * o; ctx.strokeStyle = css.faint; ctx.setLineDash([2, 3]);
@@ -421,9 +477,13 @@ function make({ F, deck, labels, scene }) {
   }
 
   return {
-    build(L) { this.theme(); build(L); },
+    build(L) { this.theme(); return build(L); },
+    fin,
     theme() { const cs = getComputedStyle(document.documentElement), v = (n) => cs.getPropertyValue(n).trim(); css = { faint: v('--faint'), gold: v('--gold'), ink: v('--ink'), red: v('--red'), accent: v('--accent'), green: v('--green') }; },
     setVary(v) { const b = BAKES.get(keyOf(v)); if (b && b !== cur) { cur = b; shown = -2; } },
+    /* 짝으로 물러날 때 — 이름표를 감춘다. 돌아오면 글을 다시 쓴다 */
+    hide() { for (const lb of made) { lb.el.style.opacity = '0'; lb.o = 0; } tokO = 0; },
+    reset() { shown = -2; },
     pose, paint, overlay,
     dispose() { made.forEach((lb) => lb.el.remove()); },
   };

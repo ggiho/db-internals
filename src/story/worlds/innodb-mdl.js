@@ -1,6 +1,10 @@
 /* mysql innodb 09 — 메타데이터 락 대기열. 그리는 것은 모두 bake 상태에서 읽는다 —
      · MDL = q 를 가진 list 배우. q 가 granted 면 보유 줄, pending 이면 대기 줄, gone 이면 대기 줄에서 흐리게(포기했다).
-       칸 안에 이름과 mode(SR · SW · SU · X …). 대기 칸의 by 가 가리키는 칸으로 곡선 화살표 — 무엇이 막는가
+       칸 안에 이름과 mode(SR · SW · SU · X …). 대기 칸의 by 가 가리키는 칸으로 곡선 화살표 — 무엇이 막는가.
+       막는 칸은 막히는 칸과 함께 밝힌다(대기 사슬을 따라). mode 가 'SU → X' 인 대기 칸은 앞의 SU 를 이미 쥐고 있으므로
+       보유 줄에도 흐린 칸(SU)을 둔다 — 없었을 때 innodb 09 의 10 스텝은 보유 줄이 비어 ALTER 가 아무것도 안 쥔 듯 보였다
+     · 층 — MDL 배우가 lane sql 이면 SQL 층과 InnoDB 사이의 점선은 대기열 아래. 글 블록 바로 아래에 두었더니 MDL QUEUE 가
+       InnoDB 쪽에 그려졌다(innodb 09 · locks 11)
      · 나머지 kv 는 글 블록(SQL 층), 나머지 list · frames 는 칸 줄. SQL 층과 InnoDB 사이 · 메모리와 디스크 사이에 점선
      · 셈 맞추기 — 보유 줄의 mode 끼리 호환되지 않거나(X 는 무엇과도 함께 보유되지 않는다), by 가 없는 칸을 가리키거나,
        q 가 granted · pending · gone 밖이면 console.error
@@ -53,6 +57,19 @@ function make({ F, deck, labels, scene }) {
   const RIDS = Object.fromEntries(ROWS.map((a) => [a, ids(a)]));
   const QIDS = MQ ? ids(MQ) : [];
   const laneOf = (it) => (it.q === 'granted' ? 0 : 1);
+  /* 대기 칸이 이미 쥔 것 — 'SU → X' 의 SU */
+  const heldPart = (it) => (it.q === 'pending' && /→/.test(it.mode || '') ? heldOf(it.mode) : []);
+  /* 줄 l 의 칸 — 보유 줄에는 대기 칸이 쥔 앞부분도(h) */
+  const laneIts = (s, l) => s[MQ].flatMap((x) => (laneOf(x) === l ? [{ id: x.id, h: false }] : []).concat(l === 0 && heldPart(x).length ? [{ id: x.id, h: true }] : []));
+  const HIDS = MQ ? [...new Set(all.flatMap((s) => s[MQ].filter((x) => heldPart(x).length).map((x) => x.id)))] : [];
+  /* 막는 쪽 — 건드린 대기 칸의 by 를 사슬로 따라간다 */
+  const blockers = (s) => {
+    const out = new Set(); if (!MQ) return out;
+    const by = new Map(s[MQ].filter((x) => x.by && x.q === 'pending').map((x) => [x.id, x.by]));
+    for (const x of s[MQ]) { if (x.q !== 'pending' || !hotIt(s, MQ, x.id)) continue; let b = by.get(x.id), n = 0; while (b && !out.has(b) && n++ < 20) { out.add(b); b = by.get(b); } }
+    return out;
+  };
+  const SQLQ = !!MQ && A[MQ].lane === 'sql';
 
   /* 셈 맞추기 */
   for (const [kk, b] of BAKES) [b.S0, ...b.S].forEach((s, i) => {
@@ -63,7 +80,7 @@ function make({ F, deck, labels, scene }) {
       if (!['granted', 'pending', 'gone'].includes(it.q)) console.error(`${at} : ${it.id} 의 q ${it.q} 를 모른다`);
       if (it.by && !its.some((x) => x.id === it.by)) console.error(`${at} : ${it.id} 를 막는 ${it.by} 가 대기열에 없다`);
     }
-    const held = its.filter((x) => x.q === 'granted').flatMap((x) => heldOf(x.mode).map((m) => ({ id: x.id, m })));
+    const held = its.flatMap((x) => (x.q === 'granted' ? heldOf(x.mode) : heldPart(x)).map((m) => ({ id: x.id, m })));
     if (held.some((h) => h.m === 'X') && new Set(held.map((h) => h.id)).size > 1) console.error(`${at} : X 를 쥔 칸이 있는데 다른 칸도 보유 중이다 — ${held.map((h) => h.id + ' ' + h.m).join(', ')}`);
   });
   let cur = BAKES.get(null) || [...BAKES.values()][0];
@@ -73,6 +90,7 @@ function make({ F, deck, labels, scene }) {
   let at = 0;
   const take = (k, n) => { R[k] = [at, at + n]; at += n; };
   QIDS.forEach((id) => take('q:' + id, ML));
+  HIDS.forEach((id) => take('h:' + id, ML));
   for (const a of ROWS) RIDS[a].forEach((id) => take(a + ':' + id, SL));
   take('tok', TOK);
   R.DST = [at, N];
@@ -88,6 +106,7 @@ function make({ F, deck, labels, scene }) {
   const hd = Object.fromEntries(cast.map((a) => [a, label('aq')]));
   const tx = Object.fromEntries(TEXTS.map((a) => [a, label('aq ml aq-b')]));
   const qLb = Object.fromEntries(QIDS.map((id) => [id, { n: label('aq aq-c'), m: label('aq aq-c') }]));
+  const hLb = Object.fromEntries(HIDS.map((id) => [id, { n: label('aq aq-c'), m: label('aq aq-c') }]));
   const laneLb = [label('aq'), label('aq')], qCap = label('aq ml aq-b');
   const rowLb = Object.fromEntries(ROWS.map((a) => [a, Object.fromEntries(RIDS[a].map((id) => [id, label('aq aq-c')]))]));
   const rowCap = Object.fromEntries(ROWS.map((a) => [a, label('aq ml aq-b')]));
@@ -105,8 +124,14 @@ function make({ F, deck, labels, scene }) {
     for (const a of cast) t.set(hd[a], [A[a].nm, on(a)]);
     for (const a of TEXTS) t.set(tx[a], [kvHtml(s[a]), on(a), '', true, true]);
     if (MQ) {
+      const blk = blockers(s);
+      for (const id of HIDS) {
+        const it = s[MQ].find((x) => x.id === id), hp = it ? heldPart(it) : [];
+        t.set(hLb[id].n, [hp.length ? id : '', false, '', hp.length > 0]);
+        t.set(hLb[id].m, [hp.length ? hp.join(' · ') : '', false, 'green', hp.length > 0]);
+      }
       for (const id of QIDS) {
-        const it = s[MQ].find((x) => x.id === id), hot = !!it && on(MQ) && hotIt(s, MQ, id);
+        const it = s[MQ].find((x) => x.id === id), hot = !!it && on(MQ) && (hotIt(s, MQ, id) || blk.has(id));
         t.set(qLb[id].n, [it ? id : '', hot, it && it.q === 'pending' ? 'red' : '', !!it]);
         t.set(qLb[id].m, [it ? it.mode || '' : '', hot, it && it.q === 'granted' ? 'green' : it && it.q === 'pending' ? 'red' : '', !!it && !!it.mode]);
       }
@@ -118,7 +143,7 @@ function make({ F, deck, labels, scene }) {
       for (const id of RIDS[a]) { const it = s[a].find((x) => x.id === id); t.set(rowLb[a][id], [it ? id : '', on(a) && !!it && hotIt(s, a, id), it && it.tag === 'x' ? 'red' : '', !!it]); }
       t.set(rowCap[a], [capOf(s[a]) || (s[a].length ? '' : '—'), on(a), '', true, true]);
     }
-    EDG.forEach((e, i) => t.set(edgeLb[i], [e.lb, false, (s.step.hot || (s.step.act && s.step.act.hot)) === e.hot ? 'gold' : '', i === 0 ? TEXTS.length > 0 : MEMR.length > 0 && DSKR.length > 0]));
+    EDG.forEach((e, i) => t.set(edgeLb[i], [e.lb, false, (s.step.hot || (s.step.act && s.step.act.hot)) === e.hot ? 'gold' : '', i === 0 ? (TEXTS.length > 0 || SQLQ) && (ROWS.length > 0 || (!!MQ && !SQLQ)) : MEMR.length > 0 && DSKR.length > 0]));
     return t;
   });
   for (const b of BAKES.values()) b.TX = texts(b.S);
@@ -130,7 +155,8 @@ function make({ F, deck, labels, scene }) {
   let G = null;
   const rnd = U.rng(67);
   const dust = new Float32Array(N * 2), jit = new Float32Array(N * 2).map(() => rnd() - 0.5);
-  const QH = 36, LANEW = 40;
+  /* 두 줄 사이 — 16 이었을 때 보유 칸 바로 아래의 대기 칸에서 그 칸으로 가는 화살표가 15px 이라 보이지 않았다(locks 11) */
+  const QH = 36, LANEW = 40, QG = 30;
   function build(L) {
     const ww = L.x1 - L.x0, wh = L.y1 - L.y0, gap = 18, HD = 18;
     G = { L, anc: {}, slot: {} };
@@ -142,10 +168,11 @@ function make({ F, deck, labels, scene }) {
     /* 대기열 칸 폭 — 이름과 mode 중 넓은 것. 한 줄에 다 들어가지 않으면 좁힌다 */
     const qw0 = Object.fromEntries(QIDS.map((id) => [id, Math.max(70, Math.max(most(qLb[id].n).w, most(qLb[id].m).w) + 16)]));
     const perLane = MQ ? Math.max(1, ...all.flatMap((s) => [0, 1].map((l) => s[MQ].filter((x) => laneOf(x) === l).length))) : 1;
-    const widest = MQ ? Math.max(...all.flatMap((s) => [0, 1].map((l) => s[MQ].filter((x) => laneOf(x) === l).reduce((t, x) => t + qw0[x.id] + 10, -10)))) : 0;
+    const widest = MQ ? Math.max(...all.flatMap((s) => [0, 1].map((l) => laneIts(s, l).reduce((t, x) => t + qw0[x.id] + 10, -10)))) : 0;
     const qScale = widest > ww - LANEW ? (ww - LANEW) / widest : 1;
     G.qw = Object.fromEntries(QIDS.map((id) => [id, qw0[id] * qScale]));
     for (const id of QIDS) { wrap(qLb[id].n, G.qw[id] - 6); wrap(qLb[id].m, G.qw[id] - 6); }
+    for (const id of HIDS) { wrap(hLb[id].n, G.qw[id] - 6); wrap(hLb[id].m, G.qw[id] - 6); }
     wrap(qCap, ww);
     const qcH = MQ ? most(qCap).h : 0;
     const sw = Object.fromEntries(ROWS.map((a) => [a, Object.fromEntries(RIDS[a].map((id) => [id, Math.max(30, Math.ceil(most(rowLb[a][id]).w) + 14)]))]));
@@ -168,13 +195,15 @@ function make({ F, deck, labels, scene }) {
       TEXTS.forEach((a, i) => { const x = L.x0 + (i % tn) * (tW + gap), yy = rowY[Math.floor(i / tn)]; place(hd[a], x, yy); place(tx[a], x, yy + HD); G.anc[a] = { x: x + tW - 18, y: yy + 8 }; });
       y = rowY[tRows];
       G.edgeY = [null, null];
-      if (TEXTS.length && EDG[0]) { y += 2 * k; G.edgeY[0] = y; place(edgeLb[0], L.x1, y + 2, 'r', 't'); y += 8 + 8 * k; }
-      if (MQ) {
+      const queue = () => {
         place(hd[MQ], L.x0, y); y += HD + 4;
-        G.lane = [y + QH / 2, y + QH + 16 + QH / 2]; G.anc[MQ] = { x: L.x0 + ww / 2, y: G.lane[0] };
+        G.lane = [y + QH / 2, y + QH + QG + QH / 2]; G.anc[MQ] = { x: L.x0 + ww / 2, y: G.lane[0] };
         place(laneLb[0], L.x0, G.lane[0], 'l', 'c'); place(laneLb[1], L.x0, G.lane[1], 'l', 'c');
-        y += 2 * QH + 16 + 26; G.qCapY = y; place(qCap, L.x0, y); y += qcH + 12 * k;
-      }
+        y += 2 * QH + QG + 26; G.qCapY = y; place(qCap, L.x0, y); y += qcH + 12 * k;
+      };
+      if (MQ && SQLQ) queue();
+      if ((TEXTS.length || SQLQ) && (ROWS.length || (MQ && !SQLQ)) && EDG[0]) { y += 2 * k; G.edgeY[0] = y; place(edgeLb[0], L.x1, y + 2, 'r', 't'); y += 8 + 8 * k; }
+      if (MQ && !SQLQ) queue();
       for (const band of BANDS) {
         if (band.disk && G.edgeY[1] == null && MEMR.length && EDG[1]) { y += 4 * k; G.edgeY[1] = y; place(edgeLb[1], L.x1, y + 2, 'r', 't'); y += 8 + 8 * k; }
         let hh = 0;
@@ -197,10 +226,10 @@ function make({ F, deck, labels, scene }) {
     shown = -2;
   }
   /* 대기열 칸 — 줄마다 데이터 순서대로 왼쪽부터 */
-  const qSlot = (s, id) => {
+  const qSlot = (s, id, h = false) => {
     const it = s[MQ].find((x) => x.id === id); if (!it) return null;
-    const l = laneOf(it); let x = G.L.x0 + LANEW;
-    for (const q of s[MQ]) { if (laneOf(q) !== l) continue; const w = G.qw[q.id]; if (q.id === id) return { x: x + w / 2, y: G.lane[l], w }; x += w + 10; }
+    const l = h ? 0 : laneOf(it); let x = G.L.x0 + LANEW;
+    for (const q of laneIts(s, l)) { const w = G.qw[q.id]; if (q.id === id && q.h === h) return { x: x + w / 2, y: G.lane[l], w }; x += w + 10; }
     return null;
   };
   const rowSlot = (s, a, id) => { let x = G.slot[a].x0; for (const it of s[a]) { const w = G.slot[a].sw[it.id]; if (it.id === id) return { x: x + w / 2, y: G.slot[a].y + 13, w }; x += w + 6; } return null; };
@@ -227,14 +256,29 @@ function make({ F, deck, labels, scene }) {
     const into = (i, x, y) => [U.lerp(dust[i * 2], x, form), U.lerp(dust[i * 2 + 1], y, form)];
     const src = act ? anchor(act.f, s, act.lb) : null, mv = show(p, 0.12, 0.42);
     if (MQ) {
-      const on = s.touch.has(MQ) && !end;
+      const on = s.touch.has(MQ) && !end, blk = blockers(s);
+      /* 대기 칸이 쥔 앞부분 — 보유 줄의 흐린 점선 칸 */
+      for (const id of HIDS) {
+        const it = s[MQ].find((x) => x.id === id), pv = prev[MQ].find((x) => x.id === id);
+        const P1 = it && heldPart(it).length ? qSlot(s, id, true) : null, P0 = pv && heldPart(pv).length ? qSlot(prev, id, true) : null;
+        if (!P1 && !(P0 && !end)) { hide('h:' + id); continue; }
+        const P = P1 && P0 && !end ? { x: U.lerp(P0.x, P1.x, mv), y: P1.y, w: P1.w } : P1 || P0, gone = P1 ? 0 : show(p, 0.1, 0.4);
+        const lv = (on ? 0.55 : 0.35) * dim * form * (1 - gone);
+        for (let m = 0; m < ML; m++) {
+          const i = R['h:' + id][0] + m;
+          let [x, y] = rim(P.x, P.y, P.w, QH, ML, m);
+          if (gone) { x += jit[i * 2] * 24 * gone; y += jit[i * 2 + 1] * 24 * gone; }
+          const [xx, yy] = into(i, x, y);
+          put(o, i, xx, yy, lv * (m % 2 ? 1 : 0.3), 0, 0.03, 1, GREEN);
+        }
+      }
       for (const id of QIDS) {
         const it = s[MQ].find((x) => x.id === id), pv = prev[MQ].find((x) => x.id === id);
         const P1 = it ? qSlot(s, id) : null, P0 = pv ? qSlot(prev, id) : null;
         if (!P1 && !(P0 && !end)) { hide('q:' + id); continue; }
         /* 줄을 옮긴 칸(대기 → 보유)은 옛 자리에서 미끄러진다 */
         const P = P1 && P0 && !end ? { x: U.lerp(P0.x, P1.x, mv), y: U.lerp(P0.y, P1.y, mv), w: P1.w } : P1 || P0;
-        const z = it || pv, gone = it ? 0 : show(p, 0.1, 0.4), lit = it && on && hotIt(s, MQ, id);
+        const z = it || pv, gone = it ? 0 : show(p, 0.1, 0.4), lit = it && on && (hotIt(s, MQ, id) || blk.has(id));
         const col = z.q === 'granted' ? GREEN : z.q === 'gone' ? FAINT : RED, lv = (lit ? 0.95 : on ? 0.6 : 0.45) * dim * form * (1 - gone) * (z.q === 'gone' ? 0.5 : 1);
         const born = it && !pv && !end, from = born && act ? src : null;
         for (let m = 0; m < ML; m++) {
@@ -286,7 +330,10 @@ function make({ F, deck, labels, scene }) {
       shown = kk;
       for (const [lb, [txt, , cls = '', , html = false]] of T) { setText(lb, txt, html); for (const c of ['gold', 'red', 'green']) lb.el.classList.toggle(c, cls === c); }
       const s = S[kk];
-      if (MQ) for (const it of s[MQ]) { const P = qSlot(s, it.id); if (P) { place(qLb[it.id].n, P.x, P.y - 2, 'c', 'b'); place(qLb[it.id].m, P.x, P.y + 1, 'c', 't'); } }
+      if (MQ) for (const it of s[MQ]) {
+        const P = qSlot(s, it.id); if (P) { place(qLb[it.id].n, P.x, P.y - 2, 'c', 'b'); place(qLb[it.id].m, P.x, P.y + 1, 'c', 't'); }
+        const H = heldPart(it).length ? qSlot(s, it.id, true) : null; if (H) { place(hLb[it.id].n, H.x, H.y - 2, 'c', 'b'); place(hLb[it.id].m, H.x, H.y + 1, 'c', 't'); }
+      }
       for (const a of ROWS) for (const it of s[a]) { const P = rowSlot(s, a, it.id); if (P) place(rowLb[a][it.id], P.x, P.y, 'c', 'c'); }
     }
     const form = k === 0 ? show(p, 0.18, 0.36) : 1, dimO = (end ? 0.18 : 1) * form, fade = Math.abs(1 - 2 * b);
@@ -328,9 +375,10 @@ function make({ F, deck, labels, scene }) {
         const P = qSlot(s, it.id), B = qSlot(s, it.by); if (!P || !B) continue;
         /* 같은 대기 줄 안이면 아래로 휜다 — 위로 휘면 보유 줄의 칸을 지난다 */
         const same = Math.abs(P.y - B.y) < 1, y0 = same ? P.y + QH / 2 : P.y - QH / 2, y1 = same ? B.y + QH / 2 : B.y + QH / 2;
-        const cy = same ? P.y + QH / 2 + 22 : (y0 + y1) / 2;
-        ctx.beginPath(); ctx.moveTo(P.x, y0); ctx.quadraticCurveTo((P.x + B.x) / 2, cy, B.x, y1); ctx.stroke();
-        const ang = Math.atan2(y1 - cy, B.x - (P.x + B.x) / 2);
+        /* 줄이 다르고 거의 바로 위면 옆으로 휜다 — 곧게 그으면 두 줄 사이의 틈만큼(30px)만 보인다 */
+        const cy = same ? P.y + QH / 2 + 22 : (y0 + y1) / 2, cx = (P.x + B.x) / 2 + (!same && Math.abs(P.x - B.x) < 40 ? 26 : 0);
+        ctx.beginPath(); ctx.moveTo(P.x, y0); ctx.quadraticCurveTo(cx, cy, B.x, y1); ctx.stroke();
+        const ang = Math.atan2(y1 - cy, B.x - cx);
         seg(ctx, B.x, y1, B.x - Math.cos(ang - 0.4) * 6, y1 - Math.sin(ang - 0.4) * 6); seg(ctx, B.x, y1, B.x - Math.cos(ang + 0.4) * 6, y1 - Math.sin(ang + 0.4) * 6);
       }
     }
