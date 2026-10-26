@@ -506,7 +506,9 @@ const SCENES = [
         ['+','-','+','-','-'],
         ['-','-','-','-','-'],
         ['+','+','-','-','-']],
-      lb:{ l:'행 = 새 요청  ·  열 = 이미 걸린 락', r:'lock_compatibility_matrix' } } },
+      /* 행 = 이미 걸린 락 — lock_table_other_has_incompatible 이 lock_mode_compatible(쥔 락의 mode, 요청 mode) 로 부른다.
+         강도 표(mode1 = 행 = 쥔 것)와 같은 방향이다. 표는 대칭이라 칸의 값은 어느 쪽이든 같다 */
+      lb:{ l:'행 = 이미 걸린 락  ·  열 = 새 요청', r:'lock_compatibility_matrix' } } },
     smx:{ mx:{
       rows:['IS','IX','S','X','AI'], cols:['IS','IX','S','X','AI'],
       cells:[
@@ -529,6 +531,7 @@ const SCENES = [
           '/* X  */ {false, false, false, false, false},',
           '/* AI */ {true, true, false, false, false}};',
           ['storage/innobase/include/lock0priv.ic','return (lock_compatibility_matrix[mode1][mode2]);']],
+    ops:{ cmx:{ dim:['IS/IS','IX/IX','S/S','X/X','AI/AI'] } },
     beat:1 },
 
   { act:{ f:'cmx', t:'stmt', lb:'IX / IX  →  허용' },
@@ -540,10 +543,10 @@ const SCENES = [
           'if ((mode == LOCK_IS || mode == LOCK_IX) &&',
           'table->count_by_mode[LOCK_S] == 0 && table->count_by_mode[LOCK_X] == 0) {',
           '// need to get an intention lock to perform their action - while this never'],
-    ops:{ cmx:{ on:['IX/IX'] },
+    ops:{ cmx:{ dim:[], on:['IX/IX'] },
           stmt:{ set:{ '이미 걸린 락':'IX  (trx 81 · UPDATE)', '새 요청':'IX  (trx 82 · UPDATE)', '결과':'허용|green' } } } },
 
-  { act:{ f:'cmx', t:'stmt', lb:'IX / S  →  막힘' },
+  { act:{ f:'cmx', t:'stmt', lb:'S / IX  →  막힘' },
     note:'S 와 IX 는 함께 못 선다 — 다만 UPDATE 는 MDL 에서 먼저 멈춘다',
     why:'S 는 테이블 전체를 읽기용으로 잠근 상태다(autocommit=0 의 LOCK TABLES … READ). IX 는 "안에서 뭘 고치겠다" 는 선언이므로 함께 설 수 없다. 사실 다른 세션의 UPDATE 는 그보다 먼저 서버 층에서 막힌다 — LOCK TABLES READ 가 쥔 MDL SHARED_READ_ONLY 와 UPDATE 의 SHARED_WRITE 가 충돌한다. 이 칸은 InnoDB 쪽의 두 번째 벽이다.',
     key:'행을 하나도 건드리기 전에 막힌다. <em>어느 행이냐는 무관하다</em> — 테이블 층에서 이미 끝났다.',
@@ -552,7 +555,7 @@ const SCENES = [
           ['storage/innobase/handler/ha_innodb.cc','MySQL is doing LOCK TABLES ... READ.'],
           ['sql/mdl.h','Used by LOCK TABLES READ statement.'],
           ['sql/mdl.cc','SW | + + + + + + - - - - |']],
-    ops:{ cmx:{ on:['IX/S'] },
+    ops:{ cmx:{ on:['S/IX'] },
           stmt:{ set:{ '이미 걸린 락':'S  (LOCK TABLES t READ)', '새 요청':'IX  (UPDATE)', '결과':'막힘 · 대기|red' } } } },
 
   { act:{ f:'cmx', t:'stmt', lb:'AI / AI  →  막힘' },
@@ -566,7 +569,7 @@ const SCENES = [
           '/* Acquire only the AUTOINC mutex. */',
           'nullptr, nullptr, AUTOINC_NO_LOCKING, /* Default setting */'],
     ops:{ cmx:{ on:['AI/AI'] },
-          stmt:{ set:{ '이미 걸린 락':'AI  (trx 83 · INSERT)', '새 요청':'AI  (trx 84 · INSERT)', '결과':'막힘 · 카운터에서 줄|red' } } } },
+          stmt:{ set:{ '이미 걸린 락':'AI  (trx 83 · INSERT)', '새 요청':'AI  (trx 84 · INSERT)', '결과':'막힘 · 카운터에서 줄  (mode 0 · 1)|red' } } } },
 
   { act:{ f:'cmx', t:'smx', lb:'두 번째 표 — 강도' },
     note:'두 번째 표 — compatibility 가 아니라 strength',
@@ -578,7 +581,7 @@ const SCENES = [
           '/* STRONGER-OR-EQUAL RELATION (mode1=row, mode2=column)',
           ['storage/innobase/include/lock0priv.ic','return (lock_strength_matrix[mode1][mode2] != 0);']],
     ops:{ smx:{ on:['X/S','X/IS','X/IX','X/X','X/AI'] },
-          stmt:{ set:{ '이미 걸린 락':'X', '새 요청':'S  (같은 행)', '결과':'새로 안 잡는다 · 이미 충분|gold' } } } },
+          stmt:{ set:{ '이미 걸린 락':'X  (같은 trx 가 쥠)', '새 요청':'S  (같은 행)', '결과':'새로 안 잡는다 · 이미 충분|gold' } } } },
 
   { look:{ smx:true },
     note:'strength 표의 사용처 — 이미 쥔 것이 충분하면 새로 만들지 않는다',

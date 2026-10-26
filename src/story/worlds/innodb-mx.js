@@ -1,7 +1,10 @@
 /* mysql locks 04 · 10 — 호환 행렬 · 강도 행렬. 그리는 것은 모두 bake 상태에서 읽는다(손으로 적은 칸이 없다) —
      · matrix 배우 = 칸의 격자. '+' 는 채운 칸(초록), '-' 는 테두리만(빨강) — 범용 무대와 같은 문법이고, 칸의 뜻도 무대처럼
        mx.yes · mx.no(없으면 허용 · 막힘). 범례는 그 두 값뿐이다
-     · on 칸 = 요청과 보유가 만나는 칸 — 금빛 테두리. 그 칸의 행 · 열이 띠로 밝아지고, 행 · 열 이름 옆에 그 축의 이름을 단다.
+     · on 칸 = 요청과 보유가 만나는 칸 — 금빛 테두리를 칸 밖에 두르고, 막힘(-)이면 칸 안을 옅게 빨강으로. 테두리를 칸 안에 그렸더니
+       '-' 의 빨간 테두리 알갱이와 2px 사이로 붙어, 그 스텝이 짚는 칸만 막힘이 안 보였다(locks 04 의 3 · 4, 10 의 3 – 5).
+       그 칸의 행 · 열이 띠로 밝아지고, 행 · 열 이름 옆에 그 축의 이름을 단다.
+     · 범례를 따로 적은 행렬(mx.no — 강도 표의 예 · 아니오)의 '-' 는 빨강이 아니라 먹색 — '아니오' 는 충돌이 아니다
        축의 이름은 lb.l 이 '행 = A · 열 = B' 로 적으면 A · B, 아니면 STATEMENT 의 키 가운데 값의 첫 낱말이 그 행 · 열 이름인 것
        (강도 행렬 : 이미 걸린 락 X · 새 요청 S)
      · dim 이 있으면 그 칸들만 또렷하고 나머지는 흐리다(Lab · 무대와 같은 뜻 — 한 줄이나 한 열을 짚는다)
@@ -9,7 +12,7 @@
      · act 는 덩어리가 on 칸에서 글 블록으로(행렬 → 행렬이면 그 가운데로)
    셈 맞추기는 audit() — make 가 console.error 로 낸다(storysweep 의 errors 가 잡는다). 무엇을 보는지는 audit 의 주석에.
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
-import { GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
+import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
 import { bake, stepsOf } from '../../bake.js';
 
 const MC = 25, TOK = 150, SW = 20;
@@ -258,7 +261,7 @@ function make({ F, deck, labels, scene }) {
     const into = (i, x, y) => [U.lerp(dust[i * 2], x, form), U.lerp(dust[i * 2 + 1], y, form)];
     for (const a of MATS) {
       const mx = s[a], pm = prev[a], M = G.mat[a], [m0] = R0['m:' + a], live2 = live(s, a) && !end, cs = M.cs, w = cs - 7;
-      const on = new Set(mx.on || []), dm = new Set(mx.dim || []), pon = new Set(pm.on || []), g = TAGS[kk][a];
+      const on = new Set(mx.on || []), dm = new Set(mx.dim || []), pon = new Set(pm.on || []), g = TAGS[kk][a], noC = mx.no ? INK : RED;
       for (let i = 0; i < SHAPE[a].r; i++) for (let j = 0; j < SHAPE[a].c; j++) {
         const key = mx.rows[i] + '/' + mx.cols[j], yes = (mx.cells[i] || [])[j] === '+', x0 = M.x + j * cs + 3.5, y0 = M.y + i * cs + 3.5;
         const hot = on.has(key), off = dm.size && !dm.has(key) && !hot, band = live2 && (g.rows.includes(mx.rows[i]) || g.cols.includes(mx.cols[j]));
@@ -267,14 +270,14 @@ function make({ F, deck, labels, scene }) {
         const al = (live2 ? (band ? 0.95 : 0.7) : 0.45) * (off ? 0.28 : 1) * dim * form;
         for (let m = 0; m < MC; m++) {
           const idx = m0 + (i * SHAPE[a].c + j) * MC + m, [x, y] = into(idx, ...(yes ? fill(x0, y0, w, w, MC, m) : rim(x0, y0, w, w, MC, m)));
-          put(o, idx, x, y, Math.max(al, q * 0.95 * dim * form), q > 0.5 ? 0.6 : band ? 0.15 : 0, 0.02, yes ? 1.3 : 1.15, yes ? GREEN : RED);
+          put(o, idx, x, y, Math.max(al, q * 0.95 * dim * form), q > 0.5 ? 0.6 : band ? 0.15 : 0, 0.02, yes ? 1.3 : 1.15, yes ? GREEN : noC);
         }
       }
       /* 범례 — 채운 칸 · 테두리 칸 */
       const [l0] = R0['lg:' + a], L2 = M.leg;
       for (let m = 0; m < 2 * SW; m++) {
         const i = l0 + m, yes = m < SW, n = m % SW, x0 = yes ? L2.x : L2.nx, [x, y] = into(i, ...(yes ? fill(x0, L2.y - 6, 12, 12, SW, n) : rim(x0, L2.y - 6, 12, 12, SW, n)));
-        put(o, i, x, y, (live2 ? 0.85 : 0.5) * dim * form, 0, 0.02, yes ? 1.2 : 1, yes ? GREEN : RED);
+        put(o, i, x, y, (live2 ? 0.85 : 0.5) * dim * form, 0, 0.02, yes ? 1.2 : 1, yes ? GREEN : noC);
       }
     }
     const [t0, t1] = R0.tok, tn = t1 - t0;
@@ -337,15 +340,20 @@ function make({ F, deck, labels, scene }) {
       ctx.globalAlpha = 0.09 * o; ctx.fillStyle = css.gold;
       for (const r of g.rows) { const i = mx.rows.indexOf(r); if (i >= 0) ctx.fillRect(M.x, M.y + i * cs, W, cs); }
       for (const c of g.cols) { const j = mx.cols.indexOf(c); if (j >= 0) ctx.fillRect(M.x + j * cs, M.y, cs, H); }
-      ctx.globalAlpha = 0.9 * o; ctx.strokeStyle = css.gold; ctx.lineWidth = 1.5;
-      for (const key of mx.on || []) { const P = cellC(a, mx, key); if (P) ctx.strokeRect(P[0] - cs / 2 + 1, P[1] - cs / 2 + 1, cs - 2, cs - 2); }
+      for (const key of mx.on || []) {
+        const P = cellC(a, mx, key); if (!P) continue;
+        const [r, c] = key.split('/'), v = (mx.cells[mx.rows.indexOf(r)] || [])[mx.cols.indexOf(c)];
+        if (v === '-' && !mx.no) { ctx.globalAlpha = 0.16 * o; ctx.fillStyle = css.red; ctx.fillRect(P[0] - cs / 2 + 4, P[1] - cs / 2 + 4, cs - 8, cs - 8); }
+        ctx.globalAlpha = 0.9 * o; ctx.strokeStyle = css.gold; ctx.lineWidth = 1.5;
+        ctx.strokeRect(P[0] - cs / 2 - 1.5, P[1] - cs / 2 - 1.5, cs + 3, cs + 3);
+      }
     }
     ctx.restore();
   }
 
   return {
     build(L) { this.theme(); build(L); },
-    theme() { const cs = getComputedStyle(document.documentElement), v = (n) => cs.getPropertyValue(n).trim(); css = { faint: v('--faint'), gold: v('--gold') }; },
+    theme() { const cs = getComputedStyle(document.documentElement), v = (n) => cs.getPropertyValue(n).trim(); css = { faint: v('--faint'), gold: v('--gold'), red: v('--red') }; },
     pose, paint, overlay,
     dispose() { made.forEach((lb) => lb.el.remove()); },
   };
