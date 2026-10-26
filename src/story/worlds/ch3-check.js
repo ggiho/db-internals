@@ -192,12 +192,15 @@ export function checkScene(deck, sc) {
         if (ty != null && ty !== f.FIL_PAGE_TYPE) say(`FIL_PAGE_TYPE ${ty} 가 p:${no} dump 의 ${f.FIL_PAGE_TYPE} 와 다르다`);
       }
     }
-    /* 04bv — page 0 의 8 · 12 · 26 */
-    if (has('fld') && kv('fld')['오프셋 8'] && /p:0/.test(kv('op')['페이지'] || '')) {
-      const h = SD.files.small.p0.hex;
+    /* 04b · 04bv — 그 스텝이 보는 page(op 의 'p:N')의 8 · 12. page 0 은 version, 다른 page 는 sibling */
+    const pn = /p:(\d+)/.exec(kv('op')['페이지'] || '');
+    if (has('fld') && kv('fld')['오프셋 8'] && pn && (+pn[1] === 0 || DUMP[+pn[1]])) {
+      const no = +pn[1], h = no === 0 ? SD.files.small.p0.hex : DUMP[no].hex;
       const v8 = eqv(kv('fld')['오프셋 8']), v12 = eqv(kv('fld')['오프셋 12']);
-      if (v8 != null && v8 !== hexU(h, 8, 4)) say(`SRV_VERSION ${v8} 이 page 0 dump 의 ${hexU(h, 8, 4)} 와 다르다`);
-      if (v12 != null && v12 !== hexU(h, 12, 4)) say(`SPACE_VERSION ${v12} 가 page 0 dump 의 ${hexU(h, 12, 4)} 와 다르다`);
+      if (v8 != null && v8 !== hexU(h, 8, 4)) say(`${bare(kv('fld')['오프셋 8'])} 이 page ${no} dump 의 ${hexU(h, 8, 4)} 와 다르다`);
+      if (v12 != null && v12 !== hexU(h, 12, 4)) say(`${bare(kv('fld')['오프셋 12'])} 가 page ${no} dump 의 ${hexU(h, 12, 4)} 와 다르다`);
+      /* fil 칸 sub 의 '= N'(04b 1 의 PREV '8  = 6') 도 그 page 의 값 */
+      for (const it of items('fil')) { const o = lead(it.sub), w = it.sz, v = eqv(it.sub); if (v != null && o != null && w === 4 && v !== hexU(h, o, 4)) say(`fil ${it.id} '${bare(it.sub)}' 가 page ${no} dump 의 ${hexU(h, o, 4)} 와 다르다`); }
     }
 
     /* 02 — 길이 칸 0x0006 = 뒤 데이터의 바이트 수 */

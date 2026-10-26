@@ -1201,7 +1201,11 @@ PANEL.hex = (W, M, sp) => {
   host.el.remove();
   host.el = el;
   W.labels.appendChild(el);
-  const pageOf = (s) => (/p:0/.test(String(s.op && s.op['페이지'])) || M.sc.num === '04bv' ? 0 : 5);
+  /* 보는 page — op 의 '페이지 p:N'. 가정한 종류(04b 3 · 4 의 FIL_PAGE_COMPRESSED · RTREE)면 장면 처음의 page 그대로 두고 금빛을 끈다 */
+  const pnOf = (v) => { const m = /p:(\d+)/.exec(String(v || '')); return m ? +m[1] : null; };
+  const first = pnOf(M.sc.init.op && M.sc.init.op.kv && M.sc.init.op.kv['페이지']);
+  const pageOf = (s) => { const n = pnOf(s.op && s.op['페이지']) ?? first ?? (M.sc.num === '04bv' ? 0 : 5); return n === 0 || W.MEAS.DUMP[n] ? n : 5; };
+  const assumed = (s) => !!(s.op && s.op['페이지']) && pnOf(s.op['페이지']) == null;
   const range = a === 'phd' ? [38, 94] : [0, 38];
   const hexOf = (no) => (no === 0 ? W.MEAS.SPACE.files.small.p0.hex : W.MEAS.DUMP[no].hex);
   /* 04 — FIL 헤더 kv(filv)의 칸이 앞 38 B 의 어디인가(fil0types.h 의 오프셋) */
@@ -1240,9 +1244,10 @@ PANEL.hex = (W, M, sp) => {
   };
   const html = (s) => {
     /* filv · hdr(04) 는 값이 적힌 칸 전부가 후보 — 그 배우를 짚는 스텝에서만 금빛(4 스텝의 trailer 이야기에 헤더가 금빛이었다) */
-    const no = pageOf(s), h = hexOf(no), hot = KV && !touchOf(s, a) ? [] : hotRanges(s), isH = (o) => hot.some(([p, q]) => o >= p && o < q);
-    const r0 = Math.floor(range[0] / 16), r1 = Math.ceil(range[1] / 16);
-    let out = `<div class="hx-hd"><b>${no === 0 ? 'page 0' : 'p:' + no}</b>  ${no === 0 ? 'FSP_HDR' : 'idx_c root · leaf'}  ·  ${range[0]}–${range[1] - 1}  ·  실측 t.ibd</div>`;
+    const no = pageOf(s), h = hexOf(no), hot = (KV && !touchOf(s, a)) || assumed(s) ? [] : hotRanges(s), isH = (o) => hot.some(([p, q]) => o >= p && o < q);
+    const r0 = Math.floor(range[0] / 16), r1 = Math.ceil(range[1] / 16), role = no === 0 ? 'FSP_HDR' : W.MEAS.ROLE[no] || 'INDEX';
+    const what = assumed(s) ? `실측 t.ibd 의 이 page 는 ${esc(role)} — ${esc(bare(s.op['페이지']))} 가 아니다` : `${esc(role)}  ·  ${range[0]}–${range[1] - 1}  ·  실측 t.ibd`;
+    let out = `<div class="hx-hd"><b>${no === 0 ? 'page 0' : 'p:' + no}</b>  ${what}</div>`;
     for (let r = r0; r < r1; r++) {
       /* 줄 머리는 10진 오프셋에 '+' — hexdump -C 처럼 0016 으로 적었더니 16진으로 읽혔다 */
       out += `<div class="hx-row"><i>+${r * 16}</i>`;
