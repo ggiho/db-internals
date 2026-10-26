@@ -1761,8 +1761,8 @@ const SCENES = [
     fact:['(page_header_get_field(page, PAGE_N_DIRECTION) > 3) &&',
           '(page_header_get_field(page, PAGE_DIRECTION) == PAGE_RIGHT)) {'],
     /* p:5 의 실측(48 – 53 = 00 00 00 05 00 00) — 지름길을 타지 않는 page */
-    ops:{ fins:{ set:{ '+12 DIRECTION':{ sub:`PAGE_RIGHT 이면 지름길 후보 · p:5 = ${H(5).PAGE_DIRECTION} ${DIRN[H(5).PAGE_DIRECTION]}` },
-                       '+14 N_DIRECTION':{ sub:`> 3 이어야 한다 · p:5 = ${H(5).PAGE_N_DIRECTION}` } } },
+    ops:{ fins:{ set:{ '+12 DIRECTION':{ sub:`RIGHT 여야 · p:5 ${DIRN[H(5).PAGE_DIRECTION]}` },
+                       '+14 N_DIRECTION':{ sub:`> 3 이어야 · p:5 ${H(5).PAGE_N_DIRECTION}` } } },
           phd:{ set:{ '2B × 9':{ tag:'hdr' }, 'MAX_TRX_ID':{ tag:'hdr' }, 'INDEX_ID':{ tag:'hdr' } } } },
     beat:1 },
 
@@ -1774,7 +1774,7 @@ const SCENES = [
     fact:[['storage/innobase/include/page0types.h','number of records in the heap, bit 15=flag: new-style compact page format'],
           'return (page_header_get_field(page, PAGE_N_HEAP) & 0x7fff);',
           ['storage/innobase/include/page0page.ic','return (page_header_get_field(page, PAGE_N_HEAP) & 0x8000) != 0;']],
-    ops:{ fsp:{ set:{ '+4  N_HEAP':{ tag:'x', sub:`p:5 ${DUMP[5].hex.slice(84, 86)} ${DUMP[5].hex.slice(86, 88)} → bit 15 = ${H(5).PAGE_N_HEAP >> 15} (compact) · 0x${heapN(5).toString(16)} = ${heapN(5)}` } } },
+    ops:{ fsp:{ set:{ '+4  N_HEAP':{ tag:'x', sub:`${DUMP[5].hex.slice(84, 86)} ${DUMP[5].hex.slice(86, 88)} → bit15 ${H(5).PAGE_N_HEAP >> 15} · ${heapN(5)}` } } },
           phd:{ set:{ '2B × 9':{ id:'2B × 9', sz:18, tag:'hdr', sub:'+0 ~ +17  이 안의 +4 가 그것' } } } } },
 
   { act:{ f:'phd', t:'addr', lb:'+36 부터 FSEG 둘' },
