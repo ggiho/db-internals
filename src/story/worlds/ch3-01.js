@@ -129,10 +129,12 @@ function make({ F, deck, labels, scene }) {
     made.push(lb);
     return lb;
   }
-  function setLb(lb, text, cls) {
+  /* mono — 칸 밑 꼬리표(MSB ← …)는 serif 로 바꾸지 않는다 : 서는 동안 serif 글꼴이 늦게 와 폭이 바뀌어 가운데 맞춘 이름표가
+     2 – 3 px 움직였다(storysweep hold-still, 01v 2) */
+  function setLb(lb, text, cls, mono = false) {
     if (lb.el.textContent === text && lb.cls === cls) return;
     lb.el.textContent = text; lb.cls = cls;
-    lb.el.className = 'wl ' + cls + (HANGUL.test(text) ? ' serif' : '');
+    lb.el.className = 'wl ' + cls + (HANGUL.test(text) && !mono ? ' serif' : '');
   }
   function place(lb, x, y, al = 'c') {
     lb.x = x; lb.y = y;
@@ -506,7 +508,7 @@ function make({ F, deck, labels, scene }) {
     const kt = b > 0.5 ? k + 1 : k;
     tagB.forEach((lb, bb) => {
       const c = cellAt(bb, G.cells), t = restOf(kt, bb) || restOf(k, bb), cl = { gold: 'gold', red: 'red' }[itemOf(kt, bb).tag] || '';
-      setLb(lb, t, cl);
+      setLb(lb, t, cl, true);
       place(lb, c.x + G.cs / 2, lb.y);
     });
     const ol = opLine(k) || opLine(kt);

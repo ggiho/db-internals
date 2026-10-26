@@ -418,9 +418,9 @@ export function checkScene(deck, sc) {
       const vk = kv('ver'), p0 = SD.files.small.p0.hex;
       for (const [k2, o] of [['SRV_VERSION', 8], ['SPACE_VERSION', 12]]) { const v = eqv(vk[k2]); if (v != null && v !== hexU(p0, o, 4)) say(`${k2} '${bare(vk[k2])}' 가 page 0 dump 의 ${hexU(p0, o, 4)} 와 다르다`); }
     }
-    /* 04c — header 의 칸을 dump 에서 다시 풀어 kv 와 맞춘다. 파일은 그 스텝의 fsA.file — 그리고 그 파일이 이 스텝의
-       실측 조건(src 의 파일)과 같아야 한다. fsA 를 fsA 자신의 file 하고만 맞췄더니 src 가 big.ibd 로 바뀐 스텝에
-       t.ibd 의 header 가 남은 것(4 · 9 스텝)을 못 잡았다 */
+    /* 04c — header 의 칸을 dump 에서 다시 풀어 kv 와 맞춘다. 파일은 그 스텝의 fsA.file(목록 판 fsL 도 같은 파일로 맞춘다) — 그리고
+       그 파일이 이 스텝의 실측 조건(src 의 파일)과 같아야 한다. fsA 를 fsA 자신의 file 하고만 맞췄더니 src 가 big.ibd 로 바뀐
+       스텝에 t.ibd 의 header 가 남은 것(4 · 9 스텝)을 못 잡았다 */
     if (has('fsA')) {
       const fa = kv('fsA'), fl = kv('fsL'), f = fileOf(SD, fa.file);
       const sf = bare(kv('src')['파일'] || '').split('·')[0].trim();
@@ -441,7 +441,7 @@ export function checkScene(deck, sc) {
         for (const n of ['FREE', 'FREE_FRAG', 'FULL_FRAG', 'SEG_INODES_FULL', 'SEG_INODES_FREE']) {
           const b = flstAt(h, O(n)), t = bare(fl[n] || '');
           if (JSON.stringify(b) !== JSON.stringify({ len: f.p0.f['FSP_' + n].len, first: f.p0.f['FSP_' + n].first })) say(`FSP_${n} 을 dump 에서 풀면 ${JSON.stringify(b)}`);
-          if (!t || t === '—' || bare(fl.file) !== f.file) continue;
+          if (!t || t === '—') continue;
           const m = /len\s+(\d+)(?:\s*→\s*(\d+):(\d+))?/.exec(t);
           if (!m || +m[1] !== b.len || (m[2] != null && (!b.first || +m[2] !== b.first.page || +m[3] !== b.first.byte))) say(`fsL.${n} '${t}' 가 ${f.file} 의 base node 와 다르다`);
         }

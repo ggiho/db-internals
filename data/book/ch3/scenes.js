@@ -123,8 +123,10 @@ const fsAOf = (n, hot = []) => {
     'SPACE_FLAGS': `0x${f.FSP_SPACE_FLAGS.toString(16)}`, 'FRAG_N_USED': `${f.FSP_FRAG_N_USED}`, 'SEG_ID': `${f.FSP_SEG_ID}` };
   return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, x + (hot.includes(k) ? '|gold' : '')]));
 };
+/* 목록 판에는 file 칸이 없다 — 값은 언제나 fsA.file 의 것이다(ch3-check 가 그 파일로 맞춘다). t.ibd · big.ibd 의 다섯 base node 가
+   같아서 file 칸만 바꾸려고 판을 다시 내보내면 768 의 Lab 카드가 좁아져 'SEG_INODES_FULL' 이 잘렸다 */
 const fsLOf = (n, hot = []) => {
-  const f = P0(n), v = { 'file': SD[n].file, 'FREE': flst(f.FSP_FREE), 'FREE_FRAG': flst(f.FSP_FREE_FRAG), 'FULL_FRAG': flst(f.FSP_FULL_FRAG),
+  const f = P0(n), v = { 'FREE': flst(f.FSP_FREE), 'FREE_FRAG': flst(f.FSP_FREE_FRAG), 'FULL_FRAG': flst(f.FSP_FULL_FRAG),
     'SEG_INODES_FULL': flst(f.FSP_SEG_INODES_FULL), 'SEG_INODES_FREE': flst(f.FSP_SEG_INODES_FREE) };
   return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, x + (hot.includes(k) ? '|gold' : '')]));
 };
@@ -1248,7 +1250,7 @@ const SCENES = [
   init:{
     src:{ kv:{ '파일':'—', '작업':'—', '크기':'—' } },
     fsA:{ kv:{ 'file':'—', 'SPACE_ID':'—', 'SIZE':'—', 'FREE_LIMIT':'—', 'SPACE_FLAGS':'—', 'FRAG_N_USED':'—', 'SEG_ID':'—' } },
-    fsL:{ kv:{ 'file':'—', 'FREE':'—', 'FREE_FRAG':'—', 'FULL_FRAG':'—', 'SEG_INODES_FULL':'—', 'SEG_INODES_FREE':'—' } },
+    fsL:{ kv:{ 'FREE':'—', 'FREE_FRAG':'—', 'FULL_FRAG':'—', 'SEG_INODES_FULL':'—', 'SEG_INODES_FREE':'—' } },
     xd:{ items:XD.map(([, id]) => ({ id, sub:'—' })) },
     ino:{ items:INOS.map(([, id]) => ({ id, sub:'—' })) },
     fld:{ kv:{ '이름':'—', '오프셋 · 폭':'—', '쓰는 곳':'—', '읽는 곳':'—' } },
