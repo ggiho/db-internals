@@ -63,6 +63,9 @@ function abLabel(sc) {
 function credit(deckId) {
   if (deckId.startsWith('postgres/')) return '소스 발췌 PostgreSQL 18.6 (PostgreSQL License)';
   if (deckId.startsWith('mongodb/')) return '소스 발췌 WiredTiger 11.3 (GPLv2/v3) · 대조 MongoDB Server (SSPL)';
+  /* Aurora 는 닫힌 소스다 — 근거는 AWS 공식 문서와 SIGMOD 2017 논문 인용, 소스는 InnoDB 쪽 대조뿐이다(deck.js 머리말).
+     MySQL 줄만 두자 05 처럼 소스 발췌가 하나도 없는 장면에도 MySQL 이 출처로 보였다 */
+  if (deckId.startsWith('aurora/')) return '인용 AWS Aurora 문서 · Verbitski et al., SIGMOD 2017 · 대조 MySQL 8.4.8 Community (GPLv2)';
   const base = '소스 발췌 MySQL 8.4.8 Community (GPLv2)';
   if (deckId.startsWith('book/')) return base + ' · 인용 Database Internals — Alex Petrov (O’Reilly)';
   return base;
