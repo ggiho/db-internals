@@ -15,11 +15,11 @@ const SCENES = [
     stmt:{ kv:{ 'SQL':'—', '테이블 락':'—', '행 락':'—' } },
     tbl:{ items:[{ id:'(비었다)', tag:'free', sub:'아직' }] },
     tup:{ kv:{ 't_xmax':'0', '락 여부':'없음' } },
-    cmp:{ kv:{ 'PostgreSQL':'—', 'InnoDB':'—' } },
+    cmp:{ kv:{ 'PG 객체 락':'—', 'InnoDB 테이블 락':'—', 'PG 행 락':'—', 'InnoDB 행 락':'—' } },
   },
   steps:[
   { act:{ f:'stmt', t:'tbl', lb:'테이블 락' },
-    note:'relation lock — shared memory 의 lock table(hash) 에 등록',
+    note:'relation lock — lock.c 의 락 관리자가 맡는다, 원칙은 shared memory 의 lock table(hash)',
     why:'lock.c 가 그 표를 관리한다. 크기는 max_locks_per_transaction(기본 64)에 접속 수를 곱한 가정으로 잡히고, 주석이 "공유 락 표는 최대 이만큼이라는 가정으로 크기가 정해진다" 고 적는다. 64 는 트랜잭션 하나의 상한이 아니라 표 전체의 크기를 정하는 평균이다.',
     key:'그래서 PG 도 <em>락 표가 넘칠 수 있다</em>. 행을 많이 잠글 때가 아니라 <em>객체를 많이 건드릴 때</em> 터진다 — 한 트랜잭션이 64 개를 넘게 잡는 것은 표에 자리가 남아 있는 한 괜찮다(3 스텝).',
     ref:'src/backend/storage/lmgr/lock.c', sym:'max_locks_per_xact',
@@ -27,8 +27,9 @@ const SCENES = [
           ['src/backend/storage/lmgr/lock.c','int			max_locks_per_xact; /* used to set the lock table size */'],
           ['src/backend/storage/lmgr/lock.c','mul_size(max_locks_per_xact, add_size(MaxBackends, max_prepared_xacts))']],
     ops:{ stmt:{ set:{ 'SQL':'UPDATE t SET v=2 WHERE id=1', '테이블 락':'RowExclusiveLock' } },
-          tbl:{ del:['(비었다)'], add:[{ id:'t', tag:'hold', sub:'RowExclusive  ·  공유 표' }] },
-          cmp:{ set:{ 'PostgreSQL':'객체 락 = 공유 표', 'InnoDB':'테이블 락 = 메모리 구조체' } } } },
+          /* RowExclusive 는 2 스텝의 fast-path 로 간다 — 여기서 '공유 표' 라고 적었다가 다음 스텝에 '공유 표에 안 들어간다' 로 뒤집었다 */
+          tbl:{ del:['(비었다)'], add:[{ id:'t', tag:'hold', sub:'RowExclusive  ·  락 관리자(lock.c)' }] },
+          cmp:{ set:{ 'PG 객체 락':'공유 표 — 좁다', 'InnoDB 테이블 락':'메모리 구조체' } } } },
 
   { look:{ tbl:true, stmt:true },
     note:'fast-path — 약한 relation lock 은 자기 PGPROC 슬롯에, shared table 우회',
@@ -41,7 +42,7 @@ const SCENES = [
           ['src/backend/utils/init/postinit.c','The default max_locks_per_transaction = 64 means 4 groups by default.'],
           ['src/include/storage/proc.h','#define		FP_LOCK_SLOTS_PER_GROUP		16	/* don\'t change */']],
     beat:1,
-    ops:{ tbl:{ set:{ 't':{ sub:'RowExclusive  ·  fast-path 칸 — 공유 표에 안 들어간다' } } },
+    ops:{ tbl:{ set:{ 't':{ tag:'ok', sub:'RowExclusive  ·  fast-path 칸 — 공유 표에 안 들어간다' } } },
           stmt:{ set:{ '테이블 락':'RowExclusiveLock  ·  fast-path' } } } },
 
   { look:{ tbl:true },
@@ -51,7 +52,8 @@ const SCENES = [
     ref:'src/backend/storage/lmgr/lock.c', sym:'LockAcquireExtended',
     fact:['errmsg("out of shared memory"),',
           'errhint("You might need to increase \\"%s\\".", "max_locks_per_transaction")));'],
-    ops:{ tbl:{ add:[{ id:'파티션 1 … 300', tag:'x', sub:'fast-path 64 칸을 넘친 것 → 공유 표 · 표가 차면 out of shared memory' }] } } },
+    ops:{ tbl:{ add:[{ id:'파티션 1 … 300', tag:'x', sub:'fast-path 64 칸을 넘친 것 → 공유 표 · 표가 차면 out of shared memory' }] },
+          stmt:{ set:{ 'SQL':'SELECT … FROM parted  (파티션 300)' } } } },
 
   { act:{ f:'stmt', t:'tup', lb:'행 락' },
     note:'row lock 은 lock table 밖 — 튜플 xmax 에 기록',
@@ -60,9 +62,9 @@ const SCENES = [
     ref:'src/include/access/htup_details.h', sym:'HeapTupleFields',
     fact:[['src/include/access/htup_details.h','deleting or locking xact ID'],
           ['src/include/access/htup_details.h','#define HEAP_XMAX_LOCK_ONLY']],
-    ops:{ stmt:{ set:{ '행 락':'xmax 에 기록' } },
+    ops:{ stmt:{ set:{ 'SQL':'UPDATE t SET v=2 WHERE id=1', '행 락':'xmax 에 기록' } },
           tup:{ set:{ 't_xmax':'110', '락 여부':'LOCK_ONLY 비트' } },
-          cmp:{ set:{ 'PostgreSQL':'행 락 = 튜플 안', 'InnoDB':'행 락 = 메모리 구조체' } } } },
+          cmp:{ set:{ 'PG 행 락':'튜플 안 — 페이지가 더러워진다', 'InnoDB 행 락':'메모리 구조체 — 락 메모리' } } } },
 
   { look:{ cmp:true },
     note:'정리 — 두 엔진의 한계가 다른 자원에서 터진다',
@@ -84,15 +86,17 @@ const SCENES = [
   links:[['01','어디에 사는가'],['03','충돌 표']],
   init:{
     tbl:{ items:[
-      { id:'1 AccessShare', tag:'clean', sub:'SELECT' },
-      { id:'2 RowShare', tag:'clean', sub:'SELECT FOR UPDATE / FOR SHARE' },
-      { id:'3 RowExclusive', tag:'hold', sub:'INSERT · UPDATE · DELETE' },
+      /* 색은 01 의 규칙 — 1 ‥ 3 은 fast-path 로 가는 약한 락(EligibleForRelationFastPath : mode < 4),
+         5 ‥ 8 은 다른 백엔드의 fast-path 칸을 공유 표로 옮기게 하는 센 락(ConflictsWithRelationFastPath : mode > 4) */
+      { id:'1 AccessShare', tag:'ok', sub:'SELECT' },
+      { id:'2 RowShare', tag:'ok', sub:'SELECT FOR UPDATE / FOR SHARE' },
+      { id:'3 RowExclusive', tag:'ok', sub:'INSERT · UPDATE · DELETE' },
       { id:'4 ShareUpdateExclusive', tag:'hold', sub:'VACUUM · ANALYZE' },
-      { id:'5 Share', tag:'hold', sub:'CREATE INDEX' },
+      { id:'5 Share', tag:'x', sub:'CREATE INDEX' },
       { id:'6 ShareRowExclusive', tag:'x', sub:'EXCLUSIVE 유사 · ROW SHARE 허용' },
       { id:'7 Exclusive', tag:'x', sub:'ROW SHARE 를 막는다' },
       { id:'8 AccessExclusive', tag:'x', sub:'ALTER · DROP · VACUUM FULL' }] },
-    stmt:{ kv:{ '모드 수':'8', '최강':'AccessExclusive' } },
+    stmt:{ kv:{ '모드 수':'8', '최강':'AccessExclusive', '색':'초록 1 ‥ 3 fast-path  ·  금 4  ·  빨강 5 ‥ 8 센 락(fast-path 칸을 공유 표로 옮기게 한다)' } },
     cmp:{ kv:{ 'PostgreSQL':'—', 'InnoDB':'—' } },
   },
   steps:[
@@ -111,15 +115,17 @@ const SCENES = [
     key:'그래서 <em>VACUUM 은 쓰기를 막지 않는다</em>. mvcc 덱 04 의 정리가 서비스 중에 돌 수 있는 근거가 이 한 칸이고, VACUUM FULL 이 8단계라 모든 것을 막는 것과 대비된다.',
     ref:'src/include/storage/lockdefs.h', sym:'ShareUpdateExclusiveLock',
     fact:[['src/include/storage/lockdefs.h','#define ShareUpdateExclusiveLock 4	/* VACUUM (non-FULL), ANALYZE, CREATE']],
-    ops:{ cmp:{ set:{ 'PostgreSQL':'VACUUM 전용 모드 있음', 'InnoDB':'purge 는 락 모드가 없다' } } } },
+    ops:{ cmp:{ set:{ 'PostgreSQL':'VACUUM 전용 모드 있음', 'InnoDB':'purge 는 락 모드가 없다' } },
+          tbl:{ set:{ '4 ShareUpdateExclusive':{ sub:'VACUUM · ANALYZE — 4 끼리 충돌 · 3(쓰기)과는 공존' } } } } },
 
-  { look:{ tbl:['8 AccessExclusive'] },
+  { look:{ tbl:['8 AccessExclusive','1 AccessShare'] },
     note:'AccessExclusive(8) — SELECT 까지 block',
     why:'AccessExclusiveLock 은 AccessShareLock(SELECT)과도 충돌한다. ALTER TABLE·DROP TABLE·VACUUM FULL 이 이것을 잡으므로, 그 문장이 대기하는 동안 뒤에 온 SELECT 도 함께 막힌다.',
     key:'대기 줄이 <em>뒤를 막는다</em>는 점이 InnoDB 의 MDL 과 같다(mysql/locks 11). 짧은 ALTER 라도 앞에 긴 트랜잭션이 있으면 전체가 멈추는 사고가 두 엔진에서 같은 모양으로 일어난다.',
     ref:'src/include/storage/lockdefs.h', sym:'AccessExclusiveLock',
     fact:[['src/include/storage/lockdefs.h','#define AccessExclusiveLock		8	/* ALTER TABLE, DROP TABLE, VACUUM FULL,']],
-    beat:1 },
+    beat:1,
+    ops:{ tbl:{ set:{ '8 AccessExclusive':{ sub:'ALTER · DROP · VACUUM FULL — 1(SELECT)까지 막는다' } } } } },
 
   { look:{ tbl:['8 AccessExclusive'], stmt:true },
     note:'LOCK TABLE 모드 생략 = AccessExclusive',
@@ -197,7 +203,7 @@ const SCENES = [
 {
   num:'04', tab:'Deadlock', title:'Deadlock Detection: Timeout-Triggered Self-Check',
   sub:'상주 detector 없음 — deadlock_timeout 이 지나면 대기자 스스로 wait-for graph 를 검사, 가능하면 queue 재배열',
-  cast:['stmt','tbl','wait','cmp'],
+  cast:['stmt','rows','wait','cmp'],
   knobs:[
     ['deadlock_timeout','1s','이만큼 기다린 뒤에야 deadlock 을 확인한다 — 그 전에는 검사조차 하지 않는다'],
     ['log_lock_waits','off','켜면 deadlock_timeout 을 넘긴 대기를 로그에 남긴다 — deadlock 이 아니어도'],
@@ -211,9 +217,9 @@ const SCENES = [
     ['01','락이 어디에 사는가'] ],
   init:{
     stmt:{ kv:{ '세션 A':'UPDATE t SET v=1 WHERE id=1', '세션 B':'UPDATE t SET v=2 WHERE id=2', '검사 상태':'DS_NOT_YET_CHECKED' } },
-    tbl:{ items:[
-      { id:'행 1', tag:'x', sub:'A 가 쥠' },
-      { id:'행 2', tag:'x', sub:'B 가 쥠' } ] },
+    rows:{ items:[
+      { id:'행 1', tag:'hold', sub:'xmax = A  ·  A 가 쥠' },
+      { id:'행 2', tag:'hold', sub:'xmax = B  ·  B 가 쥠' } ] },
     wait:{ items:[
       { id:'백엔드 A', tag:'hold', sub:'대기 없음' },
       { id:'백엔드 B', tag:'hold', sub:'대기 없음' } ],
@@ -222,7 +228,7 @@ const SCENES = [
   },
 
   steps:[
-  { look:{ tbl:true, stmt:true },
+  { look:{ rows:true, stmt:true },
     note:'각자 자기 row lock 확보 — 여기까지 정상',
     why:'행 락은 튜플 헤더에 기록되고, 서로 다른 행이므로 부딪히지 않는다.',
     key:'deadlock 의 재료는 <em>각자 정상적인 한 걸음</em>이다. 잘못된 문장이 있어야 생기는 것이 아니다.',
@@ -235,7 +241,8 @@ const SCENES = [
     key:'간선 하나는 deadlock 이 아니다. 그리고 이 순간 PG 는 <em>아무것도 확인하지 않는다</em> — 검사할 이유가 없다고 보기 때문이다.',
     ref:'src/backend/storage/lmgr/proc.c', sym:'ProcSleep',
     ops:{ wait:{ set:{ '백엔드 A':{ tag:'wait', sub:'행 2 를 기다림' } },
-                 edge:{ add:[{ id:'e1', from:'백엔드 A', to:'백엔드 B', lb:'대기' }] } } } },
+                 edge:{ add:[{ id:'e1', from:'백엔드 A', to:'백엔드 B', lb:'대기' }] } },
+          stmt:{ set:{ '세션 A':'… ;  UPDATE t SET v=1 WHERE id=2  (대기)' } } } },
 
   { act:{ f:'stmt', t:'wait', lb:'B → 행 1 요청' },
     note:'B → row 1 요청 — cycle 성립',
@@ -245,7 +252,7 @@ const SCENES = [
     beat:1,
     ops:{ wait:{ set:{ '백엔드 B':{ tag:'wait', sub:'행 1 을 기다림' } },
                  edge:{ add:[{ id:'e2', from:'백엔드 B', to:'백엔드 A', lb:'대기', hot:1 }] } },
-          stmt:{ set:{ '검사 상태':'여전히 DS_NOT_YET_CHECKED|red' } } } },
+          stmt:{ set:{ '세션 B':'… ;  UPDATE t SET v=2 WHERE id=1  (대기)', '검사 상태':'여전히 DS_NOT_YET_CHECKED|red' } } } },
 
   { note:'deadlock_timeout(1s) 경과 — 대기자가 직접 검사',
     why:'deadlock_timeout(기본 1000ms)이 지나면 시그널이 got_deadlock_timeout 을 세우고, ProcSleep 의 대기 루프가 그것을 보고 CheckDeadLock 을 부른다. 검사하는 것은 별도 스레드가 아니라 기다리고 있던 그 백엔드다.',
@@ -256,6 +263,7 @@ const SCENES = [
           ['src/backend/utils/misc/guc_tables.c','gettext_noop("Sets the time to wait on a lock before checking for deadlock."),']],
     beat:1,
     ops:{ stmt:{ set:{ '검사 상태':'CheckDeadLock 실행|gold' } },
+          wait:{ set:{ '백엔드 A':{ sub:'1초 채움 → 자기가 CheckDeadLock' } } },
           cmp:{ set:{ 'PG':'기다리는 백엔드가 1초 뒤 직접|gold' } } } },
 
   { act:{ f:'wait', t:'wait', lb:'줄을 바꿔 풀 수 있나' },
@@ -273,8 +281,9 @@ const SCENES = [
     ref:'src/backend/storage/lmgr/deadlock.c', sym:'DeadLockCheck',
     fact:[['src/include/storage/lock.h','DS_HARD_DEADLOCK,			/* deadlock, no way out but ERROR */']],
     beat:1,
+    look:{ wait:true, rows:true, stmt:true },
     ops:{ stmt:{ set:{ '검사 상태':'DS_HARD_DEADLOCK|red' } },
-          wait:{ set:{ '백엔드 A':{ tag:'x', sub:'검사한 쪽 · 자기가 중단된다' } } } } },
+          wait:{ set:{ '백엔드 A':{ tag:'x', sub:'hard — 행 1 을 쥔 채 행 2 를 기다림' } } } } },
 
   { act:{ f:'wait', t:'stmt', lb:'검사한 쪽이 중단된다' },
     note:'victim 선정 없음 — 검사를 돌린 backend 가 자기 트랜잭션을 abort',
@@ -286,10 +295,10 @@ const SCENES = [
     ops:{ wait:{ edge:{ del:['e1','e2'] },
                  set:{ '백엔드 A':{ tag:'x', sub:'ERROR 40P01 · 롤백' },
                        '백엔드 B':{ tag:'hold', sub:'행 1 획득 · 계속' } } },
-          tbl:{ set:{ '행 1':{ tag:'x', sub:'B 가 쥠' } } },
+          rows:{ set:{ '행 1':{ tag:'hold', sub:'xmax = B  ·  B 가 쥠' } } },
           stmt:{ set:{ '세션 A':'ERROR: deadlock detected|red', '검사 상태':'중단 완료' } } } },
 
-  { look:{ wait:true, cmp:true },
+  { look:{ stmt:true, cmp:true },
     note:'다섯 번째 결과 — blocker 가 autovacuum 이면 그쪽에 cancel',
     why:'DS_BLOCKED_BY_AUTOVACUUM 은 deadlock 이 아니다. 큐를 막고 있는 것이 autovacuum 작업자라는 판정이고, 그때 PG 는 사용자 트랜잭션을 중단하는 대신 그 작업자에게 취소 시그널을 보낸다.',
     key:'같은 자리에서 <em>사용자 쪽을 살리는 선택</em>을 한다. VACUUM 은 나중에 다시 돌면 되고 사용자 트랜잭션은 그렇지 않다는 판단이 코드에 박혀 있다.',
@@ -297,7 +306,8 @@ const SCENES = [
     fact:[['src/include/storage/lock.h','DS_BLOCKED_BY_AUTOVACUUM,	/* no deadlock; queue blocked by autovacuum'],
           ['src/backend/storage/lmgr/proc.c','if (deadlock_state == DS_BLOCKED_BY_AUTOVACUUM && allow_autovacuum_cancel)']],
     beat:1,
-    ops:{ cmp:{ set:{ 'InnoDB':'가중치로 희생자 선정 · 상시 검사',
+    ops:{ stmt:{ set:{ '검사 상태':'(다른 경우) DS_BLOCKED_BY_AUTOVACUUM → autovacuum 에 취소|gold' } },
+          cmp:{ set:{ 'InnoDB':'가중치로 희생자 선정 · 상시 검사',
                       'PG':'검사한 쪽이 중단 · 1초 뒤 · autovacuum 은 취소|gold' } } } },
 
   { look:{ stmt:true, cmp:true },
@@ -328,10 +338,10 @@ const SCENES = [
                 '격리 수준':'SERIALIZABLE', '판정':'—' } },
     sir:{ items:[{ id:'(비었다)', tag:'free', sub:'아직 읽지 않았다' }] },
     rw:{ items:[
-      { id:'trx A', tag:'hold', sub:'충돌 없음' },
-      { id:'trx B', tag:'hold', sub:'충돌 없음' } ],
+      { id:'trx A', tag:'clean', sub:'충돌 없음' },
+      { id:'trx B', tag:'clean', sub:'충돌 없음' } ],
       edges:[] },
-    cmp:{ kv:{ '2PL':'읽기가 쓰기를 막는다', 'SSI':'—' } },
+    cmp:{ kv:{ 'InnoDB (2PL)':'읽기가 쓰기를 막는다', 'PG SSI':'—' } },
   },
 
   steps:[
@@ -355,25 +365,28 @@ const SCENES = [
           ['src/backend/storage/lmgr/predicate.c','used to identify rw-conflicts with normal write locks.']],
     beat:1,
     ops:{ sir:{ add:[{ id:'B : k=2 구간', tag:'hold', sub:'SIREAD  ·  granted' }] },
-          cmp:{ set:{ 'SSI':'읽기가 쓰기를 막지 않는다|gold' } } } },
+          cmp:{ set:{ 'PG SSI':'읽기가 쓰기를 막지 않는다|gold' } } } },
 
   { act:{ f:'stmt', t:'rw', lb:'A 가 B 의 범위에 쓴다' },
+    look:{ rw:true, stmt:true, sir:['B : k=2 구간'] },
     note:'A 가 k=2 에 write — B 가 read 한 자리, rw-conflict 간선',
     why:'쓰기가 상대의 SIREAD 를 만나면 rw-conflict 간선이 생긴다. B 가 먼저 읽었고 A 가 나중에 썼으므로 방향은 B → A 다. 막지는 않는다 — 기록만 한다.',
     key:'이 순간 아무도 기다리지 않는다. <em>충돌은 기록되었을 뿐</em>이고 두 트랜잭션은 계속 진행한다 — 2PL 이라면 여기서 멈췄다.',
     ref:'src/backend/storage/lmgr/predicate.c', sym:'SetRWConflict',
-    ops:{ rw:{ set:{ 'trx B':{ tag:'wait', sub:'읽고 나서 남이 씀' } },
+    /* 기다리는 것이 아니다 — 아무도 막히지 않는다(key). wait(파랑)는 04 · 06 의 대기와 같은 색이었다 — 금빛(hold)으로 */
+    ops:{ rw:{ set:{ 'trx B':{ tag:'hold', sub:'읽고 나서 남이 씀' } },
                 edge:{ add:[{ id:'c1', from:'trx B', to:'trx A', lb:'rw-conflict' }] } },
           stmt:{ set:{ '세션 A':'UPDATE t SET v=v+1 WHERE k=2' } } } },
 
   { act:{ f:'stmt', t:'rw', lb:'B 가 A 의 범위에 쓴다' },
+    look:{ rw:true, stmt:true, sir:['A : k=1 구간'] },
     note:'B 가 k=1 에 write — 두 번째 간선, dangerous structure 성립',
     why:'이제 A → B 간선도 생긴다. 한 트랜잭션이 rw-conflict 를 들어오는 쪽과 나가는 쪽 모두 갖게 되는 이 모양이 위험한 구조(dangerous structure)다 — 직렬 순서를 만들 수 없다는 신호다.',
     key:'탐지 대상이 <em>사이클이 아니라 이 모양</em>이다. Cahill 의 논문이 보인 것은 이 구조만 잡아도 직렬성이 지켜진다는 것 — 실제 사이클을 추적하는 것보다 싸다.',
     ref:'src/backend/storage/lmgr/predicate.c', sym:'SetRWConflict',
     fact:[['src/backend/storage/lmgr/predicate.c','Serializable Isolation for Snapshot Databases.']],
     beat:1,
-    ops:{ rw:{ set:{ 'trx A':{ tag:'wait', sub:'읽고 나서 남이 씀' } },
+    ops:{ rw:{ set:{ 'trx A':{ tag:'hold', sub:'읽고 나서 남이 씀' } },
                 edge:{ add:[{ id:'c2', from:'trx A', to:'trx B', lb:'rw-conflict', hot:1 }] } },
           stmt:{ set:{ '세션 B':'UPDATE t SET v=v+1 WHERE k=1', '판정':'위험한 구조|red' } } } },
 
@@ -387,13 +400,16 @@ const SCENES = [
           stmt:{ set:{ '세션 B':'ERROR 40001  ·  read/write dependencies|red', '판정':'직렬화 실패' } } } },
 
   { look:{ sir:true },
-    note:'종료된 트랜잭션의 SIREAD 가 pg_locks 에 잔존',
+    note:'커밋한 트랜잭션의 SIREAD 는 pg_locks 에 남는다 — 롤백한 쪽은 무시 표시 뒤 곧 풀린다',
     why:'주석의 네 번째 항목이 이유를 적는다 — SIREAD 는 트랜잭션에 딸려 있지만 그 트랜잭션이 성공적으로 커밋한 뒤에도 살아남고, 겹쳐 있던 모든 트랜잭션이 끝날 때까지 남는다. 프로세스가 사라져도 그렇다. 반대로 최상위 트랜잭션이 롤백되면 즉시 무시 표시가 붙어 그 뒤 아무 때나 해제될 수 있다.',
     key:'그래서 <em>끝난 트랜잭션의 락이 pg_locks 에 보인다</em>. 이상해 보이지만 그것이 있어야 뒤늦게 쓰는 쪽이 충돌을 알아낼 수 있다.',
     ref:'src/backend/storage/lmgr/predicate.c', sym:'CreatePredicateLock',
     fact:[['src/backend/storage/lmgr/predicate.c','(4)	While they are associated with a transaction, they must survive'],
           ['src/backend/storage/lmgr/predicate.c','overlapping transactions complete.  This even means that they']],
-    ops:{ sir:{ set:{ 'B : k=2 구간':{ tag:'hold', sub:'B 는 끝났는데 락은 남는다' } } } } },
+    /* B 는 5 스텝에서 롤백했다 — 남는 것은 커밋한 쪽(predicate.c 머리말 (4)) */
+    ops:{ stmt:{ set:{ '세션 A':'COMMIT' } },
+          sir:{ set:{ 'A : k=1 구간':{ tag:'hold', sub:'A 는 커밋했는데 락은 남는다' },
+                      'B : k=2 구간':{ tag:'free', sub:'B 는 롤백 — 무시 표시 · 곧 해제' } } } } },
 
   { look:{ sir:true, cmp:true },
     note:'shared memory 한도 — 부족하면 granularity 를 키워 promote',
@@ -403,15 +419,16 @@ const SCENES = [
     fact:[['src/backend/storage/lmgr/predicate.c','(2)	They must be kept in RAM for quick access.  Because of this, it'],
           ['src/backend/storage/lmgr/predicate.c','into a single coarser-grained lock.']],
     beat:1,
-    ops:{ cmp:{ set:{ '2PL':'읽기가 쓰기를 막는다 · 대기와 deadlock',
-                      'SSI':'막지 않는다 · 늦은 실패와 재시도|gold' } } } },
+    ops:{ sir:{ add:[{ id:'(부족하면) relation t', tag:'hold', sub:'세밀한 락 여럿을 굵은 락 하나로 — 거짓 충돌이 는다' }] } } },
 
   { look:{ cmp:true, stmt:true },
     note:'정리 — 같은 보장을 blocking 대신 abort 로',
     why:'2PL 은 충돌을 사전에 막아 직렬성을 얻고 대기·deadlock 을 낸다. SSI 는 막지 않고 진행시켜 동시성을 얻고, 위험한 모양이 남으면 커밋 시점에 중단한다.',
     key:'그래서 <em>SERIALIZABLE 의 비용이 CPU 가 아니라 재시도</em>다. 읽기가 많고 충돌이 드문 부하에서 유리하고, 충돌이 흔하면 같은 일을 두 번 하게 된다.',
     ref:'src/backend/storage/lmgr/predicate.c', sym:'PreCommit_CheckForSerializationFailure',
-    beat:1 },
+    beat:1,
+    ops:{ cmp:{ set:{ 'InnoDB (2PL)':'읽기가 쓰기를 막는다 · 대기와 deadlock',
+                      'PG SSI':'막지 않는다 · 늦은 실패와 재시도|gold' } } } },
   ],
 },
 {
@@ -430,7 +447,7 @@ const SCENES = [
     ['pg_stat_activity','wait_event_type = Lock · wait_event = relation'] ],
   links:[['02','AccessExclusive 가 SELECT 까지 막는다'],['03','충돌 표'],['04','deadlock']],
   init:{
-    stmt:{ kv:{ 'T1':'SELECT … FROM t  — 오래 도는 조회', 'T2':'—', 'T3':'—', '판정':'—' } },
+    stmt:{ kv:{ 'T1':'SELECT … FROM t  — 오래 도는 조회', 'T2':'—', 'T3':'—', '판정':'—', '로그':'—' } },
     lq:{ items:[
       { id:'T1', tag:'hold', q:'granted', mode:'AccessShare', sub:'긴 SELECT — AccessShare 를 쥐고 있다' }] },
   },
@@ -480,7 +497,7 @@ const SCENES = [
           'Waken if (a) doesn\'t conflict with requests of earlier waiters, and'],
     beat:1 },
 
-  { look:{ stmt:true, lq:['T3'] },
+  { look:{ stmt:true, lq:['T3','T2'] },
     note:'pg_blocking_pids(T3) 가 돌려주는 것은 T1 이 아니라 T2 — "줄 앞의 대기자"',
     why:'pg_blocking_pids 는 그 pid 의 요청과 충돌하는 락을 쥔 쪽(hard block)과, 그런 락을 요청하며 줄 앞에 있는 쪽(soft block)을 함께 돌려준다. T3 의 AccessShare 는 T1 의 AccessShare 와 충돌하지 않으므로 T1 은 빠지고 T2 가 나온다.',
     key:'원인을 거꾸로 짚기 쉽다 — <em>T2 를 끝내도 T1 이 남아 있으면</em> T3 는 바로 돈다. 사고의 뿌리는 T1(긴 조회)이고, 줄을 세운 것은 T2(ALTER)다.',
@@ -489,7 +506,8 @@ const SCENES = [
           'current request (hard block), or are requesting such a lock and are ahead',
           'of blocked_pid in the lock\'s wait queue (soft block).'],
     beat:1,
-    ops:{ stmt:{ set:{ '판정':'pg_blocking_pids(T3) = {T2}' } } } },
+    ops:{ stmt:{ set:{ '판정':'pg_blocking_pids(T3) = {T2}' } },
+          lq:{ set:{ 'T2':{ sub:'ALTER — 아직 기다리는 중인데 pg_blocking_pids(T3) 가 돌려준다' } } } } },
 
   { act:{ f:'lq', t:'stmt', lb:'lock_timeout' },
     note:'처방 — ALTER 앞에 lock_timeout, 시간이 지나면 ALTER 가 물러나고 줄이 풀린다',
@@ -511,7 +529,8 @@ const SCENES = [
     fact:['(errmsg("process %d still waiting for %s on %s after %ld.%03d ms",',
           '"Process holding the lock: %s. Wait queue: %s.",',
           ['src/backend/utils/misc/guc_tables.c','&log_lock_waits, false,'],
-          ['src/backend/utils/misc/guc_tables.c','{"log_lock_failures", PGC_SUSET, LOGGING_WHAT,']] },
+          ['src/backend/utils/misc/guc_tables.c','{"log_lock_failures", PGC_SUSET, LOGGING_WHAT,']],
+    ops:{ stmt:{ set:{ '로그':'log_lock_waits = on 이면 : process … still waiting for AccessExclusiveLock on relation 16385 of database 16384 after 1000.0 ms' } } } },
   ],
 },
 {
@@ -527,7 +546,7 @@ const SCENES = [
     ['pg_locks','locktype = tuple 은 기다리는 동안만 — 행 락 자체는 xmax 에 있다(01 장면)'] ],
   links:[['01','행 락은 xmax 에'],['03','테이블 락의 충돌 표'],['06','기다리는 줄']],
   init:{
-    stmt:{ kv:{ '요청':'—', '판정':'—' } },
+    stmt:{ kv:{ '요청':'—', '대응':'—', '판정':'—', 'pg_locks':'—' } },
     rmx:{ mx:{
       rows:['KS','S','NKX','X'],
       cols:['KS','S','NKX','X'],
@@ -559,7 +578,9 @@ const SCENES = [
           '{ /* LockTupleNoKeyExclusive */ ExclusiveLock,',
           ['src/backend/storage/lmgr/lock.c','if (lockMethodTable->conflictTab[mode1] & LOCKBIT_ON(mode2))']],
     beat:1,
-    ops:{ rmx:{ on:['KS/X', 'NKX/NKX'] } } },
+    ops:{ rmx:{ on:['KS/X', 'NKX/NKX'] },
+          stmt:{ set:{ '대응':'KS→AccessShare · S→RowShare · NKX→Exclusive · X→AccessExclusive',
+                       '판정':'KS × X = AS × AX 막힘  ·  NKX × NKX = X × X 막힘' } } } },
 
   { look:{ rmx:true, stmt:true },
     note:'FK 검사(KS) 와 키 아닌 UPDATE(NKX) — 허용, 서로 기다리지 않는다',
@@ -581,7 +602,7 @@ const SCENES = [
     ops:{ stmt:{ set:{ '요청':'S 가 걸린 행에 NKX', '판정':'막힌다 — S 가 끝나길 기다린다|red' } },
           rmx:{ on:['S/NKX'] } } },
 
-  { act:{ f:'stmt', t:'rmx', lb:'행 락을 기다린다' },
+  { act:{ f:'rmx', t:'stmt', lb:'행 락을 기다린다' },
     note:'행 락을 기다릴 때 — 먼저 그 튜플의 heavyweight 락으로 줄을 서고, 그다음 상대 XID 를 기다린다',
     why:'heap_lock_tuple 은 "우선순위를 정하려고" 튜플 락(LockTuple)을 먼저 잡는다. 그다음 XactLockTableWait 로 xmax 의 트랜잭션이 끝나길 기다린다 — 그 트랜잭션 락을 ShareLock 으로 요청하는데, 돌고 있는 트랜잭션은 자기 XID 를 ExclusiveLock 으로 쥐고 있다. README.tuplock 이 이유를 적는다 — xmax 의 트랜잭션이 끝나면 기다리던 이들이 한꺼번에 깨어 경쟁하므로, 공유 잠금이 이어지면 배타 잠금이 영영 굶을 수 있다.',
     key:'행 락 자체는 xmax 에 있지만(01 장면) <em>기다리는 줄은 공유 표에 선다</em> — 그래서 pg_locks 에는 기다리는 동안만 tuple 과 transactionid 행이 보인다.',
@@ -591,8 +612,9 @@ const SCENES = [
           ['src/backend/access/heap/README.tuplock','tuple, potentially leading to indefinite starvation of some waiters. The'],
           ['src/backend/storage/lmgr/lmgr.c','(void) LockAcquire(&tag, ShareLock, false, false);']],
     beat:1,
-    ops:{ stmt:{ set:{ '요청':'NKX 가 S 에 막혔다', '판정':'LockTuple → XactLockTableWait' } },
-          rmx:{ clear:true } } },
+    /* 행렬은 비우지 않는다 — 막은 칸(S/NKX)이 기다림의 이유다. 대신 pg_locks 에 보이는 두 줄을 올린다(08 장면의 transactionid) */
+    ops:{ stmt:{ set:{ '요청':'NKX 가 S 에 막혔다', '판정':'LockTuple → XactLockTableWait',
+                       'pg_locks':'tuple (0,1) ExclusiveLock 받음  ·  transactionid(S 를 쥔 xid) ShareLock 기다림|red' } } } },
   ],
 },
 {
@@ -608,7 +630,8 @@ const SCENES = [
     ['pg_stat_activity','wait_event = LockManager — 파티션 LWLock 을 기다린다'] ],
   links:[['01','fast-path — 공유 표를 아예 안 쓰는 락'],['06','이 LOCK 의 wait queue'],['04','deadlock 검사가 걷는 것']],
   init:{
-    stmt:{ kv:{ '요청':'SELECT … FROM t  (AccessShare)', 'hashcode % 16':'—' } },
+    /* 공유 표로 오는 요청 — SELECT 의 AccessShare 는 fast-path(01)로 이 표를 피한다. 4 스텝의 T2 가 이 요청이다 */
+    stmt:{ kv:{ '요청':'T2 : ALTER TABLE t …  (AccessExclusive)', 'hashcode % 16':'—' } },
     ltag:{ items:[
       { id:'field1', sz:4, tag:'hdr', sub:'16384 · DB' },
       { id:'field2', sz:4, tag:'hdr', sub:'16385 · relation' },
@@ -670,8 +693,8 @@ const SCENES = [
           'LOCKMASK holdMask; /* bitmask for lock types currently held */',
           'zero holdMask, for any lock that the process is currently waiting on.'],
     ops:{ lq:{ add:[
-      { id:'T1', tag:'hold', q:'granted', mode:'AccessShare', sub:'PROCLOCK holdMask = AS' },
-      { id:'T4', tag:'hold', q:'granted', mode:'RowExclusive', sub:'PROCLOCK holdMask = RE' },
+      { id:'T1', tag:'hold', q:'granted', mode:'AccessShare', sub:'PROCLOCK holdMask = AS  ·  T2 의 센 요청이 fast-path 칸에서 옮겨 왔다' },
+      { id:'T4', tag:'hold', q:'granted', mode:'RowExclusive', sub:'PROCLOCK holdMask = RE  ·  같은 까닭으로 옮겨 왔다' },
       { id:'T2', tag:'wait', q:'waiting', mode:'AccessExclusive', sub:'PROCLOCK holdMask = 0 — 기다린다' }] },
           part:{ set:{ 'B':{ tag:'hold', sub:'relation t 의 LOCK 이 여기' } } } } },
 

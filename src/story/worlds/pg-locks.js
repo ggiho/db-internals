@@ -14,7 +14,8 @@ import { bake, stepsOf, valuesOf } from '../../bake.js';
 import { stagger } from './stagger.js';
 
 const HANGUL = /[가-힣]/;
-const SL = 44, MC = 9, QB = 8 * 4, SB = 120, TOK = 150, RH = 15;
+/* MC : 행렬 칸 하나의 알갱이(4 × 4) · BG : 마스크 비트 하나의 알갱이(4 × 3) — 비트가 알갱이 넷이라 켠 비트와 끈 비트가 거의 같아 보였다(06 · 08) */
+const SL = 44, MC = 16, BG = 12, QB = 8 * BG, SB = 120, TOK = 150, RH = 15;
 const bare = (v) => String(v ?? '').replace(/\|(gold|red|green)$/, '');
 const tone = (v) => (/\|(gold|red|green)$/.exec(String(v ?? '')) || [])[1] || '';
 const span = { gold: 'q-g', red: 'q-r', green: 'q-gr' };
@@ -130,6 +131,18 @@ function make({ F, deck, labels, scene }) {
   }
   const wrap = (lb, w) => { lb.el.classList.add('st-wrap'); lb.el.style.maxWidth = Math.max(40, Math.floor(w)) + 'px'; };
   const EDGE = (deck.EDGES || [])[0] || null;
+  /* 경계선 위는 서버(sql) 쪽 배우, 아래는 힙(heap) 쪽 배우 — 종류 순서(글 → 띠 → 행렬 → 선 → 큐 → 그래프 → 칸 줄)로만
+     놓았더니 01 의 TUPLE 이 선 위, TABLE LOCKS 가 선 아래에 섰다. 한쪽 안에서는 칸 줄을 큐 앞에(08 의 PARTITIONS 가
+     그 안의 LOCK 보다 먼저), vs INNODB 는 맨 끝. 선은 양쪽에 비교 말고 배우가 있을 때만 — 02 · 03 · 05 · 06 · 08 은 없다 */
+  const sideOf = (a) => (A[a].lane === 'heap' ? 1 : 0);
+  const PH = [0, 1].map((ph) => {
+    const of = (xs) => xs.filter((a) => sideOf(a) === ph);
+    const P = { tx: of(TEXTS).filter((a) => a !== 'cmp'), st: of(STRIPS), mt: of(MATS), rw: of(ROWS), qu: of(QUEUES), gr: of(GRAPHS), tail: of(TEXTS).filter((a) => a === 'cmp') };
+    if (!P.st.length && !P.mt.length && !P.rw.length && !P.qu.length && !P.gr.length) { P.tx = [...P.tx, ...P.tail]; P.tail = []; }
+    return P;
+  });
+  const bodyOf = (P) => [...P.tx, ...P.st, ...P.mt, ...P.rw, ...P.qu, ...P.gr].filter((a) => a !== 'cmp');
+  const HASEDGE = !!EDGE && bodyOf(PH[0]).length > 0 && bodyOf(PH[1]).length > 0;
   const hd = Object.fromEntries(cast.map((a) => [a, label('aq')]));
   const tx = Object.fromEntries(TEXTS.map((a) => [a, label('aq ml aq-b')]));
   const mLb = Object.fromEntries(MATS.map((a) => [a, { r: Array.from({ length: MSHAPE[a].r }, () => label('aq')), c: Array.from({ length: MSHAPE[a].c }, () => label('aq aq-c')), cap: label('aq') }]));
@@ -151,7 +164,10 @@ function make({ F, deck, labels, scene }) {
   const qState = (its) => {
     const g = its.filter((x) => x.q === 'granted'), w = its.filter((x) => x.q === 'waiting');
     const rq = its.find((x) => x.req);
-    return { g, w, gm: maskOf(g.map((x) => modeNo(x.mode))), wm: maskOf(w.map((x) => modeNo(x.mode))), rq, cm: rq ? confMask(modeNo(rq.mode)) : 0 };
+    /* 요청이 견주는 waitMask 는 줄에서 자기 앞의 대기자들 것이다 — 자기는 아직 줄에 없다(LockAcquireExtended 가
+       conflictTab[lockmode] & waitMask 를 보는 것은 줄에 서기 전). 줄 전체로 셈했더니 06/2 의 T2 가 제 비트에 걸렸다 */
+    const ahead = rq && rq.q === 'waiting' ? w.slice(0, w.indexOf(rq)) : w;
+    return { g, w, gm: maskOf(g.map((x) => modeNo(x.mode))), wm: maskOf(w.map((x) => modeNo(x.mode))), wa: maskOf(ahead.map((x) => modeNo(x.mode))), rq, cm: rq ? confMask(modeNo(rq.mode)) : 0 };
   };
   const texts = (S) => S.map((s) => {
     const t = new Map(), on = (a) => s.touch.has(a);
@@ -185,12 +201,12 @@ function make({ F, deck, labels, scene }) {
       t.set(qLb[a].gm, ['grantMask', on(a)]);
       t.set(qLb[a].wm, ['waitMask', on(a)]);
       t.set(qLb[a].rq, [q.rq ? `conflictTab[${SHORT[modeNo(q.rq.mode) - 1]}]` : '', on(a), 'gold', !!q.rq]);
-      const hitG = q.cm & q.gm, hitW = q.cm & q.wm;
+      const hitG = q.cm & q.gm, hitW = q.cm & q.wa;
       t.set(qLb[a].and, [q.rq ? (hitW ? `& waitMask ≠ 0 — 줄 뒤에서 기다린다` : hitG ? `& grantMask ≠ 0 — 기다린다` : `& 둘 다 0 — 곧바로 받는다`) : '', on(a), q.rq ? (hitW || hitG ? 'red' : 'green') : '', !!q.rq]);
       qLb[a].bits.forEach((lb, i) => t.set(lb, [SHORT[7 - i], false, '', true]));
     }
     for (const a of GRAPHS) for (const id of EIDS[a]) { const e = s[a].edges.find((x) => String(x.id) === id); t.set(eLb[a][id], [e && e.lb ? e.lb : '', on(a), e && e.hot ? 'red' : '', !!(e && e.lb)]); }
-    if (EDGE) t.set(edgeLb, [EDGE.lb, false, (s.step.hot || (s.step.act && s.step.act.hot)) === EDGE.hot ? 'gold' : '']);
+    if (EDGE) t.set(edgeLb, [EDGE.lb, false, (s.step.hot || (s.step.act && s.step.act.hot)) === EDGE.hot ? 'gold' : '', HASEDGE]);
     return t;
   });
   for (const b of BAKES.values()) b.TX = texts(b.S);
@@ -241,13 +257,20 @@ function make({ F, deck, labels, scene }) {
       });
       SW[a] = { nr, vr, per, capH: most(sCap[a]).h };
     }
-    let tn = Math.max(1, Math.min(3, TEXTS.length));
-    while (tn > 1 && (ww - (tn - 1) * gap) / tn < 150) tn--;
-    const tW = (ww - (tn - 1) * gap) / tn;
-    for (const a of TEXTS) wrap(tx[a], tW);
-    const tRows = Math.ceil(TEXTS.length / tn), tHs = Array.from({ length: tRows }, (_, r) => hMax(TEXTS.slice(r * tn, r * tn + tn).map((a) => tx[a])));
-    /* 행렬 — 행 이름 폭만큼 왼쪽을 비우고 칸은 정사각 */
-    const MW = Object.fromEntries(MATS.map((a) => { const lw = Math.ceil(Math.max(20, ...mLb[a].r.map((lb) => most(lb).w))) + 10, c = MSHAPE[a].c, cs = Math.min(34, Math.floor((ww - lw) / Math.max(1, c))); return [a, { lw, cs }]; }));
+    /* 글 블록 — 쪽마다 따로 격자를 짠다(앞 글들 · 끝의 vs INNODB) */
+    const grid = (xs) => {
+      let tn = Math.max(1, Math.min(3, xs.length));
+      while (tn > 1 && (ww - (tn - 1) * gap) / tn < 150) tn--;
+      const tW = (ww - (tn - 1) * gap) / tn;
+      for (const a of xs) wrap(tx[a], tW);
+      const tRows = Math.ceil(xs.length / tn), tHs = Array.from({ length: tRows }, (_, r) => hMax(xs.slice(r * tn, r * tn + tn).map((a) => tx[a])));
+      return { xs, tn, tW, tRows, tHs };
+    };
+    const GR = PH.map((P) => ({ head: grid(P.tx), tail: grid(P.tail) }));
+    /* 행렬 — 행 이름 폭만큼 왼쪽을 비우고 칸은 정사각. 칸은 cap 까지 키운다 — 34 에 묶였더니 03 · 07 의 표가 세계 폭의 3 분의 1 이었다.
+       높이가 넘치면 cap 을 줄여 다시 짠다 */
+    let MW = {};
+    const mwOf = (cap) => Object.fromEntries(MATS.map((a) => { const lw = Math.ceil(Math.max(20, ...mLb[a].r.map((lb) => most(lb).w))) + 10, c = MSHAPE[a].c, cs = Math.min(cap, Math.floor((ww - lw) / Math.max(1, c))); return [a, { lw, cs }]; }));
     const sw = Object.fromEntries([...ROWS, ...QUEUES, ...GRAPHS].map((a) => [a, Object.fromEntries(RIDS[a].map((id) => [id, Math.max(34, Math.ceil(most(slotLb[a][id]).w) + 14)]))]));
     for (const a of [...ROWS, ...QUEUES, ...GRAPHS]) wrap(capLb[a], ww);
     /* 마스크 비트 칸은 이름표(grantMask · waitMask · conflictTab[..]) 오른쪽에서 시작 */
@@ -259,49 +282,57 @@ function make({ F, deck, labels, scene }) {
     const lines = (a, its) => { let x = 0, n = 1; for (const it of its) { const w = sw[a][it.id]; if (x && x + w > ww) { n++; x = 0; } x += w + 6; } return n; };
     const rL = Object.fromEntries(ROWS.map((a) => [a, Math.max(1, ...all.map((st) => lines(a, st[a])))]));
     const cH = Object.fromEntries([...ROWS, ...QUEUES, ...GRAPHS].map((a) => [a, most(capLb[a]).h]));
+    const texts2 = (g, y, k) => {
+      const rowY = [y]; for (let r = 0; r < g.tRows; r++) rowY.push(rowY[r] + HD + g.tHs[r] + 12 * k);
+      g.xs.forEach((a, i) => { const x = L.x0 + (i % g.tn) * (g.tW + gap), yy = rowY[Math.floor(i / g.tn)]; place(hd[a], x, yy); place(tx[a], x, yy + HD); G.anc[a] = { x: x + g.tW - 18, y: yy + 8 }; });
+      return rowY[g.tRows];
+    };
     const lay = (y0, k = 1) => {
       let y = y0;
-      const rowY = [y]; for (let r = 0; r < tRows; r++) rowY.push(rowY[r] + HD + tHs[r] + 12 * k);
-      TEXTS.forEach((a, i) => { const x = L.x0 + (i % tn) * (tW + gap), yy = rowY[Math.floor(i / tn)]; place(hd[a], x, yy); place(tx[a], x, yy + HD); G.anc[a] = { x: x + tW - 18, y: yy + 8 }; });
-      y = rowY[tRows];
-      for (const a of STRIPS) {
-        place(hd[a], L.x0, y); y += HD + 6 + SW[a].nr * RH;
-        G.strip[a] = { y, ...SW[a] }; G.anc[a] = { x: L.x0 + ww / 2, y: y + 13 };
-        y += 26 + 5 + SW[a].vr * RH + 4; G.strip[a].capY = y; place(sCap[a], L.x0, y); y += SW[a].capH + (SW[a].capH > 1 ? 6 : 0) + 12 * k;
-      }
-      for (const a of MATS) {
-        place(hd[a], L.x0, y); y += HD + 4;
-        const { lw, cs } = MW[a];
-        G.mat[a] = { x0: L.x0 + lw, y: y + 16, cs };
-        mLb[a].c.forEach((lb, j) => place(lb, L.x0 + lw + (j + 0.5) * cs, y + 8, 'c', 'c'));
-        mLb[a].r.forEach((lb, i) => place(lb, L.x0 + lw - 8, y + 16 + (i + 0.5) * cs, 'r', 'c'));
-        G.anc[a] = { x: L.x0 + lw + (MSHAPE[a].c * cs) / 2, y: y + 16 + (MSHAPE[a].r * cs) / 2 };
-        y += 16 + MSHAPE[a].r * cs + 6; place(mLb[a].cap, L.x0, y); y += 16 + 12 * k;
-      }
-      y += 6 * k; G.edgeY = y; if (EDGE) place(edgeLb, L.x1, y + 2, 'r', 't'); y += 8 + 8 * k;
-      /* 락 큐 — granted 칸들, 화살표, wait queue 칸들. 칸 아래 모드. 그 아래 마스크 셋 */
-      for (const a of QUEUES) {
-        place(hd[a], L.x0, y); y += HD + 4;
-        place(qLb[a].g, L.x0, y); y += 16;
-        G.q[a] = { ...G.q[a], y: y + 13, sw: sw[a], min: qMin[a] }; G.anc[a] = { x: L.x0 + 40, y: y + 13 };
-        /* 칸 26 · 모드 이름 16 · 비트 머리 줄 16 */
-        y += 26 + 4 + 16 + 8 + 16;
-        G.q[a].mY = y; y += (qReq[a] ? 3 : 2) * 18 + 8;
-        G.q[a].andY = y; if (qReq[a]) y += 18 + 4;
-        place(capLb[a], L.x0, y); G.q[a].capY = y; y += cH[a] + 14 * k;
-      }
-      for (const a of GRAPHS) {
-        place(hd[a], L.x0, y); y += HD + 4;
-        G.gr[a] = { y: y + 13 + 22, sw: sw[a] }; G.anc[a] = { x: L.x0 + ww / 2, y: y + 35 };
-        y += 26 + 44 + 8; place(capLb[a], L.x0, y); G.gr[a].capY = y; y += cH[a] + 14 * k;
-      }
-      for (const a of ROWS) {
-        place(hd[a], L.x0, y); G.slot[a] = { x0: L.x0, y: y + HD, sw: sw[a] }; G.anc[a] = { x: L.x0 + 30, y: y + HD + 13 };
-        y += HD + rL[a] * 32 - 6 + 8; place(capLb[a], L.x0, y); G.slot[a].capY = y; y += cH[a] + 14 * k;
-      }
+      G.edgeY = null;
+      PH.forEach((P, ph) => {
+        if (ph === 1 && HASEDGE) { y += 6 * k; G.edgeY = y; place(edgeLb, L.x1, y + 2, 'r', 't'); y += 8 + 8 * k; }
+        y = texts2(GR[ph].head, y, k);
+        for (const a of P.st) {
+          place(hd[a], L.x0, y); y += HD + 6 + SW[a].nr * RH;
+          G.strip[a] = { y, ...SW[a] }; G.anc[a] = { x: L.x0 + ww / 2, y: y + 13 };
+          y += 26 + 5 + SW[a].vr * RH + 4; G.strip[a].capY = y; place(sCap[a], L.x0, y); y += SW[a].capH + (SW[a].capH > 1 ? 6 : 0) + 12 * k;
+        }
+        for (const a of P.mt) {
+          place(hd[a], L.x0, y); y += HD + 4;
+          const { lw, cs } = MW[a];
+          G.mat[a] = { x0: L.x0 + lw, y: y + 16, cs };
+          mLb[a].c.forEach((lb, j) => place(lb, L.x0 + lw + (j + 0.5) * cs, y + 8, 'c', 'c'));
+          mLb[a].r.forEach((lb, i) => place(lb, L.x0 + lw - 8, y + 16 + (i + 0.5) * cs, 'r', 'c'));
+          G.anc[a] = { x: L.x0 + lw + (MSHAPE[a].c * cs) / 2, y: y + 16 + (MSHAPE[a].r * cs) / 2 };
+          y += 16 + MSHAPE[a].r * cs + 6; place(mLb[a].cap, L.x0, y); y += 16 + 12 * k;
+        }
+        for (const a of P.rw) {
+          place(hd[a], L.x0, y); G.slot[a] = { x0: L.x0, y: y + HD, sw: sw[a] }; G.anc[a] = { x: L.x0 + 30, y: y + HD + 13 };
+          y += HD + rL[a] * 32 - 6 + 8; place(capLb[a], L.x0, y); G.slot[a].capY = y; y += cH[a] + 14 * k;
+        }
+        /* 락 큐 — granted 칸들, 화살표, wait queue 칸들. 칸 아래 모드. 그 아래 마스크 셋 */
+        for (const a of P.qu) {
+          place(hd[a], L.x0, y); y += HD + 4;
+          place(qLb[a].g, L.x0, y); y += 16;
+          G.q[a] = { ...G.q[a], y: y + 13, sw: sw[a], min: qMin[a] }; G.anc[a] = { x: L.x0 + 40, y: y + 13 };
+          /* 칸 26 · 모드 이름 16 · 비트 머리 줄 16 */
+          y += 26 + 4 + 16 + 8 + 16;
+          G.q[a].mY = y; G.q[a].nr = qReq[a] ? 3 : 2; y += G.q[a].nr * 18 + 8;
+          G.q[a].andY = y; if (qReq[a]) y += 18 + 4;
+          place(capLb[a], L.x0, y); G.q[a].capY = y; y += cH[a] + 14 * k;
+        }
+        for (const a of P.gr) {
+          place(hd[a], L.x0, y); y += HD + 4;
+          G.gr[a] = { y: y + 13 + 22, sw: sw[a] }; G.anc[a] = { x: L.x0 + ww / 2, y: y + 35 };
+          y += 26 + 44 + 8; place(capLb[a], L.x0, y); G.gr[a].capY = y; y += cH[a] + 14 * k;
+        }
+        y = texts2(GR[ph].tail, y, k);
+      });
       return y - y0;
     };
-    let k = 1, total = lay(L.y0, 1);
+    let k = 1, total = 0;
+    for (const cap of [56, 48, 40, 34]) { MW = mwOf(cap); total = lay(L.y0, 1); if (total <= wh) break; }
     if (total > wh) { k = 0.2; total = lay(L.y0, k); }
     if (total > wh + 1) console.error(`pg locks ${sc.num} 세계 : 높이 ${Math.round(total)} 가 무대 ${Math.round(wh)} 를 넘는다 (${L.W}×${L.H})`);
     const dy = L.narrow ? 0 : Math.max(0, (wh - total) / 2);
@@ -397,9 +428,10 @@ function make({ F, deck, labels, scene }) {
         const cx = M.x0 + (j + 0.5) * cs, cy = M.y + (i + 0.5) * cs;
         for (let q = 0; q < MC; q++) {
           const idx = m0 + (i * MSHAPE[a].c + j) * MC + q, blk = c === '-';
-          const [x, y] = into(idx, blk ? cx + ((q % 3) - 1) * (cw / 3.4) : rim(cx, cy, cw, cw, MC, q)[0], blk ? cy + (Math.floor(q / 3) - 1) * (cw / 3.4) : rim(cx, cy, cw, cw, MC, q)[1]);
-          const al = (blk ? (on ? 0.85 : 0.55) : on ? 0.3 : 0.18) * (dm ? 0.35 : 1) * dim * form;
-          put(o, idx, x, y, hot ? Math.max(al, 0.95 * dim * form) : al, hot && !end ? 0.5 : 0, 0.02, blk ? 1.25 : 1, hot ? GOLD : blk ? RED : FAINT);
+          const [x, y] = into(idx, blk ? cx + ((q % 4) - 1.5) * (cw / 4.6) : rim(cx, cy, cw, cw, MC, q)[0], blk ? cy + (Math.floor(q / 4) - 1.5) * (cw / 4.6) : rim(cx, cy, cw, cw, MC, q)[1]);
+          /* '+' 칸의 테두리 — 0.18 이면 바탕의 먼지와 같아 '허용' 이 '아무것도 없음' 으로 읽혔다 */
+          const al = (blk ? (on ? 0.85 : 0.55) : on ? 0.5 : 0.35) * (dm ? 0.35 : 1) * dim * form;
+          put(o, idx, x, y, hot ? Math.max(al, 0.95 * dim * form) : al, hot && !end ? 0.5 : 0, 0.02, blk ? 1.25 + Math.max(0, cs - 34) / 40 : 1, hot ? GOLD : blk ? RED : FAINT);
         }
       }
     }
@@ -416,11 +448,14 @@ function make({ F, deck, labels, scene }) {
       }
       /* 마스크 셋 — 비트 8 ‥ 1 을 왼쪽부터. 켠 비트는 채운 점 */
       const [q0] = R['qm:' + a], rows = [q.gm, q.wm, q.rq ? q.cm : 0], bx = Q.bx, cw = Math.min(26, (G.L.x1 - bx) / 8);
-      for (let r = 0; r < 3; r++) for (let b = 0; b < 8; b++) for (let m = 0; m < 4; m++) {
-        const i = q0 + (r * 8 + b) * 4 + m, bit = (rows[r] >> (8 - b)) & 1, cx = bx + (b + 0.5) * cw, cy = Q.mY + r * 18 + 7;
-        const hitBit = r < 2 && q.rq && ((q.cm >> (8 - b)) & 1) && bit;
-        const [x, y] = into(i, cx + ((m % 2) - 0.5) * 3.2, cy + (Math.floor(m / 2) - 0.5) * 3.2 + 6);
-        put(o, i, x, y, (r === 2 && !q.rq ? 0 : bit ? 0.9 : 0.15) * dim * form, hitBit && !end ? 0.5 : 0, 0.02, bit ? 1.2 : 1, hitBit ? RED : r === 2 ? GOLD : bit ? INK : FAINT);
+      /* 켠 비트는 4 × 3 알갱이로 칸을 채우고, 끈 비트는 흐린 점 하나. 걸린 비트(요청의 conflictTab 과 겹친 것)는 빨강 —
+         waitMask 줄은 요청 앞의 대기자 것만 걸린다 */
+      for (let r = 0; r < 3; r++) for (let b = 0; b < 8; b++) for (let m = 0; m < BG; m++) {
+        const i = q0 + (r * 8 + b) * BG + m, bit = (rows[r] >> (8 - b)) & 1, cx = bx + (b + 0.5) * cw, cy = Q.mY + r * 18 + 7;
+        const hitBit = r < 2 && q.rq && ((q.cm >> (8 - b)) & 1) && ((r === 0 ? q.gm : q.wa) >> (8 - b)) & 1;
+        const [x, y] = into(i, cx + ((m % 4) - 1.5) * 3.4, cy + (Math.floor(m / 4) - 1) * 3.4 + 6);
+        const vis = r === 2 && !q.rq ? 0 : bit ? 0.95 : m === 5 ? 0.3 : 0;
+        put(o, i, x, y, vis * dim * form, hitBit && !end ? 0.5 : 0, 0.02, bit ? 1.5 : 1, hitBit ? RED : r === 2 ? GOLD : bit ? INK : FAINT);
       }
     }
     /* graph — 노드 칸 */
@@ -522,8 +557,7 @@ function make({ F, deck, labels, scene }) {
     const { S, NK } = cur, kk = Math.min(b > 0.5 ? next : k, NK - 1), end = (b > 0.5 ? next : k) >= NK, s = S[kk];
     const form = k === 0 ? show(p, 0.18, 0.36) : 1, o = (end ? 0.25 : 1) * form, { L } = G;
     ctx.save(); ctx.lineWidth = 1;
-    ctx.globalAlpha = 0.45 * o; ctx.strokeStyle = css.faint; ctx.setLineDash([3, 4]);
-    seg(ctx, L.x0, G.edgeY, L.x1, G.edgeY); ctx.setLineDash([]);
+    if (G.edgeY != null) { ctx.globalAlpha = 0.45 * o; ctx.strokeStyle = css.faint; ctx.setLineDash([3, 4]); seg(ctx, L.x0, G.edgeY, L.x1, G.edgeY); ctx.setLineDash([]); }
     for (const a of STRIPS) {
       const info = G.strip[a].per.get(s);
       if (!info) continue;
@@ -545,7 +579,7 @@ function make({ F, deck, labels, scene }) {
       if (Q.wx != null) { ctx.globalAlpha = 0.5 * o; ctx.strokeStyle = css.faint; ctx.setLineDash([2, 3]); seg(ctx, Q.wx - 17, Q.y - 30, Q.wx - 17, Q.y + 30); ctx.setLineDash([]); }
       const bx = Q.bx, cw = Math.min(26, (G.L.x1 - bx) / 8);
       ctx.globalAlpha = 0.2 * o; ctx.strokeStyle = css.faint;
-      for (let r = 0; r < 3; r++) for (let bb = 0; bb <= 8; bb++) seg(ctx, bx + bb * cw, Q.mY + r * 18 + 2, bx + bb * cw, Q.mY + r * 18 + 18);
+      for (let r = 0; r < Q.nr; r++) for (let bb = 0; bb <= 8; bb++) seg(ctx, bx + bb * cw, Q.mY + r * 18 + 2, bx + bb * cw, Q.mY + r * 18 + 18);
     }
     /* graph 간선 — 왼→오는 위로, 오→왼은 아래로 휜다 */
     for (const a of GRAPHS) for (const e of s[a].edges) {
