@@ -217,6 +217,7 @@ function make({ F, deck, labels, scene }) {
   const ringX = RINGA ? { xmin: label('aq'), past: label('aq aq-c'), fut: label('aq aq-c'), wrap: label('aq') } : null;
   const ringXmin = (s) => (HDRA ? nums(s[HDRA].t_xmin)[0] || 0 : 0);
   const ringLim = (s) => !!s[RINGA] && bare(s[RINGA]['한계'] || '—') !== '—';
+  const RLIM = RINGA && all.some(ringLim);
   const procLb = Object.fromEntries(PROCS.map((a) => [a, Object.fromEntries(RIDS[a].map((id) => [id, label('aq')]))]));
   const hzLb = HZA ? label('aq') : null, cacheCap = CACHE ? label('aq ml aq-b') : null;
   const edgeLb = label('aq'), tok = label('stn-tok');
@@ -489,7 +490,8 @@ function make({ F, deck, labels, scene }) {
         const r = Math.max(56, Math.min(rr, (ww - rgW - 60) / 2));
         G.ring = { x: L.x0 + r + 10, y: y + HD + r + 6, r };
         place(ringLb, L.x0 + 2 * r + 40, y + HD + 6); G.anc[RINGA] = { x: G.ring.x, y: G.ring.y };
-        y += HD + Math.max(2 * r + 12, rgT) + 16 * k;
+        /* wrap 한계 이름이 고리 아래에 설 자리 */
+        y += HD + Math.max(2 * r + 12 + (RLIM ? 16 : 0), rgT) + 16 * k;
       };
       /* 인덱스 — 설명을 칸 위에 둔다(칸에서 lp 로 가는 선이 글을 지나지 않게) */
       const idxBlk = () => {
@@ -786,7 +788,8 @@ function make({ F, deck, labels, scene }) {
         const { x, y, r } = G.ring, th0 = ringTh(nums(s[RINGA]['현재 XID'])[0] || 0), xm = ringXmin(s);
         const out = (lb, th, d) => { const c = Math.cos(th), sn = Math.sin(th); place(lb, x + c * (r + d), y + sn * (r + d), c > 0.3 ? 'l' : c < -0.3 ? 'r' : 'c', sn > 0.3 ? 't' : sn < -0.3 ? 'b' : 'c'); };
         if (xm) out(ringX.xmin, ringTh(xm), 8);
-        if (xm) out(ringX.wrap, ringTh(xm + 2 ** 31), 14);
+        /* wrap 한계는 눈금 옆 — 고리 아래로 내려가면 다음 띠의 머리와 겹친다(768) */
+        if (xm) { const th = ringTh(xm + 2 ** 31), c = Math.cos(th), sn = Math.sin(th); place(ringX.wrap, x + c * (r + 6) + (c < -0.3 ? -6 : 6), y + sn * (r + 6), c < -0.3 ? 'r' : 'l', sn > 0.3 ? 't' : sn < -0.3 ? 'b' : 'c'); }
         place(ringX.past, x + Math.cos(th0 - Math.PI / 2) * r * 0.55, y + Math.sin(th0 - Math.PI / 2) * r * 0.55, 'c', 'c');
         place(ringX.fut, x + Math.cos(th0 + Math.PI / 2) * r * 0.55, y + Math.sin(th0 + Math.PI / 2) * r * 0.55, 'c', 'c');
       }
