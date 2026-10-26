@@ -110,7 +110,7 @@ const SCENES = [
     ['pg_stat_wal','wal_fpi — 조회만 했는데 늘면 힌트 비트가 남긴 페이지 전체다'] ],
   links:[['01','튜플 헤더'],['03','죽은 튜플'],['08','격리 수준']],
   init:{
-    op:{ kv:{ 'SQL':'SELECT * FROM t', 'snapshot':'—', '판정':'—' } },
+    op:{ kv:{ 'SQL':'SELECT * FROM t', '판정':'—' } },
     sn:{ kv:{ 'xmin':'—', 'xmax':'—', 'xip':'—' } },
     tup:{ items:[
       { id:'튜플 A', tag:'clean', sub:'xmin 100 · xmax 0', lp:1, xmin:100, xmax:0 },
@@ -130,8 +130,7 @@ const SCENES = [
     fact:['all XID < xmin are visible to me',
           'all XID >= xmax are invisible to me',
           '# of xact ids in xip[]'],
-    ops:{ sn:{ set:{ 'xmin':'103', 'xmax':'106', 'xip':'[ 103, 104 ]' } },
-          op:{ set:{ 'snapshot':'xmin 103 · xmax 106' } } } },
+    ops:{ sn:{ set:{ 'xmin':'103', 'xmax':'106', 'xip':'[ 103, 104 ]' } } } },
 
   { act:{ f:'op', t:'tup', lb:'snapshot 으로 판정' },
     note:'HeapTupleSatisfiesMVCC — 튜플마다 헤더의 xmin · xmax 를 snapshot 과 대조',
@@ -1140,7 +1139,7 @@ const SCENES = [
   links:[['02','snapshot · xip'],['09','horizon'],['10','MultiXact']],
   init:{
     op:{ kv:{ 'SQL':'—', '단계':'—' } },
-    pp:{ kv:{ 'xid':'—', 'subxids':'0 / 64' } },
+    pp:{ kv:{ 'xid':'—', 'subxids':'0 / 64', '캐시':'—' } },
     sn:{ kv:{ 'xmin':'—', 'xmax':'—', 'xip':'—', 'subxip':'—' } },
     st:{ items:[] },
     tup:{ items:[] },
@@ -1166,8 +1165,8 @@ const SCENES = [
           ['src/backend/access/transam/subtrans.c','The pg_subtrans manager is a pg_xact-like manager that stores the parent'],
           ['src/backend/access/transam/varsup.c','MyProc->subxids.xids[nxids] = xid;']],
     ops:{ op:{ set:{ 'SQL':'SAVEPOINT s1; INSERT INTO t VALUES (2)', '단계':'하위 트랜잭션 하나' } },
-          pp:{ set:{ 'subxids':'1 / 64' } },
-          st:{ add:[{ id:'701 → 700', tag:'dirty', sub:'캐시에도 있다' }] },
+          pp:{ set:{ 'subxids':'1 / 64', '캐시':'701' } },
+          st:{ add:[{ id:'701 → 700', tag:'dirty' }] },
           tup:{ add:[{ id:'튜플 B', tag:'dirty', sub:'xmin 701', lp:2, xmin:701, xmax:0 }] } } },
 
   { act:{ f:'pp', t:'sn', lb:'GetSnapshotData' },
@@ -1177,7 +1176,8 @@ const SCENES = [
     ref:'src/backend/utils/time/snapmgr.c', sym:'XidInMVCCSnapshot',
     fact:['/* we have full data, so search subxip */',
           'if (pg_lfind32(xid, snapshot->subxip, snapshot->subxcnt))'],
-    ops:{ sn:{ set:{ 'xmin':'700', 'xmax':'703', 'xip':'[ 700 ]', 'subxip':'[ 701 ]' } } } },
+    ops:{ sn:{ set:{ 'xmin':'700', 'xmax':'703', 'xip':'[ 700 ]', 'subxip':'[ 701 ]' } },
+          tup:{ set:{ '튜플 B':{ vis:false, sub:'xmin 701 — subxip 에 있다, 안 보인다' } } } } },
 
   { act:{ f:'op', t:'pp', lb:'EXCEPTION 블록 × 64' },
     note:'반복문의 EXCEPTION 블록 — 쓸 때마다 하위 XID, 65 번째에서 캐시가 넘친다',
@@ -1189,12 +1189,12 @@ const SCENES = [
           ['src/include/storage/proc.h','#define PGPROC_MAX_CACHED_SUBXIDS 64'],
           ['src/pl/plpgsql/src/pl_exec.c','BeginInternalSubTransaction(NULL);']],
     ops:{ op:{ set:{ 'SQL':'FOR i IN 1..64 LOOP BEGIN INSERT …; EXCEPTION WHEN … END; END LOOP', '단계':'하위 트랜잭션 65 개' } },
-          pp:{ set:{ 'subxids':'64 / 64  ·  overflowed' } },
-          st:{ add:[{ id:'703 … 765 → 700', tag:'dirty', sub:'캐시에도 있다 — 701 과 함께 64 칸' },
-                    { id:'766 → 700', tag:'x', sub:'캐시에는 없다 — pg_subtrans 에만' }] },
+          pp:{ set:{ 'subxids':'64 / 64  ·  overflowed', '캐시':'701 · 703 … 765' } },
+          st:{ add:[{ id:'703 … 765 → 700', tag:'dirty' },
+                    { id:'766 → 700', tag:'hold', sub:'캐시에는 없다 — pg_subtrans 에만' }] },
           tup:{ add:[{ id:'튜플 C', tag:'dirty', sub:'xmin 766 — 65 번째 하위 트랜잭션', lp:3, xmin:766, xmax:0 }] } } },
 
-  { act:{ f:'pp', t:'sn', lb:'GetSnapshotData' },
+  { act:{ f:'pp', t:'sn', lb:'GetSnapshotData' }, look:{ sn:true, st:true },
     note:'넘친 뒤의 snapshot — suboverflowed, 하위 XID 마다 pg_subtrans 로 부모를 찾는다',
     why:'GetSnapshotData 는 어느 백엔드든 overflowed 면 snapshot 의 suboverflowed 를 켠다 — subxip 가 불완전하다는 표시다. XidInMVCCSnapshot 은 그 subxip 를 믿지 못하고 SubTransGetTopmostTransaction 으로 pg_subtrans 를 따라 최상위 XID 로 바꾼 뒤 xip 에서 찾는다. 그사이 다른 세션들이 767 까지 커밋해 xmax 는 768 — B 와 C 를 판정할 때마다 SLRU 를 읽는다.',
     key:'<em>한 세션</em>의 overflow 가 <em>모든 세션</em>의 가시성 판정을 SLRU 로 보낸다. 바쁜 서버에서 SubtransSLRU 대기가 갑자기 느는 모양이 이것이다.',
@@ -1217,7 +1217,7 @@ const SCENES = [
           ['src/backend/storage/ipc/procarray.c','proc->subxidStatus.overflowed = false;']],
     beat:1,
     ops:{ op:{ set:{ 'SQL':'… EXCEPTION WHEN … — 766 의 블록에서 오류', '단계':'766 중단' } },
-          st:{ set:{ '766 → 700':{ sub:'캐시에는 없다 — 766 은 중단됐다' } } },
+          st:{ set:{ '766 → 700':{ tag:'x', sub:'캐시에는 없다 — 766 은 중단됐다' } } },
           tup:{ set:{ '튜플 C':{ tag:'x', sub:'xmin 766 중단 — 아무에게도 안 보인다' } } } } },
 
   { act:{ f:'op', t:'pp', lb:'COMMIT' },
@@ -1230,7 +1230,7 @@ const SCENES = [
           '1. set sub-committed all subxids that are not on the same page as the',
           ['src/include/access/clog.h','#define TRANSACTION_STATUS_SUB_COMMITTED 0x03']],
     ops:{ op:{ set:{ 'SQL':'COMMIT', '단계':'700 과 자식들 커밋' } },
-          pp:{ set:{ 'xid':'—', 'subxids':'0 / 64' } },
+          pp:{ set:{ 'xid':'—', 'subxids':'0 / 64', '캐시':'—' } },
           st:{ set:{ '701 → 700':{ tag:'clean' }, '703 … 765 → 700':{ tag:'clean' } } },
           tup:{ set:{ '튜플 A':{ tag:'clean', sub:'xmin 700 — 커밋' }, '튜플 B':{ tag:'clean', sub:'xmin 701 — 부모와 함께 커밋' } } } } },
 
@@ -1243,6 +1243,7 @@ const SCENES = [
           ['src/backend/utils/activity/wait_event_names.txt','SubtransSLRU'],
           ['src/backend/utils/misc/guc_tables.c','{"subtransaction_buffers", PGC_POSTMASTER, RESOURCES_MEM,'],
           ['src/backend/access/transam/subtrans.c','SimpleLruInit(SubTransCtl, "subtransaction", SUBTRANSShmemBuffers(), 0,']],
+    ops:{ op:{ set:{ 'SQL':'SELECT * FROM pg_stat_get_backend_subxact(…)', '단계':'커밋 전이었다면 subxact_count 64 · subxact_overflowed t' } } },
     beat:1 },
   ],
 },

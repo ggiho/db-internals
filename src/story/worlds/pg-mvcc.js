@@ -102,14 +102,14 @@ function make({ F, deck, labels, scene }) {
   const FLU = Object.fromEntries(STR.map(([k, T]) => [k, [...new Set(all.flatMap((s) => decode(s[HDRA][k], T).fl))]]));
   const NAT = Object.fromEntries(STR.map(([k, T]) => [k, all.some((s) => decode(s[HDRA][k], T).natts != null)]));
   const snapOf = (s) => {
-    const kv = s[SNAP] || {}, xmin = nums(kv.xmin)[0], xmax = nums(kv.xmax)[0], xip = nums(kv.xip);
-    return { xmin, xmax, xip };
+    const kv = s[SNAP] || {}, xmin = nums(kv.xmin)[0], xmax = nums(kv.xmax)[0], xip = nums(kv.xip), sub = nums(kv.subxip);
+    return { xmin, xmax, xip, sub };
   };
   const stored = (x) => !!x && x.lp != null && !['dead', 'unused', 'redirect'].includes(x.lps);
   /* XID 수직선의 눈금 — 모든 스텝의 snapshot · 튜플 xmin/xmax. 사이가 4 이하면 그 거리만큼, 넘으면 끊고 3 칸 */
   const XU = (() => {
     if (!SNAP) return null;
-    const xs = [...new Set(all.flatMap((s) => { const n = snapOf(s); return [n.xmin, n.xmax, ...n.xip, ...(PAGE ? s[PAGE].flatMap((t) => [t.xmin, t.xmax]) : []),
+    const xs = [...new Set(all.flatMap((s) => { const n = snapOf(s); return [n.xmin, n.xmax, ...n.xip, ...n.sub, ...(PAGE ? s[PAGE].flatMap((t) => [t.xmin, t.xmax]) : []),
       ...PROCS.flatMap((a) => s[a].map(pv0)), HZA ? nums(s[HZA].OldestXmin)[0] : 0]; }).filter((x) => x > 0 && isFinite(x)))].sort((p, q) => p - q);
     if (!xs.length) return null;
     const pos = new Map(), brk = [];
@@ -130,7 +130,7 @@ function make({ F, deck, labels, scene }) {
       }
     }
     if (IDX && PAGE) for (const e of s[IDX]) if (e.to != null && !s[PAGE].some((t) => t.lp === e.to)) console.error(`${at} 의 인덱스 ${e.id} 가 없는 lp ${e.to} 를 가리킨다`);
-    if (SNAP) { const n = snapOf(s); if (n.xmin > 0 && n.xmax > 0) for (const x of n.xip) if (x < n.xmin || x >= n.xmax) console.error(`${at} 의 xip ${x} 가 [${n.xmin}, ${n.xmax}) 밖이다`); }
+    if (SNAP) { const n = snapOf(s); if (n.xmin > 0 && n.xmax > 0) for (const x of [...n.xip, ...n.sub]) if (x < n.xmin || x >= n.xmax) console.error(`${at} 의 xip ${x} 가 [${n.xmin}, ${n.xmax}) 밖이다`); }
     if (HZA && PROCS.length) {
       const h = nums(s[HZA].OldestXmin)[0], m = Math.min(...PROCS.flatMap((a) => s[a].map(pv0)));
       if (h > 0 && isFinite(m) && h !== m) console.error(`${at} 의 OldestXmin ${h} 가 백엔드 · 슬롯의 가장 작은 xmin/xid ${m} 와 다르다`);
@@ -193,7 +193,7 @@ function make({ F, deck, labels, scene }) {
   /* 칸마다 바이트 수 — 두 점 줄 사이 */
   const hdrB = HDRA ? Object.fromEntries(HDR.map(([k]) => [k, label('aq aq-c')])) : null;
   const stripLb = Object.fromEntries(STR.map(([k]) => [k, { head: label('aq'), nat: NAT[k] ? label('aq') : null, fl: Object.fromEntries(FLU[k].map((f) => [f, label('aq')])) }]));
-  const snapLb = SNAP ? { xmin: label('aq'), xmax: label('aq'), xip: label('aq'), rest: label('aq ml aq-b') } : null;
+  const snapLb = SNAP ? { xmin: label('aq'), xmax: label('aq'), xip: label('aq'), sub: label('aq'), rest: label('aq ml aq-b') } : null;
   const tupLb = Object.fromEntries(TIDS.map((id) => [id, label('aq ml aq-c')]));
   const tickLb = Object.fromEntries(TIDS.map((id) => [id, label('aq aq-c')]));
   /* 생애 막대 끝의 xmax — 잠금뿐인 xmax(xk)는 막대를 끝내지 않는다 */
@@ -265,7 +265,9 @@ function make({ F, deck, labels, scene }) {
       t.set(snapLb.xmin, [n.xmin ? 'xmin ' + n.xmin : '', on(SNAP), '', !!n.xmin]);
       t.set(snapLb.xmax, [n.xmax ? 'xmax ' + n.xmax : '', on(SNAP), '', !!n.xmax]);
       t.set(snapLb.xip, [n.xip.length ? 'xip ' + n.xip.join(' · ') : '', on(SNAP), 'gold', n.xip.length > 0]);
-      t.set(snapLb.rest, [kvHtml(kv, ['xmin', 'xmax', 'xip']), on(SNAP), '', true, true]);
+      /* subxip — 숫자가 있으면 선 위에(xip 와 다른 색), 없으면('넘침') 글로 */
+      t.set(snapLb.sub, [n.sub.length ? 'subxip ' + n.sub.join(' · ') : '', on(SNAP), '', n.sub.length > 0]);
+      t.set(snapLb.rest, [kvHtml(kv, ['xmin', 'xmax', 'xip', ...(n.sub.length ? ['subxip'] : [])]), on(SNAP), '', true, true]);
     }
     if (PAGE) {
       for (const id of TIDS) {
@@ -409,6 +411,7 @@ function make({ F, deck, labels, scene }) {
           if (n.xmin) add(snapLb.xmin, [xidX(n.xmin)]);
           if (n.xmax) add(snapLb.xmax, [xidX(n.xmax)]);
           if (n.xip.length) add(snapLb.xip, n.xip.map(xidX));
+          if (n.sub.length) add(snapLb.sub, n.sub.map(xidX));
           for (const a of PROCS) for (const it of s[a]) if (isFinite(pv0(it))) add(procLb[a][it.id], [xidX(pv0(it))]);
           if (HZA) { const h = nums(s[HZA].OldestXmin)[0]; if (h > 0) add(hzLb, [xidX(h)]); }
           return stagger(its, L.x0, L.x1);
@@ -526,7 +529,7 @@ function make({ F, deck, labels, scene }) {
           y += 4 + 10 * k;
           if (EDGE && EDGE.after === LUSE[j - 1]) { G.edgeY = y; place(edgeLb, L.x1, y - 3, 'r', 'b'); }
           else { G.divs.push(y); place(laneLb[ln], L.x1, y - 3, 'r', 'b'); }
-          y += 8 + 8 * k;
+          y += 6 + 8 * k;
         }
         for (const [a, f] of BLK) if (a ? A[a].lane === ln : TL[ln].as.length) f(ln);
       });
@@ -632,6 +635,7 @@ function make({ F, deck, labels, scene }) {
       const [x0] = R.ax, n = snapOf(s), on = s.touch.has(SNAP) && !end, marks = [];
       if (n.xmin) marks.push([n.xmin, INK, 10]); if (n.xmax) marks.push([n.xmax, INK, 10]);
       for (const x of n.xip) marks.push([x, GOLD, 7]);
+      for (const x of n.sub) marks.push([x, ACCENT, 7]);
       for (const a of PROCS) for (const it of s[a]) if (isFinite(pv0(it))) marks.push([pv0(it), ACCENT, 8]);
       if (PAGE) for (const tp of s[PAGE]) if (stored(tp) && tp.xmin > 0 && G.bar[tp.id] != null) {
         marks.push([tp.xmin, TAGC[tp.tag] ?? INK, 0, G.bar[tp.id]]);
