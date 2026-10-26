@@ -25,6 +25,8 @@ const nums = (v) => [...bare(v).matchAll(/\d+/g)].map((m) => +m[0]);
 /* 숨은 열의 바이트(DB_TRX_ID 6 · DB_ROLL_PTR 7)와 roll pointer 의 비트 배치(1 · 7 · 32 · 16) */
 const COLS = [['PK', 4], ['DB_TRX_ID', 6], ['DB_ROLL_PTR', 7], ['c', 4]];
 const RPB = [['INSERT', 1], ['undo 공간', 7], ['페이지', 32], ['위치', 16]];
+/* 비트 이름표 묶음 — 좁은 두 칸(1 · 7 비트)은 한 이름표로. 따로 두었더니 7b 의 지시선이 1b 이름표를 뚫었다 */
+const RPG = [[0, 1], [2], [3]];
 
 export default {
   count: (narrow) => (narrow ? 3400 : 4600),
@@ -119,7 +121,7 @@ function make({ F, deck, labels, scene }) {
   const wrap = (lb, w) => { lb.el.classList.add('st-wrap'); lb.el.style.maxWidth = Math.max(40, Math.floor(w)) + 'px'; };
   const hd = Object.fromEntries(cast.map((a) => [a, label('aq')]));
   const tx = Object.fromEntries(TEXTS.map((a) => [a, label('aq ml aq-b')]));
-  const stHd = label('aq'), colLb = COLS.map(() => ({ n: label('aq'), v: label('aq') })), rpLb = RPB.map(() => label('aq'));
+  const stHd = label('aq'), colLb = COLS.map(() => ({ n: label('aq'), v: label('aq') })), rpLb = RPG.map(() => label('aq'));
   const chHd = label('aq'), cLb = Object.fromEntries(CIDS.map((k) => [k, { n: label('aq aq-c'), v: label('aq aq-c') }]));
   const axHd = label('aq'), axT = Object.fromEntries(CIDS.map((k) => [k, label('aq')])), axUp = label('aq'), axLow = label('aq'), axIds = label('aq'), axKey = label('aq');
   const rowLb = Object.fromEntries(ROWS.map((a) => [a, Object.fromEntries(RIDS[a].map((id) => [id, label('aq aq-c')]))]));
@@ -140,17 +142,20 @@ function make({ F, deck, labels, scene }) {
     for (const a of TEXTS) t.set(tx[a], [kvHtml(s[a]), on(a), '', true, true]);
     /* 숨은 열 */
     t.set(stHd, [head ? `${head.it.id} 의 레코드  ·  숨은 열` : '', chOn, '', !!head]);
-    const cv = head ? [nums(head.it.sub)[0] ?? '', head.it.trx, head.it.rp ? '→ ' + head.it.rp : '—', head.it.c ?? ''] : [];
+    /* roll pointer 가 가리키던 undo 가 회수됐으면 그렇다고 — 12 스텝에서 지워진 undo 0 을 계속 가리키는 것처럼 보였다 */
+    const cv = head ? [nums(head.it.sub)[0] ?? '', head.it.trx, head.it.rp ? '→ ' + head.it.rp + (find(s, head.it.rp) ? '' : '  (회수됨)') : '—', head.it.c ?? ''] : [];
     COLS.forEach(([n, w], i) => { t.set(colLb[i].n, [head ? `${n}${i === 1 || i === 2 ? '  ' + w + ' B' : ''}` : '', chOn, '', !!head]); t.set(colLb[i].v, [head ? String(i === 0 ? 'id 5' : cv[i]) : '', chOn && i > 0, i === 1 && head && modOf(s, head.a).has(head.it.id) ? 'gold' : '', !!head]); });
-    RPB.forEach(([n, w], i) => t.set(rpLb[i], [head ? `${n} ${w}b` : '', chOn, '', !!head]));
+    RPG.forEach((g, i) => t.set(rpLb[i], [head ? g.map((j) => `${RPB[j][0]} ${RPB[j][1]}b`).join('  ·  ') : '', chOn, '', !!head]));
     /* 사슬 */
     t.set(chHd, [ch.length ? 'version chain  ·  DB_ROLL_PTR 를 따라' : '', chOn, '', ch.length > 0]);
     for (const k of CIDS) {
       const q = ch.find((x) => x.a + ':' + x.it.id === k), vis = q ? visOf(s, q.it) : '';
       t.set(cLb[k].n, [q ? q.it.id : '', !!q && chOn && hotIt(s, q.a, q.it.id), first && q === first ? 'gold' : vis === 'no' ? 'red' : '', !!q]);
       /* 상태를 칠한 칸(ok 여기서 멈춘다 · x 회수 불가 · free 회수 가능)은 sub 의 첫 구절을 한 줄 더 — 11 스텝의 purge 가 색만으로는 안 보였다 */
+      /* 그 구절은 칸의 상태 색으로 — 보이나(초록)와 같은 색이면 '회수 불가' 가 초록으로 읽혔다(11) */
       const st = q && ['ok', 'x', 'free'].includes(q.it.tag) ? q.it.sub.split(/\s+·\s+/)[0] : '';
-      t.set(cLb[k].v, [q ? `${esc(`c = ${q.it.c}  ·  trx ${q.it.trx}${q.it.ins ? '  ·  INSERT' : ''}`)}${st ? '<br>' + esc(st) : ''}` : '', !!q && chOn, vis === 'see' ? 'green' : vis === 'no' ? 'red' : '', !!q, true]);
+      const stH = !st ? '' : q.it.tag === 'x' ? `<span class="q-r">${esc(st)}</span>` : q.it.tag === 'free' ? `<span style="color:var(--faint)">${esc(st)}</span>` : esc(st);
+      t.set(cLb[k].v, [q ? `${esc(`c = ${q.it.c}  ·  trx ${q.it.trx}${q.it.ins ? '  ·  INSERT' : ''}`)}${st ? '<br>' + stH : ''}` : '', !!q && chOn, vis === 'see' ? 'green' : vis === 'no' ? 'red' : '', !!q, true]);
       t.set(axT[k], [q && AX ? `${q.it.id} ${q.it.trx}` : '', !!q && (chOn || (RV && on(RV))), vis === 'see' ? 'green' : vis === 'no' ? 'red' : '', !!q && !!AX]);
     }
     /* 축 */
@@ -194,7 +199,8 @@ function make({ F, deck, labels, scene }) {
     const [rx, rw] = G.cols[2], rtot = RPB.reduce((p, [, w]) => p + w, 0);
     let x2 = rx; G.rpb = RPB.map(([, w]) => { const r = [x2, (rw * w) / rtot]; x2 += r[1]; return r; });
     /* roll pointer 의 비트 이름 — 칸이 좁으면(1 비트) 줄을 나눈다 */
-    const RB = stagger(RPB.map((_, i) => ({ id: i, cx: G.rpb[i][0] + G.rpb[i][1] / 2, w: most(rpLb[i]).w })), L.x0, L.x1);
+    /* 묶음 이름표는 오른쪽 끝을 그 칸들의 끝에 맞춘다 — 가운데에 두었더니 넓어서 옆의 '페이지 32b' 를 아랫줄로 밀었다 */
+    const RB = stagger(RPG.map((g, i) => { const a0 = G.rpb[g[0]][0], a1 = G.rpb[g[g.length - 1]][0] + G.rpb[g[g.length - 1]][1], w = most(rpLb[i]).w; return { id: i, cx: g.length > 1 ? a1 + 3 - w / 2 : (a0 + a1) / 2, pins: g.map((j) => G.rpb[j][0] + G.rpb[j][1] / 2), w }; }), L.x0, L.x1);
     G.rpRows = RB.rows; G.rpOut = RB.out;
     /* 사슬 칸 — 머리부터 가로로, 칸 폭은 이름표만큼 */
     const cw = Math.max(110, ...CIDS.map((k) => Math.max(most(cLb[k].n).w, most(cLb[k].v).w) + 18));
@@ -412,7 +418,7 @@ function make({ F, deck, labels, scene }) {
       ctx.strokeRect(rx, G.rpY, rw, 10);
       for (const [x0] of G.rpb.slice(1)) seg(ctx, x0, G.rpY, x0, G.rpY + 10);
       ctx.globalAlpha = 0.3 * o; ctx.strokeStyle = css.faint;
-      for (const q of G.rpOut) if (q.row > 0 || q.cx < q.l || q.cx > q.r) seg(ctx, q.cx, G.rpY + 11, q.cx, G.rpY + 16 + q.row * RH - 1);
+      for (const q of G.rpOut) for (const x of q.pins) if (q.row > 0 || x < q.l || x > q.r) seg(ctx, x, G.rpY + 11, x, G.rpY + 16 + q.row * RH - 1);
       /* 사슬의 화살표 */
       ctx.strokeStyle = css.ink; ctx.globalAlpha = 0.5 * o;
       for (let j = 1; j < ch.length; j++) {

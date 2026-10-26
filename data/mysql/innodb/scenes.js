@@ -451,7 +451,7 @@ const SCENES = [
      원칙 : 행의 숨은 열(DB_TRX_ID · DB_ROLL_PTR) → undo 사슬 → read view 의 두 경계 + 활성 명단 → purge 의 기준(커밋 순서).
      trx 41 이 c 를 80 → 100 으로 바꿨고 그 전의 행은 trx 40 이 INSERT 했다. undo 1 은 purge 가 아직 지우지 않은 trx 41 의 기록이다. */
   init:{
-    ses:{ kv:{ 'trx 50 (쓰기)':'—', '세션 B (읽기)':'—', '충돌':'없음' } },
+    ses:{ kv:{ 'trx 50 (쓰기)':'—', '세션 B (읽기)':'—', 'trx_sys 활성 명단':'{ }', '충돌':'없음' } },
     stmt:{ kv:{ '세션 A':'UPDATE t SET c = 200 WHERE id = 5   (커밋 안 함)', '세션 B':'SELECT c FROM t WHERE id = 5' } },
     bp:{ items:[
       { id:'p:5', tag:'clean', trx:41, rp:'undo 1', c:100, sub:'c = 100  ·  DB_TRX_ID 41' },
@@ -483,7 +483,7 @@ const SCENES = [
           'if (!trx->read_only && (trx->mysql_thd == nullptr || read_write || trx->ddl_operation)) {',
           ['storage/innobase/lock/lock0lock.cc','if ((mode == LOCK_IX || mode == LOCK_X) && !trx->read_only && trx->rsegs.m_redo.rseg == nullptr) { trx_set_rw_mode(trx);'],
           'Function is promoting existing trx from ro mode to rw mode.'],
-    ops:{ ses:{ set:{ 'trx 50 (쓰기)':'ACTIVE|gold' } } } },
+    ops:{ ses:{ set:{ 'trx 50 (쓰기)':'ACTIVE|gold', 'trx_sys 활성 명단':'{ 50 }' } } } },
 
   { act:{ f:'bp', t:'undo', lb:'옛 값 c = 100' },
     note:'before-image 를 undo 에 — 페이지의 행은 in-place 수정',
@@ -505,7 +505,7 @@ const SCENES = [
     fact:[['storage/innobase/handler/ha_innodb.cc','m_prebuilt->select_lock_type = LOCK_X;'],
           '} else if (prebuilt->select_lock_type == LOCK_NONE) { /* This is a consistent read */ /* Assign a read view for the query */',
           ['storage/innobase/read/read0read.cc','ReadView *oldest_view = get_oldest_view();']],
-    beat:1,
+    beat:1, look:{ ses:true, undo:['undo 0'], lock:true },   /* A 가 붙잡는 둘 */
     ops:{ ses:{ set:{ 'trx 50 (쓰기)':'ACTIVE · 커밋 안 함|red' } } } },
 
   { note:'session B SELECT — 읽기 전용이라 trx id 가 없다',
@@ -538,6 +538,7 @@ const SCENES = [
           'if (id >= m_low_limit_id) {',
           'return (!std::binary_search(p, p + m_ids.size(), id));',
           ['storage/innobase/lock/lock0lock.cc','return (view->changes_visible(trx_id, index->table->name));']],
+    look:{ bp:['p:5'], rv:true },   /* 판정에 쓰는 명단도 */
     ops:{ bp:{ set:{ 'p:5':{ tag:'dirty', sub:'c = 200  ·  DB_TRX_ID 50  ← 안 보인다' } } } } },
 
   { act:{ f:'undo', t:'ses', lb:'ROLL_PTR 을 따라간다' },
@@ -550,7 +551,7 @@ const SCENES = [
           '/* The view already sees this version: we can copy',
           ['storage/innobase/row/row0sel.cc','/* This is a non-locking consistent read: if necessary, fetch']],
     beat:1,
-    ops:{ undo:{ set:{ 'undo 0':{ tag:'ok', sub:'여기서 멈춘다 → c = 100 (trx 41 의 값)' } } } } },
+    ops:{ undo:{ set:{ 'undo 0':{ tag:'ok', sub:'여기서 멈춘다 — B 가 읽는 값' } } } } },
 
   { look:{ undo:true },
     note:'version chain 은 더 길 수 있다 — 끝은 INSERT 가 만든 version',
@@ -570,7 +571,7 @@ const SCENES = [
     fact:['/* So that we can see our own changes. */',
           'MVCC::set_view_creator_trx_id(trx->read_view, trx->id);',
           ['storage/innobase/row/row0sel.cc','/* Do nothing: we let a non-locking SELECT read the']],
-    beat:1,
+    beat:1, look:{ ses:true, bp:['p:5'], undo:['undo 0'] },   /* 두 답 — A 의 c = 200, B 의 c = 100 */
     ops:{ ses:{ set:{ '충돌':'없음 · 아무도 안 기다림|green' } } } },
 
   { note:'A 커밋 — B 의 read view 는 불변, 답도 불변',
@@ -581,7 +582,9 @@ const SCENES = [
           "won't include this transaction after this call. All implicit locks are",
           ['storage/innobase/read/read0read.cc','/* Copy all the trx_ids except the creator trx id */'],
           'It no longer holds any user locks. */'],
-    ops:{ ses:{ set:{ 'trx 50 (쓰기)':'COMMITTED|green' } },
+    look:{ rv:true, ses:true },   /* 전역 명단은 50 을 뺐고 B 의 사본은 그대로 */
+    ops:{ ses:{ set:{ 'trx 50 (쓰기)':'COMMITTED|green', 'trx_sys 활성 명단':'{ }  ← 50 빠짐|green' } },
+          stmt:{ set:{ '세션 A':'UPDATE t SET c = 200 WHERE id = 5   → COMMIT' } },
           lock:{ del:['p:5 · id=5'] } } },
 
   { note:'purge 불가 — undo 0 만, 기준은 사슬이 아니라 커밋 순서',
@@ -593,8 +596,9 @@ const SCENES = [
           ['storage/innobase/include/read0types.h','whose transaction number is strictly smaller (<) than this value:'],
           ['storage/innobase/include/read0types.h','they can be removed in purge if not needed by other views */']],
     beat:1,
-    ops:{ undo:{ set:{ 'undo 0':{ tag:'x', sub:'회수 불가 · trx 50 은 B 의 view 뒤에 커밋' },
-                       'undo 1':{ tag:'free', sub:'회수 가능 · trx 41 은 B 의 view 전에 커밋' } } } } },
+    /* 첫 구절이 칸에 한 줄 더 적힌다 — 회수는 그 undo 를 쓴 trx 의 커밋 순서로 정하므로 쓴 쪽을 함께 */
+    ops:{ undo:{ set:{ 'undo 0':{ tag:'x', sub:'trx 50 이 씀 — 회수 불가 · trx 50 은 B 의 view 뒤에 커밋' },
+                       'undo 1':{ tag:'free', sub:'trx 41 이 씀 — 회수 가능 · trx 41 은 B 의 view 전에 커밋' } } } } },
 
   { note:'B 가 끝나 마지막 view 가 사라진다 — 회수 시작',
     why:'마지막 view 가 사라졌다. purge 가 trx 50 의 update undo log 를 회수한다. 색인 안 된 열을 제자리에서 고친 것이라 지울 delete-mark 행은 없다. 롤백 세그먼트의 history 를 잘라 내는 일은 기본으로 128 번째 purge 배치마다 한다.',
@@ -606,7 +610,7 @@ const SCENES = [
           ['storage/innobase/lock/lock0lock.cc','History list length " UINT64PF']],
     ops:{ undo:{ del:['undo 0','undo 1'] },
           rv:{ set:{ 'read view':'—', 'm_low_limit_id':'—', 'm_up_limit_id':'—', 'm_ids  (활성 trx)':'—', 'm_creator_trx_id':'—' } },
-          ses:{ set:{ '세션 B (읽기)':'—', 'trx 50 (쓰기)':'—' } } } },
+          ses:{ set:{ '세션 B (읽기)':'—', 'trx 50 (쓰기)':'—', '충돌':'—' } } } },
   ],
 },
 {
