@@ -1471,7 +1471,12 @@ PANEL.map = (W, M, sp) => {
       T.set(hd, [t, on]);
       side.forEach((lb, j) => {
         const r = R0[j];
-        if (n === '11' && j === R0.length) { const lit = algo(s) !== 'none'; T.set(lb, [`crc32 가 덮는 바이트  ${fmt(C.COVER.reduce((q, [p0, p1]) => q + p1 - p0, 0))} B  =  4–25 · 38–16,375`, lit && touchOf(s, 'pg'), lit ? 'green' : '', true]); return; }
+        if (n === '11' && j === R0.length) {
+          /* strict_crc32 가 innodb 로 쓰인 page 를 받은 스텝 — crc32 범위를 초록으로 두면 crc32 로 검증된 것처럼 읽혔다 */
+          const warn = algo(s) === 'strict_crc32' && /경고/.test(bare((s.sum || {})['판정'] || '')), lit = algo(s) !== 'none' && !warn;
+          T.set(lb, [warn ? 'crc32 로는 맞지 않았다 — innodb 공식이 맞아 경고 후 사용' : `crc32 가 덮는 바이트  ${fmt(C.COVER.reduce((q, [p0, p1]) => q + p1 - p0, 0))} B  =  4–25 · 38–16,375`, (lit || warn) && touchOf(s, 'pg') || warn, warn ? 'gold' : lit ? 'green' : '', true]);
+          return;
+        }
         T.set(lb, [r ? r.t : '', !!r && (r.hot || on), r && (r.hot ? 'gold' : r.cls || ''), !!r, !!(r && r.html)]);
       });
     },
@@ -1499,7 +1504,8 @@ PANEL.map = (W, M, sp) => {
       geo.ys = ys;
     },
     pose(s, P) {
-      const [r0] = W.R.map, R0 = regions(s), ri = rings(s), sz = Math.max(1, geo.pp * 0.62), lit = n === '11' && algo(s) !== 'none' && (touchOf(s, 'pg') || touchOf(s, 'sum') || touchOf(s, 'file'));
+      const warn11 = n === '11' && algo(s) === 'strict_crc32' && /경고/.test(bare((s.sum || {})['판정'] || ''));
+      const [r0] = W.R.map, R0 = regions(s), ri = rings(s), sz = Math.max(1, geo.pp * 0.62), lit = n === '11' && algo(s) !== 'none' && !warn11 && (touchOf(s, 'pg') || touchOf(s, 'sum') || touchOf(s, 'file'));
       const lsnOnly = n === '11' && algo(s) === 'none' && touchOf(s, 'file');
       /* 09a — HEAP_TOP 이 넣은 record 크기만큼 밀렸으면(3864 → 4388 = 524 B) 그 바이트가 새 record. 다른 page 로 넘어간 스텝은 아니다 */
       const need = n === '09a' ? C.nums(((s.op || {})['넣는 행'] || '').split('·')[1] || '')[0] : null;
@@ -1554,24 +1560,32 @@ PANEL.map = (W, M, sp) => {
    칸 아래에 sum 의 값(머리 · 꼬리 · LSN 하위)과 판정 ── */
 PANEL.cover = (W, M, sp) => {
   const head = sp.part === 'head', B0 = head ? 0 : PAGE - 8, NB = head ? 38 : 8;
-  const hd = W.label('aq'), vl = Array.from({ length: 3 }, () => W.label('aq')), br = Array.from({ length: 3 }, () => W.label('aq'));
+  const hd = W.label('aq'), vl = Array.from({ length: 3 }, () => W.label('aq')), br = Array.from({ length: 3 }, () => W.label('aq')), lsnLb = W.label('aq gold');
   const sumOf = (s) => s.sum || {};
   const algo = (s) => bare((s.op || {})['알고리즘'] || '');
+  /* none 에서 file 을 읽는 스텝 — 남는 검사는 헤더 LSN 하위(20 – 23)와 꼬리 뒤 4 B 의 비교뿐 */
+  const lsnOnlyOf = (s) => algo(s) === 'none' && touchOf(s, 'file');
+  /* strict_crc32 가 남의 알고리즘 page 를 경고로 받은 스텝 — crc32 범위는 맞지 않았다 */
+  const strictWarn = (s) => algo(s) === 'strict_crc32' && /경고/.test(bare(sumOf(s)['판정'] || ''));
   const parts = (s) => {
     const S = sumOf(s);
     if (head) return [{ lo: 0, hi: 4, k: '머리 (오프셋 0)', v: S['머리 (오프셋 0)'] }];
     return [{ lo: PAGE - 8, hi: PAGE - 4, k: '꼬리 (trailer 앞 4 B)', v: S['꼬리 (trailer 앞 4 B)'] }, { lo: PAGE - 4, hi: PAGE, k: 'LSN 하위 (뒤 4 B)', v: S['LSN 하위 (뒤 4 B)'] }, { k: '판정', v: S['판정'], cap: true }];
   };
-  const brk = head ? [{ lo: 0, hi: 4, t: '0–3  checksum' }, { lo: 4, hi: 26, t: '4–25  crc32 ①', cov: true }, { lo: 26, hi: 38, t: '26–37  CRC 밖' }] : [{ lo: PAGE - 8, hi: PAGE, t: '16,376–16,383  trailer 8 B' }];
+  /* 꼬리 8 B 는 앞 checksum 4 B 와 뒤 LSN 하위 4 B 둘로 — 3 스텝이 말하는 나뉨이다 */
+  const brk = head ? [{ lo: 0, hi: 4, t: '0–3  checksum' }, { lo: 4, hi: 26, t: '4–25  crc32 ①', cov: true }, { lo: 26, hi: 38, t: '26–37  CRC 밖' }]
+    : [{ lo: PAGE - 8, hi: PAGE - 4, t: '16,376–  checksum 4 B' }, { lo: PAGE - 4, hi: PAGE, t: '16,380–  LSN 하위 4 B' }];
+  const brkT = (s, b) => (b.cov && algo(s) === 'none' ? '4–25  crc32 (계산 안 함)' : b.t);
   let geo = null;
   const bx = (o) => geo.x0 + (o - B0) * geo.bw;
   return {
-    lbs: [hd, ...vl, ...br], acts: ['sum', 'pg'], snap: () => geo, use: (g) => { geo = g; },
+    lbs: [hd, ...vl, ...br, lsnLb], acts: ['sum', 'pg'], snap: () => geo, use: (g) => { geo = g; },
     texts(s, T) {
-      const on = touchOf(s, 'sum') || touchOf(s, 'pg');
+      const on = touchOf(s, 'sum') || touchOf(s, 'pg'), green = (b) => b.cov && algo(s) !== 'none' && !strictWarn(s);
       T.set(hd, [head ? 'page 앞 38 B  ·  FIL header' : 'page 끝 8 B  ·  trailer', on]);
       parts(s).forEach((q, j) => { const v = q.v && bare(q.v) !== '—' ? q.v : null; T.set(vl[j], [v ? `${q.k}  ${val(v)}` : `${q.k}  —`, on && modOf(s, 'sum').has(q.k), '', true, true]); });
-      br.forEach((lb, j) => { const b = brk[j]; T.set(lb, [b ? b.t : '', !!b && b.cov && algo(s) !== 'none' && on, b && b.cov && algo(s) !== 'none' ? 'green' : '', !!b]); });
+      br.forEach((lb, j) => { const b = brk[j]; T.set(lb, [b ? brkT(s, b) : '', !!b && ((green(b) && on) || (!head && j === 1 && lsnOnlyOf(s))), b && green(b) ? 'green' : !head && j === 1 && lsnOnlyOf(s) ? 'gold' : '', !!b]); });
+      T.set(lsnLb, [head ? '20–23  LSN 하위 — 꼬리 뒤 4 B 와 비교' : '', true, 'gold', head && lsnOnlyOf(s)]);
     },
     layout(x0, y, ww, k, z) {
       const bw = Math.min(head ? 18 : 30, (ww - 4) / NB);
@@ -1584,15 +1598,16 @@ PANEL.cover = (W, M, sp) => {
     },
     place(s) {
       brk.forEach((b, j) => W.place(br[j], Math.min(bx(b.lo), geo.x0 + geo.ww - 80), geo.br));
+      if (!head && br[1].el.offsetWidth) W.place(br[1], Math.max(bx(PAGE - 4), br[0].x + br[0].el.offsetWidth + 10), geo.br);
       /* 첫 칸 이름표가 둘째와 겹치면 둘째를 오른쪽 끝에 붙인다 */
       if (head && br[1].el.offsetWidth && bx(4) < bx(0) + br[0].el.offsetWidth + 6) W.place(br[1], bx(0) + br[0].el.offsetWidth + 8, geo.br);
       if (head && br[2].el.offsetWidth) W.place(br[2], Math.max(br[1].x + br[1].el.offsetWidth + 8, bx(26)), geo.br);
-      if (head) W.place(vl[0], geo.x0, geo.vl);
+      if (head) { W.place(vl[0], geo.x0, geo.vl); W.place(lsnLb, Math.max(bx(20), geo.x0 + vl[0].el.offsetWidth + 14), geo.vl); }
       else { W.place(vl[0], geo.x0, geo.vl); W.place(vl[1], Math.max(geo.x0 + vl[0].el.offsetWidth + 14, bx(PAGE - 4)), geo.vl); W.place(vl[2], geo.x0, geo.vl + vl[0].el.offsetHeight + 4); }
     },
     pose(s, P) {
-      const [r0, r1] = W.R['cv:' + sp.part], per = Math.floor((r1 - r0) / NB), lit = algo(s) !== 'none' && (touchOf(s, 'pg') || touchOf(s, 'sum') || touchOf(s, 'file'));
-      const ps = parts(s), lsnOnly = algo(s) === 'none' && touchOf(s, 'file');
+      const [r0, r1] = W.R['cv:' + sp.part], per = Math.floor((r1 - r0) / NB), lit = algo(s) !== 'none' && !strictWarn(s) && (touchOf(s, 'pg') || touchOf(s, 'sum') || touchOf(s, 'file'));
+      const ps = parts(s), lsnOnly = lsnOnlyOf(s);
       for (let b = 0; b < NB; b++) {
         const o = B0 + b, cv = C.COVER.some(([p, q]) => o >= p && o < q);
         const isSum = ps.some((q) => q.lo != null && o >= q.lo && o < q.hi), hotSum = isSum && ps.some((q) => q.lo != null && o >= q.lo && o < q.hi && modOf(s, 'sum').has(q.k));
@@ -1600,18 +1615,19 @@ PANEL.cover = (W, M, sp) => {
         let col = cv ? (lit ? GREEN : INK) : isSum ? GOLD : FAINT;
         if (isLsn) col = ACCENT;
         if (hotSum) col = GOLD;
-        if (lsnOnly && isLsn) col = GOLD;
-        const al = (cv ? (lit ? 0.95 : 0.55) : isSum ? 0.9 : 0.4) * P.dim * P.form;
+        const lsnGold = lsnOnly && (isLsn || (head && o >= 20 && o < 24));
+        if (lsnGold) col = GOLD;
+        const al = (lsnGold ? 1 : cv ? (lit ? 0.95 : 0.55) : isSum ? 0.9 : 0.4) * P.dim * P.form;
         for (let m = 0; m < per; m++) {
           const i = r0 + b * per + m, [x, y] = rim(bx(o) + geo.bw / 2, geo.band + geo.bh / 2, geo.bw - 3, geo.bh, per, m);
           const [xx, yy] = P.into(i, x, y);
-          W.put(P.o, i, xx, yy, al, hotSum ? 0.6 : 0, 0.02, 1.1, col);
+          W.put(P.o, i, xx, yy, al, hotSum || lsnGold ? 0.7 : 0, 0.02, lsnGold ? 1.4 : 1.1, col);
         }
       }
     },
     draw(ctx, s, O) {
       ctx.strokeStyle = O.css.faint; ctx.globalAlpha = 0.6 * O.o;
-      for (const b of brk) { const xa = bx(b.lo) + 1, xb = bx(b.hi) - 1, yy = geo.band - 4; ctx.strokeStyle = b.cov && algo(s) !== 'none' ? O.css.green : O.css.faint; ctx.beginPath(); ctx.moveTo(xa, yy + 3); ctx.lineTo(xa, yy); ctx.lineTo(xb, yy); ctx.lineTo(xb, yy + 3); ctx.stroke(); }
+      for (const b of brk) { const xa = bx(b.lo) + 1, xb = bx(b.hi) - 1, yy = geo.band - 4; ctx.strokeStyle = b.cov && algo(s) !== 'none' && !strictWarn(s) ? O.css.green : O.css.faint; ctx.beginPath(); ctx.moveTo(xa, yy + 3); ctx.lineTo(xa, yy); ctx.lineTo(xb, yy); ctx.lineTo(xb, yy + 3); ctx.stroke(); }
     },
     anchor(a, s) { if (a === 'sum' && geo) return [bx(head ? 2 : PAGE - 6), geo.band + geo.bh / 2]; return null; },
   };

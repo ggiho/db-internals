@@ -2899,7 +2899,7 @@ const SCENES = [
           fact:[['storage/innobase/include/buf0types.h','constexpr uint32_t BUF_NO_CHECKSUM_MAGIC = 0xDEADBEEFUL;'],
                 'uint32_t checksum = BUF_NO_CHECKSUM_MAGIC;'],
           ops:{ sum:{ set:{ '머리 (오프셋 0)':'0xDEADBEEF|red' } },
-                op:{ set:{ '알고리즘':'none|red', '결과':'계산 생략' } } } },
+                op:{ set:{ '알고리즘':'none|red', '검사 범위':'— (계산 안 함)', '결과':'계산 생략' } } } },
 
       3:{ act:{ f:'pg', t:'sum', lb:'꼬리에도 같은 값' },
           note:'trailer 앞 4 byte 에도 같은 0xDEADBEEF',
@@ -2911,7 +2911,7 @@ const SCENES = [
           beat:1,
           ops:{ sum:{ set:{ '꼬리 (trailer 앞 4 B)':'0xDEADBEEF|red', 'LSN 하위 (뒤 4 B)':`${LO5}|gold`,
                             '판정':'checksum 으로는 판정하지 않음|red' } },
-                pg:{ set:{ '8B':{ sub:'0xDEADBEEF + LSN 하위' } } } } },
+                pg:{ set:{ '꼬리':{ sub:'8 B · 0xDEADBEEF + LSN 하위' } } } } },
 
       4:{ act:{ f:'file', t:'sum', lb:'torn write 는 여전히 잡힌다' },
           note:'checksum 비교는 skip — 단, 선행 검사가 하나 있다',
@@ -2923,7 +2923,7 @@ const SCENES = [
           beat:1,
           ops:{ file:{ set:{ 'page 5':{ id:'page 5', sz:1, tag:'gold', sub:'LSN 일치 → 통과' } } },
                 sum:{ set:{ '판정':'LSN 만 비교 · 통과|gold' } },
-                op:{ set:{ '검사 범위':'LSN 8바이트만', '결과':'통과  (본문은 검사 안 함)|red' } } } },
+                op:{ set:{ '검사 범위':'LSN 하위 4 B × 2  (20–23 · 16,380–16,383)', '결과':'통과  (본문은 검사 안 함)|red' } } } },
 
       5:{ look:{ sum:true, op:true },
           note:'off 는 제거가 아니다 — 무엇이 남는지 알아야 한다',
@@ -2940,11 +2940,15 @@ const SCENES = [
           ref:'storage/innobase/buf/checksum.cc', sym:'BlockReporter::is_corrupted',
           fact:['if (curr_algo == SRV_CHECKSUM_ALGORITHM_STRICT_CRC32) {',
                 ['storage/innobase/page/page0page.cc','ib::warn(ER_IB_MSG_914)'],
-                ['storage/innobase/page/page0page.cc','Accepting the page as valid.']],
+                ['storage/innobase/page/page0page.cc','Accepting the page as valid.'],
+                ['storage/innobase/buf/buf0flu.cc','checksum = (uint32_t)buf_calc_page_new_checksum(page);'],
+                ['storage/innobase/buf/buf0flu.cc','checksum = (uint32_t)buf_calc_page_old_checksum(page);']],
           beat:1,
+          /* innodb 공식은 두 칸이 다르다 — 머리는 새 공식, 꼬리는 옛 공식(0 – 25). 같은 값을 두 번 쓰는 것은 crc32 뿐이다.
+             이 page 의 innodb 값은 측정하지 않았으므로 수를 적지 않고 식의 이름만 적는다 */
           ops:{ file:{ set:{ 'page 5':{ id:'page 5', sz:1, tag:'gold', sub:'innodb checksum · 경고 후 사용' } } },
-                sum:{ set:{ '머리 (오프셋 0)':'0x3B71C2E0  (innodb 방식)|gold',
-                            '꼬리 (trailer 앞 4 B)':'0x3B71C2E0|gold', '판정':'경고 · 손상 아님|gold' } },
+                sum:{ set:{ '머리 (오프셋 0)':'새 공식 buf_calc_page_new_checksum|gold',
+                            '꼬리 (trailer 앞 4 B)':'옛 공식 buf_calc_page_old_checksum  (0 – 25)|gold', '판정':'경고 · 손상 아님|gold' } },
                 op:{ set:{ '알고리즘':'strict_crc32', '결과':'에러 로그에 경고 1줄|gold' } } } },
 
       5:{ look:{ op:true, sum:true },
@@ -2961,9 +2965,10 @@ const SCENES = [
     op:{ kv:{ '알고리즘':'crc32', '검사 범위':'16,360 B', '결과':'—' } },
     pg:{ items:[
       { id:'CHKSUM', sz:1, tag:'gold', sub:'오프셋 0 · 4 B' },
-      { id:'FIL', sz:1, tag:'hdr', sub:'4–37 · 34 B · 26–37 은 CRC 밖' },
+      /* 지도 옆 이름표가 범위를 앞에 붙인다 — sub 에 범위를 다시 적으면 '4–37 FIL 4–37' 로 겹쳤다 */
+      { id:'FIL', sz:1, tag:'hdr', sub:'34 B · 26–37 은 CRC 밖' },
       { id:'페이지 본문', sz:9, tag:'', sub:'16,338 B' },
-      { id:'8B', sz:1, tag:'gold', sub:'trailer 8 B' } ],
+      { id:'꼬리', sz:1, tag:'gold', sub:'8 B · trailer' } ],
       byl:{ l:'같은 값이 두 곳에', r:'오프셋 0 · trailer 앞 4 B' } },
     sum:{ kv:{ '머리 (오프셋 0)':'—', '꼬리 (trailer 앞 4 B)':'—', 'LSN 하위 (뒤 4 B)':'—', '판정':'—' } },
     file:{ items:[{ id:'page 5', sz:1, tag:'', sub:'검사 대상' }] },
@@ -3007,7 +3012,7 @@ const SCENES = [
           'If CRC32 is used then it is faster to use that checksum'],
     beat:1,
     ops:{ sum:{ set:{ '꼬리 (trailer 앞 4 B)':`${CK5}|gold`, 'LSN 하위 (뒤 4 B)':`${LO5}|gold`, '판정':'머리 = 꼬리|green' } },
-          pg:{ set:{ '8B':{ sub:'checksum + LSN 하위' } } } } },
+          pg:{ set:{ '꼬리':{ sub:'8 B · checksum + LSN 하위' } } } } },
 
   { act:{ f:'file', t:'sum', lb:'읽을 때 다시 계산해 비교' },
     note:'read 시 재계산 후 비교 — 불일치면 그 page 를 쓰지 않는다',
