@@ -1604,20 +1604,22 @@ const SCENES = [
   links:[['05','고정 배치의 한계'],['07','셀 안은 어떻게 생겼나'],['08','슬롯이 정렬을 유지한다']],
   init:{
     op:{ kv:{ '레코드 수':'16', '슬롯 수':'—', '탐색':'—' } },
+    /* 개념도 — 칸 폭은 sz 로만('38 B' 를 적으면 그 칸만 바이트로 재서 띠의 2/3 가 FIL 헤더였다) */
     pg:{ items:[
-      { id:'FIL 헤더', sz:2, tag:'hdr', sub:'38 B' },
+      { id:'FIL 헤더', sz:2, tag:'hdr', sub:'38 바이트' },
       { id:'PG', sz:1, tag:'hdr', sub:'페이지 헤더' },
       { id:'i·s', sz:1, tag:'gold', sub:'경계 레코드' },
       { id:'레코드 16개 →', sz:5, tag:'', sub:'삽입 순서' },
       { id:'빈 곳', sz:2, tag:'free', sub:'PAGE_HEAP_TOP 부터' },
-      { id:'←슬롯', sz:2, tag:'gold', sub:'2B 씩' },
-      { id:'8B', sz:1, tag:'hdr', sub:'trailer' } ],
+      { id:'←슬롯', sz:2, tag:'', sub:'2 바이트씩' },
+      { id:'끝', sz:1, tag:'hdr', sub:'trailer 8 바이트' } ],
       byl:{ l:'양쪽에서 자란다', r:'슬롯은 2B 단위' } },
     dir:{ items:[] },
     cells:{ items:[
       { id:'레코드 0 ~ 15', tag:'clean', sub:'각자 next 포인터로 이어진다' } ] },
-    hdr:{ kv:{ 'PAGE_N_DIR_SLOTS':'0 (오프셋 0)', 'PAGE_HEAP_TOP':'2 (오프셋 2)',
-               'PAGE_FREE':'6 (오프셋 6)', 'PAGE_GARBAGE':'8 (오프셋 8)' } },
+    /* 값 자리에 오프셋을 적었더니 슬롯 넷을 만든 뒤에도 'PAGE_N_DIR_SLOTS 0' 으로 읽혔다 — 오프셋 · 폭만 적고 값은 → 뒤에 */
+    hdr:{ kv:{ 'PAGE_N_DIR_SLOTS':'+0  ·  2 B', 'PAGE_HEAP_TOP':'+2  ·  2 B',
+               'PAGE_FREE':'+6  ·  2 B', 'PAGE_GARBAGE':'+8  ·  2 B' } },
   },
   cite:[
     "A slotted page has a fixed-size header",
@@ -1645,7 +1647,10 @@ const SCENES = [
           'number may drop below the minimum in the first and the last slot in the',
           '0x01, /* info_bits=0, n_owned=1 */'],
     cite:['the only overhead incurred by slotted pages is a pointer array holding offsets to the exact positions where the records are stored'],
-    ops:{ dir:{ add:[{ id:'슬롯 0', tag:'ok', sub:'infimum 하나만' }, { id:'슬롯 1', tag:'ok', sub:'레코드 8개 소유' }, { id:'슬롯 2', tag:'ok', sub:'레코드 4개 소유' }, { id:'슬롯 3', tag:'ok', sub:'레코드 4개 + supremum' }] }, op:{ set:{ '슬롯 수':'4  (레코드 16개)|gold' } } } },
+    ops:{ dir:{ add:[{ id:'슬롯 0', tag:'ok', sub:'infimum 하나만' }, { id:'슬롯 1', tag:'ok', sub:'레코드 8개 소유' }, { id:'슬롯 2', tag:'ok', sub:'레코드 4개 소유' }, { id:'슬롯 3', tag:'ok', sub:'레코드 4개 + supremum' }] },
+          pg:{ set:{ '←슬롯':{ tag:'gold', sub:'2 바이트 × 4' } } },
+          hdr:{ set:{ 'PAGE_N_DIR_SLOTS':'+0  ·  2 B  →  4|gold' } },
+          op:{ set:{ '슬롯 수':'4  (레코드 16개)|gold' } } } },
 
   { act:{ f:'dir', t:'cells', lb:'k=45 를 찾는다' },
     note:'slot 으로 binary search 해 구간 축소, 구간 안은 linear scan',
@@ -1656,7 +1661,10 @@ const SCENES = [
     fact:['Perform binary search. First the search is done through the page directory, after that as a linear search in the list of records owned by the upper limit directory slot.',
           'while (page_rec_get_next_const(low_rec) != up_rec) {'],
     cite:['Cells are laid out in insertion order, but offsets are resorted to allow using binary search'],
-    ops:{ dir:{ set:{ '슬롯 2':{ tag:'hold', sub:'← 이 구간' } } },
+    /* 슬롯은 주인(무리의 마지막 record)의 키로 비교된다 — 키 값은 이 장면에 없으므로 대소만 적는다 */
+    ops:{ dir:{ set:{ '슬롯 1':{ sub:'주인 키 < 45 → low' }, '슬롯 2':{ tag:'hold', sub:'주인 키 ≥ 45 → up  ·  ← 이 구간' } } },
+          pg:{ set:{ '←슬롯':{ tag:'' } } },
+          hdr:{ set:{ 'PAGE_N_DIR_SLOTS':'+0  ·  2 B  →  4' } },
           cells:{ set:{ '레코드 0 ~ 15':{ tag:'ok', sub:'구간 안 4개를 순차 훑기' } } },
           op:{ set:{ '탐색':'슬롯 이진 + 구간 선형|green' } } } },
 
@@ -1676,6 +1684,7 @@ const SCENES = [
     fact:[['storage/innobase/include/page0page.h','((page) + (UNIV_PAGE_SIZE - PAGE_DIR - (n + 1) * PAGE_DIR_SLOT_SIZE))'],
           ['storage/innobase/include/page0page.h','constexpr uint32_t PAGE_DIR = FIL_PAGE_DATA_END;']],
     cite:['We append cells to the right side of the page (toward its end) and keep cell offsets/pointers in the left side of the page'],
+    ops:{ pg:{ set:{ '빈 곳':{ sub:'HEAP_TOP ~ 16384 − 8 − 2 × 4' }, '←슬롯':{ tag:'gold' } } } },
     beat:1 },
   ],
 },

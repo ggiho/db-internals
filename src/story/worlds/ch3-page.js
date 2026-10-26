@@ -1640,10 +1640,11 @@ PANEL.pstrip = (W, M, sp) => {
 /* ── 06 — record 를 키 순서로(infimum · 16 개 · supremum), 슬롯 하나가 무리 하나를 맡는다. 무리의 마지막 record 가 주인이고
    슬롯은 그것을 가리킨다(n_owned 는 주인 record 의 헤더에). 무리 크기는 dir 의 sub('레코드 8개 소유' …) ── */
 PANEL.chain06 = (W, M, sp) => {
-  const OWN = C.owns06(M.all), dl = W.label('aq'), cl = W.label('aq ml aq-b'), hd = W.label('aq');
+  /* 슬롯 목록은 한 항목에 한 줄(ml) — 'aq' 로만 두었더니 '슬롯 0 infimum 하나만 슬롯 1 …' 이 한 문장으로 이어졌다 */
+  const OWN = C.owns06(M.all), dl = W.label('aq ml aq-b'), cl = W.label('aq ml aq-b'), hd = W.label('aq');
   const SI = ids(M, 'dir'), slb = Object.fromEntries(SI.map((id) => [id, W.label('aq aq-c')])), gl = Object.fromEntries(SI.map((id) => [id, W.label('aq')]));
   const inf = W.label('aq'), sup = W.label('aq');
-  const NREC = C.lead(((M.sc.init.op || {}).kv || {})['레코드 수']) || 16;
+  const NREC = C.lead(((M.sc.init.op || {}).kv || {})['레코드 수']) || 16, geo0n = NREC + 2;
   let geo = null;
   const rx = (j) => geo.x0 + j * (geo.rw + geo.gap);
   const groups = (s) => { let j = 0; return (s.dir || []).map((d) => { const n = OWN[d.id] || 0, g = { d, a: j, b: j + n - 1 }; j += n; return g; }); };
@@ -1654,7 +1655,9 @@ PANEL.chain06 = (W, M, sp) => {
       T.set(hd, [`record ${NREC + 2} 개 — 키 순서 · next 로 잇는다`, on]);
       T.set(inf, ['infimum', touchOf(s, 'pg') && hotIt(s, 'pg', 'i·s'), touchOf(s, 'pg') && hotIt(s, 'pg', 'i·s') ? 'gold' : '']);
       T.set(sup, ['supremum', touchOf(s, 'pg') && hotIt(s, 'pg', 'i·s'), touchOf(s, 'pg') && hotIt(s, 'pg', 'i·s') ? 'gold' : '']);
-      for (const id of SI) { const d = (s.dir || []).find((x) => x.id === id); T.set(slb[id], [d ? id : '', touchOf(s, 'dir') && !!d && hotIt(s, 'dir', id), d ? TAGL[d.tag] || '' : '', !!d]); T.set(gl[id], [d ? `× ${OWN[id]}` : '', touchOf(s, 'dir') && !!d && hotIt(s, 'dir', id), '', !!d]); }
+      /* 경계 record 를 짚는 스텝(i·s)에는 양 끝 무리의 '× n' 대신 infimum · supremum 이름을 보인다 */
+      const ish = touchOf(s, 'pg') && hotIt(s, 'pg', 'i·s'), gs = groups(s), endG = new Set(gs.filter((g) => g.a === 0 || g.b === geo0n - 1).map((g) => g.d.id));
+      for (const id of SI) { const d = (s.dir || []).find((x) => x.id === id); T.set(slb[id], [d ? id : '', touchOf(s, 'dir') && !!d && hotIt(s, 'dir', id), d ? TAGL[d.tag] || '' : '', !!d]); T.set(gl[id], [d ? `× ${OWN[id]}` : '', touchOf(s, 'dir') && !!d && hotIt(s, 'dir', id), '', !!d && !(ish && endG.has(id))]); }
       T.set(dl, [capOf(s.dir || []), touchOf(s, 'dir'), '', (s.dir || []).length > 0, true]);
       T.set(cl, [capOf(s.cells || []), touchOf(s, 'cells'), '', true, true]);
     },
@@ -1670,12 +1673,16 @@ PANEL.chain06 = (W, M, sp) => {
       return geo.cap + Math.max(W.most(dl).h, W.most(cl).h) - y;
     },
     place(s) {
-      W.place(inf, rx(0), geo.lab);
-      W.place(sup, rx(geo.n - 1) + geo.rw, geo.lab, 'r');
-      for (const g of groups(s)) { W.place(slb[g.d.id], rx(g.b) + geo.rw / 2, geo.slot + 13, 'c', 'c'); W.place(gl[g.d.id], (rx(g.a) + rx(g.b) + geo.rw) / 2, geo.lab, 'c', 't'); }
+      /* 무리가 있으면 슬롯 → 주인 선이 양 끝 record 가운데로 내려온다 — 이름을 그 선 안쪽으로 비켜 놓는다 */
+      const inner = (s.dir || []).length > 0;
+      W.place(inf, inner ? rx(1) : rx(0), geo.lab);
+      W.place(sup, inner ? rx(geo.n - 1) - 2 : rx(geo.n - 1) + geo.rw, geo.lab, 'r');
+      /* 한 record 짜리 무리(슬롯 0)는 이름 가운데로 슬롯 선이 지난다 — 선 오른쪽에 붙인다 */
+      for (const g of groups(s)) { W.place(slb[g.d.id], rx(g.b) + geo.rw / 2, geo.slot + 13, 'c', 'c'); if (g.a === g.b) W.place(gl[g.d.id], rx(g.b) + geo.rw / 2 + 4, geo.lab, 'l', 't'); else W.place(gl[g.d.id], (rx(g.a) + rx(g.b) + geo.rw) / 2, geo.lab, 'c', 't'); }
       /* infimum · supremum 이름표가 무리 이름표와 겹치면 숨긴다 */
       const gs = groups(s);
-      inf.hide = gs.length > 0; sup.hide = gs.length > 0;
+      const ish = touchOf(s, 'pg') && hotIt(s, 'pg', 'i·s');
+      inf.hide = gs.length > 0 && !ish; sup.hide = gs.length > 0 && !ish;
     },
     pose(s, P) {
       const [r0, r1] = W.R.ch, gs = groups(s), on = touchOf(s, 'cells') || touchOf(s, 'dir'), ish = touchOf(s, 'pg') && hotIt(s, 'pg', 'i·s');
