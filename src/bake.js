@@ -53,6 +53,9 @@ export function bake(scene, v) {
         a.kv[k] = v;
       }
       if (op.gg) a.gg = { ...a.gg, ...op.gg };
+      /* 바이트 띠의 아래 글(byl : l · r) — 띠가 바뀌는 스텝에서 글도 바꿀 수 있어야 한다. 없을 때는 FPI 로 8 KB 가 된
+         레코드 아래에 '평소의 WAL 레코드 · 작다' 가 그대로 남았다(postgres/wal 01/3–6, 05/6) */
+      if (op.byl) { a.byl = { ...a.byl, ...op.byl }; c.byl = true; }
       if (a.mx) {
         if (op.on) { a.mx.on = [...op.on]; c.keys.push('on'); }
         if (op.dim) { a.mx.dim = [...op.dim]; c.keys.push('dim'); }

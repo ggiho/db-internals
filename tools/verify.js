@@ -511,6 +511,12 @@ for (const sc of SCENES) {
           a[bag].push(JSON.parse(JSON.stringify(x))); moved++;
         });
       }
+      if (op.byl) {
+        const bad = Object.keys(op.byl).filter(k => k !== 'l' && k !== 'r');
+        if (bad.length) err(S + ' ' + who + ' : byl 에는 l · r 만 — ' + bad.join(', '));
+        if (!a.items) err(S + ' ' + who + ' : byl 은 칸(items)이 있는 배우에만 — bytes 띠의 아래 글이다');
+        a.byl = Object.assign({}, a.byl, op.byl); moved++;
+      }
       if (op.gg) {
         if (typeof op.gg.v !== 'number' || op.gg.v < 0 || op.gg.v > 1)
           err(S + ' ' + who + ' : 게이지 v 는 0~1 이어야 한다 — ' + op.gg.v);
