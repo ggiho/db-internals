@@ -401,7 +401,7 @@ export function audit(deck, sc, report, M = model(deck, sc)) {
         const inR = (x) => x.v >= sp.from && x.v <= sp.to;
         if (/없음/.test(sp.lb) && pv.some(inR)) report(`${T} — '${sp.lb}' 인데 범위 [${sp.from}, ${sp.to}] 에 앞 스텝의 키가 있다`);
         const rid = /RID (\d+)/.exec(sp.lb);
-        if (rid && !ax.items.some((x) => inR(x) && x.id.endsWith('·' + rid[1]))) report(`${T} — '${sp.lb}' 인데 범위 [${sp.from}, ${sp.to}] 에 RecordId ${rid[1]} 의 키가 없다`);
+        if (rid && !ax.items.some((x) => inR(x) && new RegExp(`(?:·|RID |RecordId )${rid[1]}$`).test(x.id))) report(`${T} — '${sp.lb}' 인데 범위 [${sp.from}, ${sp.to}] 에 RecordId ${rid[1]} 의 키가 없다`);
       }
       for (const a of Object.keys(s).filter((a) => A[a] && A[a].kind === 'list')) for (const it of s[a]) {
         const m = /^2B ([0-9A-F]{2}) 04\s+\(_id:(\d+)\)/.exec(it.id);
@@ -524,11 +524,13 @@ function make({ F, deck, labels, scene }) {
   const ROWS = cast.filter((a) => (kind(a) === 'list') && !consumed.has(a) && a !== M.LOCKQ);
 
   /* ═════ 글 블록 ═════ */
+  /* 비교 블록의 이름 — 'vs INNODB' 인데 키가 InnoDB 가 아니라 MySQL 이면(12 : MDL 은 서버 층) 'vs MYSQL' */
+  const cmpName = (a, s) => (A[a].nm === 'vs INNODB' && !Object.keys(s[a]).some((k) => /^InnoDB/.test(k)) && 'MySQL' in s[a] ? 'vs MYSQL' : A[a].nm);
   if (TEXTS.length) {
     const hd = Object.fromEntries(TEXTS.map((a) => [a, label('aq')])), bd = Object.fromEntries(TEXTS.map((a) => [a, label('aq ml aq-b')]));
     panels.text = {
       id: 'text', rank: 1, actors: TEXTS,
-      tx(s, t) { for (const a of TEXTS) { t.set(hd[a], [A[a].nm, on(s, a)]); t.set(bd[a], [kvHtml(s[a]), on(s, a), '', true, true]); } },
+      tx(s, t) { for (const a of TEXTS) { t.set(hd[a], [cmpName(a, s), on(s, a)]); t.set(bd[a], [kvHtml(s[a]), on(s, a), '', true, true]); } },
       geo(w) {
         let tn = Math.min(3, TEXTS.length);
         while (tn > 1 && (w - (tn - 1) * 18) / tn < 150) tn--;
@@ -668,15 +670,17 @@ function make({ F, deck, labels, scene }) {
     const HEAD = /^(?:ts\s+)?\d[\d,]*(?:\.\d+)?(?:\u00a0(?:s|ms|%|GB|MB|KB))?/;
     const merged = (ms, off = false) => {
       const out = new Map(), by = new Map();
-      if (off) { for (const m of ms) out.set(m.k, { txt: m.txt, vis: true, keys: [m.k] }); return out; }
+      if (off) { for (const m of ms) out.set(m.k, { txt: m.txt, html: esc(m.txt), vis: true, keys: [m.k], tn: m.tn }); return out; }
       for (const m of ms) { if (!by.has(m.n)) by.set(m.n, []); by.get(m.n).push(m); }
       for (const g of by.values()) {
         const vs = g.map((m) => (m.txt.startsWith(m.k + '  ') ? m.txt.slice(m.k.length + 2) : null)), hs = vs.map((v) => (v == null ? '' : (HEAD.exec(v) || [''])[0]));
         const rests = vs.map((v, i) => (v == null ? '' : v.slice(hs[i].length)));
-        const ok = g.length > 1 && hs.every((h) => h && h === hs[0]) && rests.filter(Boolean).length <= 1 && g.every((m) => m.tn === g[0].tn);
-        if (!ok) { for (const m of g) out.set(m.k, { txt: m.txt, vis: true, keys: [m.k] }); continue; }
-        const txt = g.map((m) => m.k).join(' · ') + '  ' + hs[0] + (rests.find(Boolean) || '');
-        g.forEach((m, j) => out.set(m.k, { txt, vis: j === 0, keys: g.map((x) => x.k) }));
+        const ok = g.length > 1 && hs.every((h) => h && h === hs[0]) && rests.filter(Boolean).length <= 1;
+        if (!ok) { for (const m of g) out.set(m.k, { txt: m.txt, html: esc(m.txt), vis: true, keys: [m.k], tn: m.tn }); continue; }
+        /* 색이 다르면(13 / 7 의 committed snapshot 만 초록) 키마다 그 색, 이름표 전체는 색 없이 */
+        const same = g.every((m) => m.tn === g[0].tn), txt = g.map((m) => m.k).join(' · ') + '  ' + hs[0] + (rests.find(Boolean) || '');
+        const html = g.map((m) => (!same && m.tn ? `<span class="${TONE[m.tn]}">${esc(m.k)}</span>` : esc(m.k))).join(' · ') + '  ' + esc(hs[0] + (rests.find(Boolean) || ''));
+        g.forEach((m, j) => out.set(m.k, { txt, html, vis: j === 0, keys: g.map((x) => x.k), tn: same ? m.tn : '' }));
       }
       return out;
     };
@@ -695,7 +699,7 @@ function make({ F, deck, labels, scene }) {
           t.set(L.title, [titleOf(L), o]);
           if (L.k === 'mk' || L.k === 'rl') {
             const ms = d.marks.get(a), ns = d.notes.get(a), mg = merged(ms, L.nomerge);
-            for (const k of L.keys) { const m = ms.find((x) => x.k === k), g = m && mg.get(k); t.set(L.lb[k], [m ? esc(g.txt) : '', o && !!g && (g.keys.some((kk) => modOf(s, a).has(kk)) || !s.chg[a]), m ? m.tn : '', !!m && g.vis, true]); }
+            for (const k of L.keys) { const m = ms.find((x) => x.k === k), g = m && mg.get(k); t.set(L.lb[k], [m ? g.html : '', o && !!g && (g.keys.some((kk) => modOf(s, a).has(kk)) || !s.chg[a]), m ? g.tn : '', !!m && g.vis, true]); }
             /* 숫자가 없는 값 — 줄 이름 아래(한 줄에 하나)이거나 선 아래 한 줄에 이어서. 줄이 덜 높아지는 쪽을 geo 가 고른다 */
             t.set(L.note, [ns.map(([k, v]) => `${esc(k)}  <span class="q-v">${val(v)}</span>`).join(L.nmode === 'g' ? '\n' : '    /    '), o, '', ns.length > 0, true]);
           } else {
@@ -724,7 +728,7 @@ function make({ F, deck, labels, scene }) {
         /* 합친 이름표가 축보다 넓으면 그 줄은 합치지 않는다(13 / 10 의 460 다섯 이름이 768 에서 488 px) — 폭마다 다시 정한다 */
         let re = false;
         for (const L of lanes) if (L.k === 'mk' || L.k === 'rl') {
-          const wide = all.some((s2) => [...merged(M.TSD.get(s2).marks.get(L.a)).values()].some((g2) => g2.keys.length > 1 && g2.vis && widthOf(L.lb[g2.keys[0]], esc(g2.txt)) > ax1 - ax0));
+          const wide = all.some((s2) => [...merged(M.TSD.get(s2).marks.get(L.a)).values()].some((g2) => g2.keys.length > 1 && g2.vis && widthOf(L.lb[g2.keys[0]], g2.html) > ax1 - ax0));
           if (!!L.nomerge !== wide) { L.nomerge = wide; re = true; }
         }
         if (re) retext();
@@ -1153,11 +1157,12 @@ function make({ F, deck, labels, scene }) {
         const tkWd = side ? w - mW - 30 - 10 : w;
         if (tkAl) wrap(tkAl, tkWd);
         const tkH = tk ? HD + most(tkAl).h + 8 + 2 * (RH + 14) : 0;
-        /* 호환표의 설명은 입장권 칸 아래 — 표 옆은 좁아 세 줄로 접혔다 */
+        /* 호환표의 설명 — 표 옆은 좁아 세 줄로 접혔고, 입장권 칸 아래 왼쪽에 붙이자 입장권의 설명으로 읽혔다(12).
+           나란히 놓일 때는 입장권 칸 아래에서 오른쪽으로 맞춰 표의 왼쪽 끝에 붙인다(높이는 그대로 — 768 에서 무대가 빠듯하다) */
         if (mxR) wrap(mxR, side ? tkWd : Math.max(140, mW + 40));
         const mRH = mxR ? most(mxR).h : 0;
         const tkY = y2, mxX = side ? w - mW - 20 : 0, mxY = side ? y2 : y2 + tkH + 12;
-        const mrX = side ? 0 : mxX, mrY = side ? y2 + tkH + 4 : mxY + mH + 4;
+        const mrX = side ? mxX - 10 : mxX, mrY = side ? y2 + tkH + 4 : mxY + mH + 4;
         const h = side ? y2 + Math.max(tkH + 4 + mRH, mH) : mrY + mRH + 2;
         return { h, GW, div, per, LH, capY, tkY, tkWd, mxX, mxY, mrX, mrY, cell, mW, mH, side };
       },
@@ -1171,7 +1176,7 @@ function make({ F, deck, labels, scene }) {
           place(mxHd, ox + g.mxX, oy + g.mxY);
           MC.forEach((cc, j) => place(mxCol[j], ox + g.mxX + 40 + j * (g.cell + 4) + g.cell / 2, oy + g.mxY + HD, 'c', 't'));
           MR.forEach((r, j) => place(mxRow[j], ox + g.mxX + 30, oy + g.mxY + HD + 16 + j * (g.cell + 4) + g.cell / 2, 'r', 'c'));
-          place(mxR, ox + g.mrX, oy + g.mrY);
+          place(mxR, ox + g.mrX, oy + g.mrY, g.side ? 'r' : 'l', 't');   /* 나란히면 표의 왼쪽 끝에 오른쪽 맞춤 */
         }
       },
       tokAt(s, id, l) {
@@ -1245,21 +1250,31 @@ function make({ F, deck, labels, scene }) {
     const iLb = Object.fromEntries(iids.map((id) => [id, label('aq')])), sLb = Object.fromEntries(sids.map((id) => [id, label('aq')]));
     iids.forEach((id) => take('ki:' + id, 22)); sids.forEach((id) => take('ks:' + id, 90)); take('kx:line', 110);
     const RW = Math.max(1, ...all.flatMap((s) => s[a].spans.map((x) => (x.row || 0) + 1)));
+    /* 머리 — 폭이 모자라면 ident 의 앞 조각만, 그래도 모자라면 이름만(768 의 두 열에서 옆 판을 덮었다) */
+    let hdLv = 0;
+    const hdOpts = (ax) => { const lb = ax.axis.lb; return lb ? [`${A[a].nm}  ·  ${lb}  ·  KeyString 순서`, `${A[a].nm}  ·  ${lb.split('  ·  ')[0]}  ·  KeyString 순서`, `${A[a].nm}  ·  KeyString 순서`] : [`${A[a].nm}  ·  KeyString 순서`]; };
+    const hdTxt = (ax) => { const o2 = hdOpts(ax); return o2[Math.min(hdLv, o2.length - 1)]; };
     panels.keyax = {
       id: 'keyax', rank: 1, actors: [a],
       tx(s, t) {
         const o = on(s, a), ax = s[a], c2 = s.chg[a] || {}, sOn = new Set([...((c2.span && c2.span.add) || []), ...((c2.span && c2.span.mod) || [])]);
-        t.set(hd, [A[a].nm + '  ·  KeyString 순서', o]);
-        t.set(lo, [String(ax.axis.min), false]); t.set(hi, [String(ax.axis.max), false]);
+        /* 축의 이름 — 데이터가 그 테이블(ident)을 적으면 머리에. 끝 이름도 적으면(작은 키 · 큰 키) 수 대신 그것 — 바이트 순서의 키 공간에서 0 · 300 은 뜻이 없다 */
+        t.set(hd, [hdTxt(ax), o]);
+        t.set(lo, [String(ax.axis.ends ? ax.axis.ends[0] : ax.axis.min), false]); t.set(hi, [String(ax.axis.ends ? ax.axis.ends[1] : ax.axis.max), false]);
         for (const id of iids) { const it = ax.items.find((x) => x.id === id); t.set(iLb[id], [it ? id : '', o && hotIt(s, a, id), '', !!it]); }
-        for (const id of sids) { const sp = ax.spans.find((x) => x.id === id); t.set(sLb[id], [sp ? sp.lb || '' : '', o && sOn.has(id), sp && sp.kind === 'blk' ? 'red' : '', !!sp]); }
+        /* own — 자기 트랜잭션이 쥔 커밋 전 키(11 의 A 의 prefix)는 금빛. 빨강은 충돌(blk)에만 */
+        for (const id of sids) { const sp = ax.spans.find((x) => x.id === id); t.set(sLb[id], [sp ? sp.lb || '' : '', o && sOn.has(id), sp && sp.kind === 'blk' ? 'red' : sp && sp.own ? 'gold' : '', !!sp]); }
       },
       geo(w) {
-        const x0 = 14, x1 = w - 14, per = new Map();
+        const x0 = 14, x1 = w - 14, per = new Map(), o2 = hdOpts(all[0][a]);
+        let lv = o2.findIndex((q) => widthOf(hd, esc(q)) <= w - 4);
+        if (lv < 0) lv = o2.length - 1;
+        if (lv !== hdLv) { hdLv = lv; retext(); }
         let rr = 1;
         for (const s of all) {
           const ax = s[a].axis, X = (v) => x0 + ((v - ax.min) / ((ax.max - ax.min) || 1)) * (x1 - x0), T = TXS.get(s), rows = [];
-          for (let r = 0; r < RW; r++) { const st = stagger(s[a].spans.filter((x) => (x.row || 0) === r).map((x) => ({ id: x.id, cx: (X(x.from) + X(x.to)) / 2, w: widthOf(sLb[x.id], T.get(sLb[x.id])[0]), pins: [X(x.from)] })), 0, w); rows.push(st); }
+          const hx = (x) => { const it = x.hit && s[a].items.find((q) => q.id === x.hit); return X(it ? it.v : x.from); };
+          for (let r = 0; r < RW; r++) { const st = stagger(s[a].spans.filter((x) => (x.row || 0) === r).map((x) => ({ id: x.id, cx: (X(x.from) + X(x.to)) / 2, w: widthOf(sLb[x.id], T.get(sLb[x.id])[0]), pins: [hx(x)] })), 0, w); rows.push(st); }
           const it = stagger(s[a].items.map((x) => ({ id: x.id, cx: X(x.v), w: widthOf(iLb[x.id], x.id) })), 0, w);
           rr = Math.max(rr, ...rows.map((r) => r.rows));
           per.set(s, { X, rows, it: it.out });
@@ -1289,7 +1304,7 @@ function make({ F, deck, labels, scene }) {
           const sp = ax.spans.find((x) => x.id === id), psp = prev && prev[a].spans.find((x) => x.id === id), [k0, k1] = R['ks:' + id];
           if (!sp && !(psp && !c.end)) { c.hideK('ks:' + id); continue; }
           const q = sp || psp, xa = this.ox + p.X(q.from), xb = this.ox + p.X(q.to), y = this.spanY(g, q.row || 0), gone = sp ? 0 : c.gone, pt = q.from === q.to;
-          const col = q.kind === 'blk' ? RED : ACCENT, hot = lit && !!sp && (!psp || psp.lb !== sp.lb);
+          const col = q.kind === 'blk' ? RED : q.own ? GOLD : ACCENT, hot = lit && !!sp && (!psp || psp.lb !== sp.lb);
           for (let m = 0; m < k1 - k0; m++) {
             const u = m / (k1 - k0 - 1);
             let x = pt ? xa + Math.cos(m * 2.399) * (1.5 + (m % 5) * 0.9) : xa + Math.floor(m / 3) / Math.max(1, Math.ceil((k1 - k0) / 3) - 1) * (xb - xa), yy = pt ? y + Math.sin(m * 2.399) * (1.5 + (m % 5) * 0.9) * 0.8 : y + ((m % 3) - 1) * 2.4;
@@ -1298,7 +1313,8 @@ function make({ F, deck, labels, scene }) {
           }
         }
       },
-      over(ctx, s, o) { const g = this.g, p = g.per.get(s); ctx.globalAlpha = 0.25 * o; ctx.strokeStyle = css.faint; ctx.setLineDash([1, 3]); for (const sp of s[a].spans) { const x = this.ox + p.X(sp.from); seg(ctx, x, this.spanY(g, sp.row || 0) + 3, x, this.oy + g.lineY - 3); } ctx.setLineDash([]); },
+      /* 구간에서 축으로 내리는 점선 — 검색이 찾은 키(hit)가 있으면 그 키에, 없으면 구간의 시작에(11 / 9 의 'B 의 검색 → RID 1') */
+      over(ctx, s, o) { const g = this.g, p = g.per.get(s); ctx.globalAlpha = 0.25 * o; ctx.strokeStyle = css.faint; ctx.setLineDash([1, 3]); for (const sp of s[a].spans) { const it = sp.hit && s[a].items.find((q) => q.id === sp.hit), x = this.ox + p.X(it ? it.v : sp.from); seg(ctx, x, this.spanY(g, sp.row || 0) + 3, x, this.oy + g.lineY - 3); } ctx.setLineDash([]); },
       anchor(a2, s) {
         const g = this.g, p = g.per.get(s), ax = s[a], c2 = s.chg[a] || {}, sid = c2.span && [...(c2.span.add || [])].pop(), sp = sid && ax.spans.find((x) => x.id === sid);
         if (sp) return [this.ox + p.X(sp.from), this.spanY(g, sp.row || 0)];
@@ -1417,7 +1433,8 @@ function make({ F, deck, labels, scene }) {
       },
       capMode: false,
       geo(w) {
-        const hx = isChain ? 22 : 0, sw = Math.min(190, (w - hx) / MAXN);
+        /* 칸이 셋 이하면 더 넓게 — 190 으로 묶자 설명이 두세 줄로 꺾이고 오른쪽 60 % 가 비었다(11) */
+        const hx = isChain ? 22 : 0, sw = Math.min(MAXN <= 3 ? 300 : 190, (w - hx) / MAXN);
         const cm = sw < 124;
         if (cm !== this.capMode) { this.capMode = cm; retext(); }
         for (const id of ids) wrap(lb[id], sw - 8);
