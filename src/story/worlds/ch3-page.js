@@ -576,6 +576,11 @@ PANEL.text = (W, M, sp) => {
 PANEL.chips = (W, M, sp) => {
   const a = sp.a, hd = W.label('aq'), II = ids(M, a);
   const cl = Object.fromEntries(II.map((id) => [id, W.label('aq aq-c')])), cap = W.label('aq ml aq-b');
+  /* 이 스텝에 바뀐 칸 — set 으로 이름을 바꾼 칸(05 의 'k₂ = 20' → 'k = 15')은 bake 의 mod 가 옛 이름을 적으므로, 앞 상태에
+     없던 이름도 바뀐 칸으로 센다. 안 그러면 새 이름의 칸만 흐리게 남았다 */
+  const PV = new Map();
+  for (const b of M.B.values()) b.S.forEach((s2, i) => PV.set(s2, i ? b.S[i - 1] : b.S0));
+  const hotC = (s2, id) => hotIt(s2, a, id) || (!focusOf(s2, a) && modOf(s2, a).size > 0 && !!PV.get(s2) && !(PV.get(s2)[a] || []).some((x) => x.id === id));
   let g = null;
   /* 칸 자리 — 왼쪽부터 차례로, 넘치면 다음 줄. rtl 이면 오른쪽 끝부터(슬롯은 page 끝에서 거꾸로 자란다) */
   const slot = (s, id) => {
@@ -594,7 +599,7 @@ PANEL.chips = (W, M, sp) => {
     texts(s, T) {
       const on = touchOf(s, a);
       T.set(hd, [M.A[a].nm, on]);
-      for (const id of II) { const it = s[a].find((x) => x.id === id); T.set(cl[id], [it ? id : '', on && !!it && hotIt(s, a, id), it ? TAGL[it.tag] || '' : '', !!it]); }
+      for (const id of II) { const it = s[a].find((x) => x.id === id); T.set(cl[id], [it ? id : '', on && !!it && hotC(s, id), it ? TAGL[it.tag] || '' : '', !!it]); }
       T.set(cap, [capOf(s[a]) || (s[a].length ? '' : '—'), on, '', true, true]);
     },
     layout(x0, y, ww) {
@@ -617,7 +622,7 @@ PANEL.chips = (W, M, sp) => {
         if (!it && !(pv && !P.end)) continue;
         const Q = it ? slot(s, id) : slot(P.prev, id);
         if (!Q) continue;
-        const gone = it ? 0 : W.show(P.p, 0.1, 0.4), tg = (it || pv).tag, lv = P.level(a, it && hotIt(s, a, id)) * P.form;
+        const gone = it ? 0 : W.show(P.p, 0.1, 0.4), tg = (it || pv).tag, lv = P.level(a, it && hotC(s, id)) * P.form;
         const born = it && !pv && !P.end && P.act && P.act.t === a;
         for (let m = 0; m < r1 - r0; m++) {
           const i = r0 + m;
@@ -625,7 +630,7 @@ PANEL.chips = (W, M, sp) => {
           if (born) { const q = W.show(P.fly, (m / (r1 - r0)) * 0.4, 0.6 + (m / (r1 - r0)) * 0.4); x = U.lerp(P.src[0], x, q); y = U.lerp(P.src[1], y, q) - Math.sin(q * Math.PI) * 16; }
           if (gone) { x += W.jit[i * 2] * 24 * gone; y += W.jit[i * 2 + 1] * 24 * gone; }
           const [xx, yy] = P.into(i, x, y);
-          W.put(P.o, i, xx, yy, lv * (1 - gone) * (tg === 'free' ? 0.5 + 0.5 * (m % 2) : 1), it && hotIt(s, a, id) && touchOf(s, a) ? 0.35 : 0, 0.03, 1.1, TAGC[tg] ?? INK);
+          W.put(P.o, i, xx, yy, lv * (1 - gone) * (tg === 'free' ? 0.5 + 0.5 * (m % 2) : 1), it && hotC(s, id) && touchOf(s, a) ? 0.35 : 0, 0.03, 1.1, TAGC[tg] ?? INK);
         }
       }
     },

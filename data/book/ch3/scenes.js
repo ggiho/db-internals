@@ -1414,7 +1414,7 @@ const SCENES = [
     ['—','이 배치는 InnoDB 가 쓰지 않는다 — 비교를 위한 것이다']],
   links:[['06','슬롯 배치가 이 문제를 어떻게 푸는가'],['08','삽입 순서와 정렬 순서'],['02','가변 길이 문제']],
   init:{
-    op:{ kv:{ '배치':'k·v·p 이어 붙이기', '가운데 삽입':'—', '가변 길이':'불가' } },
+    op:{ kv:{ '배치':'k·v·p 이어 붙이기', '가운데 삽입':'—', '가변 길이':'불가', '탐색':'—' } },
     pg:{ items:[
       { id:'p₀ k₁ v₁', sz:3, tag:'', sub:'' },
       { id:'p₁ k₂ v₂', sz:3, tag:'', sub:'' },
@@ -1446,9 +1446,14 @@ const SCENES = [
     key:'책이 지적한 첫 단점이다 — <em>맨 오른쪽이 아닌 곳에 넣으면 원소를 재배치해야 한다</em>. 페이지가 클수록 비싸진다.',
     beat:1,
     cite:['appending a key anywhere but the right side requires relocating elements'],
-    ops:{ pg:{ set:{ 'p₁ k₂ v₂':{ id:'p k=15', sz:3, tag:'gold', sub:'새 자리' },
+    /* 항목 하나(3)가 들어오고 빈 곳(4)은 1 이 남는다 — 뒤의 둘이 한 칸씩 밀린다. 셀 목록도 같은 page 다 */
+    ops:{ pg:{ set:{ 'p₁ k₂ v₂':{ id:'p k=15 v', sz:3, tag:'gold', sub:'새 자리' },
                      'p₂ k₃ v₃':{ id:'p₁ k₂ v₂', sz:3, tag:'red', sub:'밀렸다' },
-                     '빈 곳':{ id:'p₂ k₃ v₃  + 빈 곳', sz:4, tag:'red', sub:'밀렸다' } } },
+                     '빈 곳':{ id:'p₂ k₃ v₃', sz:3, tag:'red', sub:'밀렸다' } },
+               add:[{ id:'빈 곳', sz:1, tag:'free', sub:'' }] },
+          cells:{ set:{ 'k₂ = 20':{ id:'k = 15', tag:'hold', sub:'새 자리' },
+                        'k₃ = 30':{ id:'k₂ = 20', tag:'x', sub:'밀렸다' } },
+                  add:[{ id:'k₃ = 30', tag:'x', sub:'밀렸다' }] },
           op:{ set:{ '가운데 삽입':'뒤 전부 이동|red' } } } },
 
   { look:{ cells:true },
@@ -1457,7 +1462,8 @@ const SCENES = [
     key:'책의 두 번째 단점이다 — <em>가변 크기 레코드를 효율적으로 다루지 못하고 고정 크기에만 통한다</em>.',
     beat:1,
     cite:["It doesn't allow managing or accessing variable-size records efficiently and works only for fixed-size data"],
-    ops:{ cells:{ set:{ 'k₂ = 20':{ id:'k₂ = "Leslie"', tag:'x', sub:'길이가 다르다 → 오프셋 붕괴' } } },
+    ops:{ cells:{ set:{ 'k = 15':{ tag:'clean', sub:'고정 크기' }, 'k₃ = 30':{ tag:'clean', sub:'고정 크기' },
+                        'k₂ = 20':{ id:'k₂ = "Leslie"', tag:'x', sub:'길이가 다르다 → 오프셋 붕괴' } } },
           op:{ set:{ '가변 길이':'불가 · 오프셋 붕괴|red' } } } },
 
   { look:{ cells:true },
@@ -1467,7 +1473,13 @@ const SCENES = [
     ref:'storage/innobase/include/page0page.h', sym:'PAGE_DIR_SLOT_SIZE',
     fact:['constexpr uint32_t PAGE_DIR_SLOT_SIZE = 2;',
           '((page) + (UNIV_PAGE_SIZE - PAGE_DIR - (n + 1) * PAGE_DIR_SLOT_SIZE))',
-          ['storage/innobase/page/page0cur.cc','mid = (low + up) / 2;']] },
+          ['storage/innobase/page/page0cur.cc','mid = (low + up) / 2;']],
+    /* 고정 폭으로 되돌린 배열 — i 번째가 base + i × w, 가운데를 한 번에 짚는다 */
+    ops:{ cells:{ set:{ 'k₂ = "Leslie"':{ id:'k₂ = 20', tag:'clean', sub:'2 × w' },
+                        'k₁ = 10':{ sub:'low · 0 × w' }, 'k = 15':{ tag:'hold', sub:'mid = (0 + 3) / 2 = 1 · 1 × w' },
+                        'k₃ = 30':{ sub:'up · 3 × w' } } },
+          pg:{ set:{ 'p k=15 v':{ tag:'', sub:'' }, 'p₁ k₂ v₂':{ tag:'', sub:'' }, 'p₂ k₃ v₃':{ tag:'', sub:'' } } },
+          op:{ set:{ '가변 길이':'불가', '탐색':'base + i × w · 이진 탐색|green' } } } },
 
   { look:{ dir:true, op:true },
     note:'해법의 방향 — 위치와 순서를 분리',
@@ -1475,6 +1487,7 @@ const SCENES = [
     key:'그러면 삽입이 <em>포인터만 옮기는 일</em>이 된다. 셀은 움직이지 않는다. 그것이 슬롯 페이지다 — <em>V 로 나란히</em>.',
     cite:['split out pointers and cells in two independent memory regions residing on different sides of the page',
           'we only need to reorganize pointers addressing the cells to preserve the order'],
+    ops:{ dir:{ add:[{ id:'순서 배열', tag:'hold', sub:'셀은 그대로 · 순서만 여기 → B' }] } },
     beat:1 },
   ],
 },
@@ -1491,12 +1504,13 @@ const SCENES = [
   links:[['06','슬롯 배치가 이 문제를 어떻게 푸는가'],['08','삽입 순서와 정렬 순서'],['02','가변 길이 문제']],
   init:{
     op:{ kv:{ '배치':'슬롯 디렉터리 + 셀', '가운데 삽입':'—', '가변 길이':'가능' } },
+    /* 개념도라 칸 폭은 sz 로만 — 'N B' 를 적으면 세계가 그 칸만 바이트로 재서 헤더가 띠의 2/3 를 먹었다 */
     pg:{ items:[
-      { id:'헤더', sz:2, tag:'hdr', sub:'38 B + 페이지 헤더' },
+      { id:'헤더', sz:2, tag:'hdr', sub:'FIL + 페이지 헤더' },
       { id:'셀 →', sz:4, tag:'', sub:'앞에서 뒤로 자란다' },
       { id:'빈 곳', sz:4, tag:'free', sub:'' },
       { id:'←슬롯', sz:2, tag:'gold', sub:'뒤에서 앞으로' },
-      { id:'8B', sz:1, tag:'hdr', sub:'trailer' } ],
+      { id:'끝', sz:1, tag:'hdr', sub:'trailer 8 바이트' } ],
       byl:{ l:'양쪽에서 가운데로 자란다', r:'만나면 꽉 찬 것' } },
     cells:{ items:[
       { id:'셀 0  k=10', tag:'clean', sub:'삽입 순서 0' },
@@ -1537,8 +1551,8 @@ const SCENES = [
                      { id:'슬롯 2 → 셀 2', tag:'clean', sub:'k=20  · 한 칸 밀림' },
                      { id:'슬롯 3 → 셀 1', tag:'clean', sub:'k=30  · 한 칸 밀림' }] },
           pg:{ set:{ '셀 →':{ id:'셀 →', sz:5, tag:'', sub:'하나 늘었다' },
-                     '빈 곳':{ id:'빈 곳', sz:3, tag:'free', sub:'줄었다' },
-                     '←슬롯':{ sub:'슬롯 4개' } } },
+                     '빈 곳':{ id:'빈 곳', sz:2.5, tag:'free', sub:'줄었다' },
+                     '←슬롯':{ sz:2.5, sub:'슬롯 4개' } } },
           op:{ set:{ '가운데 삽입':'슬롯 2바이트만 이동|green' } } } },
 
   { look:{ cells:true },
@@ -1550,9 +1564,10 @@ const SCENES = [
     fact:[['storage/innobase/include/page0page.ic','mach_write_to_2(slot, page_offset(rec));']],
     cite:['Store variable-size records with a minimal overhead',
           'Reference records in the page without regard to their exact locations'],
-    ops:{ cells:{ set:{ '셀 1  k=30':{ id:'셀 1  k="Leslie"', tag:'ok', sub:'길이가 달라도 무관' } } },
-          /* 그 셀을 가리키는 슬롯도 같은 키를 적는다 — k=30 으로 남아 셀과 어긋났다(ch3-page 세계의 셈 맞추기) */
-          dir:{ set:{ '슬롯 3 → 셀 1':{ sub:'k="Leslie"' } } },
+    /* 셀 1 의 값이 긴 문자열이 된다 — 셀은 제자리, 셀 영역만 길어진다. 셀의 이름(키)을 바꾸면 칸이 넓어져
+       뒤 셀이 밀려 보였다(이 장면이 말하는 것과 반대) */
+    ops:{ cells:{ set:{ '셀 1  k=30':{ tag:'ok', sub:'v="Leslie" · 길이가 달라도 제자리' } } },
+          pg:{ set:{ '셀 →':{ sz:6, sub:'긴 값 하나' }, '빈 곳':{ sz:1.5 } } },
           op:{ set:{ '가변 길이':'가능 · 슬롯이 오프셋을 안다|green' } } } },
 
   { look:{ dir:true },
@@ -1564,7 +1579,7 @@ const SCENES = [
           ['storage/innobase/include/page0types.h','constexpr uint32_t PAGE_N_DIR_SLOTS = 0;']],
     cite:['split out pointers and cells in two independent memory regions residing on different sides of the page'] },
 
-  { look:{ pg:true, op:true },
+  { look:{ pg:['←슬롯'], op:true },
     note:'대가 — cell 마다 2-byte slot',
     why:'책이 "슬롯 페이지가 물리는 유일한 오버헤드는 오프셋을 담은 포인터 배열" 이라고 한 그것이다.',
     key:'InnoDB 의 <em>PAGE_DIR_SLOT_SIZE = 2</em>. 다만 InnoDB 는 슬롯을 레코드마다 두지 않고 <em>4~8개마다 하나</em>만 둔다 — 06 에서 본다.',
@@ -1573,6 +1588,7 @@ const SCENES = [
           'constexpr uint32_t PAGE_DIR_SLOT_MIN_N_OWNED = 4;',
           'constexpr uint32_t PAGE_DIR_SLOT_MAX_N_OWNED = 8;'],
     cite:['the only overhead incurred by slotted pages is a pointer array holding offsets to the exact positions where the records are stored'],
+    ops:{ pg:{ set:{ '←슬롯':{ tag:'gold', sub:'슬롯 4개 × 2 바이트' } } } },
     beat:1 },
   ],
 },
