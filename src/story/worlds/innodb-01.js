@@ -329,10 +329,12 @@ function make({ F, deck, labels, scene }) {
     if (act) {
       const [fx, fy] = src, [tx2, ty2] = anchor(act.t, s, act.lb), e = U.smooth(fly), gone = show(p, 0.42, 0.52), self = act.f === act.t;
       const arc = self ? 0 : Math.sin(e * Math.PI) * Math.min(60, Math.hypot(tx2 - fx, ty2 - fy) * 0.25), col = act.gold ? GOLD : ACCENT;
+      /* 덩어리 가운데는 무대 위 끝(y0) 아래에 — 좁은 화면에서 무대가 글 바로 밑으로 올라오자 위로 휘는 호가 글 위를 지났다(innodb 01/14, 768) */
+      const cy = Math.max(G.L.y0 + 10, U.lerp(fy, ty2, e) - arc);
       for (let m = 0; m < tn; m++) {
         const i = t0 + m, th = m * 2.399;
         const r = self ? 8 + e * 7 + (m % 3) * 0.7 : Math.sqrt((m + 0.5) / tn) * 8;
-        put(o, i, U.lerp(fx, tx2, e) + Math.cos(th) * r, U.lerp(fy, ty2, e) + Math.sin(th) * r - arc, (fly > 0.01 ? 0.95 : 0) * (1 - gone), 1, 0.2, 1.25, col);
+        put(o, i, U.lerp(fx, tx2, e) + Math.cos(th) * r, cy + Math.sin(th) * r, (fly > 0.01 ? 0.95 : 0) * (1 - gone), 1, 0.2, 1.25, col);
       }
     } else hide('tok');
   }
