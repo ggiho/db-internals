@@ -201,7 +201,7 @@ const SCENES = [
   { act:{ f:'io', t:'hdd', lb:'순차로 바꾸면' },
     note:'같은 20 block 도 sequential 이면 seek 1회',
     why:'헤드를 한 번 위치시킨 뒤 그대로 읽어 나간다.',
-    key:'InnoDB 가 리프 page 를 <em>따로 한 segment 에서</em> 할당하고, 분할 때 바로 옆 번호(page_no + 1)를 먼저 청하는 이유다. fan-out 을 올리는 것과 같은 목적 — 시크를 줄인다.',
+    key:'InnoDB 가 리프 page 를 <em>따로 한 segment 에서</em> 할당하고, 분할(btr_page_split_and_insert)이 바로 옆 번호(page_no + 1)를 먼저 청하는 이유다. fan-out 을 올리는 것과 같은 목적 — 시크를 줄인다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_page_alloc_low',
     fact:['The leaf pages of a tree are allocated from one file segment, to make them consecutive on disk if possible.',
           'seg_header = root + PAGE_HEADER + PAGE_BTR_SEG_LEAF;',
@@ -220,6 +220,7 @@ const SCENES = [
           'the smallest transfer unit of a spinning drive is a sector',
           'most operating systems have a block device abstraction'],
     look:{ op:true },
+    ops:{ io:{ set:{ '작업':'1 byte 읽기', '비용':'섹터 1개 전송 (512B ~ 4KB)|gold' } } },
     beat:1 },
 
   { note:'in-place update 가능 — SSD 와 갈리는 지점',
@@ -237,6 +238,7 @@ const SCENES = [
     why:'순차로 모으고, 한 번 위치시킨 뒤 많이 읽고, 인접한 것을 함께 처리한다.',
     key:'B-Tree 의 설계 결정 대부분이 이 문장에서 나온다. <em>V 를 눌러 SSD 와 나란히</em> 보면 무엇이 달라지는지 보인다.',
     cite:['this is one of the reasons we often hear about the positive effects of sequential I/O'],
+    ops:{ io:{ set:{ '작업':'순차 읽기 20블록', '비용':'시크 1회 (임의면 20회)|green' } } },
     beat:1 },
   ],
 },
@@ -255,7 +257,7 @@ const SCENES = [
     ['Innodb_dblwr_writes','doublewrite 쓰기 — SSD 에서는 이 증폭이 더 아프다']],
   links:[['02','왜 시크 횟수를 줄여야 하는가'],['04','두 매체가 공유하는 제약']],
   init:{
-    op:{ kv:{ '매체':'SSD', '최소 전송 단위':'페이지 2 ~ 16KB', '비싼 것':'지우기 · 쓰기 증폭' } },
+    op:{ kv:{ '매체':'SSD', '최소 전송 단위':'페이지 2 ~ 16KB', '지우기 단위':'블록 = 64 ~ 512 페이지 (그림은 9칸)', '비싼 것':'지우기 · 쓰기 증폭' } },
     ssd:{ kv:{ '순차 읽기':'싸다', '임의 읽기':'거의 같다 · 헤드가 없다', '쓰기':'빈 셀에만 가능' } },
     ftl:{ items:[
       { id:'블록 A', tag:'hold', sub:'살아있는 페이지 4 · 버려진 5', live:4, dead:5 },
@@ -305,7 +307,7 @@ const SCENES = [
           'its effects may negatively impact write performance, especially in cases of random and unaligned write workloads'],
     ops:{ ftl:{ set:{ '블록 A':{ tag:'clean', sub:'지워졌다 · 쓸 수 있다', live:0, dead:0 },
                       '블록 B':{ tag:'hold', sub:'살아있는 4 · 새로 쓴 하나 + 옮겨온 셋', live:4 } } },
-          io:{ set:{ '비용':'쓰기 증폭|red' } } } },
+          io:{ set:{ '비용':'쓰기 증폭 · 앱 1 page → 실제 4 page (×4)|red' } } } },
 
   { look:{ ssd:true, ftl:true },
     note:'정리 — SSD 의 원칙은 block 단위 write, 같은 block 의 write 를 모은다',

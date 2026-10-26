@@ -20,6 +20,7 @@ import { stagger } from './stagger.js';
 import { bare, tone, nums, fmt, parseNode, treeState, chipIdentity, checks } from './ch2-model.js';
 
 const HANGUL = /[가-힣]/;
+const ONE = /\bbyte\b|바이트/;   /* io '작업' 이 1 byte 읽기 — HDD 는 섹터 하나를 통째로 옮긴다(03/3) */
 const span = { gold: 'q-g', red: 'q-r', green: 'q-gr' };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const val = (v) => (tone(v) ? `<span class="${span[tone(v)]}">${esc(bare(v))}</span>` : esc(bare(v)));
@@ -214,6 +215,7 @@ function model(F, deck, labels, sc, cssOf) {
   const nlLb = NODE ? Object.fromEntries(NIDS.map((id) => [id, label('aq aq-c')])) : {};
   const nlCap = NODE ? label('aq ml aq-b') : null;
   const ftLb = FTL ? Object.fromEntries(FIDS.map((id) => [id, { n: label('aq aq-c'), v: label('aq aq-c ml') }])) : {};
+  const ftMv = FTL ? label('aq aq-c gold') : null;
   const sqCap = TRAY ? label('aq') : null;
   const hdLb = HDD ? label('aq gold') : null;
   const bLb = Object.fromEntries(BLK.map((a) => [a, { n: {}, v: {}, cap: label('aq ml aq-b') }]));
@@ -273,8 +275,19 @@ function model(F, deck, labels, sc, cssOf) {
       for (const id of NIDS) { const it = s[NODE].find((x) => x.id === id); t.set(nlLb[id], [it ? id : '', on(NODE) && !!it && hotIt(s, NODE, id), it && (it.tag === 'x' || it.tag === 'red') ? 'red' : '', !!it]); }
       t.set(nlCap, [capOf(s[NODE]) || (s[NODE].length ? '' : '—'), on(NODE), '', true, true]);
     }
+    if (FTL) {
+      /* 재매핑된 page 의 이름 — 이 스텝에 살아 있던 칸 하나가 버려지고(L → D) 다른 블록에 새로 쓰였을 때, 금색 화살 위에 */
+      const pv = stOf(prevIdx[k])[FTL], was = (id) => pv.find((x) => x.id === id) || {};
+      const turned = s[FTL].some((b) => (b.live || 0) < (was(b.id).live || 0) && (b.dead || 0) > (was(b.id).dead || 0));
+      const pg = IO && /p:\d+/.exec(bare(s[IO]['작업'] || ''));
+      t.set(ftMv, [turned && pg ? pg[0] : '', on(FTL), 'gold', !!(turned && pg)]);
+    }
     if (FTL) for (const id of FIDS) { const b = s[FTL].find((x) => x.id === id); t.set(ftLb[id].n, [b ? id : '', on(FTL) && !!b && hotIt(s, FTL, id), b && b.tag === 'x' ? 'red' : '', !!b]); t.set(ftLb[id].v, [b ? b.sub : '', on(FTL) && !!b && hotIt(s, FTL, id), '', !!b && !!b.sub]); }
-    if (HDD) { const pg = /p:\d+/.exec(bare(s[IO]['작업'] || '')); t.set(hdLb, [pg && /제자리|갱신/.test(bare(s[IO]['작업'])) ? pg[0] : '', on(IO), 'gold', !!pg && /제자리|갱신/.test(bare(s[IO]['작업']))]); }
+    if (HDD) {
+      /* 헤드 옆 이름 — 제자리 쓰기는 그 page, 1 byte 읽기는 실제로 오는 단위(섹터 하나) */
+      const job = bare(s[IO]['작업'] || ''), pg = /제자리|갱신/.test(job) && /p:\d+/.exec(job), one = ONE.test(job);
+      t.set(hdLb, [pg ? pg[0] : one ? '섹터 1개' : '', on(IO), 'gold', !!pg || one]);
+    }
     if (TRAY) { const n = sqOf(s), m = skOf(s); t.set(sqCap, [n ? `블록 ${n} × 16 KB${m ? '  ·  시크 ' + m : ''}` : '', on(TRAY), '', n > 0]); }
     for (const a of BLK) {
       const mod = modOf(s, a);
@@ -423,7 +436,7 @@ function model(F, deck, labels, sc, cssOf) {
       const vh = Math.max(14, ...FIDS.map((id) => most(ftLb[id].v).h));
       G.ssd = { cols, rows, cs, cg, bw, bh, bgap, vh, h: HD + 16 + bh + 8 + vh };
     }
-    if (HDD) { const R0 = U.clamp(Math.min(ww * 0.21, wh * 0.2), 46, 112); G.hdd = { R: R0, h: 2 * R0 + 16 }; }
+    if (HDD) { const R0 = U.clamp(Math.min(ww * 0.28, wh * 0.27), 46, 150); G.hdd = { R: R0, h: 2 * R0 + 16 }; }
     if (TRAY) G.tray = { h: (PL.SKN ? 14 : 0) + SQ + 6 + 15 + RH * 0.7 };
     /* 블록 띠 — 이름 · 설명의 줄은 모든 스텝의 칸 자리로 나눈다 */
     for (const a of BLK) {
@@ -607,6 +620,7 @@ function model(F, deck, labels, sc, cssOf) {
       if (/임의/.test(job) && n) { mode = 'rand'; for (let q = 0; q < n; q++) tg.push({ t: Math.floor(rr() * TRK), s: Math.floor(rr() * SEC), u: 0 }); tg.forEach((g) => { g.u = g.s; }); }
       else if (/순차/.test(job) && n) { mode = 'seq'; const t = 1, s0 = Math.floor(rr() * SEC); for (let q = 0; q < Math.min(n, SEC - 2); q++) tg.push({ t, s: (s0 + q) % SEC, u: s0 + q }); }
       else if (/제자리|갱신/.test(job)) { mode = 'write'; tg.push({ t: 3, s: 7, u: 7 }); }
+      else if (ONE.test(job)) { mode = 'one'; tg.push({ t: 4, s: 18, u: 18 }); }
       /* 각 대상의 끝 자세 — 그 섹터가 헤드 밑에 온 원판 각도(순차는 감지 않은 섹터 번호로 — 한 바퀴를 넘어도 이어서 돈다) */
       const seq = tg.map((g) => { const H = head(rad(g.t)); return { r: g.t, phi: angOf(H) - secA(g.u) }; });
       const from = { r, phi };
@@ -947,10 +961,11 @@ function model(F, deck, labels, sc, cssOf) {
       Pk.tg.slice(0, H.done).forEach((g) => done.set(g.t * SEC + g.s, Pk.mode));
       for (let tr = 0; tr < TRK; tr++) for (let sc2 = 0; sc2 < SEC; sc2++) {
         const th = HP.secA(sc2) + H.phi, r = HP.rad(tr), d = done.get(tr * SEC + sc2);
-        const col = d === 'rand' ? RED : d === 'seq' ? GREEN : d === 'write' ? GOLD : FAINT;
+        const big = d === 'write' || d === 'one', col = d === 'rand' ? RED : d === 'seq' ? GREEN : big ? GOLD : FAINT;
         for (let m = 0; m < SECG; m++, i++) {
-          const t2 = th + m * 0.055, [x, y] = into(i, cx + Math.cos(t2) * r, cy + Math.sin(t2) * r);
-          put(o, i, x, y, (d ? 0.95 : sectorLit ? 0.7 : 0.38) * dim * form, d ? 0.5 : 0, 0.02, d ? (d === 'write' ? 3.6 : 2) : 1.05, d ? col : sectorLit ? INK : FAINT);
+          /* 금색(쓴 · 통째로 옮긴) 섹터는 섹터 폭만큼 넓게 — 헤드 표시에 가려지지 않게 */
+          const t2 = th + m * (big ? 0.085 : 0.055), [x, y] = into(i, cx + Math.cos(t2) * r, cy + Math.sin(t2) * r);
+          put(o, i, x, y, (d ? 0.95 : sectorLit ? 0.7 : 0.38) * dim * form, d ? 0.5 : 0, 0.02, d ? (big ? 3.6 : 2) : 1.05, d ? col : sectorLit ? INK : FAINT);
         }
       }
       const hp = HP.head(HP.rad(H.r));
@@ -1145,6 +1160,7 @@ function model(F, deck, labels, sc, cssOf) {
     /* 빈 목록의 '—' 는 칸이 놓일 자리(머리 이름 바로 아래)에 — 설명 열에 두면 머리에서 300px 떨어져 떠 있었다(04/1 · 07/1) */
     if (NODE) { if (s[NODE].length) place(nlCap, ...G.nl.capAt); else place(nlCap, G.L.x0 + 4, G.nl.y + 6); }
     if (TRAY) place(sqCap, G.L.x0, G.tray.y + SQ + 5, 'l', 't');
+    if (FTL) place(ftMv, G.ssd.x0 + G.ssd.bw + G.ssd.bgap / 2, G.ssd.y + G.ssd.bh / 2 - 6, 'c', 'b');
     if (HDD && HP) {
       const P = HP.per[kk], last = P.seq[P.seq.length - 1];
       if (last) {
@@ -1247,7 +1263,7 @@ function model(F, deck, labels, sc, cssOf) {
       ctx.globalAlpha = 0.8 * o; ctx.strokeStyle = css.ink; ctx.lineWidth = 2;
       const d = Math.hypot(hp.x - HP.piv.x, hp.y - HP.piv.y), u = Math.max(0, (d - 7) / d);
       seg(ctx, HP.piv.x, HP.piv.y, HP.piv.x + (hp.x - HP.piv.x) * u, HP.piv.y + (hp.y - HP.piv.y) * u); ctx.lineWidth = 1;
-      const hl = G.hdLbAt, wr = HP.per[kk] && HP.per[kk].mode === 'write' && !end;
+      const hl = G.hdLbAt, wr = HP.per[kk] && (HP.per[kk].mode === 'write' || HP.per[kk].mode === 'one') && !end;
       if (hl && wr) { const { cx, cy, R: Rr } = G.hdd; ctx.globalAlpha = 0.6 * o * show(k === kk ? p : 1, 0.4, 0.5); ctx.strokeStyle = css.gold; ctx.setLineDash([2, 3]); seg(ctx, cx + hl.ux * (Rr + 2), cy + hl.uy * (Rr + 2), cx + hl.ux * (Rr + 12), cy + hl.uy * (Rr + 12)); ctx.setLineDash([]); }
     }
     if (FTL && s[FTL].length) {
