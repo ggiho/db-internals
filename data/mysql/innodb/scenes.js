@@ -28,11 +28,12 @@ const SCENES = [
                  'srv_flush_log_at_trx_commit == 1);',
                  ['storage/innobase/trx/trx0trx.cc','/* Write the log but do not flush it to disk */'],
                  'or 2 (write at commit, flush once per second).'],
-           /* lb 는 기본값 스텝이 이미 4,912 로 올려 둔다 — 같은 값을 다시 set 하면
-              "변화 없음" 경고가 난다. 이 값에서 달라지는 것은 redo 쪽뿐이다. */
+           /* lb 의 assigned 는 기본값 스텝(11)이 이미 4,960 으로 올려 둔다 — 같은 값을 다시 set 하면
+              "변화 없음" 경고가 난다. write 는 했으므로 log buffer 는 비운다 */
            /* 'Log flushed up to' 는 flushed_to_disk_lsn — fsync 된 곳이다. 처음엔 여기에 write 한 곳(4,912)을 적었다.
               커밋은 log_write_up_to(lsn, false) 로 write 까지만 기다리고, fsync 는 log_flusher 가 1s 마다 따로 한다 */
-           ops:{ redo:{ set:{ 'Log flushed up to':'4,800  (4,912 까지는 write 만)|gold' } } },
+           ops:{ redo:{ set:{ 'Log flushed up to':'4,800  (4,960 까지는 write 만)|gold' } },
+                 lb:{ gg:{ v:.0, l:'log buffer', r:'비었다' } } },
            /* act 도 적는다 — 적지 않으면 기본값의 '그룹 fsync' 토큰이 이 값에서도 날아갔다 */
            act:{ f:'lb', t:'redo', lb:'write 만  →  OS page cache' } },
       13:{ note:'WAL 절반 성립 — 순서는 맞지만 durability 가 다르다',
@@ -48,7 +49,16 @@ const SCENES = [
            ref:'sql/binlog/recovery.cc', sym:'Binlog_recovery::recover',
            fact:[['sql/binlog/recovery.h','storage engines to commit all prepared transactions that are in the set,'],
                  ['storage/innobase/handler/ha_innodb.cc','or 2 (write at commit, flush once per second).'],
-                 ['sql/sys_vars.cc','VALID_RANGE(0, UINT_MAX), DEFAULT(1), BLOCK_SIZE(1));']], },
+                 ['sql/sys_vars.cc','VALID_RANGE(0, UINT_MAX), DEFAULT(1), BLOCK_SIZE(1));']],
+           ops:{ bin:{ set:{ 'Xid':'trx 41 의 XID_EVENT|gold' } } } },
+      14:{ note:'flush ② — binlog event write, redo 는 OS 에 넘어갔고 fsync 전',
+           why:'process_flush_stage_queue 의 순서는 같다 — redo 를 먼저 내리고, 그 다음 줄에서 각 세션의 캐시를 binlog 로 옮긴다. 다만 이 값에서 redo 를 "내린다" 는 write 까지다(12 스텝).',
+           key:'순서는 <em>write 수준에서만</em> 지켜진다. mysqld 만 죽으면 PREPARE 기록이 남지만, OS 가 죽으면 다음 스텝에서 fsync 될 binlog 이벤트만 남고 그 짝인 PREPARE 는 page cache 와 함께 사라질 수 있다.',
+           act:{ f:'ses', t:'bin', lb:'Update_rows 이벤트' },
+           ops:{ bin:{ set:{ 'Position':'1,388|green', 'Xid':'trx 41 의 XID_EVENT' } } } },
+      18:{ note:'OK 응답 — redo 는 아직 fsync 전, .ibd 는 c = 100',
+           why:'데이터 파일에 쓰는 일은 커밋 경로에 없다. 그리고 이 값에서 커밋이 보장하는 것은 "redo 가 OS 에 넘어갔다" 까지다 — fsync 는 log_flusher 가 innodb_flush_log_at_timeout(1초)마다 한다.',
+           key:'OK 를 받은 변경이 <em>OS 크래시나 전원 장애에서는 사라질 수 있다</em> — mysqld 만 죽었다면 남는다. binlog 에는 이미 커밋으로 적혀 있으므로, 사라지면 복제본과도 어긋난다.' },
       /* page 를 쓰기 전에 redo 를 그 page 의 LSN 까지 — buf_flush_write_block_low 가 dblwr::write 보다 먼저 한다.
          이 스텝이 없을 때는 LSN 4,912 의 page 가 flushed 4,600 · 4,912(fsync 안 함)인 채로 .ibd 에 쓰였다(WAL 위반) */
       20:{ note:'page 쓰기 전에 redo 를 그 LSN 까지 flush — 그 다음 doublewrite 사본',
@@ -59,7 +69,7 @@ const SCENES = [
                  'wait_stats = log_write_up_to(*log_sys, flush_to_lsn, true);',
                  ['storage/innobase/log/log0write.cc','const auto flush_every = get_srv_flush_log_at_timeout();'],
                  ['storage/innobase/log/log0write.cc','Log_writer avoids waking up log_flusher,']],
-           act:{ f:'bp', t:'dw', lb:'p:5 사본 먼저' },
+           act:{ f:'bp', t:'dw', lb:'p:5 사본 먼저', hot:'io' },
            ops:{ dw:{ add:[{ id:'p:5', tag:'ok', sub:'사본 · .dblwr 파일에' }] },
                  redo:{ set:{ 'Log flushed up to':'4,912  (page 쓰기 전에)|green' } } } },
     },
@@ -74,7 +84,7 @@ const SCENES = [
                  ['storage/innobase/log/log0write.cc','1) There is some unwritten data in log buffer']],
            /* flushed 는 뒤로 가지 않는다 — 4,600 으로 두었더니 처음 값 4,800 에서 거꾸로 갔다 */
            ops:{ redo:{ set:{ 'Log flushed up to':'4,800  (이 트랜잭션은 아직)|red' } },
-                 lb:{ set:{ 'assigned up to':'4,912  (fsync 는 1초 뒤)' } } },
+                 lb:{ set:{ 'assigned up to':'4,960  (fsync 는 1초 뒤)' } } },
            /* 아무것도 파일로 가지 않는다 — 기본값의 lb → redo 토큰을 지운다. 경계(io)도 — 지우지 않자 기본값의 hot 이 남아
               아무것도 건너지 않는 메모리 · 디스크 경계가 밝아졌다 */
            act:null, hot:null },
@@ -93,7 +103,19 @@ const SCENES = [
            ref:'sql/binlog/recovery.cc', sym:'Binlog_recovery::recover',
            fact:[['storage/innobase/log/log0write.cc','const auto flush_every = get_srv_flush_log_at_timeout();'],
                  ['storage/innobase/handler/ha_innodb.cc','Write and flush logs every (n) second.'],
-                 ['sql/binlog/recovery.h','and to roll back all prepared transactions that are not in the set.']], },
+                 ['sql/binlog/recovery.h','and to roll back all prepared transactions that are not in the set.']],
+           ops:{ bin:{ set:{ 'Xid':'trx 41 의 XID_EVENT|gold' } } } },
+      14:{ note:'flush ② — binlog event write, redo 는 아직 log buffer 에',
+           why:'process_flush_stage_queue 는 같은 순서로 부르지만, 이 값에서는 redo 단계가 아무것도 하지 않았다(12 스텝). log_writer 가 따라잡기 전이라면 binlog 이벤트가 이 트랜잭션의 PREPARE 기록보다 먼저 파일에 간다.',
+           key:'<em>순서가 실제로 뒤집힐 수 있는</em> 값이다. 이때 죽으면 binlog 는 커밋하라고 말하는데 엔진에는 그 트랜잭션이 없다 — 03 장면의 판정이 맞출 짝이 없다.',
+           fact:['ha_flush_logs(true);',
+                 ['storage/innobase/handler/ha_innodb.cc','if (binlog_group_flush && srv_flush_log_at_trx_commit == 0) {'],
+                 '/* Flush thread caches to binary log. */'],
+           act:{ f:'ses', t:'bin', lb:'Update_rows 이벤트' },
+           ops:{ bin:{ set:{ 'Position':'1,388|green', 'Xid':'trx 41 의 XID_EVENT' } } } },
+      18:{ note:'OK 응답 — redo 는 아직 fsync 전, .ibd 는 c = 100',
+           why:'데이터 파일에 쓰는 일은 커밋 경로에 없다. 그리고 이 값에서는 커밋이 redo 를 쓰지도 기다리지도 않았다 — log_writer 가 곧 파일에 쓰고, fsync 는 innodb_flush_log_at_timeout(1초)마다다.',
+           key:'OK 를 받은 변경이 <em>최대 1초 사라질 수 있다</em> — OS · 전원이 죽으면 마지막 fsync 뒤 전부, mysqld 만 죽으면 log_writer 가 아직 쓰지 못한 조각이다.' },
       /* page 를 쓰기 전에 redo 를 그 page 의 LSN 까지 — buf_flush_write_block_low 가 dblwr::write 보다 먼저 한다.
          이 스텝이 없을 때는 LSN 4,912 의 page 가 flushed 4,600 · 4,912(fsync 안 함)인 채로 .ibd 에 쓰였다(WAL 위반) */
       20:{ note:'page 쓰기 전에 redo 를 그 LSN 까지 flush — 그 다음 doublewrite 사본',
@@ -104,15 +126,17 @@ const SCENES = [
                  'wait_stats = log_write_up_to(*log_sys, flush_to_lsn, true);',
                  ['storage/innobase/log/log0write.cc','const auto flush_every = get_srv_flush_log_at_timeout();'],
                  ['storage/innobase/log/log0write.cc','Log_writer avoids waking up log_flusher,']],
-           act:{ f:'bp', t:'dw', lb:'p:5 사본 먼저' },
+           act:{ f:'bp', t:'dw', lb:'p:5 사본 먼저', hot:'io' },
+           /* 그 사이 log_writer 가 버퍼를 파일로 옮겼다 — 남은 4,912 ~ 4,960 은 write 됐고 fsync 는 1초 주기 */
            ops:{ dw:{ add:[{ id:'p:5', tag:'ok', sub:'사본 · .dblwr 파일에' }] },
+                 lb:{ set:{ 'assigned up to':'4,960' }, gg:{ v:.0, l:'log buffer', r:'비었다' } },
                  redo:{ set:{ 'Log flushed up to':'4,912  (page 쓰기 전에)|green' } } } },
     },
   }},
   init:{
     ses:{ kv:{ 'trx id':'—', 'trx_state':'IDLE', 'undo records':'0', 'trx_rows_locked':'0' } },
-    stmt:{ kv:{ 'UPDATE':'UPDATE t SET c = 200 WHERE id = 5', '이어서':'COMMIT' } },
-    bin:{ kv:{ 'File':'binlog.000041', 'Position':'1,204', 'sync':'—' } },
+    stmt:{ kv:{ 'UPDATE':'t SET c = 200 WHERE id = 5', '이어서':'COMMIT' } },
+    bin:{ kv:{ 'File':'binlog.000041', 'Position':'1,204', 'Xid':'—', 'sync':'—' } },
     bp:{ items:[
       { id:'p:9',  tag:'clean', sub:'LSN 4,610' },
       { id:'p:12', tag:'clean', sub:'LSN 4,702' },
@@ -130,7 +154,7 @@ const SCENES = [
     redo:{ kv:{ 'Log flushed up to':'4,800', 'Last checkpoint at':'4,600' } },
   },
   knobs:[
-    ['innodb_flush_log_at_trx_commit','1','눌러서 값을 바꾸면 12·13·16 스텝이 그 값대로 달라진다'],
+    ['innodb_flush_log_at_trx_commit','1','눌러서 값을 바꾸면 12·13·14·16·18·20 스텝이 그 값대로 달라진다'],
     ['innodb_doublewrite','ON','끄면 쓰기가 절반. torn page 를 복구할 근거가 사라진다'],
     ['sync_binlog','1','binlog 쪽 fsync. 1 이 아니면 복제 판정 기록이 유실될 수 있다'] ],
   watch:[
@@ -172,7 +196,7 @@ const SCENES = [
           'if (buf_read_page(m_page_id, m_page_size)) {',
           ['storage/innobase/buf/buf0lru.cc','Returns a free block from the buf_pool. The block is taken off the'],
           ['storage/innobase/include/univ.i','constexpr uint32_t UNIV_PAGE_SIZE_SHIFT_DEF = 14;']],
-    ops:{ bp:{ del:['free'], add:[{ id:'p:5', tag:'pin', sub:'읽는 중' }] } } },
+    ops:{ bp:{ del:['free'], add:[{ id:'p:5', tag:'pin', sub:'읽는 중' }], move:[['p:5',2]] } } },   /* 비운 free frame 의 자리에 */
 
   { note:'LRU midpoint insertion — head 가 아니라 old sublist 경계',
     why:'새로 읽은 페이지를 목록 맨 앞에 넣으면, 한 번 훑고 버릴 스캔이 재사용 중인 페이지를 전부 밀어낸다. 그래서 old 구간의 머리에 넣는다 — LRU 가 512 페이지보다 짧을 때만은 맨 앞이다.',
@@ -230,7 +254,7 @@ const SCENES = [
           ['storage/innobase/buf/buf0flu.cc','UT_LIST_ADD_FIRST(buf_pool->flush_list, &block->page);'],
           ['storage/innobase/buf/buf0buf.cc','bpage = UT_LIST_GET_LAST(buf_pool->flush_list);']],
     ops:{ lb:{ set:{ 'assigned up to':'4,912' }, gg:{ v:.19, l:'log buffer', r:'19%' } },
-          bp:{ set:{ 'p:5':{ tag:'dirty', sub:'c = 200  ·  newest LSN 4,912' } } } } },
+          bp:{ set:{ 'p:5':{ tag:'dirty', sub:'c = 200  ·  LSN 4,912' } } } } },
 
   { act:{ f:'bp', t:'fl', lb:'oldest_modification 4,800' },
     note:'dirty page 를 목록 머리에 단다',
@@ -263,18 +287,20 @@ const SCENES = [
           'redo log in a group right before writing them to binary log',
           ['sql/binlog.cc','Set HA_IGNORE_DURABILITY to not flush the prepared record of the'],
           'TRX_UNDO_PREPARED: these modifications to the file data'],
-    ops:{ ses:{ set:{ 'trx_state':'PREPARED|gold' } } } },
+    /* undo 를 PREPARED 로 바꾸는 mtr 도 redo 를 남긴다 — LSN 이 4,960 까지 */
+    ops:{ ses:{ set:{ 'trx_state':'PREPARED|gold' } },
+          lb:{ set:{ 'assigned up to':'4,960' }, gg:{ v:.22, l:'log buffer', r:'22%' } } } },
 
-  { act:{ f:'lb', t:'redo', lb:'그룹 fsync  →  LSN 4,912', gold:1 },
+  { act:{ f:'lb', t:'redo', lb:'그룹 fsync  →  LSN 4,960', gold:1 },
     note:'binlog group commit flush ① — 미뤄 둔 redo 를 group fsync',
-    why:'fetch_and_process_flush_stage_queue 가 대기 큐를 통째로 비운 뒤 ha_flush_logs(true) 를 부른다. 주석이 이유를 못박는다 — "prepared 레코드를 binlog 에 쓰기 전에 flush 하는 것을 보장하기 위해서이고, 이는 크래시 복구가 요구하는 것" 이다. 그 안의 log_write_up_to 가 지금까지의 LSN 전부를 — 이 트랜잭션의 4,912 를 포함해 — 내리게 하고 기다린다. 쓰는 것은 log_writer, fsync 는 log_flusher 스레드다.',
+    why:'fetch_and_process_flush_stage_queue 가 대기 큐를 통째로 비운 뒤 ha_flush_logs(true) 를 부른다. 주석이 이유를 못박는다 — "prepared 레코드를 binlog 에 쓰기 전에 flush 하는 것을 보장하기 위해서이고, 이는 크래시 복구가 요구하는 것" 이다. 그 안의 log_write_up_to 가 지금까지의 LSN 전부를 — 이 트랜잭션의 변경(4,912)과 PREPARE 기록(4,960)을 포함해 — 내리게 하고 기다린다. 쓰는 것은 log_writer, fsync 는 log_flusher 스레드다.',
     key:'커밋 하나가 최소 <em>두 번의 fsync</em>(redo, binlog)를 요구한다. 그룹 커밋이 이 비용을 여러 트랜잭션이 나눠 갖게 하는 장치다.',
     ref:'storage/innobase/log/log0write.cc', sym:'log_write_up_to',
     fact:[['sql/binlog.cc','for guaranteeing to flush prepared records of transactions before'],
           ['sql/binlog.cc','ha_flush_logs(true);'],
           ['storage/innobase/handler/ha_innodb.cc','log_buffer_flush_to_disk(!binlog_group_flush ||'],
           'wait_stats += log_wait_for_flush(log, end_lsn, &interrupted);'], hot:'io',
-    ops:{ redo:{ set:{ 'Log flushed up to':'4,912|green' } },
+    ops:{ redo:{ set:{ 'Log flushed up to':'4,960|green' } },
           lb:{ gg:{ v:.0, l:'log buffer', r:'비었다' } } } },
 
   { note:'WAL 성립 — redo 가 page 보다 먼저 durable',
@@ -298,7 +324,7 @@ const SCENES = [
           '/* Flush thread caches to binary log. */',
           'const auto [error, flushed_bytes] = flush_thread_caches(head);',
           'flush_error = flush_cache_to_file(&flush_end_pos);'],
-    ops:{ bin:{ set:{ 'Position':'1,388|green' } } } },
+    ops:{ bin:{ set:{ 'Position':'1,388|green', 'Xid':'trx 41 의 XID_EVENT' } } } },
 
   { act:{ f:'bin', t:'bin', lb:'sync 단계  ·  fsync', gold:1 },
     note:'sync stage — binlog fsync, 전원이 끊겨도 남는 판정',
@@ -320,6 +346,7 @@ const SCENES = [
           ['sql/binlog/recovery.h','and to roll back all prepared transactions that are not in the set.'],
           ['sql/xa/recovery.cc','if (info.commit_list ? info.commit_list->count(xid) != 0']],
     look:{ bin:true },
+    ops:{ bin:{ set:{ 'Xid':'trx 41 의 XID_EVENT|gold' } } },   /* 복구가 찾는 것 */
     beat:1 },
 
   { act:{ f:'ses', t:'lock', lb:'락 전부 해제' },
@@ -354,7 +381,7 @@ const SCENES = [
           ['storage/innobase/buf/buf0lru.cc','flush one dirty page from tail of LRU to disk']],
     ops:{ fl:{ set:{ 'p:5':{ tag:'pin', sub:'cleaner 가 선택' } } } } },
 
-  { act:{ f:'bp', t:'dw', lb:'p:5 사본 먼저' },
+  { act:{ f:'bp', t:'dw', lb:'p:5 사본 먼저', hot:'io' },
     note:'in-place write 전에 doublewrite buffer 에 사본 먼저',
     why:'16KB 페이지는 4KB 섹터 4개에 걸친다. 쓰는 도중 전원이 끊기면 앞 절반만 기록된 페이지가 남는다. 그래서 배치 전체를 #ib_16384_N.dblwr 파일에 먼저 쓰고, 그다음 페이지마다 제자리에 쓴다. 8.4 는 지원되는 곳에서 O_DIRECT 가 기본이고, 그러면 이 사본 쓰기에 따로 fsync 를 하지 않는다.',
     key:'torn page 는 <em>redo 로 못 고친다</em> — redo 는 온전한 페이지를 전제로 한 델타이기 때문이다. 그래서 온전한 사본이 따로 필요하다.',
@@ -365,7 +392,7 @@ const SCENES = [
           'return srv_unix_file_flush_method != SRV_UNIX_O_DIRECT &&'],
     ops:{ dw:{ add:[{ id:'p:5', tag:'ok', sub:'사본 · .dblwr 파일에' }] } } },
 
-  { act:{ f:'dw', t:'ibd', lb:'제자리 쓰기', hot:'io' },
+  { act:{ f:'bp', t:'ibd', lb:'제자리 쓰기', hot:'io' },   /* 쓰는 것은 buffer pool 의 frame — write_to_datafile(bpage …) */
     note:'.ibd 제자리에 write — 여기서 torn page 가 나도 사본이 있다',
     why:'복구는 doublewrite 파일에 사본이 있는 페이지만 검사해, checksum 이 깨진 것을 사본으로 되살린 뒤 redo 를 적용한다.',
     key:'쓰기가 두 배가 되지만 순차 쓰기라 비용이 예상보다 작다. <em>원자적 쓰기를 지원하는 파일시스템</em>에서는 끌 수 있다.',
@@ -412,7 +439,7 @@ const SCENES = [
     key:'커밋 응답(18 스텝)과 데이터 파일 반영(21 스텝) 사이에 <em>시간 차가 있었다</em>. 그 사이의 어느 지점에서 죽어도 결과가 같도록 만든 것이 이 설계의 전부다.',
     fact:[['storage/innobase/trx/trx0trx.cc','trx->state.store(TRX_STATE_NOT_STARTED, std::memory_order_relaxed);'],
           ['storage/innobase/trx/trx0trx.cc','This is called at the end of commit, do not reset the']],
-    beat:1,
+    beat:1, look:{ ses:true, ibd:['p:5'], redo:true, bin:true },   /* 남은 셋 — .ibd 의 새 값, checkpoint, binlog */
     ops:{ ses:{ set:{ 'trx id':'— (0)', 'trx_state':'IDLE' } } } },
   ],
 },

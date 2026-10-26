@@ -5,7 +5,7 @@
      · UNDO · LOCK · FLUSH LIST · DOUBLEWRITE 의 항목은 작은 칩. 생기면 act 의 f 에서 날아오고, 지우면 흩어진다
      · LOG BUFFER 는 gg.v 만큼 찬 막대
      · LSN 자 = LOG BUFFER 의 assigned · redo 의 Log flushed up to · Last checkpoint at. assigned 와 flushed 사이가
-       아직 durable 하지 않은 redo 다(손잡이 1 · 2 · 0 의 차이가 이 구간이다)
+       아직 durable 하지 않은 redo 다(손잡이 1 · 2 · 0 의 차이가 이 구간이다) — log buffer 가 비었으면 금빛(write 됨), 아니면 빨강
      · 셈 맞추기 — flushed 가 뒤로 가거나, .ibd 에 쓰인 page 의 LSN 이 그때의 flushed 보다 크면(WAL 위반),
        checkpoint 가 flushed 를 앞지르면 조용히 넘어가지 않고 console.error 로 알린다(storysweep 의 errors 가 잡는다)
      · act 는 덩어리가 f 에서 t 로(제자리 act 는 그 자리에서 고리). 경계를 지나는 스텝(hot)은 그 경계선이 밝아진다
@@ -405,7 +405,9 @@ function make({ F, deck, labels, scene }) {
     ctx.beginPath(); ctx.moveTo(ruler.x0, ruler.y); ctx.lineTo(ruler.x1, ruler.y); ctx.stroke();
     const band = (n0, n1, col, a) => { if (n0 == null || n1 == null || n1 <= n0) return; ctx.globalAlpha = a * o; ctx.fillStyle = col; ctx.fillRect(lsnX(n0), ruler.y - 2, lsnX(n1) - lsnX(n0), 4); };
     band(nC, nF, css.ink, 0.25);
-    band(nF, nA, css.red, 0.55);
+    /* flushed ~ assigned — log buffer 가 비었으면 OS 에 write 는 된 것(금빛, fsync 전), 아니면 아직 버퍼에만(빨강).
+       늘 빨강이었더니 손잡이 2(write 만)와 0(쓰지도 않음)이 12 스텝에서 같은 그림이었다 */
+    band(nF, nA, (s.gg.v || 0) === 0 ? css.gold : css.red, 0.55);
     ctx.restore();
   }
 
