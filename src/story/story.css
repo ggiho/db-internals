@@ -160,6 +160,7 @@
   border-top:1px solid var(--line);color:var(--ink);text-decoration:none}
 .st-next a:last-child{border-bottom:1px solid var(--line)}
 .st-next a b{font:500 13px var(--mono2);color:var(--gold);grid-row:span 3;padding-top:5px}
+.st-next a .tb em{margin-left:10px;font:400 11.5px var(--mono2);font-style:normal;color:var(--gold);vertical-align:3px}
 .st-next a .tb{font:400 21px var(--serif);letter-spacing:-.01em}
 .st-next a .ds{font:300 14.5px var(--serif);color:var(--body)}
 .st-next a i{font:400 12px var(--serif);font-style:normal;color:var(--faint)}

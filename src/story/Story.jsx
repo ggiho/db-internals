@@ -429,6 +429,14 @@ export default function Story() {
   const visible = deck.SCENES.filter((s) => !s.hidden);
   const tabOf = (nm) => (deck.SCENES.find((s) => s.num === nm) || {}).tab || '';
   const storyNums = (STORY[deckId] || { nums: [] }).nums;
+  /* 끝 구간의 '이어지는 장면' — 차례상 다음 장면을 늘 맨 위에 둔다. 저작한 links 에 다음 장면이 없는 곳이
+     116 중 64 였다(2026-10-26) — 장면을 다 보고 다음으로 가려면 메뉴를 다시 열어야 했다. 숨은 짝은 짝의 다음 */
+  const order = deck.SCENES.filter((s) => !s.hidden).map((s) => s.num);
+  const here0 = scene.hidden && pairAB ? pairAB[0].num : num;
+  const nextNum = order[order.indexOf(here0) + 1] || null;
+  const authored = (scene.links || []).filter(([nm]) => nm !== nextNum);
+  const ownNext = (scene.links || []).find(([nm]) => nm === nextNum);
+  const ends = nextNum ? [[nextNum, ownNext ? ownNext[1] : (deck.SCENES.find((s) => s.num === nextNum) || {}).title || '', true], ...authored] : authored;
 
   return (
     <div className={'st' + (pairAB || (scene.vary && vals.length > 1) ? ' has-ab' : '')} ref={root} data-scene={num}>
@@ -561,9 +569,9 @@ export default function Story() {
             <div className="st-copy">
               <p className="st-k">이어지는 장면</p>
               <div className="st-next">
-                {(scene.links || []).map(([nm, desc]) => (
-                  <a key={nm} href={'#' + deckId + '/' + nm + '/1'}>
-                    <b>{nm}</b><span className="tb">{tabOf(nm)}</span><span className="ds">{desc}</span>
+                {ends.map(([nm, desc, isNext]) => (
+                  <a key={nm} href={'#' + deckId + '/' + nm + '/1'} className={isNext ? 'nx' : undefined}>
+                    <b>{nm}</b><span className="tb">{tabOf(nm)}{isNext && <em>다음 장면</em>}</span><span className="ds">{desc}</span>
                     {!storyNums.includes(nm) && <i>Lab 에서 열림</i>}
                   </a>
                 ))}
