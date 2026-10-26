@@ -30,7 +30,7 @@ const TONEC = { gold: GOLD, red: RED, green: GREEN };
 const TOK = 150, RIM = 96, GAU = 28, CHIP = 26, STUB = 22, MINI = 16, BAND = 200, BKEY = 40, TOWR = 34;
 const AXL = 110, TICK = 9, SPAN = 52, MARK = 12, SL = 48, CELL = 20, BLKR = 56, SPK = 6, TWK = 6, TWE = 4;
 const PLAT = 120, SPIN = 16, TRK = 5, SEC = 28, SECG = 3, HEAD = 12, SQ = 16, SEEK = 3, STRIP = 200, CUTS = 40, IMAX = 820;
-const NG = 14, PADX = 7, PADY = 5, IDH = 15, CHH = 19, GAH = 9, RH = 15;
+const NG = 14, PADX = 7, PADY = 5, IDH = 15, CHH = 19, GAH = 9, RH = 15, BKG = 16, BKW = 44;
 
 export default {
   count: (narrow) => (narrow ? 3800 : 4800),
@@ -91,7 +91,7 @@ function plan(deck, sc) {
       return { kind: 'tex', n: 14 + Math.round(x.sz * 2) };
     });
   };
-  const grainOfMark = (m) => (m.kind === 'key' ? m.n * 10 : m.kind === 'rec' ? m.n * 2 : m.kind === 'byte' ? m.n * 12 : m.n);
+  const grainOfMark = (m) => (m.kind === 'key' ? m.n * BKG : m.kind === 'rec' ? m.n * 2 : m.kind === 'byte' ? m.n * 12 : m.n);
   const BMX = Object.fromEntries(BLK.map((a) => [a, Math.min(IMAX, Math.max(0, ...all.map((s) => marksOf(a, s).reduce((t, m) => t + grainOfMark(m), 0))))]));
   /* SSD 블록의 page 수 — 어느 스텝에서든 live + dead 의 가장 큰 값 */
   const PG = FTL ? Math.max(1, ...all.flatMap((s) => s[FTL].map((b) => (b.live || 0) + (b.dead || 0)))) : 0;
@@ -569,7 +569,8 @@ function model(F, deck, labels, sc, cssOf) {
       const inW = qs.slice(0, cap).reduce((t, q) => t + Z.chipW[q.id] + 4, -4);
       let x = b.x - inW / 2;
       const y = b.y - b.h / 2 + PADY + IDH + Z.cH / 2;
-      qs.forEach((q) => { const w = Z.chipW[q.id]; out.set(q.id, { x: x + w / 2, y, w, h: CHH - 2, q }); x += w + 4; });
+      /* 용량을 넘는 칸은 상자 테두리 밖에서 시작한다 — 안쪽 여백에서 이어 놓으면 테두리가 글자를 지났다(09/2) */
+      qs.forEach((q, k) => { if (k === cap && cap < qs.length) x = b.x + b.w / 2 + 6; const w = Z.chipW[q.id]; out.set(q.id, { x: x + w / 2, y, w, h: CHH - 2, q }); x += w + 4; });
     }
     CC.set(a + i, out);
     return out;
@@ -1027,8 +1028,9 @@ function model(F, deck, labels, sc, cssOf) {
         const mk = marks[j], [rx, rw] = info.P[it.id], hot = on && hotIt(s, a, it.id), lv = (on ? (hot ? 0.95 : 0.6) : 0.45) * dim * form;
         const col = it.tag === 'hdr' ? ACCENT : it.tag === 'free' ? FAINT : TAGC[it.tag] ?? INK;
         if (mk.kind === 'key') {
-          const cw = Math.min(18, (rw - 6) / mk.n - 3), tot = mk.n * cw + (mk.n - 1) * 3;
-          for (let q = 0; q < mk.n && budget >= 10; q++, budget -= 10) for (let m = 0; m < 10; m++, i++) { const [x, y] = into(i, ...rim(rx + rw / 2 - tot / 2 + cw / 2 + q * (cw + 3), by + 13, cw, 14, 10, m)); put(o, i, x, y, lv, 0, 0.02, 1.05, it.tag === 'red' ? RED : INK); }
+          /* 키 칸은 칸 폭을 나눠 채운다(최대 BKW) — 18px 로 묶으면 꽉 찬 칸이 가운데만 찬 빈 칸으로 보였다(08/1) */
+          const cw = Math.min(BKW, (rw - 6) / mk.n - 3), tot = mk.n * cw + (mk.n - 1) * 3;
+          for (let q = 0; q < mk.n && budget >= BKG; q++, budget -= BKG) for (let m = 0; m < BKG; m++, i++) { const [x, y] = into(i, ...rim(rx + rw / 2 - tot / 2 + cw / 2 + q * (cw + 3), by + 13, cw, 14, BKG, m)); put(o, i, x, y, lv, 0, 0.02, 1.05, it.tag === 'red' ? RED : INK); }
         } else if (mk.kind === 'rec') {
           for (let q = 0; q < mk.n && budget >= 2; q++, budget -= 2) for (let m = 0; m < 2; m++, i++) { const [x, y] = into(i, rx + 2 + ((q + 0.5) / mk.n) * (rw - 4), by + 7 + m * 12); put(o, i, x, y, lv * 0.9, 0, 0.02, 1, it.tag === 'gold' ? GOLD : INK); }
         } else if (mk.kind === 'byte') {

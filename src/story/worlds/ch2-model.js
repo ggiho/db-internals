@@ -87,7 +87,18 @@ export function treeState(items, kind, nodeList) {
   for (let j = 1; j < levels.length; j++) {
     const up = levels[j - 1], dn = levels[j];
     const band = dn.length === 1 && dn[0].agg > 1 && up.length > 1;
-    dn.forEach((c, k) => { c.par = band ? up : [up[Math.min(up.length - 1, Math.floor((k * up.length) / dn.length))]]; });
+    /* 위 레벨이 모두 분리 키 칸이고 자식이 범위를 밝히면 범위로 — 부모 i 는 [첫 칸, 다음 부모의 첫 칸) 을 맡는다(맨 왼쪽은 −∞).
+       고르게 나누면 root raise 뒤 두 리프가 서로 다른 부모에 붙었다(09/4) */
+    const lo0 = up.map((p, i) => (i === 0 ? -Infinity : p.P.pipes && p.P.chips && p.P.chips.length && p.P.chips[0].v != null ? p.P.chips[0].v : null));
+    const byKey = up.length > 1 && lo0.every((v) => v != null);
+    dn.forEach((c, k) => {
+      if (band) { c.par = up; return; }
+      const even = up[Math.min(up.length - 1, Math.floor((k * up.length) / dn.length))];
+      if (!byKey || c.P.lo == null) { c.par = [even]; return; }
+      let i = 0;
+      for (let q = 0; q < up.length; q++) if (lo0[q] <= c.P.lo + EPS) i = q;
+      c.par = [up[i]];
+    });
   }
   for (const n of nodes) n.kidsOf = [];
   for (const n of nodes) for (const p of n.par || []) p.kidsOf.push(n);

@@ -892,17 +892,16 @@ const SCENES = [
     ['I_S.INNODB_METRICS','index_page_splits — module_index 를 켜야 센다']],
   links:[['09','부모가 차 있으면 위로 전파된다'],['07','삽입도 같은 하강으로 시작한다'],['10','반대 방향 연산']],
   init:{
-    op:{ kv:{ '삽입할 키':'11', '대상 리프':'꽉 찼다', '단계':'—' } },
+    op:{ kv:{ '삽입할 키':'11', '대상 리프':'꽉 찼다', '단계':'—', 'InnoDB 분할점':'—', '쓴 page':'—' } },
     bt:{ items:[
       { id:'parent', lvl:0, keys:'| 20 |', fill:.3 },
       { id:'leaf L', lvl:1, keys:'7 8 9 10 12 13', fill:1 } ] },
     node:{ items:[
       { id:'leaf L', tag:'x', sub:'용량 N=6 · 이미 6개' } ] },
     blk:{ items:[
-      { id:'헤더', sz:2, tag:'hdr', sub:'120B 까지' },
-      { id:'7 8 9 10 12 13', sz:10, tag:'red', sub:'꽉 찼다' },
-      { id:'여유 0', sz:1, tag:'free', sub:'11 이 들어갈 곳이 없다' } ],
-      byl:{ l:'리프 L 의 블록', r:'포화' } },
+      { id:'헤더', sz:1, tag:'hdr', sub:'120B 까지' },
+      { id:'7 8 9 10 12 13', sz:15, tag:'red', sub:'꽉 찼다 · 11 이 들어갈 곳이 없다' } ],
+      byl:{ l:'리프 L 의 블록', r:'포화 · 여유 0' } },
   },
   cite:[
     "Allocate a new node",
@@ -946,8 +945,9 @@ const SCENES = [
                      'leaf R':{ keys:'10 12 13', fill:.5 } } },
           node:{ set:{ 'leaf L':{ tag:'clean', sub:'절반 남았다 · 3/6' },
                        'leaf R':{ tag:'clean', sub:'절반 받았다 · 3/6' } } },
-          blk:{ set:{ '7 8 9 10 12 13':{ id:'7 8 9', sz:5, tag:'', sub:'남은 절반' },
-                      '여유 0':{ id:'여유 3', sz:6, tag:'free', sub:'분할이 만든 공간' } } },
+          blk:{ set:{ '7 8 9 10 12 13':{ id:'7 8 9', sz:7.5, tag:'', sub:'남은 절반' } },
+                add:[{ id:'여유 3', sz:7.5, tag:'free', sub:'분할이 만든 공간' }],
+                byl:{ r:'절반 · 3/6' } },
           op:{ set:{ '단계':'2 · 절반 이동|gold' } } } },
 
   { look:{ bt:['leaf L','leaf R'] },
@@ -961,6 +961,8 @@ const SCENES = [
           'if (page_header_get_ptr(page, PAGE_LAST_INSERT) == insert_point) {',
           '/* Split at the new record to insert */',
           ['storage/innobase/include/dict0dict.ic','return (UNIV_PAGE_SIZE / 16);']],
+    ops:{ op:{ set:{ 'InnoDB 분할점':'직전 삽입 바로 뒤(순차)면 새 레코드 자리 · 아니면 대개 가운데|gold' } },
+          blk:{ byl:{ r:'절반 · 3/6 — InnoDB 순차라면 15/16 · 342행' } } },
     beat:1 },
 
   { act:{ f:'op', t:'bt', lb:'3단계 · 11 을 넣는다' },
@@ -996,6 +998,7 @@ const SCENES = [
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_attach_half_pages',
     fact:['btr_page_set_prev(buf_block_get_frame(next_block), buf_block_get_page_zip(next_block), upper_page_no, mtr);',
           ['storage/innobase/fsp/fsp0fsp.cc','xdes_set_bit(descr, XDES_FREE_BIT, page % FSP_EXTENT_SIZE, false, mtr);']],
+    ops:{ op:{ set:{ '쓴 page':'L · R · parent (+ 오른쪽 이웃 PREV · xdes)|gold' } } },
     beat:1 },
   ],
 },
@@ -1045,6 +1048,7 @@ const SCENES = [
     beat:1,
     ops:{ op:{ set:{ '적재':'순차 · id 오름차순|green', '리프 수':'2,925', '리프당 행':'342', '채움':'93.7%|green' } },
           blk:{ set:{ '행':{ sz:14, tag:'gold', sub:'342 × 44 B' }, '여유':{ sz:1, sub:'1/16 예약' } } },
+          bt:{ set:{ 'leaf L':{ keys:'342행 · 1/16 남김', fill:.94 } } },
           node:{ add:[{ id:'순차 INSERT', tag:'ok', sub:'2,925 리프 · 342행 · 93.7%' }] } } },
 
   { act:{ f:'blk', t:'bt', lb:'다음 행이 1 KB 예약에 걸린다' },
@@ -1066,7 +1070,7 @@ const SCENES = [
           ['storage/innobase/btr/btr0cur.cc','(btr_page_get_split_rec_to_right(cursor, &dummy) || btr_page_get_split_rec_to_left(cursor, &dummy))) { goto fail; }']],
     beat:1,
     ops:{ op:{ set:{ '적재':'무작위 순서|red', '리프 수':'4,193', '리프당 행':'236 (중앙값)', '채움':'51% ‥ 65% ‥ 86%|red' } },
-          bt:{ set:{ 'leaf L':{ keys:'가운데서 쪼갠 반쪽', fill:.5 }, 'leaf R':{ keys:'나머지 반쪽', fill:.5 } } },
+          bt:{ set:{ 'leaf L':{ keys:'p10 · 51%', fill:.51 }, 'leaf R':{ keys:'p90 · 86%', fill:.86 } } },
           blk:{ set:{ '행':{ sz:10, tag:'', sub:'236 × 44 B · 중앙값' }, '여유':{ sz:5, sub:'흩어진 빈자리' } } },
           node:{ add:[{ id:'무작위 INSERT', tag:'dirty', sub:'4,193 리프 · 중앙 236행 · 65%' }] } } },
 
@@ -1093,7 +1097,7 @@ const SCENES = [
     beat:1,
     ops:{ op:{ set:{ '적재':'재구축 · fill_factor 50|gold', '리프 수':'5,525', '리프당 행':'181', '채움':'50.0%|gold' } },
           bt:{ set:{ 'leaf L':{ keys:'181행', fill:.5 }, 'leaf R':{ keys:'181행 · 다음 page', fill:.5 } } },
-          blk:{ set:{ '행':{ sz:8, tag:'', sub:'181 × 44 B' }, '여유':{ sz:7, sub:'8 KB 예약' } } },
+          blk:{ set:{ '행':{ sz:7, tag:'', sub:'181 × 44 B' }, '여유':{ sz:8, sub:'8 KB 예약' } } },
           node:{ add:[{ id:'재구축 ff 50', tag:'hold', sub:'5,525 리프 · 181행 · 50%' }] } } },
 
   { look:{ node:true, op:true },
@@ -1149,6 +1153,7 @@ const SCENES = [
     cite:['the node has overflowed [Nichols66] and has to be split in two to fit the new data'],
     beat:1,
     ops:{ op:{ set:{ '커서':'P 의 810 뒤 · page 끝|gold' } },
+          bt:{ set:{ 'P':{ keys:'280 ‥ 810 · 54행  ← 811 자리 · page 끝' } } },
           node:{ set:{ 'P · page 6':{ tag:'x', sub:'811 거부 · 1/16 예약' } } } } },
 
   { look:{ node:['Q · page 7'] },
@@ -1170,7 +1175,7 @@ const SCENES = [
     fact:['rec = page_cur_tuple_insert(&next_page_cursor, tuple, cursor->index, offsets, &heap, mtr);',
           'ut_ad(page_rec_get_next(page_get_infimum_rec(next_page)) == rec);'],
     cite:['splits are done by allocating the new node, transferring half the elements from the splitting node to it'],
-    ops:{ bt:{ set:{ 'Q':{ keys:'811 · 820 ‥ 1150 · 35행', fill:.6 } } },
+    ops:{ bt:{ set:{ 'P':{ keys:'280 ‥ 810 · 54행' }, 'Q':{ keys:'811 · 820 ‥ 1150 · 35행', fill:.6 } } },
           node:{ set:{ 'Q · page 7':{ tag:'ok', sub:'35행 · 첫 키 811' }, 'P · page 6':{ tag:'hold', sub:'54행 그대로' } } },
           op:{ set:{ '결과':'Q 에 들어갔다|green' } } } },
 
@@ -1216,7 +1221,7 @@ const SCENES = [
     op:{ kv:{ '삽입할 키':'11', '트리 높이':'2', '전파':'—' } },
     bt:{ items:[
       { id:'root', lvl:0, keys:'| 20 | 40 | 60 |', fill:1, page:4 },
-      { id:'leaf', lvl:1, keys:'분할 발생', fill:1 } ] },
+      { id:'leaf', lvl:1, keys:'< 20 · 분할 발생', fill:1 } ] },
     node:{ items:[{ id:'root', tag:'x', sub:'꽉 찼다 · 키 3 / 3' }] },
     cost:{ kv:{ '쓴 블록':'0', '높이 변화':'—' } },
   },
@@ -1246,7 +1251,8 @@ const SCENES = [
           ['storage/innobase/rem/rec.h','case REC_STATUS_NODE_PTR: return (dict_index_get_n_unique_in_tree(index) + 1);']],
     cite:['we first create a new node and move elements starting from index N/2 + 1 to it',
           'The split point key is promoted to the parent'],
-    ops:{ bt:{ set:{ 'root':{ keys:'| 10 | 20 | 40 | 60 |', fill:1 } } },
+    ops:{ bt:{ set:{ 'root':{ keys:'| 10 | 20 | 40 | 60 |', fill:1 }, 'leaf':{ keys:'< 10', fill:.5 } },
+               add:[{ id:'leaf R', lvl:1, keys:'10 ‥ 19 · 11 삽입', fill:.5 }] },
           node:{ set:{ 'root':{ sub:'넘친다 · 키 4 / 3' } } },
           op:{ set:{ '전파':'leaf → root|gold' } },
           cost:{ set:{ '쓴 블록':'2' } } } },
@@ -1272,16 +1278,16 @@ const SCENES = [
           ['storage/innobase/include/page0types.h','file segment header for the leaf pages in a B-tree: defined only on the root page of a B-tree']],
     cite:['When the root node is split, a new root, holding a split point key, is allocated',
           'The old root (now holding only half the entries) is demoted to the next level along with its newly created sibling'],
-    ops:{ bt:{ set:{ 'root':{ keys:'| −∞ | 40 |', fill:.2 }, 'leaf':{ lvl:2 } },
+    ops:{ bt:{ set:{ 'root':{ keys:'| −∞ | 40 |', fill:.2 }, 'leaf':{ lvl:2 }, 'leaf R':{ lvl:2 } },
                 add:[{ id:'new page', lvl:1, keys:'| 10 | 20 |', fill:.5 },
                      { id:'new page R', lvl:1, keys:'| 40 | 60 |', fill:.5 }] },
           node:{ set:{ 'root':{ tag:'ok', sub:'같은 page 번호 · 자식 2' } } },
           op:{ set:{ '트리 높이':'3|gold', '전파':'루트 도달 · 완료' } },
-          cost:{ set:{ '쓴 블록':'5', '높이 변화':'2 → 3|gold' } } } },
+          cost:{ set:{ '쓴 블록':'5 (InnoDB 는 +1 이웃 리프 PREV)', '높이 변화':'2 → 3|gold' } } } },
 
   { look:{ cost:true, op:true },
     note:'insert 하나에 block 5개 write, tree 한 단 deeper',
-    why:'책: 리프 둘, 반씩 나뉜 옛 루트 둘, 새 루트. InnoDB 도 다섯이다 — 리프 둘, 같은 번호의 루트, 루트 내용을 받은 새 페이지와 그 분할 짝. 여기에 오른쪽 이웃 리프의 FIL_PAGE_PREV 가 붙는다.',
+    why:'책: 리프 둘, 반씩 나뉜 옛 루트 둘, 새 루트. InnoDB 도 이 다섯을 쓴다 — 리프 둘, 같은 번호의 루트, 루트 내용을 받은 새 페이지와 그 분할 짝. 여기에 오른쪽 이웃 리프의 FIL_PAGE_PREV 하나가 더 붙어 여섯이다.',
     key:'그리고 이제 <em>모든 조회가 한 단계 더</em> 내려간다. 백만 개에서 3레벨이면 fan-out 이 커서 이 일이 드물다 — 그것이 fan-out 의 값이다.',
     fact:[['storage/innobase/btr/btr0btr.cc','btr_page_set_prev(buf_block_get_frame(next_block), buf_block_get_page_zip(next_block), upper_page_no, mtr);']],
     beat:1 },
