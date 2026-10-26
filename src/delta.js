@@ -30,6 +30,11 @@ export function delta(scene, frames, i, ACTORS) {
     if (a.mx && (c.keys || []).some((k) => k === 'on' || k === 'dim')) {
       lines.push({ s: '~', t: `강조한 칸 ${(a.mx.on || []).length}개` + ((a.mx.dim || []).length ? ` · 흐린 칸 ${a.mx.dim.length}개` : '') });
     }
+    /* 바이트 띠의 글(byl) — 칸은 그대로 두고 띠 아래 글만 바꾼 스텝(book/ch2 04/4)도 바꾼 것이 있다 */
+    if (c.byl) for (const side of ['l', 'r']) {
+      const was = b.byl && b.byl[side], is = a.byl && a.byl[side];
+      if (val(was) !== val(is)) lines.push({ s: '~', t: `띠 글  ${val(was)} → ${val(is)}` });
+    }
     for (const it of c.del || []) if (!placeholder(it)) lines.push({ s: '−', t: itemText(it) });
     for (const id of c.add || []) {
       const it = (a.items || []).find((x) => x.id === id);
