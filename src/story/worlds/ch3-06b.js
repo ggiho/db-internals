@@ -104,7 +104,9 @@ function make({ F, deck, labels, scene }) {
     stripKey = key;
     const hotF = FIELDS.filter((x) => !x.fil && hot.includes(x.k));
     const isHot = (o) => hotF.some((x) => o >= x.o && o < x.o + x.w);
-    let html = `<div class="hx-hd"><b>p:${no}</b>  ${ROLE[no] || 'PRIMARY leaf'}  ·  앞 94 B — FIL header 38 + PAGE header 56</div>`;
+    /* p:8 – p:13 은 헤더 56 B 가 바이트까지 같다(scenes.js 의 must 가 검사한다) — p:8 하나로 여섯을 대신한다 */
+    const same = no === 8 ? '  ·  p:9 – p:13 도 헤더 56 B 가 같다' : '';
+    let html = `<div class="hx-hd"><b>p:${no}</b>  ${ROLE[no] || 'PRIMARY leaf'}${same}  ·  앞 94 B — FIL header 38 + PAGE header 56</div>`;
     for (let r = 0; r < 6; r++) {
       html += `<div class="hx-row"><i>${String(r * 16).padStart(4, '0')}</i>`;
       for (let c = 0; c < 16 && r * 16 + c < 94; c++) {
@@ -131,7 +133,7 @@ function make({ F, deck, labels, scene }) {
   const recLb = label('', 'red sm'), resLb = label('', 'sm');
   const tokLb = label('', 'ink sm'), lockLb = label('', 'gold sm');
   const barLive = label('', 'ink sm ml'), barGone = label('', 'red sm ml'), barNote = label('막대는 양이다 — 지워진 record 의 자리는 dump 밖', 'sm');
-  const freeLb = label('', 'gold sm'), dsLb = label('', 'green sm');
+  const freeLb = label('', 'gold sm'), dsLb = label('', 'green sm'), gone71 = label('', 'red sm');
   const splitA = label('', 'sm ml'), splitB = label('', 'red sm ml');
   const seqLb = label('', 'gold sm'), seqN = label('', 'ink sm');
   const colLb = LEAVES.map(() => label('', 'sm'));
@@ -239,10 +241,11 @@ function make({ F, deck, labels, scene }) {
       const fly = show(p, 0.12, 0.3), out = show(p, 0.4, 0.52), red = U.range(p, 0.31, 0.36);
       const [gx, gy] = at(full, top + 2 * COLS + 20);
       const sx = full.x + COLS * full.pp + 120, sy = gy - 60;
+      /* 튕긴 record 는 사라진다 — 서는 자리에 흐린 빨간 덩어리로 남겼더니 heap 안의 record 처럼 읽혔다 */
       for (let m = 0; m < RS; m++) {
         const i = PAGE + m;
         const tx = U.lerp(sx, gx, fly) + out * 150, ty = U.lerp(sy, gy, fly) - out * 46;
-        put(o, i, tx + (m % 32) * full.pp, ty + Math.floor(m / 32) * full.pp, (fly > 0.01 ? 0.95 : 0) * (1 - out * 0.8),
+        put(o, i, tx + (m % 32) * full.pp, ty + Math.floor(m / 32) * full.pp, (fly > 0.01 ? 0.95 : 0) * (1 - out),
           red > 0 ? 1.1 : 0.3, 0.05, Math.max(1, full.pp * 0.62), red > 0 ? RED : INK);
       }
       return;
@@ -373,13 +376,16 @@ function make({ F, deck, labels, scene }) {
     /* 7 : LAST_INSERT · N_DIRECTION 이름표가 page 끝줄 자리를 쓴다 — 아래 넷과 겹쳤다(모든 데스크톱 크기에서 3–4 건) */
     if (k === 6) for (const key of ['top', 'free', 'dir', 'trl']) v.set(rg[key], 0);
     v.set(zoomHd, io(k === 1, 0.14, 0.26)); v.set(zoomDir, io(k === 1, 0.2, 0.3)); v.set(ghost5, io(k === 1, 0.28, 0.38));
-    v.set(recLb, io(k === 2, 0.32, 0.37) * (1 - show(p, 0.5, 0.56)));
+    /* 판정(… > … → split)은 서는 자리에도 남긴다 — 걷혀서 정지 화면에는 긴 식만 남았다 */
+    v.set(recLb, io(k === 2, 0.32, 0.37));
     v.set(resLb, io(k === 2, 0.16, 0.26));
     v.set(tokLb, io(k === 3, 0.1, 0.22)); v.set(lockLb, io(k === 3, 0.32, 0.42));
     v.set(barLive, io(k === 4 || k === 5, k === 4 ? 0.2 : 0, k === 4 ? 0.32 : 0.01));
     v.set(barGone, v.get(barLive) * (k === 5 ? 1 - show(p, 0.08, 0.22) : 1));
     v.set(barNote, io(k === 4 || k === 5, k === 4 ? 0.3 : 0, k === 4 ? 0.4 : 0.01));
     v.set(freeLb, io(k === 4, 0.3, 0.4)); v.set(dsLb, io(k === 4, 0.38, 0.48));
+    /* 6 : 막대 머리의 합계가 걷히는 대신 — 둘로 나뉜 수의 합을 지도 아래에 */
+    v.set(gone71, io(k === 5, 0.24, 0.34));
     v.set(splitA, io(k === 5, 0.2, 0.32)); v.set(splitB, v.get(splitA));
     v.set(seqLb, io(k === 6, 0.06, 0.12)); v.set(seqN, v.get(seqLb));
     colLb.forEach((lb, c) => v.set(lb, io(k === 7, 0.14 + c * 0.025, 0.24 + c * 0.025)));
@@ -400,8 +406,9 @@ function make({ F, deck, labels, scene }) {
       const o = Math.min(1, B ? U.lerp(A.get(lb) || 0, B.get(lb) || 0, b) : A.get(lb) || 0);
       if (Math.abs(o - lb.o) > 0.004) { lb.el.style.opacity = o.toFixed(3); lb.o = o; }
     }
-    /* hexdump — 나무 · inode(10 · 11)를 빼고 늘 위에 */
-    const so = (kq, pq) => (kq >= NS ? 0 : kq === 0 ? show(pq, 0.38, 0.48) : kq === 9 || kq === 10 ? 0 : 1);
+    /* hexdump — 늘 위에. 나무 · inode(10 · 11)도 그 바이트(+26 LEVEL · +28 INDEX_ID · +36 FSEG)를 말하므로 남긴다 —
+       나무와 inode 는 G.my(띠 아래)부터 그린다 */
+    const so = (kq, pq) => (kq >= NS ? 0 : kq === 0 ? show(pq, 0.38, 0.48) : 1);
     const sO = Math.min(1, b > 0 ? U.lerp(so(k, p), so(k + 1, 0), b) : so(k, p));
     if (Math.abs(sO - stripO) > 0.004) { strip.style.opacity = sO.toFixed(3); stripO = sO; }
     drawStrip(spec[kk].page, kk === NS - 1 ? PH : spec[kk].hot);
@@ -453,6 +460,8 @@ function make({ F, deck, labels, scene }) {
     setText(dsLb, `HEAP_TOP − 120 − GARBAGE = ${fmt(H(6).PAGE_HEAP_TOP - SUP_END - H(6).PAGE_GARBAGE)} B  =  I_S DATA_SIZE ${fmt(M.bufpage[6].data)}`);
     wrapTo(dsLb, G.ww - 6);
     stack(left.x, left.y + COLS * left.pp + 16, freeLb, dsLb, barNote);
+    setText(gone71, `GARBAGE ${GONE6} 행 = split ${MOVED7} + DELETE ${GONE6 - MOVED7}  ·  ${fmt(H(6).PAGE_GARBAGE)} B`);
+    wrapTo(gone71, G.ww - 6); place(gone71, freeLb.x, freeLb.y, 'l', 't');
     setText(splitA, `split 으로 p:7 에\n${MOVED7} 행 = ${fmt(MOVED7 * RS)} B`); place(splitA, panel.x + bw + 30 + 22, panel.y + 14, 'l');
     setText(splitB, `DELETE id 10 – 20\n${GONE6 - MOVED7} 행 = ${fmt((GONE6 - MOVED7) * RS)} B`);
     place(splitB, panel.x + bw + 30, panel.y + 44 + Math.ceil(H(6).PAGE_GARBAGE / Math.floor(bw / pitch)) * pitch + 42);
@@ -500,7 +509,8 @@ function make({ F, deck, labels, scene }) {
         const tight = inoLb[e].el.offsetWidth > I.bw + I.gap - 4;
         place(inoLb[e], G.L.x0 + e * (I.bw + I.gap), I.ey + I.bh + 26 + (tight && e % 2 ? 34 : 0));
       });
-      place(inoHd, G.L.x0, I.ey - 18);
+      /* entry 위에 두었더니 SDI 의 두 곡선이 글자를 지났다 — 엇갈린 entry 이름표 아래로 */
+      place(inoHd, G.L.x0, I.ey + I.bh + 26 + 34 + 40);
       [3, 4, 5].forEach((no2, c) => {
         const f = H(no2);
         setText(fsegLb[c], `p:${no2}  ${no2 === 3 ? 'SDI' : no2 === 4 ? 'PRIMARY' : 'idx_c'} root\ntop ${f.PAGE_BTR_SEG_TOP.offset} · leaf ${f.PAGE_BTR_SEG_LEAF.offset}`);
