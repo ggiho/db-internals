@@ -316,6 +316,10 @@ function make({ F, deck, labels, scene }) {
   });
   for (const b of BAKES.values()) b.TX = texts(b.S, b.S0);
   const TXALL = [...BAKES.values()].flatMap((b) => b.TX);
+  /* 무대가 간격을 다 줄여도 낮으면 snapshot 의 나머지 줄(잡은 때 · 다음 문장 …)을 cache 설명처럼 ' · ' 로 잇는다 —
+     build 가 크기마다 정한다(08 : 1024×768 · 1280×720 에서 네 줄이 두 줄로) */
+  const REST = SNAP ? TXALL.map((t) => t.get(snapLb.rest)).map((e) => [e, e[0]]) : [];
+  const restRow = (on) => { for (const [e, h] of REST) e[0] = on ? h.split('\n').join('  ·  ') : h; };
   /* 재는 동안 넣은 글은 되돌린다(다시 짤 때 다음 paint 전까지 다른 스텝의 글이 남지 않게) */
   const most = (lb) => {
     let w = 0, h = 0;
@@ -386,8 +390,8 @@ function make({ F, deck, labels, scene }) {
       if (NAT[k]) its.push({ f: '', nat: true, cx: (bitX(0) + bitX(10)) / 2, w: most(stripLb[k].nat).w, pins: [(bitX(0) + bitX(10)) / 2] });
       return [k, unclip(stagger(its, L.x0, L.x1), L.x0, L.x1)];
     }));
-    if (SNAP) wrap(snapLb.rest, ww);
-    const srH = SNAP ? most(snapLb.rest).h : 0;
+    if (SNAP) { wrap(snapLb.rest, ww); restRow(false); }
+    let srH = SNAP ? most(snapLb.rest).h : 0;
     if (CACHE) wrap(cacheCap, ww);
     const ccH = CACHE ? most(cacheCap).h : 0;
     /* XID 선 — 왼쪽 끝은 튜플 생애 막대의 이름 자리. 선 위 이름표(snapshot · 백엔드 · horizon)는 스텝마다 나눠 두고
@@ -541,6 +545,11 @@ function make({ F, deck, labels, scene }) {
     if (total > wh) { k = 0.2; total = lay(L.y0, k, rr); }
     if (total > wh) { k = 0; total = lay(L.y0, k, rr); }
     if (total > wh && RINGA) { rr = 70; total = lay(L.y0, k, rr); }
+    /* 이은 줄의 오른쪽 끝은 아래 레인 이름(TABLE AM …)이 앉는 자리 — 그 폭만큼 비운다 */
+    if (total > wh && SNAP) {
+      restRow(true); wrap(snapLb.rest, ww - Math.max(most(edgeLb).w, ...DIV.map((ln) => most(laneLb[ln]).w)) - 12);
+      srH = most(snapLb.rest).h; total = lay(L.y0, k, rr);
+    }
     if (total > wh + 1) console.error(`pg mvcc ${sc.num} 세계 : 높이 ${Math.round(total)} 가 무대 ${Math.round(wh)} 를 넘는다 (${L.W}×${L.H})`);
     const dy = L.narrow ? 0 : Math.max(0, (wh - total) / 2);
     if (dy) lay(L.y0 + dy, k, rr);
