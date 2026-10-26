@@ -348,7 +348,7 @@ function make({ F, deck, labels, scene }) {
       };
       const lps = () => {
         /* lp 칸은 페이지 바로 아래 — 칸 위쪽이 lp → 튜플 선의 길이고, 제목 · 설명은 칸 아래로 비킨다 */
-        if (GRID) y += 16 + 10 * k;
+        if (GRID) y += 12 + 10 * k;
         G.lps = { y, w: lw }; G.anc[LPA] = { x: L.x0 + 30, y: y + 13 };
         if (lSide) { G.lpCapX = L.x0 + lsW + 20; G.lpCapY = y - 1; }
         y += (lSide ? Math.max(26, lcH) : 26) + 4;
@@ -387,7 +387,9 @@ function make({ F, deck, labels, scene }) {
     };
     let k = 1, gr = 18, total = lay(L.y0, 1, gr);
     if (total > wh) { k = 0.2; total = lay(L.y0, k, gr); }
-    if (total > wh && GRID) { gr = Math.max(15, gr - Math.ceil((total - wh) / NR)); total = lay(L.y0, k, gr); }
+    if (total > wh) { k = 0; total = lay(L.y0, k, gr); }
+    /* 줄 높이 14 아래로는 영역 이름(글 높이 약 14)이 줄을 넘는다 */
+    if (total > wh && GRID) { gr = Math.max(14, gr - Math.ceil((total - wh) / NR)); total = lay(L.y0, k, gr); }
     if (total > wh + 1) console.error(`pg heap ${sc.num} 세계 : 높이 ${Math.round(total)} 가 무대 ${Math.round(wh)} 를 넘는다 (${L.W}×${L.H})`);
     const dy = L.narrow ? 0 : Math.max(0, (wh - total) / 2);
     if (dy) lay(L.y0 + dy, k, gr);

@@ -518,7 +518,7 @@ const SCENES = [
           pg:{ set:{ '튜플 B':{ tag:'hold', sub:'옛 버전 — 새 것은 다른 페이지' } },
                add:[{ id:'lp 3 … 102', off:32, len:400, k:'lp' },
                     { id:'튜플 C … (100 개)', off:512, len:7512, k:'tup' }] },
-          lp:{ add:[{ id:'lp 3 … 102', tag:'clean', fl:1, off:512, len:72, to:'튜플 C … (100 개)', sub:'NORMAL × 100' }] },
+          lp:{ add:[{ id:'lp 3 … 102', tag:'clean', fl:1, off:512, len:72, to:'튜플 C … (100 개)' }] },
           sp:{ set:{ 'pd_lower':'432', 'pd_upper':'512', '넣을 수 있는 크기':'76 B  (512 − 432 − 4)|red', 'pd_flags':'PD_PAGE_FULL (0x0002)|gold' } } } },
   ],
 },
