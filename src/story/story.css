@@ -75,9 +75,10 @@
 .st-rail button:hover{color:var(--body)}
 .st-rail button.on{color:var(--ink)}
 .st-rail button.on i{width:22px;background:var(--gold)}
-/* 요점(beat)은 금색 눈금, 묶음 끝 뒤에 틈 — 25 스텝 레일이 1366×768 에서 570px 였다 */
+/* 요점(beat)은 조금 긴 진한 눈금, 묶음 끝 뒤에 틈 — 25 스텝 레일이 1366×768 에서 570px 였다.
+   금색은 지금 스텝만 — 요점도 금색이었을 때 리뷰 둘이 "늘 금색인 눈금"을 지금 스텝으로 읽을 뻔했다(ch2 · wiredtiger) */
 .st-rail button.beat{color:var(--body)}
-.st-rail button.beat i{width:14px;background:var(--gold)}
+.st-rail button.beat i{width:14px}
 .st-rail button.end{margin-bottom:7px}
 .st-rail.dense{gap:1px}
 .st-rail.dense button{padding:1px 0;font-size:9.5px}
