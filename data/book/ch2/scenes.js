@@ -388,7 +388,8 @@ const SCENES = [
     fact:['constexpr uint32_t UNIV_PAGE_SIZE_SHIFT_DEF = 14;',
           'constexpr uint32_t UNIV_PAGE_SIZE_DEF = 1 << UNIV_PAGE_SIZE_SHIFT_DEF;',
           ['storage/innobase/include/ut0byte.ic','return (((ulint)ptr) & (align_no - 1));']],
-    ops:{ blk:{ byl:{ l:'16KB 블록 = 16,384 B = 1 << 14' } } } },
+    ops:{ blk:{ byl:{ l:'16KB 블록 = 16,384 B = 1 << 14' } },
+          io:{ set:{ '전송 단위':'블록 (16KB = 1 << 14 B)' } } } },
 
   { look:{ blk:['여유'] },
     note:'free space 확보는 낭비가 아니다',
