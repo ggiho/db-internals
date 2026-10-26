@@ -758,7 +758,8 @@ const SCENES = [
     ['EXPLAIN','type=range (idx_c) 인가 type=index (PRIMARY) 인가가 그대로 락 범위다']],
   links:[['05','secondary 경유'],['04','X 는 무엇도 허용하지 않는다'],['12','P_S 로 확인하는 법']],
   init:{
-    /* 축의 눈금은 c 값 — B(06v)는 id 값이라, 둘 다 숫자만 적었더니 같은 인덱스로 읽혔다 */
+    /* 축의 눈금은 c 값이라 c= 를 붙인다 — B(06v)의 눈금은 id 값이다. 둘 다 숫자만 적었더니 같은 인덱스로 읽혔다
+       (B 에 id= 를 붙이면 Lab 의 나란히 보기에서 이웃 이름이 겹친다) */
     stmt:{ kv:{ 'SQL':'UPDATE t SET v=9 WHERE c=200', '접근 경로':'range  (idx_c)', '훑을 레코드':'—', '방문한 레코드':'0', 'trx_rows_locked':'0', '격리 수준':'REPEATABLE READ', 'RC 라면':'—' } },
     idx:{ axis:{ min:0, max:400 }, items:[
       { id:'c=100', v:100 }, { id:'c=200', v:200 }, { id:'c=300', v:300 }], spans:[] },
@@ -802,7 +803,8 @@ const SCENES = [
           ['storage/innobase/trx/trx0i_s.cc','row->trx_rows_locked = lock_number_of_rows_locked(&trx->lock);'],
           ['storage/innobase/include/lock0priv.ic','lock->trx->lock.n_rec_locks.fetch_add(1, std::memory_order_relaxed);']],
     ops:{ idx:{ span:{ add:[
-            { id:'nk200', from:100, to:200, kind:'next', lb:'X  next-key  (100,200]', row:0 },
+            /* data_locks 의 표기 그대로 — 수식어 없는 X 가 next-key 다(B 와 같은 표기) */
+            { id:'nk200', from:100, to:200, kind:'next', lb:'X  (100,200]', row:0 },
             { id:'gap300', from:200, to:300, kind:'gap', lb:'X,GAP  (200,300)', row:1 }] } },
           tl:{ del:['(비었다)'], add:[{ id:'t', tag:'hold', sub:'IX' }] },
           rl:{ del:['(비었다)'], add:[
@@ -858,7 +860,7 @@ const SCENES = [
   init:{
     stmt:{ kv:{ 'SQL':'UPDATE t SET v=9 WHERE c=200', '접근 경로':'index  (PRIMARY 전체)|red', '훑을 레코드':'—', '방문한 레코드':'0', 'trx_rows_locked':'0', '격리 수준':'REPEATABLE READ', 'RC 라면':'—' } },
     idx:{ axis:{ min:0, max:60 }, items:[
-      { id:'id=10', v:10 }, { id:'id=20', v:20 }, { id:'id=30', v:30 }, { id:'supremum', v:45 }], spans:[] },
+      { id:'10', v:10 }, { id:'20', v:20 }, { id:'30', v:30 }, { id:'supremum', v:52 }], spans:[] },
     tl:{ items:[{ id:'(비었다)', tag:'free', sub:'아직' }] },
     rl:{ items:[{ id:'(비었다)', tag:'free', sub:'아직' }] },
     row:{ items:[
@@ -899,10 +901,10 @@ const SCENES = [
           ['storage/innobase/trx/trx0i_s.cc','*lock_data = "supremum pseudo-record";'],
           ['storage/innobase/row/row0sel.cc','err = lock_clust_rec_read_check_and_lock(']],
     ops:{ idx:{ span:{ add:[
-            { id:'nk10', from:0, to:10, kind:'next', lb:'X  next-key  (−∞,10]', row:0 },
-            { id:'nk20', from:10, to:20, kind:'next', lb:'X  next-key  (10,20]', row:1 },
-            { id:'nk30', from:20, to:30, kind:'next', lb:'X  next-key  (20,30]', row:0 },
-            { id:'nksup', from:30, to:45, kind:'next', lb:'X  next-key  (30,supremum]', row:1 }] } },
+            { id:'nk10', from:0, to:10, kind:'next', lb:'X  (−∞,10]', row:0 },
+            { id:'nk20', from:10, to:20, kind:'next', lb:'X  (10,20]', row:1 },
+            { id:'nk30', from:20, to:30, kind:'next', lb:'X  (20,30]', row:0 },
+            { id:'nksup', from:30, to:52, kind:'next', lb:'X  (30,supremum]', row:1 }] } },
           tl:{ del:['(비었다)'], add:[{ id:'t', tag:'hold', sub:'IX' }] },
           rl:{ del:['(비었다)'], add:[
             { id:'PRIMARY  10', tag:'x', sub:'X  ·  조건 불일치' },
@@ -985,7 +987,7 @@ const SCENES = [
       2:{ act:{ f:'stmt', t:'idx', lb:'들어갈 자리를 확인한다' },
           note:'옆 문장이 끝나 AUTO_INC 를 받았다 → IX → 삽입 지점 확인',
           ops:{ stmt:{ set:{ '단계':'삽입 지점 확인', 'data_locks':'2 줄' } },
-                idx:{ span:{ add:[{ id:'ii', from:200, to:300, kind:'ii', lb:'insert intention 검사 — 막는 gap 없음', row:0 }] } },
+                idx:{ span:{ add:[{ id:'ii', from:200, to:300, kind:'ii', lb:'insert intention — 막는 gap 없음', row:0 }] } },
                 tl:{ del:['옆 세션 · AUTO_INC'],
                      set:{ 't · AUTO_INC':{ tag:'hold', sub:'문장 끝까지' } },
                      add:[{ id:'t · IX', tag:'hold', sub:'커밋까지' }] } } },
@@ -1024,7 +1026,7 @@ const SCENES = [
       2:{ act:{ f:'stmt', t:'idx', lb:'들어갈 자리를 확인한다' },
           note:'옆 문장이 끝나 AUTO_INC 를 받았다 → IX → 삽입 지점 확인',
           ops:{ stmt:{ set:{ '단계':'삽입 지점 확인', 'data_locks':'2 줄' } },
-                idx:{ span:{ add:[{ id:'ii', from:200, to:300, kind:'ii', lb:'insert intention 검사 — 막는 gap 없음', row:0 }] } },
+                idx:{ span:{ add:[{ id:'ii', from:200, to:300, kind:'ii', lb:'insert intention — 막는 gap 없음', row:0 }] } },
                 tl:{ del:['옆 세션 · AUTO_INC'],
                      set:{ 't · AUTO_INC':{ tag:'hold', sub:'문장 끝까지' } },
                      add:[{ id:'t · IX', tag:'hold', sub:'커밋까지' }] } } },
@@ -1059,7 +1061,8 @@ const SCENES = [
   } },
   init:{
     stmt:{ kv:{ 'SQL':'INSERT INTO t(c) VALUES(250)', '단계':'—', 'data_locks':'0 줄' } },
-    idx:{ axis:{ min:0, max:400 }, items:[
+    /* 축은 60 – 380 — 0 – 400 이면 Lab 768 에서 250 · 300 의 이름이 겹쳤다(배우가 다섯인 모드 0 의 6 스텝) */
+    idx:{ axis:{ min:60, max:380 }, items:[
       { id:'100', v:100 }, { id:'200', v:200 }, { id:'300', v:300 }], spans:[] },
     /* 테이블 락은 TABLE LOCKS 에(01 – 06 과 같은 배우) — ROW LOCKS 안의 'TABLE  AUTO_INC  AUTO_INC · WAITING' 은 낱말이 겹쳤다 */
     tl:{ items:[{ id:'(비었다)', tag:'free', sub:'아직' }] },
@@ -1097,7 +1100,7 @@ const SCENES = [
           'const ulint type_mode = LOCK_X | LOCK_GAP | LOCK_INSERT_INTENTION;',
           'if (conflicting.wait_for != nullptr) {'],
     ops:{ stmt:{ set:{ '단계':'삽입 지점 확인' } },
-          idx:{ span:{ add:[{ id:'ii', from:200, to:300, kind:'ii', lb:'insert intention 검사 — 막는 gap 없음', row:0 }] } } } },
+          idx:{ span:{ add:[{ id:'ii', from:200, to:300, kind:'ii', lb:'insert intention — 막는 gap 없음', row:0 }] } } } },
 
   { look:{ idx:true },
     note:'insert intention 은 mode 가 아니라 flag bit — gap 을 쥔 남과만 부딪힌다',
