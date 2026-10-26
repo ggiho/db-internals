@@ -9,7 +9,8 @@ const ACTORS = {
   cmp:   { nm:'vs INNODB',   lane:'sql', kind:'kv' },
   bt:    { nm:'B-TREE',      lane:'idx', kind:'tree', w:'w2' },
   leaf:  { nm:'LEAF PAGE',   lane:'idx', kind:'list' },
-  right: { nm:'RIGHT PAGE',  lane:'idx', kind:'list' },
+  /* 분할로 새로 생긴 오른쪽 페이지 — 트리에도 leaf R 이 있어 'RIGHT PAGE' 는 그것으로 읽혔다 */
+  right: { nm:'NEW PAGE',    lane:'idx', kind:'list' },
   /* 04 — 0 번 블록. 진짜 root 와 fast root 의 자리를 적는다(BTMetaPageData) */
   meta:  { nm:'METAPAGE',    lane:'idx', kind:'kv' },
   heap:  { nm:'HEAP',        lane:'tbl', kind:'list' },

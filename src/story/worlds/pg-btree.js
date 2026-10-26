@@ -140,7 +140,8 @@ function make({ F, deck, labels, scene }) {
         t.set(slLb[a][id], it ? [id, on(a) && hotIt(s, a, id), it.tag === 'x' ? 'red' : it.tag === 'dirty' ? 'gold' : ''] : ['', false, '', false]);
       }
       const notes = s[a].filter((x) => x.sub).map((x) => `<span class="q-i">${esc(x.id)}</span> ${esc(x.sub)}`);
-      t.set(capLb[a], [notes.join('   ') || (s[a].length ? '' : '—'), on(a), '', true, true]);
+      /* 설명 줄은 pre-line 이라 공백 여럿이 하나로 접힌다 — 항목 사이를 │ 로 가른다 */
+      t.set(capLb[a], [notes.join('  │  ') || (s[a].length ? '' : '—'), on(a), '', true, true]);
     }
     if (EDGE) t.set(edgeLb, [EDGE.lb, false, (s.step.hot || (s.step.act && s.step.act.hot)) === EDGE.hot ? 'gold' : '']);
     return t;
@@ -329,8 +330,9 @@ function make({ F, deck, labels, scene }) {
         for (let m = 0; m < SL; m++) {
           const i = r0 + m, f = m / SL;
           const cx = PV && mv < 1 ? U.lerp(PV.x, P.x, mv) : P.x, cy = PV && mv < 1 ? U.lerp(PV.y, P.y, mv) : P.y;
-          const inner = DOUBLE.has(tg) && m % 2 === 1, ww2 = inner ? P.w - 5 : P.w, hh2 = inner ? G.sh - 5 : G.sh;
-          let [x, y] = rim(cx, cy, ww2, hh2, inner ? SL / 2 : DOUBLE.has(tg) ? SL / 2 : SL, inner ? (m - 1) / 2 : DOUBLE.has(tg) ? m / 2 : m), ing = true;
+          /* 두 겹 테두리는 좁은 칸에만 — 넓은 칸(70px 넘게)은 알갱이 48 개를 두 겹으로 나누면 점만 흩어진다. 색이 이미 새 것을 말한다 */
+          const dbl = DOUBLE.has(tg) && P.w <= 70, inner = dbl && m % 2 === 1, ww2 = inner ? P.w - 5 : P.w, hh2 = inner ? G.sh - 5 : G.sh;
+          let [x, y] = rim(cx, cy, ww2, hh2, dbl ? SL / 2 : SL, inner ? (m - 1) / 2 : dbl ? m / 2 : m), ing = true;
           if (from) { const e = show(fly, f * 0.4, 0.6 + f * 0.4); x = U.lerp(from[0] + jit[i * 2] * 10, x, e); y = U.lerp(from[1] + jit[i * 2 + 1] * 10, y, e) - Math.sin(e * Math.PI) * 18; }
           if (gone) { x += jit[i * 2] * 26 * gone; y += jit[i * 2 + 1] * 26 * gone + 8 * gone; }
           [x, y] = into(i, x, y);
@@ -414,10 +416,12 @@ function make({ F, deck, labels, scene }) {
     ctx.beginPath(); ctx.moveTo(L.x0, G.edgeY); ctx.lineTo(L.x1, G.edgeY); ctx.stroke();
     if (TREE) {
       const on = s.touch.has(TREE) && !end;
+      /* 경로에서 바로 이어진 두 페이지만 밝힌다 — 경로에 둘 다 있다고 밝히면 root → leaf L → leaf L′ 에서 root → leaf L′ 도 밝았다 */
+      const step = (u, v) => s.path.some((x, i) => x === u && s.path[i + 1] === v);
       /* downlink — 부모의 이름표 아래에서 자식 상자의 위로(상자 바로 아래에서 내리자 선이 부모의 이름표를 가로질렀다) */
       for (const pg of s.pages) {
         const par = parentOf(s, pg); if (!par) continue;
-        const A0 = pageAt(s, par.id), B0 = pageAt(s, pg.id), hot = s.path.includes(pg.id) && s.path.includes(par.id);
+        const A0 = pageAt(s, par.id), B0 = pageAt(s, pg.id), hot = step(par.id, pg.id);
         ctx.globalAlpha = (hot ? 0.9 : on ? 0.55 : 0.35) * o; ctx.strokeStyle = hot ? css.accent : css.ink; ctx.lineWidth = hot ? 1.5 : 1; ctx.setLineDash([]);
         ctx.beginPath(); ctx.moveTo(A0.x, A0.y + G.ph / 2 + 6 + G.pH + 3); ctx.lineTo(B0.x, B0.y - G.ph / 2 - 2); ctx.stroke();
       }
@@ -425,7 +429,7 @@ function make({ F, deck, labels, scene }) {
       for (const pg of s.pages) {
         if (!pg.next) continue;
         const A0 = pageAt(s, pg.id), B0 = pageAt(s, pg.next); if (!A0 || !B0) continue;
-        const fresh = !end && (modOf(s, TREE).has(pg.id) || modOf(s, TREE).has(pg.next)), hot = s.path.includes(pg.id) && s.path.includes(pg.next);
+        const fresh = !end && (modOf(s, TREE).has(pg.id) || modOf(s, TREE).has(pg.next)), hot = step(pg.id, pg.next);
         ctx.globalAlpha = (hot || fresh ? 0.95 : on ? 0.6 : 0.4) * o * (fresh ? show(p, 0.3, 0.46) : 1);
         ctx.strokeStyle = hot ? css.accent : fresh ? css.gold : css.ink; ctx.lineWidth = hot || fresh ? 1.6 : 1.1; ctx.setLineDash([]);
         const y = A0.y + G.ph / 2 - 6, row = s.pages.filter((x) => (x.lvl || 0) === (pg.lvl || 0));
@@ -438,6 +442,15 @@ function make({ F, deck, labels, scene }) {
           ctx.moveTo(x1, B0.y - G.ph / 2 - 3); ctx.lineTo(x1 - 5 * Math.cos(a + 0.45), B0.y - G.ph / 2 - 3 - 5 * Math.sin(a + 0.45)); ctx.stroke();
         } else arrow(ctx, A0.x + G.pw / 2 + 2, y, B0.x - G.pw / 2 - 3, y, 5);
       }
+      /* 경로의 한 걸음에 그어 둔 선이 없으면(옛 downlink — 떼어 낸 페이지로 내려간 스캔) 점선으로 그 걸음을 보인다 */
+      if (!end) s.path.forEach((u, i) => {
+        const v = s.path[i + 1]; if (!v) return;
+        const pu = s.pages.find((x) => x.id === u), pv = s.pages.find((x) => x.id === v);
+        if (!pu || !pv || pu.next === v || (parentOf(s, pv) || {}).id === u) return;
+        const A0 = pageAt(s, u), B0 = pageAt(s, v);
+        ctx.globalAlpha = 0.85 * o; ctx.strokeStyle = css.accent; ctx.lineWidth = 1.4; ctx.setLineDash([4, 3]);
+        ctx.beginPath(); ctx.moveTo(A0.x, A0.y + G.ph / 2 + 6 + G.pH + 3); ctx.lineTo(B0.x, B0.y - G.ph / 2 - 2); ctx.stroke(); ctx.setLineDash([]);
+      });
     }
     ctx.restore();
   }
