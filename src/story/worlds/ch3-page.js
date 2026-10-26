@@ -499,6 +499,13 @@ const modOf = (s, a) => { const c = s.chg[a]; return new Set(c ? [...(c.mod || [
 const hotIt = (s, a, id) => { const f = focusOf(s, a); if (f) return f.has(id); const m = modOf(s, a); return m.size ? m.has(id) : s.look[a] === true; };
 /* act 이름이 그 칸을 대는가 — '헤더 38바이트를 읽는다' 는 'FIL 헤더' 를 짚는다 */
 const actNames = (s, a, id) => { const t = s.step.act; return !!t && (t.f === a || t.t === a) && String(id).split(/\s+/).some((w) => w.length >= 2 && !/^[0-9]+B?$/.test(w) && t.lb.includes(w)); };
+/* 07a — 헤더 바이트 수가 손잡이(행 형식)에 따라 5 · 6 이다. 배우 이름의 'N B' · 'N바이트' 를 그 스텝의 op 'extra 바이트' 로
+   — 이름을 actors.js 에 박아 두었더니 REDUNDANT 에서도 'extra 5B' · '5바이트 안의 다섯 값' 이었다(03a 는 op 에 그 칸이 없어 그대로) */
+const nmOf = (M, s, a) => {
+  const nm = M.A[a].nm, n = C.lead(((s.op || {})['extra 바이트']) || '');
+  if (n == null || (a !== 'rhd' && a !== 'bit5')) return nm;
+  return a === 'rhd' ? nm.replace(/extra\s*\d+\s*B/, `extra ${n}B`) : `${n}바이트 안의 값`;
+};
 const kvHtml = (kv) => Object.entries(kv).map(([k, v]) => `${esc(k)}  <span class="q-v">${val(v)}</span>`).join('\n');
 const capOf = (its) => its.filter((x) => x.sub).map((x) => `<span class="q-i">${esc(x.id)}</span> ${val(x.sub)}`).join('\n');
 function rim(cx, cy, w, h, n, m) {
@@ -757,7 +764,7 @@ PANEL.bytes = (W, M, sp) => {
         for (const a of row.acts) {
           const on = touchOf(s, a);
           /* 배우 이름 — 02a 의 원점 뒤(rdat)는 첫 줄에만 */
-          T.set(L.hd.get(key(row.r, a, '')), [row.r > 0 && a === row.post ? '' : M.A[a].nm, on, '', !(row.r > 0 && a === row.post)]);
+          T.set(L.hd.get(key(row.r, a, '')), [row.r > 0 && a === row.post ? '' : nmOf(M, s, a), on, '', !(row.r > 0 && a === row.post)]);
           for (const id of keysOf(M, a)) {
             const it = (s[a] || []).find((x) => x.k === id), vis = !!it && here.has(a + '|' + id);
             const hot = vis && isHot(s, a, it), cls = it ? TAGL[it.tag] || (hot && it.tag !== 'free' ? 'gold' : '') : '';
@@ -991,7 +998,7 @@ PANEL.bits = (W, M, sp) => {
     lbs, acts: [a], needs: [src], snap: () => geo, use: (g) => { geo = g; },
     texts(s, T) {
       const on = touchOf(s, a), { fields } = decode(s), offs = offsOf(s);
-      T.set(hd, [M.A[a].nm + '  ·  bit', on]);
+      T.set(hd, [nmOf(M, s, a) + '  ·  bit', on]);
       for (const id of II) {
         const f = fields.find((x) => x.id === id), it = (s[a] || []).find((x) => x.id === id);
         const vs = f && f.v != null ? (f.w === 16 ? (f.v >= 0 ? ' +' : ' ') + f.v : ' ' + f.v) : '';

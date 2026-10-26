@@ -2144,13 +2144,15 @@ const SCENES = [
       { id:'heap',   sz:2, tag:'gold', sub:'−4 −3' },
       { id:'next',   sz:2, tag:'gold', sub:'−2 −1' },
       { id:'◆',      sz:1, tag:'hdr',  sub:'원점' } ],
-      byl:{ l:'왼쪽으로 갈수록 원점에서 멀다', r:'extra 5 B' } },
+      byl:{ l:'원점에서 먼 쪽', r:'헤더 5B + 길이 · 널' } },
+    /* clustered record 는 PK 가 먼저, 그 뒤에 숨은 컬럼 둘, 나머지 컬럼(dict_index_build_internal_clust — 02a 와 같은 차례) */
     rdat:{ items:[
       { id:'◆',           sz:1, tag:'hdr', sub:'원점' },
+      { id:'id',          sz:4, tag:'',    sub:'4 B · PK' },
       { id:'DB_TRX_ID',   sz:6, tag:'hdr', sub:'6 B' },
       { id:'DB_ROLL_PTR', sz:7, tag:'hdr', sub:'7 B' },
-      { id:'id · c →',     sz:8, tag:'',    sub:'컬럼 값' } ],
-      byl:{ l:'원점부터 오른쪽', r:'숨은 컬럼 13 B + 값' } },
+      { id:'c →',         sz:4, tag:'',    sub:'4 B' } ],
+      byl:{ l:'원점부터 오른쪽', r:'PK · 숨은 컬럼 13 B · 나머지' } },
     bit5:{ items:[
       { id:'info bits', tag:'clean', sub:'4비트 · −5 바이트의 상위' },
       { id:'n_owned',   tag:'clean', sub:'4비트 · −5 바이트의 하위' },
@@ -2169,6 +2171,8 @@ const SCENES = [
      물려받았을 때 REDUNDANT 에서도 '5 + 13 = 18 B' 로 남았다(ch3-page 세계의 셈 맞추기). */
   vary:{ knob:'innodb_default_row_format', base:'dynamic', alt:{
     'redundant':{
+      /* 1 스텝은 COMPACT 의 5 B 를 말했다 — REDUNDANT 에서는 2 스텝이 푼다 */
+      1:{ ops:{ op:{ set:{ 'extra 바이트':'— (REDUNDANT · 2 스텝에서 푼다)', '원점 기준':'헤더는 앞 · 데이터는 뒤' } } } },
       2:{ note:'6 byte — 담는 것도 다르다', act:{ f:'rhd', t:'bit5', lb:'6바이트를 풀어본다' },
           why:'REC_N_OLD_EXTRA_BYTES 가 6 이다. COMPACT 계열의 5바이트와 한 바이트 차이인데, 그 한 바이트가 아니라 배치 전체가 다르다 — REDUNDANT 는 필드 개수를 헤더에 적고, 오프셋이 1바이트인지 2바이트인지도 비트 하나로 표시한다. next 도 상대 거리가 아니라 page 안 절대 오프셋이다.',
           key:'그래서 REDUNDANT 레코드는 <em>스스로 자기 필드 수를 안다</em>. COMPACT 은 그것을 인덱스 정의에서 가져온다 — 바이트를 아낀 대신 레코드만 보고는 해석할 수 없게 됐다.',
@@ -2179,7 +2183,12 @@ const SCENES = [
                 '[iiiioooo][hhhhhhhh][hhhhhfff][fffffffs][pppppppp][pppppppp]+',
                 ['storage/innobase/include/rem0rec.ic','8 bits pointer to next record']],
           beat:1,
-          ops:{ bit5:{ del:['status'], set:{ 'info bits':{ tag:'hold', sub:'4비트 · 오프셋 −6 에 있다' }, n_owned:{ tag:'hold', sub:'4비트 · 오프셋 −6' }, heap_no:{ tag:'hold', sub:'13비트 · 오프셋 −5 −4' } }, add:[{ id:'n_fields', tag:'x', sub:'10비트 · REC_OLD_N_FIELDS_MASK 0x7FE' }, { id:'short', tag:'x', sub:'1비트 · 오프셋이 1B 인지 2B 인지' }] }, op:{ set:{ 'extra 바이트':'6 B  (REDUNDANT)|red', '원점 기준':'−6 ‥ −1' } }, rhd:{ set:{ info:{ id:'info', sz:1, tag:'gold', sub:'−6' }, heap:{ id:'heap', sz:2, tag:'gold', sub:'−5 −4' }, next:{ id:'next', sz:2, tag:'gold', sub:'−2 −1' } }, add:[{ id:'n_f', sz:1, tag:'gold', sub:'−4 −3 · 필드 수 + short' }], move:[['n_f', 4]] } } },
+          ops:{ bit5:{ del:['status'], set:{ 'info bits':{ tag:'hold', sub:'4비트 · 오프셋 −6 에 있다' }, n_owned:{ tag:'hold', sub:'4비트 · 오프셋 −6' }, heap_no:{ tag:'hold', sub:'13비트 · 오프셋 −5 −4' } }, add:[{ id:'n_fields', tag:'x', sub:'10비트 · REC_OLD_N_FIELDS_MASK 0x7FE' }, { id:'short', tag:'x', sub:'1비트 · 오프셋이 1B 인지 2B 인지' }],
+                       /* 아래 목록도 bit 줄과 같은 차례로 — n_fields · short 가 next 앞 */
+                       move:[['n_fields', 3], ['short', 4]] },
+                op:{ set:{ 'extra 바이트':'6 B  (REDUNDANT)|red', '원점 기준':'−6 ‥ −1' } },
+                rhd:{ set:{ info:{ id:'info', sz:1, tag:'gold', sub:'−6' }, heap:{ id:'heap', sz:2, tag:'gold', sub:'−5 −4' }, next:{ id:'next', sz:2, tag:'gold', sub:'−2 −1' } }, add:[{ id:'n_f', sz:1, tag:'gold', sub:'−4 −3 · 필드 수 + short' }], move:[['n_f', 4]],
+                       byl:{ r:'헤더 6B + 필드 오프셋' } } } },
 
       4:{ note:'status 3 bit 없음 — 그 자리에 field 수', act:{ f:'bit5', t:'rhd', lb:'n_fields 10비트' },
           why:'REC_NEW_STATUS 는 COMPACT 계열에만 있다. REDUNDANT 에서는 필드 수가 그 역할을 겸한다 — infimum · supremum 은 1 이고, node pointer 는 고유 키 필드 수 + 1 이다.',
@@ -2189,12 +2198,14 @@ const SCENES = [
                 'constexpr uint32_t REC_OLD_N_FIELDS_SHIFT = 1;',
                 "Only when it's infimum or supremum, n is 1.",
                 "And if it's node pointer, n is n_uniq + 1"],
-          ops:{ bit5:{ set:{ 'n_fields':{ tag:'x', sub:'10비트 · 이 레코드의 필드 수' } } },
+          ops:{ bit5:{ set:{ 'n_fields':{ tag:'x', sub:'10비트 · 이 레코드는 4 (id · trx · roll · c)' } } },
                 rhd:{ set:{ '◆':{ id:'◆', sz:1, tag:'hdr', sub:'원점 · status 없음' } } } } },
 
-      5:{ ops:{ rdat:{ set:{ 'DB_TRX_ID':{ id:'DB_TRX_ID', sz:6, tag:'gold', sub:'6 B · 누가 바꿨나' },
+      /* REDUNDANT 는 헤더 6 B 앞에 필드마다 끝 오프셋(이 행은 4 필드 × 1 B)을 둔다. 숨은 컬럼은 원점 뒤라 extra 가 아니다 */
+      5:{ act:{ f:'rdat', t:'op', lb:'PK 뒤 13바이트' },
+          ops:{ rdat:{ set:{ 'DB_TRX_ID':{ id:'DB_TRX_ID', sz:6, tag:'gold', sub:'6 B · 누가 바꿨나' },
                              'DB_ROLL_PTR':{ id:'DB_ROLL_PTR', sz:7, tag:'gold', sub:'7 B · 이전 버전 위치' } } },
-                op:{ set:{ 'extra 바이트':'6 + 숨은 컬럼 13 = 19 B|red' } } } },
+                op:{ set:{ 'extra 바이트':'6 + 필드 오프셋 4  ·  + 숨은 컬럼 13 = 행마다 23 B|red' } } } },
 
       6:{ note:'null bitmap 없음 — NULL 은 offset 안의 bit 하나', act:{ f:'rhd', t:'op', lb:'원점 앞의 필드 오프셋' },
           why:'REDUNDANT 는 필드마다 끝 오프셋을 적고, 그 오프셋의 최상위 비트를 SQL NULL 표시로 쓴다. 1바이트 오프셋이면 0x80, 2바이트면 0x8000 이다. 주석이 그렇게 적는다.',
@@ -2206,8 +2217,9 @@ const SCENES = [
                 ['storage/innobase/include/rem0lrec.h','Returns the offset of nth field end if the record is stored in the 1-byte']],
           beat:1,
           ops:{ rhd:{ del:['널'],
-                      set:{ 'varlen':{ id:'varlen', sz:2, tag:'gold', sub:'모든 필드의 오프셋 · NULL 비트 포함' } } },
-                op:{ set:{ '원점 기준':'−6 ‥ −1  ·  널 비트맵 없음' } } } },
+                      set:{ 'varlen':{ id:'varlen', sz:4, tag:'gold', sub:'필드 끝 오프셋 · 4 B' },
+                            info:{ tag:'hdr' }, heap:{ tag:'hdr' }, n_f:{ tag:'hdr' }, next:{ tag:'hdr' }, '◆':{ tag:'hdr' } } },
+                op:{ set:{ '원점 기준':'−6 ‥ −1  ·  널 비트맵 없음 — NULL 은 오프셋의 최상위 bit' } } } },
 
       7:{ look:{ rhd:true, op:true },
           note:'정리 — 같은 row 가 format 따라 다른 byte',
@@ -2260,8 +2272,9 @@ const SCENES = [
           'this bit is set if and only if the record is the first user record on a non-leaf B-tree page that is the leftmost page on its level',
           ['storage/innobase/btr/btr0cur.cc','and the delete-mark is being updated in place.'],
           ['storage/innobase/row/row0purge.cc','success = btr_cur_optimistic_delete(node->pcur.get_btr_cur(), 0, &mtr);']],
-    ops:{ bit5:{ set:{ 'info bits':{ tag:'x', sub:'MIN_REC · DELETED · VERSION · INSTANT' } } },
-          op:{ set:{ '레코드':'(id=20, c=200)  ·  DELETED 비트로 삭제|red' } } } },
+    /* bit 줄은 높은 bit 가 왼쪽 — 이름도 그 차례로. 삭제는 가정으로만(뒤 스텝은 삭제 이야기가 아니다) */
+    ops:{ bit5:{ set:{ 'info bits':{ tag:'x', sub:'INSTANT 0x80 · VERSION 0x40 · DELETED 0x20 · MIN_REC 0x10' } } },
+          op:{ set:{ '레코드':'(id=20, c=200)  ·  DELETE 하면 0x20 하나만 켠다|red' } } } },
 
   { act:{ f:'bit5', t:'rhd', lb:'status 3비트' },
     note:'status 3 bit — record 종류 결정, 값은 넷뿐',
@@ -2273,9 +2286,10 @@ const SCENES = [
           'constexpr uint32_t REC_STATUS_INFIMUM = 2;',
           'constexpr uint32_t REC_STATUS_SUPREMUM = 3;'],
     ops:{ bit5:{ set:{ 'status':{ tag:'x', sub:'ORDINARY 0 · NODE_PTR 1 · INFIMUM 2 · SUPREMUM 3' } } },
-          rhd:{ set:{ '◆':{ id:'◆', sz:1, tag:'gold', sub:'원점 · ORDINARY' } } } } },
+          rhd:{ set:{ '◆':{ id:'◆', sz:1, tag:'gold', sub:'원점 · ORDINARY' } } },
+          op:{ set:{ '레코드':'(id=20, c=200)' } } } },
 
-  { act:{ f:'rdat', t:'op', lb:'원점 뒤 13바이트' },
+  { act:{ f:'rdat', t:'op', lb:'PK 뒤 13바이트' },
     note:'clustered index record — hidden column 둘',
     why:'DB_TRX_ID 6바이트, DB_ROLL_PTR 7바이트. 소스가 static_assert 로 그 길이를 못박는다.',
     key:'행마다 <em>13바이트가 MVCC 값</em>이다. 컬럼 두 개짜리 좁은 테이블에서는 이것이 데이터보다 클 수 있다 — 좁은 테이블이 생각보다 안 좁은 이유.',
@@ -2284,7 +2298,7 @@ const SCENES = [
           ['storage/innobase/include/data0type.h','static_assert(DATA_ROLL_PTR_LEN == 7, "DATA_PTR_LEN != 7!");']],
     ops:{ rdat:{ set:{ 'DB_TRX_ID':{ id:'DB_TRX_ID', sz:6, tag:'gold', sub:'6 B · 누가 바꿨나' },
                       'DB_ROLL_PTR':{ id:'DB_ROLL_PTR', sz:7, tag:'gold', sub:'7 B · 이전 버전 위치' } } },
-          op:{ set:{ 'extra 바이트':'5 + 숨은 컬럼 13 = 18 B|red' } } } },
+          op:{ set:{ 'extra 바이트':'5  ·  + 숨은 컬럼 13 = 행마다 18 B|red' } } } },
 
   { act:{ f:'rhd', t:'op', lb:'원점 앞의 가변 길이' },
     note:'varlen length 와 null bitmap — header 보다 더 앞, 역순',
@@ -2293,7 +2307,8 @@ const SCENES = [
     ref:'storage/innobase/rem/rec.cc', sym:'rec_get_offsets',
     fact:[['storage/innobase/rem/rec.h','*nulls = rec - (REC_N_NEW_EXTRA_BYTES + 1);'],
           ['storage/innobase/rem/rec.h','*lens = *nulls - UT_BITS_IN_BYTES(*n_null);']],
-    ops:{ rhd:{ set:{ varlen:{ id:'varlen', sz:2, tag:'gold', sub:'역순 · 가변 필드마다 1~2B' }, '널':{ id:'널', sz:1, tag:'gold', sub:'nullable 수 ÷ 8, 올림' } } } } },
+    ops:{ rhd:{ set:{ varlen:{ id:'varlen', sz:2, tag:'gold', sub:'가변 길이 · 역순' }, '널':{ id:'널', sz:1, tag:'gold', sub:'⌈nullable/8⌉' },
+                      info:{ tag:'hdr' }, heap:{ tag:'hdr' }, next:{ tag:'hdr' }, '◆':{ tag:'hdr' } } } } },
 
   { look:{ rhd:true, rdat:true, op:true },
     note:'정리 — 06a 의 slot 이 가리킨 지점이 여기',
