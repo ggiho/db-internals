@@ -324,7 +324,7 @@ const SCENES = [
     ['VACUUM VERBOSE','스캔한 페이지 수와 지운 튜플 수, 인덱스 정리를 건너뛰었는지를 그대로 찍는다']],
   links:[['03','죽은 튜플 — LP_DEAD 로 남긴 자리'],['05','VISIBILITY MAP'],['06','XID wraparound']],
   init:{
-    vac:{ kv:{ '단계':'대기', '죽은 튜플':'2', '지운 것':'0', '그릇':'—', '인덱스 바퀴':'0' } },
+    vac:{ kv:{ '단계':'대기', '죽은 튜플':'2', '지운 것':'0', '그릇':'—', 'TidStore':'—', '인덱스 바퀴':'0' } },
     tup:{ items:[
       { id:'튜플 A', tag:'x', sub:'죽음  ·  xmax 110', lp:1, xmax:110 },
       { id:'튜플 B', tag:'clean', sub:'살아 있음', lp:2, xmax:0 },
@@ -337,12 +337,15 @@ const SCENES = [
   steps:[
   { act:{ f:'vac', t:'tup', lb:'1단계 · heap 을 훑는다' },
     note:'phase 1 — heap scan 으로 dead TID 를 TidStore 에 수집',
-    why:'lazy_scan_heap 이 페이지를 하나씩 보며 죽은 튜플의 TID 를 모은다 — 03 장면의 즉시 정리가 LP_DEAD 로 남긴 자리도 여기 들어간다. 아직 아무것도 지우지 않는다 — 인덱스가 그 TID 들을 아직 가리키고 있기 때문이다. 모으는 그릇은 TidStore 이고, 크기는 maintenance_work_mem 이다(autovacuum 이면 autovacuum_work_mem 이 따로 있을 때 그것).',
+    why:'lazy_scan_heap 이 페이지를 하나씩 보며 lazy_scan_prune 으로 그 페이지를 정리한다 — 03 장면의 즉시 정리와 같은 heap_page_prune_and_freeze 다. 죽은 튜플의 저장 공간은 여기서 치우되 line pointer 는 LP_DEAD 로 남기고, 그 TID 를 모은다(03 장면이 이미 LP_DEAD 로 남긴 자리도 함께). line pointer 까지 지우지 않는 것은 인덱스가 그 TID 들을 아직 가리키고 있기 때문이다. 모으는 그릇은 TidStore 이고, 크기는 maintenance_work_mem 이다(autovacuum 이면 autovacuum_work_mem 이 따로 있을 때 그것).',
     key:'지우기 전에 <em>목록을 만든다</em>. 그 목록이 그릇에 다 안 담기면 VACUUM 은 도중에 멈추고 한 바퀴를 돌아야 한다 — 다음 스텝.',
     ref:'src/backend/access/heap/vacuumlazy.c', sym:'lazy_scan_heap',
     fact:[['src/backend/access/heap/vacuumlazy.c','autovacuum_work_mem : maintenance_work_mem;'],
-          ['src/backend/access/heap/vacuumlazy.c','vacrel->dead_items = TidStoreCreateLocal(dead_items_info->max_bytes, true);']],
-    ops:{ vac:{ set:{ '단계':'heap 스캔  ·  TID 수집', '그릇':'maintenance_work_mem 64MB' } } } },
+          ['src/backend/access/heap/vacuumlazy.c','vacrel->dead_items = TidStoreCreateLocal(dead_items_info->max_bytes, true);'],
+          ['src/backend/access/heap/vacuumlazy.c','heap_page_prune_and_freeze(rel, buf, vacrel->vistest, prune_options,'],
+          ['src/backend/access/heap/vacuumlazy.c','dead_items_add(vacrel, blkno, presult.deadoffsets, presult.lpdead_items);']],
+    ops:{ vac:{ set:{ '단계':'heap 스캔  ·  prune → LP_DEAD · TID 수집', '그릇':'maintenance_work_mem 64MB', 'TidStore':'(0,1) · (0,3)' } },
+          tup:{ set:{ '튜플 A':{ sub:'LP_DEAD  ·  저장 공간은 1단계 prune 이 회수', lps:'dead' }, '튜플 C':{ sub:'LP_DEAD  ·  저장 공간은 1단계 prune 이 회수', lps:'dead' } } } } },
 
   { look:{ vac:true },
     note:'TidStore 가 maintenance_work_mem 을 넘으면 — 멈추고 index · heap 한 cycle',
@@ -352,7 +355,7 @@ const SCENES = [
     fact:['TidStoreMemoryUsage(vacrel->dead_items) > vacrel->dead_items_info->max_bytes)',
           'dead_items TIDs, pause and do a cycle of vacuuming before we tackle'],
     beat:1,
-    ops:{ vac:{ set:{ '인덱스 바퀴':'1  ·  그릇이 찰 때마다 하나 더' } } } },
+    ops:{ vac:{ set:{ '인덱스 바퀴':'0  ·  TID 2 개 < 64MB — 안 넘친다 (넘치면 +1)' } } } },
 
   { look:{ vac:true, idx:true },
     note:'bypass 판정 — LP_DEAD 페이지 < 2% · TID < 32MB 면 index 단계 skip',
@@ -369,9 +372,10 @@ const SCENES = [
     why:'lazy_vacuum_all_indexes 가 인덱스마다 한 번씩 TidStore 에 든 TID 를 찾아 지운다. 순서를 뒤집을 수 없다. heap 에서 먼저 지우면 그 자리에 새 튜플이 들어올 수 있고, 그러면 아직 남아 있는 인덱스 항목이 엉뚱한 행을 가리킨다.',
     key:'그래서 <em>인덱스가 많으면 VACUUM 이 비싸진다</em> — 인덱스마다 한 번씩 훑어야 한다. 03 에서 본 "정리가 공짜가 아니다" 의 실체가 이 단계다.',
     ref:'src/backend/access/heap/vacuumlazy.c', sym:'lazy_vacuum_all_indexes',
-    fact:['for (int idx = 0; idx < vacrel->nindexes; idx++)'],
+    fact:['for (int idx = 0; idx < vacrel->nindexes; idx++)',
+          'vacrel->num_index_scans++;'],
     ops:{ idx:{ set:{ 'idx → A':{ tag:'free', sub:'지워짐' }, 'idx → C':{ tag:'free', sub:'지워짐' } } },
-          vac:{ set:{ '단계':'인덱스 정리' } } } },
+          vac:{ set:{ '단계':'인덱스 정리', '인덱스 바퀴':'1' } } } },
 
   { act:{ f:'vac', t:'tup', lb:'3단계 · heap 에서 지운다' },
     note:'phase 3 — index 정리 뒤에야 heap line pointer 를 LP_UNUSED 로',
@@ -380,7 +384,7 @@ const SCENES = [
     ref:'src/backend/access/heap/vacuumlazy.c', sym:'lazy_vacuum_heap_page',
     fact:['ItemIdSetUnused(itemid);'],
     ops:{ tup:{ set:{ '튜플 A':{ tag:'free', sub:'LP_UNUSED — 자리 회수', lps:'unused' }, '튜플 C':{ tag:'free', sub:'LP_UNUSED — 자리 회수', lps:'unused' } } },
-          vac:{ set:{ '단계':'heap 회수', '죽은 튜플':'0', '지운 것':'2' } } },
+          vac:{ set:{ '단계':'heap 회수  ·  LP_DEAD → LP_UNUSED', '죽은 튜플':'0', '지운 것':'2', 'TidStore':'비움 (dead_items_reset)' } } },
     beat:1 },
 
   { look:{ vac:true },
@@ -392,7 +396,7 @@ const SCENES = [
           '#define REL_TRUNCATE_MINIMUM',
           ['src/backend/access/heap/vacuumlazy.c',"truncation. If we can't get it, give up rather than waiting --- we"],
           ['src/backend/utils/misc/guc_tables.c','Enables vacuum to truncate empty pages at the end of the table.']],
-    ops:{ vac:{ set:{ '단계':'끝쪽 빈 페이지 — 1000 개 또는 1/16 이상이면 자른다' } } } },
+    ops:{ vac:{ set:{ '단계':'끝쪽 빈 페이지 0 개 < 1000 · 1/16 → 안 자른다' } } } },
   ],
 },
 {
