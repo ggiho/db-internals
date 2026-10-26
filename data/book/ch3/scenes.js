@@ -2037,7 +2037,7 @@ const SCENES = [
     ['I_S.INNODB_COLUMNS','MTYPE · PRTYPE · LEN — 필드가 고정인지 가변인지']],
   links:[['06','셀이 페이지에 놓이는 방식'],['02','가변 길이를 어디에 적나'],['03','플래그 비트']],
   init:{
-    op:{ kv:{ '셀 종류':'—', '레벨':'—', '담는 것':'—' } },
+    op:{ kv:{ '셀 종류':'—', '레벨':'—', '담는 것':'—', '주소':'—' } },
     rec:{ items:[{ id:'—', sz:1, tag:'free', sub:'아직' }] },
     cells:{ items:[] },
     bits:{ items:[] },
@@ -2058,8 +2058,9 @@ const SCENES = [
     cite:['Key cells hold a separator key and a pointer to the page between two neighboring pointers',
           'ID of the child page this cell is pointing to'],
     ops:{ rec:{ del:['—'], add:[
-            { id:'키 크기', sz:1, tag:'hdr', sub:'가변이면 필요' },
-            { id:'자식 page_id', sz:1, tag:'gold', sub:'4 B' },
+            /* 책의 배치 0 · 4 · 8 — 키 크기도 int 4 B 다(키-값 셀의 키 크기와 같은 폭) */
+            { id:'키 크기', sz:4, tag:'hdr', sub:'4 B · 가변 키일 때만' },
+            { id:'자식 page_id', sz:4, tag:'gold', sub:'4 B' },
             { id:'키 바이트', sz:4, tag:'', sub:'가변' }] },
           op:{ set:{ '셀 종류':'키 셀', '레벨':'internal', '담는 것':'키 + 자식 포인터' } } } },
 
@@ -2072,6 +2073,7 @@ const SCENES = [
           ['storage/innobase/dict/dict0dict.cc','mach_write_to_4(buf, page_no);']],
     cite:['we only need to store the page ID, which is later translated to the actual offset in the file using the lookup table',
           'Cell offsets are page-local and are relative to the page start offset'],
+    ops:{ op:{ set:{ '주소':'page_no × 16,384 = 파일 offset  ·  셀 offset 은 page 안|gold' } } },
     beat:1 },
 
   { act:{ f:'op', t:'rec', lb:'키-값 셀 (leaf 노드)' },
@@ -2082,13 +2084,13 @@ const SCENES = [
     fact:['n = dict_index_get_n_fields(index);',
           'n = dict_index_get_n_unique_in_tree_nonleaf(index) + 1;'],
     cite:['The key-value cells hold data records instead of the child page IDs. Otherwise, their structure is similar'],
-    ops:{ rec:{ del:['키 크기','자식 page_id','키 바이트'], add:[
-            { id:'플래그', sz:1, tag:'hdr', sub:'1 B' },
-            { id:'키 크기', sz:1, tag:'hdr', sub:'4 B' },
-            { id:'값 크기', sz:1, tag:'hdr', sub:'4 B' },
-            { id:'키 바이트', sz:3, tag:'', sub:'가변' },
-            { id:'데이터 레코드', sz:5, tag:'', sub:'가변' }] },
-          op:{ set:{ '셀 종류':'키-값 셀', '레벨':'leaf', '담는 것':'키 + 데이터 레코드' } } } },
+    /* 바뀌는 것만 바꾼다 — 자식 page_id 가 빠지고 플래그 · 값 크기 · 데이터 레코드가 든다. 키 크기 · 키 바이트는 그대로 */
+    ops:{ rec:{ del:['자식 page_id'], set:{ '키 바이트':{ sz:3 } }, add:[
+            { id:'플래그', sz:1, tag:'gold', sub:'1 B' },
+            { id:'값 크기', sz:4, tag:'gold', sub:'4 B' },
+            { id:'데이터 레코드', sz:5, tag:'gold', sub:'가변' }],
+                move:[['플래그', 0], ['값 크기', 2]] },
+          op:{ set:{ '셀 종류':'키-값 셀', '레벨':'leaf', '담는 것':'키 + 데이터 레코드', '주소':'—' } } } },
 
   { act:{ f:'rec', t:'bits', lb:'셀 종류는 페이지가 안다' },
     note:'cell 마다 type 을 적지 않는다 — page 안 cell 은 전부 같은 종류',
@@ -2101,9 +2103,11 @@ const SCENES = [
           ['storage/innobase/rem/rec.h','constexpr uint32_t REC_STATUS_NODE_PTR = 1;']],
     cite:['We assume that all cells within the page are uniform',
           'we can store metadata describing cells once on the page level, instead of duplicating it in every cell'],
-    ops:{ bits:{ add:[{ id:'PAGE_LEVEL', tag:'ok', sub:'0 이면 leaf' }, { id:'FIL_PAGE_TYPE', tag:'ok', sub:'FIL_PAGE_INDEX' }, { id:'status 3비트', tag:'x', sub:'record 마다 · NODE_PTR 1 · ORDINARY 0' }] } } },
+    /* 책의 자리(page 에 한 번)와 InnoDB 의 자리(record 마다) — 빨강은 '틀림' 으로 읽혀서 InnoDB 쪽을 금빛으로 */
+    ops:{ bits:{ add:[{ id:'PAGE_LEVEL', tag:'clean', sub:'책 : page 에 한 번 · 0 이면 leaf' }, { id:'FIL_PAGE_TYPE', tag:'clean', sub:'책 : page 에 한 번 · FIL_PAGE_INDEX' },
+                      { id:'status 3비트', tag:'hold', sub:'InnoDB : record 마다 · NODE_PTR 1 · ORDINARY 0 — rec_get_offsets 가 읽는다' }] } } },
 
-  { look:{ rec:true, op:true },
+  { look:{ rec:['플래그', '키 크기', '값 크기'], op:true },
     note:'fixed-size field 를 앞에 모으는 이유',
     why:'앞쪽은 정적 오프셋으로 접근하고, 가변 부분만 계산한다. 책이 "꼭 필요한 것은 아니지만 오프셋 계산을 단순하게 한다" 고 한 그것이다.',
     key:'InnoDB 는 고정 필드를 앞으로 모으지 않는다 — 필드는 index 정의 순서 그대로다. 대신 <em>길이 바이트를 원점 앞</em>에 모아 두고, rec_get_offsets 가 그것을 한 번 읽어 <em>누적 오프셋 배열</em>을 만든다. 그 뒤로는 모든 필드를 정적 오프셋처럼 읽는다.',
@@ -2112,6 +2116,8 @@ const SCENES = [
           'len = offs += len;',
           'len = offs += field->fixed_len;'],
     cite:['This is not strictly necessary but can simplify offset calculation, since all fixed-size fields can be accessed by using static, precomputed offsets'],
+    /* 책의 정적 오프셋 0 · 1 · 5 · 9 — 고정 셋이 앞, 가변 둘은 9 부터 */
+    ops:{ rec:{ set:{ '플래그':{ sub:'0 · 1 B' }, '키 크기':{ sub:'1 · 4 B' }, '값 크기':{ sub:'5 · 4 B' }, '키 바이트':{ sub:'9 · 가변' }, '데이터 레코드':{ sub:'9 + key_size · 가변' } } } },
     beat:1 },
   ],
 },

@@ -605,10 +605,11 @@ PANEL.chips = (W, M, sp) => {
   return {
     lbs: [hd, cap, ...Object.values(cl)], acts: [a], snap: () => g, use: (q) => { g = q; },
     texts(s, T) {
-      const on = touchOf(s, a);
-      T.set(hd, [M.A[a].nm, on]);
+      /* 아직 항목이 없는 목록은 이름도 '—' 도 보이지 않는다 — 07 의 1 – 3 스텝에서 빈 FLAGS 머리가 자리만 차지했다 */
+      const on = touchOf(s, a), any = s[a].length > 0;
+      T.set(hd, [M.A[a].nm, on, '', any]);
       for (const id of II) { const it = s[a].find((x) => x.id === id); T.set(cl[id], [it ? id : '', on && !!it && hotC(s, id), it ? TAGL[it.tag] || '' : '', !!it]); }
-      T.set(cap, [capOf(s[a]) || (s[a].length ? '' : '—'), on, '', true, true]);
+      T.set(cap, [capOf(s[a]) || '', on, '', any, true]);
     },
     layout(x0, y, ww) {
       const w = Object.fromEntries(II.map((id) => [id, Math.max(32, Math.ceil(W.most(cl[id]).w) + 16)]));
