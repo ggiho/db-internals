@@ -15,7 +15,7 @@ const SCENES = [
     ['SHOW ENGINE INNODB STATUS','TRANSACTIONS 절 : 이 트랜잭션이 쥔 락 수']],
   links:[['03','테이블 락은 왜 IS·IX 인가'],['04','무엇이 무엇을 막나'],['10','MDL 은 10단계다']],
   init:{
-    ses:{ kv:{ 'trx':'—', '격리 수준':'REPEATABLE READ', '쥔 락':'0' } },
+    ses:{ kv:{ 'trx':'—', '격리 수준':'REPEATABLE READ', 'InnoDB 락':'0', '언제 풀리나':'—' } },
     stmt:{ kv:{ 'SQL':'—', '단계':'대기' } },
     mdl:{ items:[{ id:'(비었다)', tag:'free', sub:'아직' }] },
     tl:{ items:[{ id:'(비었다)', tag:'free', sub:'아직' }] },
@@ -52,7 +52,7 @@ const SCENES = [
           ['sql/mdl.h','To be used for tables to be modified by INSERT, UPDATE, DELETE']],
     ops:{ stmt:{ set:{ '단계':'테이블 열기' } },
           ses:{ set:{ 'trx':'71  ACTIVE' } },
-          mdl:{ del:['(비었다)'], add:[{ id:'trx 71  ·  t', tag:'hold', sub:'SHARED_WRITE  ·  획득' }] } } },
+          mdl:{ del:['(비었다)'], add:[{ id:'trx 71  ·  t', tag:'wait', sub:'SHARED_WRITE  ·  요청' }] } } },
 
   { look:{ mdl:true },
     note:'보유 ticket 부터 탐색 — 이미 있으면 재사용',
@@ -64,7 +64,8 @@ const SCENES = [
           '@note Tickets which correspond to lock types "stronger" than one',
           'if ((ticket = find_ticket(mdl_request, &found_duration))) {',
           'ticket->has_stronger_or_equal_type(req.type)) {'],
-    ops:{ stmt:{ set:{ '단계':'티켓 조회' } } } },
+    ops:{ stmt:{ set:{ '단계':'티켓 조회' } },
+          mdl:{ set:{ 'trx 71  ·  t':{ tag:'wait', sub:'SHARED_WRITE  ·  보유 티켓 없음 → 새 요청' } } } } },
 
   { look:{ mdl:true },
     note:'없으면 신규 요청 — SW 는 표를 펼치지 않고 카운터로 바로 부여',
@@ -77,7 +78,7 @@ const SCENES = [
           '@note IX locks are excluded since they are not used for per-object',
           '- "unobtrusive" types: S, SH, SR and SW'],
     ops:{ stmt:{ set:{ '단계':'MDL 부여 판정' } },
-          mdl:{ set:{ 'trx 71  ·  t':{ tag:'hold', sub:'SHARED_WRITE  ·  즉시 부여' } } } } },
+          mdl:{ set:{ 'trx 71  ·  t':{ tag:'hold', sub:'SHARED_WRITE  ·  즉시 부여 (fast path)' } } } } },
 
   { act:{ f:'mdl', t:'tl', lb:'InnoDB 에 들어와서 테이블 락' },
     note:'InnoDB — table 에 intention lock 먼저',
@@ -92,7 +93,7 @@ const SCENES = [
           ['storage/innobase/include/lock0priv.h','S or X table locks are only acquired for LOCK TABLES.']],
     ops:{ stmt:{ set:{ '단계':'InnoDB 진입' } },
           tl:{ del:['(비었다)'], add:[{ id:'t', tag:'hold', sub:'LOCK_IX  ·  intention exclusive' }] },
-          ses:{ set:{ '쥔 락':'1  (테이블)' } } } },
+          ses:{ set:{ 'InnoDB 락':'1  (테이블)' } } } },
 
   { look:{ tl:true },
     note:'table lock 도 중복 확인 먼저 — 기준은 compatibility 가 아니라 strength',
@@ -131,7 +132,7 @@ const SCENES = [
           ['storage/innobase/row/row0upd.cc','the page; we do not check locks because we assume the x-lock on the']],
     ops:{ rl:{ del:['(비었다)'], add:[{ id:'id=20', tag:'x', sub:'LOCK_X  ·  RECORD' }] },
           row:{ set:{ 'id=20':{ tag:'x', sub:'c=1  ·  잠김' } } },
-          ses:{ set:{ '쥔 락':'2  (테이블 1 · 행 1)' } },
+          ses:{ set:{ 'InnoDB 락':'2  (테이블 1 · 행 1)' } },
           stmt:{ set:{ '단계':'행 수정' } } } },
 
   { look:{ rl:true },
@@ -155,7 +156,7 @@ const SCENES = [
           'only has an implicit lock on the record. The transaction instance must have a',
           'type_mode = (LOCK_REC | LOCK_X | LOCK_REC_NOT_GAP);',
           ['storage/innobase/include/lock0priv.ic','return (row_get_rec_trx_id(rec, index, offsets));']],
-    ops:{ ses:{ set:{ '쥔 락':'2  (테이블 1 · 행 1 명시적)' } } } },
+    ops:{ ses:{ set:{ 'InnoDB 락':'2  (테이블 1 · 행 1 명시적)' } } } },
 
   { look:{ ses:true, mdl:true, tl:true, rl:true },
     note:'commit 까지 셋 다 유지 — 수명이 같다는 것이 요점',
@@ -167,6 +168,7 @@ const SCENES = [
           'This method is used at the end of a transaction, in',
           ['storage/innobase/lock/lock0lock.cc',"/** Releases a transaction's locks, and releases possible other transactions"],
           ['storage/innobase/trx/trx0trx.cc','lock_trx_release_locks(trx);']],
+    ops:{ ses:{ set:{ '언제 풀리나':'MDL · 테이블 · 행 셋 다 COMMIT|gold' } } },
     beat:1 },
   ],
 },
