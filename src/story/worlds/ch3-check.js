@@ -223,14 +223,15 @@ export function checkScene(deck, sc) {
         if (/NULL/.test(x.sub) && !(v & 0x80)) say(`'${bare(x.sub)}' 인데 0x${x.id} 의 NULL bit(0x80)가 꺼져 있다`);
         if (want[i] !== n) say(`끝 오프셋 ${x.id} = ${n} 이 데이터 칸 누적 ${want[i]} 와 다르다`);
       });
-      /* 헤더 6 B — 처음 들어올 때(add)의 sub 가 실측 바이트, 다음 스텝(set)의 sub 가 그것을 푼 값이다 */
+      /* 헤더 6 B — 처음 들어올 때(add)의 sub 가 바이트, 그것을 푼 값은 칸의 sub 나 op 의 '헤더 풀이' */
       const hd = items('rdx').find((x) => /헤더/.test(x.id));
       const rawHd = sc.steps.flatMap((s2) => (s2.ops && s2.ops.rdx && s2.ops.rdx.add) || []).find((x) => /헤더/.test(x.id));
       const rb = rawHd && hexBytes(rawHd.sub);
       if (rb && rb.length !== rawHd.sz) say(`${rawHd.id} 의 바이트 ${rb.length} 개가 폭 ${rawHd.sz} 와 다르다`);
-      if (rb && hd && /heap/.test(hd.sub)) {
+      const dec = hd && (/heap/.test(hd.sub) ? hd.sub : /heap/.test(kv('op')['헤더 풀이'] || '') ? kv('op')['헤더 풀이'] : null);
+      if (rb && dec) {
         const got = { heap: fieldVal(rb, 8, 13), n_fields: fieldVal(rb, 21, 10), short: fieldVal(rb, 31, 1), next: fieldVal(rb, 32, 16) };
-        for (const m of bare(hd.sub).matchAll(/(heap|n_fields|short|next)\s+(\d+)/g)) if (got[m[1]] !== +m[2]) say(`헤더 ${rawHd.sub} 의 ${m[1]} 가 ${got[m[1]]} 인데 '${m[1]} ${m[2]}' 로 적혔다`);
+        for (const m of bare(dec).matchAll(/(heap|n_fields|short|next)\s+(\d+)/g)) if (got[m[1]] !== +m[2]) say(`헤더 ${rawHd.sub} 의 ${m[1]} 가 ${got[m[1]]} 인데 '${m[1]} ${m[2]}' 로 적혔다`);
         if (got.next !== OLD_SUP) say(`REDUNDANT next ${got.next} 가 supremum ${OLD_SUP} 이 아니다`);
         if (got.n_fields !== offs.length || got.n_fields !== data.length) say(`n_fields ${got.n_fields} 가 끝 오프셋 ${offs.length} 개 · 데이터 칸 ${data.length} 개와 다르다`);
       }
@@ -238,6 +239,13 @@ export function checkScene(deck, sc) {
       const org = nums(st.rdx.byl && st.rdx.byl.r)[0];
       if (org != null && org - pre !== OLD_SUP_END) say(`REDUNDANT 원점 ${org} − 앞 ${pre} B = ${org - pre} 이 supremum 끝 ${OLD_SUP_END} 가 아니다`);
       if (/=\s*\d+\s*B/.test(kv('op').REDUNDANT || '') && nums(kv('op').REDUNDANT).slice(-1)[0] !== pre) say(`op 의 REDUNDANT '${bare(kv('op').REDUNDANT)}' 이 앞 ${pre} B 와 다르다`);
+    }
+    /* 02a 6 — rec_get_offsets 의 배열 : 데이터 칸 끝의 누적, COMPACT 의 NULL(c0)은 0 B 라 앞 끝 그대로 */
+    if (has('cdx') && kv('op')['offsets[]'] && /\d/.test(kv('op')['offsets[]'])) {
+      const want = [];
+      items('rdat').reduce((a, x) => { const e = a + (x.c0 ? 0 : x.sz || 0); want.push(e); return e; }, 0);
+      const got = nums(kv('op')['offsets[]']);
+      if (got.join() !== want.join()) say(`offsets[] ${got.join(' · ')} 가 COMPACT 데이터 칸의 끝 ${want.join(' · ')} 와 다르다`);
     }
     if (has('cdx') && items('cdx').some((x) => !isPlace(x))) {
       const pre = items('cdx').filter((x) => !isMark(x)).reduce((a, x) => a + (x.sz || 0), 0);

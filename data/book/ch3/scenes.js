@@ -474,9 +474,11 @@ const SCENES = [
     ['I_S.INNODB_TABLES','ROW_FORMAT — 같은 행이 형식에 따라 다른 바이트가 된다']],
   links:[['02','길이를 원점 앞에 역순으로 두는 이유'],['07a','REDUNDANT 헤더 6 바이트의 비트'],['03a','헤더 안의 여러 비트 칸']],
   /* 실측 e14 — 같은 행 (id 7, a 'Leslie', b NULL INT, c CHAR(3) 'abc') latin1 을 ROW_FORMAT 만 바꿔 넣고
-     원점 앞 바이트를 떴다. REDUNDANT 원점 137, COMPACT 원점 127. 칸은 주소가 낮은 쪽이 왼쪽이다. */
+     원점 앞 바이트를 떴다. REDUNDANT 원점 137, COMPACT 원점 127. 칸은 주소가 낮은 쪽이 왼쪽이다.
+     그 dump 는 저장소에 없다 — 그래서 글은 '실측' 이라 하지 않고, ch3-check 가 바이트를 규칙(끝 오프셋 · NULL bit ·
+     헤더 bit 칸 · 원점 = supremum 끝 + extra · next)으로 다시 셈해 맞춘다. */
   init:{
-    op:{ kv:{ '행':"(7, 'Leslie', NULL, 'abc')", 'REDUNDANT':'—', 'COMPACT':'—', '필드 n 찾기':'—' } },
+    op:{ kv:{ '행':"(7, 'Leslie', NULL, 'abc')", 'REDUNDANT':'—', '헤더 풀이':'—', 'COMPACT':'—', '필드 n 찾기':'—', 'offsets[]':'—' } },
     rdx:{ items:[{ id:'—', sz:1, tag:'free', sub:'아직' }],
       byl:{ l:'주소가 낮은 쪽', r:'원점 137' } },
     cdx:{ items:[{ id:'—', sz:1, tag:'free', sub:'아직' }],
@@ -497,7 +499,7 @@ const SCENES = [
   { look:{ op:true, rdat:true },
     note:'책 : 앞 필드 길이를 더하거나, 오프셋을 함께 적거나',
     why:'책의 직원 레코드는 길이 칸을 고정 영역에 모은다. last_name 을 찾으려면 앞선 가변 필드의 길이를 더해야 하고, 그 덧셈을 피하려면 오프셋도 적으라고 한다.',
-    key:'InnoDB 는 <em>두 길을 다</em> 걸었다 — REDUNDANT 는 필드 끝 오프셋을, COMPACT 는 길이를 적는다. 같은 행을 두 형식으로 넣어 바이트를 떴다(실측).',
+    key:'InnoDB 는 <em>두 길을 다</em> 걸었다 — REDUNDANT 는 필드 끝 오프셋을, COMPACT 는 길이를 적는다. 같은 행을 두 형식으로 넣었을 때 원점 앞에 놓이는 바이트를 규칙으로 계산해 맞댄다.',
     fact:[['storage/innobase/rem/rem0rec.cc','| offset of the end of the first field of data + the SQL-null bit |'],
           ['storage/innobase/rem/rem0rec.cc','| length of first variable-length field of data |']],
     cite:['to access last_name, we can locate its starting position by checking the sizes of the variable-size fields that precede it',
@@ -505,7 +507,7 @@ const SCENES = [
 
   { act:{ f:'op', t:'rdx', lb:'REDUNDANT : 끝 오프셋' },
     note:'REDUNDANT — 필드 여섯 개마다 끝 오프셋 1 B',
-    why:'원점 앞에 필드마다 끝 오프셋을 역순으로 쌓는다. 실측 행은 헤더 쪽부터 04 0a 11 17 9b 1e — id 4 · trx 10 · roll 17 · a 23 · b 27 · c 30 이다.',
+    why:'원점 앞에 필드마다 끝 오프셋을 역순으로 쌓는다. 이 행은 헤더 쪽부터 04 0a 11 17 9b 1e — id 4 · trx 10 · roll 17 · a 23 · b 27 · c 30 이다.',
     key:'필드 n 의 자리는 <em>두 칸만 읽으면</em> 나온다 — n−1 의 끝이 시작, n 의 끝이 끝. 책이 말한 "오프셋을 적어 덧셈을 없앤다" 가 이것이다.',
     ref:'storage/innobase/include/rem0lrec.h', sym:'rec_get_nth_field_offs_old_low',
     fact:['os = rec_1_get_field_start_offs_low(rec, n);',
@@ -515,19 +517,20 @@ const SCENES = [
     cite:['in this case, we can locate any variable-size field separately'],
     beat:1,
     ops:{ rdx:{ del:['—'], add:[
-            { id:'1e', sz:1, tag:'', sub:'c 30' },
-            { id:'9b', sz:1, tag:'', sub:'b 27' },
-            { id:'17', sz:1, tag:'', sub:'a 23' },
-            { id:'11', sz:1, tag:'', sub:'roll 17' },
-            { id:'0a', sz:1, tag:'', sub:'trx 10' },
-            { id:'04', sz:1, tag:'gold', sub:'id 4' },
+            /* sub 는 끝 오프셋 수만 — 호가 이미 그 필드를 가리킨다. 'c 30' 처럼 이름을 붙였더니 1 B 칸 아래에서 줄줄이 붙어 읽혔다 */
+            { id:'1e', sz:1, tag:'', sub:'30' },
+            { id:'9b', sz:1, tag:'', sub:'27' },
+            { id:'17', sz:1, tag:'', sub:'23' },
+            { id:'11', sz:1, tag:'', sub:'17' },
+            { id:'0a', sz:1, tag:'', sub:'10' },
+            { id:'04', sz:1, tag:'gold', sub:'4' },
             { id:'헤더 6 B', sz:6, tag:'hdr', sub:'00 00 10 0d 00 74' },
             { id:'◆', sz:1, tag:'hdr', sub:'원점' }] },
           op:{ set:{ '필드 n 찾기':'REDUNDANT : 끝 두 칸을 읽는다|green' } } } },
 
   { look:{ rdx:['헤더 6 B'] },
     note:'헤더 6 B 는 필드 수와 오프셋 폭을 안다',
-    why:'실측 헤더 00 00 10 0d 00 74 는 heap 2 · n_fields 6 · short 1 · next 116 이다. 데이터 30 B 가 127 이하라 short 가 켜져 오프셋이 1 B 씩이고, next 는 supremum(116)의 절대 주소다.',
+    why:'헤더 00 00 10 0d 00 74 는 heap 2 · n_fields 6 · short 1 · next 116 이다. 데이터 30 B 가 127 이하라 short 가 켜져 오프셋이 1 B 씩이고, next 는 supremum(116)의 절대 주소다.',
     key:'REDUNDANT 레코드는 <em>스스로 오프셋 몇 개를 몇 바이트로</em> 읽을지 안다. 데이터가 127 B 를 넘거나 off-page 칸이 있으면 오프셋이 2 B 로 커진다.',
     ref:'storage/innobase/rem/rem0rec.cc', sym:'rec_convert_dtuple_to_rec_old',
     fact:['rec_set_n_fields_old(rec, n_fields);',
@@ -535,12 +538,13 @@ const SCENES = [
           'rec_set_1byte_offs_flag(rec, true);',
           '| two bytes giving an absolute pointer to the next record in the page |',
           ['storage/innobase/include/rem0rec.h','constexpr ulint REC_1BYTE_OFFS_LIMIT = 0x7FUL;']],
-    ops:{ rdx:{ set:{ '헤더 6 B':{ tag:'gold', sub:'heap 2 · n_fields 6 · short 1 · next 116' } } },
-          op:{ set:{ 'REDUNDANT':'오프셋 6 + 헤더 6 = 12 B' } } } },
+    /* 칸에는 바이트를 남기고 푼 값은 op 에 — 칸 아래에 둘 다 두면 6 B 칸을 넘어 옆 칸의 설명과 붙었다 */
+    ops:{ rdx:{ set:{ '헤더 6 B':{ tag:'gold' }, '04':{ tag:'' } } },
+          op:{ set:{ 'REDUNDANT':'오프셋 6 + 헤더 6 = 12 B', '헤더 풀이':'heap 2 · n_fields 6 · short 1 · next 116|gold' } } } },
 
   { act:{ f:'rdx', t:'rdat', lb:'0x9b = 0x80 | 27' },
     note:'NULL 도 오프셋 안에 — 그리고 0 네 바이트',
-    why:'b 의 끝 오프셋 9b 는 최상위 비트가 SQL NULL 표시, 나머지 7 bit 가 27 이다. 그런데 a 의 끝 23 에서 27 까지 4 B 가 있다 — 실측 그 자리는 00 00 00 00 이었다.',
+    why:'b 의 끝 오프셋 9b 는 최상위 비트가 SQL NULL 표시, 나머지 7 bit 가 27 이다. 그런데 a 의 끝 23 에서 27 까지 4 B 가 있다 — data_write_sql_null 이 그 자리를 00 00 00 00 으로 채운다.',
     key:'REDUNDANT 는 <em>고정 길이 NULL 에도 자리를 준다</em>. INT 면 4 B 를 0 으로 채우고, 가변 길이 타입의 NULL 만 0 B 다.',
     ref:'storage/innobase/rem/rem0rec.cc', sym:'rec_convert_dtuple_to_rec_old',
     fact:['len = dtype_get_sql_null_size(dfield_get_type(field), 0);',
@@ -549,13 +553,13 @@ const SCENES = [
           ['storage/innobase/include/data0data.ic','memset(data, 0, len);'],
           ['storage/innobase/include/data0type.ic','case DATA_BLOB: return (0);'],
           ['storage/innobase/include/rem0lrec.h','Also an SQL null may have a field of size > 0, if the data type is of a fixed size.']],
-    ops:{ rdx:{ set:{ '9b':{ tag:'red', sub:'NULL | 27' } } },
+    ops:{ rdx:{ set:{ '9b':{ tag:'red', sub:'NULL · 0x80 | 27' } } },
           rdat:{ set:{ 'b = NULL':{ tag:'red', sub:'00 00 00 00' } } },
-          op:{ set:{ 'REDUNDANT':'12 B + NULL 칸 4 B|red' } } } },
+          op:{ set:{ 'REDUNDANT':'12 B + NULL 칸 4 B|red', '헤더 풀이':'heap 2 · n_fields 6 · short 1 · next 116' } } } },
 
   { act:{ f:'op', t:'cdx', lb:'COMPACT : 길이 + 비트맵' },
     note:'COMPACT — 가변 필드 길이 하나, NULL 은 비트 하나',
-    why:'a 의 길이 06 만 적는다. id · trx · roll 은 NOT NULL 고정이고 c 는 CHAR(3) latin1 이라 고정 길이다. b 는 비트맵 02 의 둘째 비트로 끝나고 데이터에 자리가 없다(실측).',
+    why:'a 의 길이 06 만 적는다. id · trx · roll 은 NOT NULL 고정이고 c 는 CHAR(3) latin1 이라 고정 길이다. b 는 비트맵 02 의 둘째 비트로 끝나고 데이터에 자리가 없다.',
     key:'원점 앞이 <em>12 B → 7 B</em> 로 줄고 NULL 의 4 B 도 사라졌다. 대가는 책이 말한 그 덧셈이다 — 필드 n 의 자리는 앞 필드 길이를 더해야 나온다.',
     ref:'storage/innobase/rem/rem0rec.cc', sym:'rec_convert_dtuple_to_rec_comp',
     fact:['*nulls |= null_mask; null_mask <<= 1; return;',
@@ -566,7 +570,8 @@ const SCENES = [
             { id:'02', sz:1, tag:'gold', sub:'NULL 비트맵 · b' },
             { id:'헤더 5 B', sz:5, tag:'hdr', sub:'00 00 10 ff f1' },
             { id:'◆', sz:1, tag:'hdr', sub:'원점' }] },
-          rdat:{ set:{ 'b = NULL':{ tag:'free', sub:'COMPACT 0 B · REDUNDANT 4 B' } } },
+          /* 0 B 는 COMPACT 줄에만 — REDUNDANT 줄은 같은 rdat 의 '00 00 00 00' 4 B 를 그대로 보인다(c0 는 세계가 읽는다) */
+          rdat:{ set:{ 'b = NULL':{ c0:true } } },
           op:{ set:{ 'COMPACT':'길이 1 + 비트맵 1 + 헤더 5 = 7 B|green' } } } },
 
   { act:{ f:'cdx', t:'op', lb:'rec_get_offsets' },
@@ -580,11 +585,11 @@ const SCENES = [
           ['storage/innobase/include/rem0wrec.h','offs = rec_offs_base(offsets)[n] & REC_OFFS_MASK;'],
           ['storage/innobase/include/rem0wrec.h','length -= offs;']],
     beat:1,
-    ops:{ op:{ set:{ '필드 n 찾기':'COMPACT : 한 번 더해 배열의 두 칸|gold' } } } },
+    ops:{ op:{ set:{ '필드 n 찾기':'COMPACT : 한 번 더해 배열의 두 칸|gold', 'offsets[]':'4 · 10 · 17 · 23 · 23 NULL · 26|gold' } } } },
 
   { look:{ op:true, rdx:true, cdx:true },
     note:'같은 행 — 12 B + NULL 4 B 대 7 B',
-    why:'REDUNDANT 는 필드마다 오프셋 1 B 에 헤더 6 B, 그리고 NULL INT 의 0 네 바이트. COMPACT 는 길이 1 + 비트맵 1 + 헤더 5. 이 행 하나에서 9 B 차이다(실측).',
+    why:'REDUNDANT 는 필드마다 오프셋 1 B 에 헤더 6 B, 그리고 NULL INT 의 0 네 바이트. COMPACT 는 길이 1 + 비트맵 1 + 헤더 5. 이 행 하나에서 9 B 차이다.',
     key:'책의 갈림길은 InnoDB 에서 <em>디스크 바이트 대 읽을 때의 덧셈</em>이었다. 기본값 DYNAMIC 도 COMPACT 플래그를 켠 형식이라 길이 쪽이다.',
     ref:'storage/innobase/include/rem0rec.ic', sym:'rec_get_converted_extra_size',
     fact:['return (REC_N_OLD_EXTRA_BYTES + n_fields);',

@@ -649,14 +649,16 @@ const TRUE_B = new Set(['fil', 'phd', 'rdx', 'cdx', 'rdat', 'rhd']);
 PANEL.bytes = (W, M, sp) => {
   const rows = sp.rows.map((acts, r) => ({ r, acts, pre: acts.length > 1 ? acts[0] : null, post: acts.length > 1 ? acts[1] : null }));
   const RN = rows.length, SUBS0 = sp.subs || [];
+  const zeroIn = (row, it) => row.r > 0 && row.post != null && !!it.c0;
   /* 줄마다 · 상태마다 칸 목록 — 같은 칸(배우 · id)은 같은 알갱이 */
   const cellsOf = (s, row) => {
     const out = [];
     if (row.pre) {
       const pre = s[row.pre] || [], real = pre.some((x) => !C.isPlace(x));
       for (const it of pre) if (!C.isMark(it)) out.push({ a: row.pre, it, side: -1 });
-      /* COMPACT 줄의 데이터는 cdx 가 생긴 뒤에만 — 그 줄에서 NULL 칸은 0 B(02a 5 스텝의 sub 'COMPACT 0 B') */
-      if (real || row.r === 0) for (const it of s[row.post] || []) if (!C.isMark(it)) out.push({ a: row.post, it, side: 1, zero: row.r > 0 && /COMPACT\s*0\s*B/.test(it.sub) });
+      /* COMPACT 줄의 데이터는 cdx 가 생긴 뒤에만 — 그 줄에서 NULL 칸은 0 B(02a 5 스텝의 c0). 두 줄이 rdat 하나를 함께 쓰므로
+         0 B 는 sub 가 아니라 c0 로 적는다 — sub 를 바꾸면 REDUNDANT 줄의 '00 00 00 00' 까지 바뀌었다 */
+      if (real || row.r === 0) for (const it of s[row.post] || []) if (!C.isMark(it)) out.push({ a: row.post, it, side: 1, zero: zeroIn(row, it) });
       return { cells: out, origin: true };
     }
     const its = s[row.acts[0]] || [], mi = its.findIndex(C.isMark);
@@ -742,9 +744,12 @@ PANEL.bytes = (W, M, sp) => {
             const hot = vis && isHot(s, a, it), cls = it ? TAGL[it.tag] || (hot && it.tag !== 'free' ? 'gold' : '') : '';
             /* 칸 안에 id 를 글자로 그리면(0x0006 · L e s l i e) 위 이름표는 겹말이다 — 크게 그릴 때만 숨긴다 */
             const glyphName = sp.glyph && it && tokSrc(it) === 'id';
-            T.set(L.nm.get(key(row.r, a, id)), [vis ? it.id : '', hot || (on && !focusOf(s, a)), cls, vis && !glyphName]);
+            /* 0 B 칸(COMPACT 줄의 NULL)은 이름 첫 낱말과 '0 B' 만 — 이름 전체를 두면 옆 칸 이름과 붙어 읽혔다 */
+            const z = !!it && a === row.post && zeroIn(row, it);
+            T.set(L.nm.get(key(row.r, a, id)), [vis && !z ? it.id : '', hot || (on && !focusOf(s, a)), z ? '' : cls, vis && !glyphName && !z]);
             const onlyOff = sp.ruler && it && /^\+?\d+$/.test(bare(it.sub).trim());
-            T.set(L.sb.get(key(row.r, a, id)), [vis && it.sub ? it.sub : '', hot || (on && !focusOf(s, a)), '', vis && !!it.sub && !onlyOff]);
+            const sb = !it ? '' : z ? it.id.split(/\s+/)[0] + ' · 0 B' : it.sub;
+            T.set(L.sb.get(key(row.r, a, id)), [vis && sb ? sb : '', hot || (on && !focusOf(s, a)), '', vis && !!sb && !onlyOff]);
           }
         }
         /* 눈금 — 칸 경계의 오프셋 */
@@ -792,7 +797,8 @@ PANEL.bytes = (W, M, sp) => {
           const T = W.TX[M.sc.num].get(bk)[si], { g } = geomOf(s, row);
           const xs = (c) => { const [a0, a1] = cellX(row, c); return (a0 + a1) / 2; };
           const NM = rowsOf(W, g.map((c) => ({ c, cx: xs(c), w: W.wOf(L.nm.get(key(row.r, c.a, c.it.k)), T.get(L.nm.get(key(row.r, c.a, c.it.k)))) })), x0, x0 + ww);
-          const VL = rowsOf(W, g.map((c) => ({ c, cx: xs(c), w: W.wOf(L.sb.get(key(row.r, c.a, c.it.k)), T.get(L.sb.get(key(row.r, c.a, c.it.k)))) })), x0, x0 + ww);
+          /* 설명 줄은 이름보다 틈을 넓게 — 6 px 이면 '길이 a' 와 헤더 바이트가 한 문장처럼 붙어 읽혔다(02a COMPACT) */
+          const VL = rowsOf(W, g.map((c) => ({ c, cx: xs(c), w: W.wOf(L.sb.get(key(row.r, c.a, c.it.k)), T.get(L.sb.get(key(row.r, c.a, c.it.k)))) })), x0, x0 + ww, 12);
           const mk = this.marks(s, row);
           const RL = rowsOf(W, mk.map((m, j) => ({ j, cx: geo.ox + m.u * px, w: W.tw(m.t) + 2 })), x0, x0 + ww, 3);
           nr = Math.max(nr, NM.rows); vr = Math.max(vr, VL.rows); rr = Math.max(rr, RL.rows);
@@ -925,7 +931,8 @@ PANEL.bytes = (W, M, sp) => {
           offs.forEach((c, j) => {
             const n = C.nums(c.it.sub).slice(-1)[0];
             if (n == null) return;
-            const [a0, a1] = cellX(row, c), xa = (a0 + a1) / 2, xb = geo.ox + n * geo.px, top = ry.arc + 4 + j * 6, base = ry.band - 1;
+            /* 가장 먼 끝(1e → +30)이 맨 위 — 짧은 호가 안쪽에 들어가 서로 가로지르지 않는다 */
+            const [a0, a1] = cellX(row, c), xa = (a0 + a1) / 2, xb = geo.ox + n * geo.px, top = ry.arc + 4 + (offs.length - 1 - j) * 6, base = ry.band - 1;
             ctx.globalAlpha = (hot ? 0.75 : 0.35) * O.o; ctx.strokeStyle = /NULL/.test(c.it.sub) || c.it.tag === 'red' ? O.css.red : hot ? O.css.gold : O.css.faint;
             ctx.beginPath(); ctx.moveTo(xa, base); ctx.lineTo(xa, top); ctx.lineTo(xb, top); ctx.lineTo(xb, base); ctx.stroke();
             arrowHead(ctx, xb, base, Math.PI / 2, 3.5);
