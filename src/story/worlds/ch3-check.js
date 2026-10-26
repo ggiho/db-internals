@@ -207,6 +207,9 @@ export function checkScene(deck, sc) {
         if (m && nx && parseInt(m[1], 16) !== (nx.sz || 0)) say(`길이 칸 ${it.id} = ${parseInt(m[1], 16)} 이 뒤의 ${nx.id} ${nx.sz} B 와 다르다`);
         if (m && bytesIn(it.sub) !== it.sz) say(`길이 칸 ${it.id} 의 폭 ${it.sz} 가 '${it.sub}' 와 다르다`);
       });
+      /* InnoDB 배치(4 스텝) — 원점 앞의 길이 바이트('06')는 원점 뒤 데이터 칸의 바이트 수 */
+      const data = its.filter((x) => /^\S(\s\S)+$/.test(x.id)).pop();
+      for (const it of its) if (/길이/.test(it.sub) && /^[0-9a-f]{2}$/i.test(it.id) && data && parseInt(it.id, 16) !== data.sz) say(`길이 바이트 ${it.id} 가 ${data.id} 의 ${data.sz} B 와 다르다`);
     }
     /* 02a — REDUNDANT 끝 오프셋 · 헤더 6 B, COMPACT 길이 · 헤더 5 B */
     if (has('rdx') && items('rdx').some((x) => !isPlace(x))) {

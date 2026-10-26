@@ -648,7 +648,7 @@ PANEL.chips = (W, M, sp) => {
 const TRUE_B = new Set(['fil', 'phd', 'rdx', 'cdx', 'rdat', 'rhd']);
 PANEL.bytes = (W, M, sp) => {
   const rows = sp.rows.map((acts, r) => ({ r, acts, pre: acts.length > 1 ? acts[0] : null, post: acts.length > 1 ? acts[1] : null }));
-  const RN = rows.length;
+  const RN = rows.length, SUBS0 = sp.subs || [];
   /* 줄마다 · 상태마다 칸 목록 — 같은 칸(배우 · id)은 같은 알갱이 */
   const cellsOf = (s, row) => {
     const out = [];
@@ -663,8 +663,18 @@ PANEL.bytes = (W, M, sp) => {
     its.forEach((it, i) => { if (!C.isMark(it)) out.push({ a: row.acts[0], it, side: mi < 0 ? 0 : i < mi ? -1 : 1 }); });
     return { cells: out, origin: mi >= 0, mark: mi >= 0 ? its[mi] : null };
   };
-  /* 칸의 바이트 자리(원점 기준 또는 왼쪽 기준) — 단위는 바이트 */
-  const geomOf = (s, row) => {
+  /* 칸의 바이트 자리(원점 기준 또는 왼쪽 기준) — 단위는 바이트.
+     원점도 눈금도 없는 줄(02 · 03 · 07 의 값 · 셀)은 그림판 폭(모든 상태에서 가장 넓은 줄)의 가운데에 놓는다 — 왼쪽에
+     붙였더니 짧은 스텝(02 의 1 – 3)에서 세계의 오른쪽 절반이 비었다 */
+  let SPAN = null;
+  const spanU = () => {
+    if (SPAN != null) return SPAN;
+    let lo = 0, hi = 0, tot = 0;
+    for (const s of M.all) for (const row of rows) { const q = geomOf(s, row, true); if (q.origin) { lo = Math.min(lo, q.lo); hi = Math.max(hi, q.hi); } else tot = Math.max(tot, q.hi); }
+    return (SPAN = Math.max(hi - lo, tot) || 1);
+  };
+  const centred = (row) => !sp.ruler && !SUBS0.length && !row.acts.some((a) => TRUE_B.has(a));
+  const geomOf = (s, row, raw = false) => {
     const { cells, origin, mark } = cellsOf(s, row);
     const g = [];
     if (origin) {
@@ -685,7 +695,9 @@ PANEL.bytes = (W, M, sp) => {
     }
     let x = 0;
     for (const c of cells) { const u = unitsOf(c.a, c.it); g.push({ ...c, u0: x, u1: x + u }); x += u; }
-    return { g, lo: 0, hi: x, origin: false, mark: null };
+    const sh = !raw && centred(row) ? Math.max(0, (spanU() - x) / 2) : 0;
+    if (sh) for (const c of g) { c.u0 += sh; c.u1 += sh; }
+    return { g, lo: 0, hi: x + sh, origin: false, mark: null };
   };
   const ruler = (row) => sp.ruler || (row.pre || row.acts.some((a) => a === 'rhd') ? 'org' : null);
   /* 이름표 — 줄 · 배우 · id 마다 이름과 설명, 줄마다 눈금 */
