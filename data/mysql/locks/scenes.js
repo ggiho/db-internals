@@ -1622,8 +1622,9 @@ const SCENES = [
           'set_field_varchar_utf8mb4(f, "GRANTED", 7);',
           ['scripts/sys_schema/views/p_s/schema_table_lock_waits.sql',"AND g.lock_status = 'GRANTED'"],
           ['scripts/sys_schema/views/p_s/schema_table_lock_waits.sql',"CONCAT('KILL ', gt.processlist_id) AS sql_kill_blocking_connection"]],
-    ops:{ ps:{ del:['(비었다)'], add:[
-            { id:'metadata_locks', tag:'hold', sub:'GRANTED  ·  trx 100 의 SR  ← 원인  (ALTER 의 SU 는 빼고)' },
+    ops:{ mdl:{ set:{ 'trx 100  ·  t':{ sub:'SHARED_READ  ·  GRANTED  ← 원인' } } },
+          ps:{ del:['(비었다)'], add:[
+            { id:'metadata_locks', tag:'hold', sub:'GRANTED 중 trx 100 SR ← 원인  (SU 제외)' },
             { id:'sys.schema_table_lock_waits', tag:'clean', sub:'KILL 문까지 — ALTER 자신도 막는 쪽에 나온다' }] } } },
 
   { look:{ ses:true, mdl:true, stmt:true },
@@ -1635,6 +1636,11 @@ const SCENES = [
           'implementation of COMMIT (implicit or explicit) and ROLLBACK.',
           'lock->remove_ticket(this, m_pins, &MDL_lock::m_waiting, ticket);',
           'which now might be able to do it. Grant the lock to'],
+    /* 원인이 커밋하면 — SR 이 풀려 ALTER 가 X 를 받고, 뒤의 SELECT 는 ALTER 가 끝날 때까지만 기다린다 */
+    ops:{ ses:{ set:{ 'trx 100':'COMMIT  →  MDL 놓음|green', 'trx 101':'ALTER TABLE t ADD c2  ·  X 받아 진행|gold' } },
+          mdl:{ del:['trx 100  ·  t', 'trx 101  ·  t  SU'],
+                set:{ 'trx 101  ·  t  X':{ q:'granted', tag:'x', by:null, sub:'EXCLUSIVE  ·  GRANTED  (SU 에서 올림)' } } },
+          stmt:{ set:{ '진행 중':'ALTER 진행', '대기 중':'1  (ALTER 끝나면 풀림)', '증상':'풀린다|green' } } },
     beat:1 },
   ],
 },

@@ -177,7 +177,8 @@ function make({ F, deck, labels, scene }) {
     const qcH = MQ ? most(qCap).h : 0;
     const sw = Object.fromEntries(ROWS.map((a) => [a, Object.fromEntries(RIDS[a].map((id) => [id, Math.max(30, Math.ceil(most(rowLb[a][id]).w) + 14)]))]));
     const rc = ww >= 400 ? 2 : 1, rW = (ww - (rc - 1) * gap) / rc;
-    const usedW = (a) => RIDS[a].reduce((t, id) => t + sw[a][id] + 6, -6);
+    /* 칸 줄의 폭 — 한 상태에 함께 있는 칸들의 폭 중 가장 넓은 것(innodb-lock 과 같은 이유 — '(비었다)' 까지 더해 설명이 멀어졌다, locks 11 의 P_S) */
+    const usedW = (a) => Math.max(0, ...all.map((s) => s[a].reduce((t, x) => t + sw[a][x.id] + 6, -6)));
     const chunks = (rs) => { const o = []; let i = 0; while (i < rs.length) { const a = rs[i], b = rs[i + 1]; if (rc > 1 && b && usedW(a) <= rW && usedW(b) <= rW) { o.push([a, b]); i += 2; } else { o.push([a]); i += 1; } } return o; };
     const BANDS = [...chunks(MEMR).map((c) => ({ c, disk: false })), ...chunks(DSKR).map((c) => ({ c, disk: true }))];
     const rowW = Object.fromEntries(BANDS.flatMap((band) => band.c.map((a) => [a, band.c.length > 1 ? rW : ww])));
@@ -194,7 +195,7 @@ function make({ F, deck, labels, scene }) {
       const rowY = [y]; for (let r = 0; r < tRows; r++) rowY.push(rowY[r] + HD + tHs[r] + 12 * k);
       TEXTS.forEach((a, i) => { const x = L.x0 + (i % tn) * (tW + gap), yy = rowY[Math.floor(i / tn)]; place(hd[a], x, yy); place(tx[a], x, yy + HD); G.anc[a] = { x: x + tW - 18, y: yy + 8 }; });
       y = rowY[tRows];
-      G.edgeY = [null, null];
+      G.edgeY = [null, null]; G.cap = {};
       const queue = () => {
         place(hd[MQ], L.x0, y); y += HD + 4;
         G.lane = [y + QH / 2, y + QH + QG + QH / 2]; G.anc[MQ] = { x: L.x0 + ww / 2, y: G.lane[0] };
@@ -210,8 +211,8 @@ function make({ F, deck, labels, scene }) {
         band.c.forEach((a, j) => {
           const x0 = L.x0 + j * (rW + gap);
           place(hd[a], x0, y); G.slot[a] = { x0, y: y + HD, sw: sw[a] }; G.anc[a] = { x: x0 + 30, y: y + HD + 13 };
-          if (rSide[a]) { place(rowCap[a], x0 + rSide[a], y + HD + 4); hh = Math.max(hh, HD + Math.max(26, rcH[a] + 4)); }
-          else { place(rowCap[a], x0, y + HD + 26 + 8); hh = Math.max(hh, HD + 26 + 8 + rcH[a]); }
+          if (rSide[a]) { G.cap[a] = y + HD + 4; place(rowCap[a], x0 + rSide[a], G.cap[a]); hh = Math.max(hh, HD + Math.max(26, rcH[a] + 4)); }
+          else { G.cap[a] = null; place(rowCap[a], x0, y + HD + 26 + 8); hh = Math.max(hh, HD + 26 + 8 + rcH[a]); }
         });
         y += hh + 14 * k;
       }
@@ -335,6 +336,8 @@ function make({ F, deck, labels, scene }) {
         const H = heldPart(it).length ? qSlot(s, it.id, true) : null; if (H) { place(hLb[it.id].n, H.x, H.y - 2, 'c', 'b'); place(hLb[it.id].m, H.x, H.y + 1, 'c', 't'); }
       }
       for (const a of ROWS) for (const it of s[a]) { const P = rowSlot(s, a, it.id); if (P) place(rowLb[a][it.id], P.x, P.y, 'c', 'c'); }
+      /* 옆 설명은 그 스텝의 칸 끝 바로 옆 — 줄바꿈 폭은 가장 넓은 상태의 것 그대로 */
+      for (const a of ROWS) if (G.cap[a] != null) place(rowCap[a], G.slot[a].x0 + Math.max(0, s[a].reduce((t, x) => t + G.slot[a].sw[x.id] + 6, -6)) + 12, G.cap[a]);
     }
     const form = k === 0 ? show(p, 0.18, 0.36) : 1, dimO = (end ? 0.18 : 1) * form, fade = Math.abs(1 - 2 * b);
     for (const [lb, [txt, emph, , vis = true]] of T) {
