@@ -617,7 +617,7 @@ const SCENES = [
 {
   num:'05', tab:'Secondary → PK', title:'Secondary Index Updates: Locks on Both Indexes',
   sub:'secondary 를 경유하면 lock 이 두 인덱스에 — 그리고 RR 에서는 그 둘레의 gap 에도',
-  cast:['stmt','rl','sec','row'],
+  cast:['stmt','tl','rl','sec','row'],
   knobs:[
     ['transaction_isolation','REPEATABLE-READ','READ-COMMITTED 면 gap 두 줄이 빠지고 레코드 락만 남는다']],
   watch:[
@@ -634,6 +634,8 @@ const SCENES = [
       { id:'id=10', tag:'clean', sub:'c=100 · v=1' },
       { id:'id=20', tag:'clean', sub:'c=200 · v=2' },
       { id:'id=30', tag:'clean', sub:'c=300 · v=3' }] },
+    /* 테이블 락은 TABLE LOCKS 에 — 03 장면과 같은 배우. ROW LOCKS 안에 'TABLE t' 칸을 두었더니 이름이 어긋났다 */
+    tl:{ items:[{ id:'(비었다)', tag:'free', sub:'아직' }] },
     rl:{ items:[{ id:'(비었다)', tag:'free', sub:'아직' }] },
   },
   steps:[
@@ -650,7 +652,7 @@ const SCENES = [
           ['storage/innobase/handler/ha_innodb.cc','| non-locking SELECT | NONE [1] | S [3] | NONE |'],
           ['storage/innobase/include/lock0types.h','LOCK_NONE, /* this is used elsewhere to note consistent read */']],
     ops:{ stmt:{ set:{ '경로':'select_lock_type = LOCK_X', '락 수':'1' } },
-          rl:{ del:['(비었다)'], add:[{ id:'TABLE  t', tag:'hold', sub:'IX' }] } } },
+          tl:{ del:['(비었다)'], add:[{ id:'t', tag:'hold', sub:'IX' }] } } },
 
   { act:{ f:'stmt', t:'sec', lb:'먼저 secondary 에서 찾는다' },
     note:'idx_c 의 c=200 — 레코드와 그 앞 gap 을 함께, next-key X',
@@ -661,9 +663,9 @@ const SCENES = [
           'err = lock_rec_lock(false, sel_mode, mode | gap_mode, block, heap_no, index,',
           ['storage/innobase/row/row0sel.cc','lock_type = LOCK_ORDINARY;'],
           ['storage/innobase/include/lock0lock.h','/** this flag denotes an ordinary next-key lock in contrast to LOCK_GAP or']],
-    ops:{ stmt:{ set:{ '경로':'idx_c → PRIMARY', '락 수':'2' } },
+    ops:{ stmt:{ set:{ '경로':'idx_c', '락 수':'2' } },
           sec:{ set:{ 'c=200 → id=20':{ tag:'x', sub:'idx_c  ·  X  next-key' } } },
-          rl:{ add:[{ id:'idx_c  (200,20)', tag:'x', sub:'X  ·  레코드 + 앞 gap' }] } } },
+          rl:{ del:['(비었다)'], add:[{ id:'idx_c  (200,20)', tag:'x', sub:'X  ·  레코드 + 앞 gap' }] } } },
 
   { look:{ sec:true },
     note:'잠그는 읽기는 스냅숏을 묻지 않는다 — 최신 버전을 잠근다',
@@ -674,7 +676,7 @@ const SCENES = [
           'NOTE that a non-clustered index page contains so little information on',
           'return (view->sees(max_trx_id));',
           ['storage/innobase/row/row0sel.cc','(old_vers || trx->isolation_level <= TRX_ISO_READ_UNCOMMITTED ||']],
-    ops:{ stmt:{ set:{ '경로':'idx_c → PRIMARY  (최신 버전)' } } } },
+    ops:{ stmt:{ set:{ '경로':'idx_c  (최신 버전)' } } } },
 
   { act:{ f:'sec', t:'row', lb:'포인터를 따라 클러스터로' },
     note:'secondary 의 PK 로 클러스터 재방문 → X,REC_NOT_GAP',
@@ -685,9 +687,9 @@ const SCENES = [
           'we set a LOCK_REC_NOT_GAP type lock */',
           'static_cast<lock_mode>(prebuilt->select_lock_type), LOCK_REC_NOT_GAP,',
           ['storage/innobase/handler/ha_innodb.cc','use exclusive row level locks, for example, if the read is']],
-    ops:{ row:{ set:{ 'id=20':{ tag:'x', sub:'c=200 · v=9  ·  X,REC_NOT_GAP' } } },
+    ops:{ row:{ set:{ 'id=20':{ tag:'x', sub:'c=200 · v=2  ·  X,REC_NOT_GAP' } } },
           rl:{ add:[{ id:'PRIMARY  20', tag:'x', sub:'X,REC_NOT_GAP' }] },
-          stmt:{ set:{ '락 수':'3' } } } },
+          stmt:{ set:{ '경로':'idx_c → PRIMARY  (최신 버전)', '락 수':'3' } } } },
 
   { act:{ f:'stmt', t:'sec', lb:'다음 항목에서 멈춘다' },
     note:'다음 항목 300 — 조건 밖이지만 그 앞 gap 은 잠근다',
@@ -715,7 +717,9 @@ const SCENES = [
           ['storage/innobase/include/lock0priv.h','If a transaction has modified or inserted an index record, then'],
           ['storage/innobase/include/lock0priv.h','it owns an implicit x-lock on the record. On a secondary index record,'],
           'if the max trx id for the page >= min trx id for the trx list, or',
-          'type_mode = (LOCK_REC | LOCK_X | LOCK_REC_NOT_GAP);'] },
+          'type_mode = (LOCK_REC | LOCK_X | LOCK_REC_NOT_GAP);'],
+    /* 여기서 고친다 — 4 스텝은 읽으며 잠근 것이라 아직 v=2 다 */
+    ops:{ row:{ set:{ 'id=20':{ sub:'c=200 · v=9  ·  X,REC_NOT_GAP' } } } } },
 
   { act:{ f:'row', t:'sec', lb:'키가 바뀌었나' },
     note:'키가 그대로면 secondary 는 건너뛴다 — 바뀌면 지우고 다시 넣는다',
@@ -730,7 +734,7 @@ const SCENES = [
           ['storage/innobase/include/row0upd.h','/** an ordering field of the clustered index record was changed, or this is a']],
     ops:{ stmt:{ set:{ '경로':'idx_c 키 불변 → secondary 건너뜀' } } } },
 
-  { look:{ rl:true },
+  { look:{ tl:true, rl:true },
     note:'그래서 data_locks 에 네 줄 — TABLE 하나 · idx_c 둘 · PRIMARY 하나',
     why:'잰 값 (8.4.8 · RR): TABLE IX · idx_c X (200,20) · idx_c X,GAP (300,30) · PRIMARY X,REC_NOT_GAP 20. INNODB_TRX 의 trx_rows_locked 는 3 이다. READ COMMITTED 로 내리거나 idx_c 를 UNIQUE 로 만들면 gap 이 빠져 idx_c X,REC_NOT_GAP 과 PRIMARY X,REC_NOT_GAP 만 남는다.',
     key:'락은 <em>지나간 인덱스마다</em> 생기고, RR 에서는 <em>그 둘레의 빈자리</em>에도 생긴다. 줄 수를 정하는 것은 인덱스 구조와 격리 수준 둘이다.',
