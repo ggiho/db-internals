@@ -154,14 +154,15 @@ const SCENES = [
           key:'버퍼가 넉넉하면 <em>링이 필요 없다</em> — 그 테이블 전체가 캐시가 된다.',
           ref:'src/backend/storage/buffer/freelist.c', sym:'StrategyGetBuffer',
           fact:['If given a strategy object, see whether it can select a buffer. We'],
-          ops:{} },
+          ops:{ be:{ set:{ '전략':'없음 — 블록마다 clock sweep (01)|gold' } } } },
       3:{ act:{ f:'heap', t:'pool', lb:'12,800 블록' },
           note:'첫 스캔 후 — 12,800 블록 전부 shared buffers 에 잔존',
           why:'보통 할당으로 들어온 버퍼는 핀과 함께 usage_count 1 로 시작하고, 전략이 없으므로 다음 핀에서도 5 까지 오를 수 있다.',
           key:'이번에는 <em>스캔이 풀의 일부가 된다</em>. 링과 반대의 선택이다.',
           ref:'src/backend/storage/buffer/bufmgr.c', sym:'PinBuffer',
           fact:['/* Default case: increase usagecount unless already max. */'],
-          ops:{ pool:{ add:[{ id:'big ×12,800', tag:'clean', u:1, sub:'usage 1  ·  전부 남았다' }] } } },
+          ops:{ pool:{ add:[{ id:'big ×12,800', tag:'clean', u:1, sub:'usage 1  ·  전부 남았다' }] },
+                be:{ set:{ '디스크 읽기':'12,800 블록 (첫 스캔)' } } } },
       4:{ look:{ pool:true, be:true },
           note:'재스캔 — 12,800 블록 전부 buffer hit', act:{ f:'pool', t:'be', lb:'12,800 블록  ·  전부 hit' },
           why:'매핑 표에서 모두 찾으므로 파일을 읽지 않는다. 이번에는 PinBuffer 가 usage_count 를 올린다 — 전략이 없는 핀이기 때문이다.',
@@ -176,14 +177,14 @@ const SCENES = [
           key:'문턱을 4분의 1 로 둔 이유가 이것이다 — <em>풀에 넣어도 남을 만큼 작은 것</em>만 풀에 넣는다.',
           ref:'src/backend/access/heap/heapam.c', sym:'initscan',
           fact:['If the table is large relative to NBuffers, use a bulk-read access'],
-          ops:{} },
+          ops:{ pool:{ set:{ 'big ×12,800':{ sub:'usage 2  ·  131,072 칸 중 12,800 칸' } } } } },
       6:{ look:{ pool:true },
           note:'ring 이 없으니 dirty reject 도 없다 — hint bit dirty 버퍼는 pool 에 잔존', act:null,
           why:'StrategyRejectBuffer 는 bulkread 전략일 때만 일한다("bulkread 모드에서만 한다"). 전략이 없으면 dirty 버퍼는 나중에 bgwriter 나 checkpoint 가 쓴다.',
           key:'읽기가 만든 쓰기도 <em>보통의 경로</em>로 흡수된다.',
           ref:'src/backend/storage/buffer/freelist.c', sym:'StrategyRejectBuffer',
           fact:['/* We only do this in bulkread mode */'],
-          ops:{} },
+          ops:{ pool:{ add:[{ id:'big 일부', tag:'dirty', u:2, sub:'usage 2  ·  힌트 비트로 dirty — 풀에 남는다' }] } } },
       8:{ look:{ be:true, pool:true, cmp:true },
           note:'정리 — 한 문턱(NBuffers/4)이 두 동작을 가른다',
           why:'128MB 에서는 링에 가둬 풀을 지키고, 1GB 에서는 풀에 넣어 다음 스캔을 빠르게 한다. 테이블은 같고 shared_buffers 만 다르다.',
@@ -204,7 +205,7 @@ const SCENES = [
     ['pg_buffercache','스캔이 끝난 뒤 그 테이블의 버퍼가 몇 칸만 남는다'] ],
   links:[['01','링 밖의 버퍼는 이 시계가 고른다']],
   init:{
-    be:{ kv:{ '질의':'SELECT count(*) FROM big', '테이블':'100MB  ·  12,800 블록', '문턱':'—', '전략':'—', '디스크 읽기':'—' } },
+    be:{ kv:{ '질의':'SELECT count(*) FROM big', '테이블':'100MB  ·  12,800 블록', '문턱':'—', '전략':'—', '디스크 읽기':'—', '다른 링':'—' } },
     pool:{ items:[
       { id:'hot 1', tag:'clean', u:5, sub:'다른 질의의 페이지  ·  usage 5' },
       { id:'hot 2', tag:'clean', u:4, sub:'다른 질의의 페이지  ·  usage 4' },
@@ -252,7 +253,7 @@ const SCENES = [
     fact:['If usage_count is 0 or 1 then the buffer is fair game (we expect 1,',
           ['src/backend/storage/buffer/bufmgr.c',"Ring buffers shouldn't evict others from pool.  Thus we"]],
     beat:1,
-    ops:{ ring:{ set:{ '칸 0':{ sub:'블록 4  ·  블록 0 을 밀어냄' } } } } },
+    ops:{ ring:{ set:{ '칸 0':{ sub:'블록 4  ·  usage 1  (블록 0 자리)' } } } } },
 
   { look:{ pool:true, be:true },
     note:'hot page 보존 — 대신 이 테이블은 cache 에 남지 않는다',
@@ -271,7 +272,7 @@ const SCENES = [
           'Remove the dirty buffer from the ring; necessary to prevent infinite',
           ['src/backend/storage/buffer/bufmgr.c','If using a nondefault strategy, and writing the buffer would']],
     ops:{ ring:{ set:{ '칸 1':{ tag:'clean', u:1, sub:'블록 5  ·  새로 빌린 버퍼' } } },
-          pool:{ add:[{ id:'블록 1', tag:'dirty', sub:'링에서 빠짐  ·  힌트 비트로 dirty' }] } } },
+          pool:{ add:[{ id:'블록 1', tag:'dirty', u:1, sub:'링에서 빠짐  ·  usage 1  ·  힌트 비트로 dirty' }] } } },
 
   { look:{ ring:true },
     note:'ring 은 셋 — BULKREAD · BULKWRITE(COPY · CTAS) · VACUUM',
@@ -280,7 +281,8 @@ const SCENES = [
     ref:'src/backend/storage/buffer/freelist.c', sym:'GetAccessStrategy',
     fact:['ring_size_kb = 16 * 1024;', 'ring_size_kb = 2048;',
           '/* 0 means unlimited, so no BufferAccessStrategy required */',
-          ['src/backend/utils/misc/guc_tables.c','{"vacuum_buffer_usage_limit", PGC_USERSET, RESOURCES_MEM,']] },
+          ['src/backend/utils/misc/guc_tables.c','{"vacuum_buffer_usage_limit", PGC_USERSET, RESOURCES_MEM,']],
+    ops:{ be:{ set:{ '다른 링':'BULKWRITE 16MB (COPY · CTAS)  ·  VACUUM 2MB (vacuum_buffer_usage_limit)|gold' } } } },
 
   { look:{ be:true, ring:true, cmp:true },
     note:'정리 — large scan 은 pool 을 지키려 스스로를 격리한다',
@@ -343,7 +345,7 @@ const SCENES = [
           'shared refcount needs to be modified only once if a buffer is pinned more',
           '#define REFCOUNT_ARRAY_ENTRIES 8',
           'ref->refcount++;'],
-    ops:{ ba:{ set:{ 'private pin':'buf 7 × 2' } } } },
+    ops:{ ba:{ set:{ 'private pin':'buf 7 × 2|gold' } } } },
 
   { act:{ f:'ba', t:'cl', lb:'LockBuffer(SHARE)' },
     note:'A 가 content lock share — 튜플을 읽으려면 pin 과 lock 둘 다',
@@ -413,9 +415,9 @@ const SCENES = [
           '/* Wait to be signaled by UnpinBuffer() */',
           ['src/backend/access/heap/vacuumlazy.c','a cleanup lock right away, we may be able to settle for reduced']],
     beat:1,
-    ops:{ vac:{ set:{ '상태':'핀이 1 이 되기를 기다림|gold' } },
+    ops:{ vac:{ set:{ '상태':'refcount 2 ≠ 1 — 핀이 1 이 되기를 기다림|gold' } },
           cl:{ set:{ 'exclusive':'—' } },
-          st:{ set:{ 'flags':'BM_DIRTY · BM_VALID · BM_TAG_VALID · BM_JUST_DIRTIED · BM_PIN_COUNT_WAITER · BM_PERMANENT' } } } },
+          st:{ set:{ 'refcount':'2|gold', 'flags':'BM_DIRTY · BM_VALID · BM_TAG_VALID · BM_JUST_DIRTIED · BM_PIN_COUNT_WAITER · BM_PERMANENT' } } } },
 
   { act:{ f:'ba', t:'st', lb:'UnpinBuffer — CAS' },
     note:'A 의 마지막 unpin — refcount 1, waiter 기상 · VACUUM 이 cleanup lock 획득',
@@ -460,7 +462,7 @@ const SCENES = [
       { id:'dbOid', tag:'clean', sub:'16384' },
       { id:'relNumber', tag:'clean', sub:'16391  ·  t' },
       { id:'forkNum', tag:'clean', sub:'0  ·  main' },
-      { id:'blockNum', tag:'clean', sub:'42' } ] },
+      { id:'blockNum', tag:'clean', sub:'42  —  A · B 가 찾는 블록 (buf 7 의 태그가 아니다)' } ] },
     st:{ kv:{ 'refcount':'0', 'usage_count':'0', 'flags':'BM_VALID · BM_TAG_VALID · BM_PERMANENT', '담은 페이지':'(t, 17)' } },
     heap:{ items:[
       { id:'p:17', tag:'clean', sub:'buf 7 에 있다' },
@@ -544,7 +546,7 @@ const SCENES = [
     ref:'src/backend/storage/buffer/bufmgr.c', sym:'WaitIO',
     fact:['If an I/O is already in progress in another backend, we want to wait',
           'we will wait for completion of the IO using WaitIO().'],
-    ops:{ bb:{ set:{ '단계':'WaitIO — 기다림|gold' } } } },
+    ops:{ bb:{ set:{ '단계':'BM_IO_IN_PROGRESS 를 보고 WaitIO — 기다림|gold' } } } },
 
   { act:{ f:'heap', t:'st', lb:'p:42 도착' },
     note:'read 완료 — TerminateBufferIO: IO_IN_PROGRESS off · BM_VALID on · I/O 의 pin 해제 · B 기상',
@@ -584,7 +586,7 @@ const SCENES = [
   links:[['01','바늘과 usage_count'],['03','state 워드의 refcount · usage_count']],
   init:{
     clk:{ kv:{ '바늘':'buf 2', 'numBufferAllocs':'2' } },
-    bgw:{ kv:{ '상태':'잠듦', '최근 할당':'—', '평활 할당':'1', '예상 할당':'—', '청소 위치':'buf 2', '이번 주기':'—' } },
+    bgw:{ kv:{ '상태':'잠듦', '최근 할당':'—', '평활 할당':'1', '예상 할당':'—', '청소 위치':'buf 2', '앞선 바퀴':'—', '이번 주기':'—' } },
     be:{ kv:{ '질의':'INSERT …', '직접 쓴 버퍼':'0' } },
     pool:{ items:[
       { id:'buf 0', tag:'clean', u:2, sub:'p:5  ·  usage 2' },
@@ -643,6 +645,7 @@ const SCENES = [
           bgw:{ set:{ '청소 위치':'buf 4', '이번 주기':'1 개 씀 · 재사용 1' } } } },
 
   { act:{ f:'bgw', t:'heap', lb:'buf 6 (p:26) 쓰기', hot:'io' },
+    look:{ pool:['buf 4','buf 5','buf 6'] },
     note:'buf 4 = dirty 지만 usage 1 → skip · buf 5 clean → reusable 계수 · buf 6 write',
     why:'buf 4 는 더럽지만 usage_count 가 1 이라 이번 바퀴에서 바늘이 내주지 않는다 — bgwriter 는 usage_count 를 깎지 않으므로 그대로 둔다. buf 5 는 이미 깨끗하고 0 이라 쓰지 않고 재사용 가능으로만 센다. buf 6 은 0 이고 더러우니 쓴다.',
     key:'bgwriter 는 <em>읽기만 하는 시계</em>다. 깎는 것은 백엔드가 돌리는 진짜 바늘뿐이라, bgwriter 가 버퍼의 나이를 바꾸는 일은 없다.',
@@ -655,7 +658,7 @@ const SCENES = [
           heap:{ set:{ 'p:26':{ sub:'bgwriter 가 씀' } } },
           bgw:{ set:{ '청소 위치':'buf 7', '이번 주기':'2 개 씀 · 재사용 3' } } } },
 
-  { look:{ bgw:true, pool:true },
+  { look:{ bgw:true, pool:['buf 7','buf 0','buf 1'] },
     note:'buf 7 · 0 · 1 은 skip — 바늘을 한 바퀴 앞지르면 정지, 이번 주기 2 개 write',
     why:'멈추는 조건은 셋이다 — 바늘을 한 바퀴 앞질렀거나, 다음 주기의 어림만큼 재사용 버퍼를 확보했거나, bgwriter_lru_maxpages(100)에 닿았거나. 마지막 경우는 maxwritten_clean 으로 센다. 쓴 블록이 bgwriter_flush_after(Linux 기본 64 블록 = 512kB)만큼 쌓이면 커널에 writeback 을 요청해 나중의 fsync 를 가볍게 한다.',
     key:'목표는 <em>바늘이 닿을 때 이미 깨끗한 것</em>이다. 그 이상은 쓰지 않는다 — 다시 더러워질 버퍼를 미리 쓰는 것은 낭비다.',
@@ -664,7 +667,7 @@ const SCENES = [
           'requirements, or hit the bgwriter_lru_maxpages limit.',
           'if (++num_written >= bgwriter_lru_maxpages)',
           ['src/include/pg_config_manual.h','#define DEFAULT_BGWRITER_FLUSH_AFTER 64']],
-    ops:{ bgw:{ set:{ '청소 위치':'buf 2', '이번 주기':'2 개 씀 · 재사용 3 · 한 바퀴|gold' } } } },
+    ops:{ bgw:{ set:{ '청소 위치':'buf 2', '앞선 바퀴':'바늘보다 1 바퀴 앞 — buf 2 는 다음 바퀴의 칸|gold', '이번 주기':'2 개 씀 · 재사용 3 · 한 바퀴|gold' } } } },
 
   { act:{ f:'be', t:'pool', lb:'빈 버퍼 하나' },
     note:'backend 할당 — buf 2 decrement 후 통과, buf 3 은 이미 clean → write 없이 즉시 사용',
@@ -674,13 +677,13 @@ const SCENES = [
     fact:['local_buf_state -= BUF_USAGECOUNT_ONE;',
           ['src/backend/postmaster/bgwriter.c','to keep regular backends from having to write out dirty shared buffers']],
     beat:1,
-    ops:{ pool:{ set:{ 'buf 2':{ u:2, sub:'p:12  ·  usage 3 → 2' },
+    ops:{ pool:{ set:{ 'buf 2':{ u:2, sub:'p:12  ·  usage 2  (3 에서 깎임)' },
                        'buf 3':{ tag:'pin', u:1, pin:1, sub:'p:40  ·  usage 1  ·  핀 1' } } },
-          clk:{ set:{ '바늘':'buf 4', 'numBufferAllocs':'1' } },
+          clk:{ set:{ '바늘':'buf 4', 'numBufferAllocs':'1|gold' } },
           be:{ set:{ '직접 쓴 버퍼':'0|green' } } } },
 
   { look:{ bgw:true, clk:true },
-    note:'idle 2 주기 연속이면 hibernate — bgwriter_delay × 50 = 10 초, 첫 할당이 latch 로 깨운다',
+    note:'그 뒤 할당 없는 주기가 둘 이어지면 hibernate — bgwriter_delay × 50 = 10 초, 첫 할당이 latch 로 깨운다',
     why:'BgBufferSync 가 "할 일이 없었다" 를 돌려주고 그것이 두 주기 이어지면, bgwriter 는 StrategyNotifyBgWriter 로 자기 latch 를 걸어 두고 HIBERNATE_FACTOR 배 길게 잔다. 다음에 어느 백엔드든 StrategyGetBuffer 를 부르면 그 latch 를 세워 깨운다 — 한가한 서버에서 200ms 마다 깨는 전력을 아낀다.',
     key:'한가할 때는 <em>할당 그 자체가 알람</em>이다. 바빠지는 첫 순간에 깨어난다.',
     ref:'src/backend/postmaster/bgwriter.c', sym:'BackgroundWriterMain',
@@ -688,7 +691,9 @@ const SCENES = [
           'the sleep in "hibernation" mode, where we sleep for much longer',
           'BgWriterDelay * HIBERNATE_FACTOR,',
           ['src/backend/storage/buffer/freelist.c','This feature is used by the bgwriter process to wake itself up']],
-    ops:{ bgw:{ set:{ '상태':'겨울잠 — 첫 할당이 깨운다' } } } },
+    /* 7 스텝의 할당 1 이 남아 있으면 겨울잠에 들 수 없다 — can_hibernate 는 bufs_to_lap == 0 && recent_alloc == 0 */
+    ops:{ bgw:{ set:{ '최근 할당':'0  (두 주기 연속)', '이번 주기':'할 일 없음 × 2|gold', '상태':'겨울잠 — 첫 할당이 깨운다' } },
+          clk:{ set:{ 'numBufferAllocs':'0' } } } },
 
   { look:{ bgw:true, pool:true, be:true },
     note:'정리 — bgwriter = 바늘 앞의 dirty reusable 만 미리 write',
@@ -745,7 +750,7 @@ const SCENES = [
           '/* Look-ahead distance ramps up rapidly after we do I/O. */',
           'distance = stream->distance * 2;'],
     ops:{ strm:{ add:[{ id:'blk 10', tag:'ok', sub:'hit  ·  핀' }] },
-          be:{ set:{ '거리':'7' } } } },
+          be:{ set:{ '거리':'7|gold' } } } },
 
   { act:{ f:'be', t:'strm', lb:'42 · 43 · 44 묶기' },
     note:'42 → 43 → 44 연속 — pending read 하나로 merge (io_combine_limit 16 블록까지)',
@@ -757,7 +762,7 @@ const SCENES = [
           ['src/include/storage/bufmgr.h','#define DEFAULT_IO_COMBINE_LIMIT Min(MAX_IO_COMBINE_LIMIT, (128 * 1024) / BLCKSZ)']],
     beat:1,
     ops:{ strm:{ add:[
-      { id:'blk 42', tag:'hold', io:'42..44', sub:'대기 읽기' },
+      { id:'blk 42', tag:'hold', io:'42..44', sub:'대기 읽기  ·  42..44 를 한 I/O(24KB)로' },
       { id:'blk 43', tag:'hold', io:'42..44', sub:'대기 읽기' },
       { id:'blk 44', tag:'hold', io:'42..44', sub:'대기 읽기' } ] } } },
 
@@ -809,7 +814,8 @@ const SCENES = [
           'the range 42..44 requires an I/O wait before its buffers are returned, as',
           'WaitReadBuffers(&stream->ios[io_index].op);'],
     beat:1,
-    ops:{ strm:{ del:['blk 10'], set:{ 'blk 42':{ tag:'ok', io:null, sub:'돌려줌' }, 'blk 43':{ tag:'ok', io:null, sub:'읽힘' }, 'blk 44':{ tag:'ok', io:null, sub:'읽힘' } } },
+    /* 10 과 42 를 둘 다 돌려주었다 — 둘 다 큐에서 빠진다(10 만 빼고 42 는 '돌려줌' 으로 남겼었다) */
+    ops:{ strm:{ del:['blk 10', 'blk 42'], set:{ 'blk 43':{ tag:'ok', io:null, sub:'읽힘  ·  다음 차례' }, 'blk 44':{ tag:'ok', io:null, sub:'읽힘' } } },
           ios:{ del:['42..44'] },
           iow:{ set:{ 'worker 0':'쉼' } },
           heap:{ set:{ 'blk 42':{ tag:'clean', sub:'buffer 로 읽힘' }, 'blk 43':{ tag:'clean', sub:'buffer 로 읽힘' }, 'blk 44':{ tag:'clean', sub:'buffer 로 읽힘' } } },
@@ -822,7 +828,8 @@ const SCENES = [
     ref:'src/backend/storage/aio/method_io_uring.c', sym:'pgaio_uring_submit',
     fact:['For now we create one io_uring instance for each backend. These io_uring',
           ['src/backend/utils/misc/guc_tables.c','{"io_method", PGC_POSTMASTER, RESOURCES_IO,'],
-          ['src/backend/catalog/system_views.sql','CREATE VIEW pg_aios AS']] },
+          ['src/backend/catalog/system_views.sql','CREATE VIEW pg_aios AS']],
+    ops:{ iow:{ set:{ 'io_method':'worker  —  io_uring 이면 worker 없이 백엔드마다 ring 으로 커널에 직접 (재시작 필요)|gold' } } } },
 
   { look:{ be:true, strm:true, cmp:true },
     note:'정리 — 미리 보고(look-ahead), 묶고(combine), 맡긴다(worker · io_uring)',

@@ -24,7 +24,8 @@ const tone = (v) => (/\|(gold|red|green)$/.exec(String(v ?? '')) || [])[1] || ''
 const span = { gold: 'q-g', red: 'q-r', green: 'q-gr' };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const val = (v) => (tone(v) ? `<span class="${span[tone(v)]}">${esc(bare(v))}</span>` : esc(bare(v)));
-const TAGC = { clean: INK, x: RED, red: RED, dirty: GOLD, gold: GOLD, hold: GOLD, pin: GOLD, hdr: ACCENT, free: FAINT, ok: GREEN, green: GREEN, wait: ACCENT, sep: ACCENT };
+/* dirty 는 빨강 — 01 의 세계(pg-buffer-01)와 같은 색. 금색이면 05 의 dirty buf 3 · 4 · 6 과 핀이 걸린 buf 7 이 똑같아 보였다 */
+const TAGC = { clean: INK, x: RED, red: RED, dirty: RED, gold: GOLD, hold: GOLD, pin: GOLD, hdr: ACCENT, free: FAINT, ok: GREEN, green: GREEN, wait: ACCENT, sep: ACCENT };
 /* buf_internals.h 의 플래그 — 22 번 비트부터 차례로(BM_LOCKED (1U << 22) … BM_PERMANENT (1U << 31)) */
 const FLAGS = ['BM_LOCKED', 'BM_DIRTY', 'BM_VALID', 'BM_TAG_VALID', 'BM_IO_IN_PROGRESS', 'BM_IO_ERROR', 'BM_JUST_DIRTIED', 'BM_PIN_COUNT_WAITER', 'BM_CHECKPOINT_NEEDED', 'BM_PERMANENT'];
 const RC_BITS = 18, UC_BITS = 4, MAX_UC = 5;
@@ -153,6 +154,8 @@ function make({ F, deck, labels, scene }) {
   }]));
   const rowLb = Object.fromEntries(ROWS.map((a) => [a, Object.fromEntries(RIDS[a].map((id) => [id, label('aq aq-c')]))]));
   const rowCap = Object.fromEntries(ROWS.map((a) => [a, label('aq ml aq-b')]));
+  /* 빈 칸 줄의 '—' 는 칸이 설 자리(제목 바로 아래 왼쪽)에 — 설명 자리에 두었더니 02 의 RING 은 제목에서 270 px, 06 의 READ STREAM 은 75 px 아래에 떴다 */
+  const emp = Object.fromEntries(ROWS.map((a) => [a, label('aq')]));
   const pLb = Object.fromEntries(PTRS.map(({ a, k }) => [a + '.' + k, label('aq')]));
   const edgeLb = label('aq'), tok = label('stn-tok');
 
@@ -177,15 +180,18 @@ function make({ F, deck, labels, scene }) {
       t.set(L.hex, [`state ${hex(w.w)}`, on(a), w.w !== w0.w ? 'gold' : '']);
       for (let c = 0; c < 32; c++) t.set(L.dig[c], [String(w.bit(c)), on(a) && w.bit(c) === 1, w.bit(c) !== w0.bit(c) ? 'gold' : '']);
       FLAGS.forEach((f) => { const has = w.fl.includes(f); t.set(L.fl[f], [has ? f : '', on(a), has && !w0.fl.includes(f) ? 'gold' : '', has]); });
-      t.set(L.fd[0], [`refcount ${w.rc}`, on(a), w.rc !== w0.rc ? 'gold' : '']);
-      t.set(L.fd[1], [`usage_count ${w.uc}`, on(a), w.uc !== w0.uc ? 'gold' : '']);
-      t.set(L.fd[2], ['flags', on(a), w.fl.join() !== w0.fl.join() ? 'gold' : '']);
+      /* 필드 이름에 비트 폭(buf_internals.h 의 BUF_*_BITS) — 03/1 의 '세 칸' 이 몇 비트씩인지 띠만으로는 안 보였다.
+         값에 |gold 를 달면 그 필드를 밝힌다 — 03/9 의 refcount 2 처럼 바뀌지 않았는데 요점인 값 */
+      t.set(L.fd[0], [`refcount ${w.rc}  (${RC_BITS} 비트)`, on(a), tone(s[a].refcount) || (w.rc !== w0.rc ? 'gold' : '')]);
+      t.set(L.fd[1], [`usage_count ${w.uc}  (${UC_BITS} 비트)`, on(a), tone(s[a].usage_count) || (w.uc !== w0.uc ? 'gold' : '')]);
+      t.set(L.fd[2], [`flags  (${32 - RC_BITS - UC_BITS} 비트)`, on(a), tone(s[a].flags) || (w.fl.join() !== w0.fl.join() ? 'gold' : '')]);
       const r = rest(s[a]);
       t.set(L.cap, [kvHtml(r, '    '), on(a), '', Object.keys(r).length > 0, true]);
     }
     for (const a of ROWS) {
       for (const id of RIDS[a]) { const it = s[a].find((x) => x.id === id); t.set(rowLb[a][id], [it ? id : '', on(a) && !!it && hotIt(s, a, id), it && (it.tag === 'x' || it.tag === 'red') ? 'red' : '', !!it]); }
-      t.set(rowCap[a], [capOf(s[a]) || (s[a].length ? '' : '—'), on(a), '', true, true]);
+      t.set(rowCap[a], [capOf(s[a]), on(a), '', true, true]);
+      t.set(emp[a], ['—', on(a), '', !s[a].length]);
     }
     const P = ptrsOf(s), lead = new Map(P.map((g) => [g.ks[0].a + '.' + g.ks[0].k, g]));
     for (const { a, k } of PTRS) {
@@ -310,7 +316,7 @@ function make({ F, deck, labels, scene }) {
         let hh = 0;
         band.c.forEach((a, j) => {
           const x0 = L.x0 + j * (rW + gap), box = 26 + extra(a);
-          place(hd[a], x0, y); G.slot[a] = { x0, y: y + HD, sw: sw[a] }; G.anc[a] = { x: x0 + 30, y: y + HD + 13 };
+          place(hd[a], x0, y); place(emp[a], x0 + 4, y + HD + 13, 'l', 'c'); G.slot[a] = { x0, y: y + HD, sw: sw[a] }; G.anc[a] = { x: x0 + 30, y: y + HD + 13 };
           if (rSide[a]) { place(rowCap[a], x0 + rSide[a], y + HD + 4); hh = Math.max(hh, HD + Math.max(box, rcH[a] + 4)); }
           else { place(rowCap[a], x0, y + HD + box + 8); hh = Math.max(hh, HD + box + 8 + rcH[a]); }
         });
@@ -422,9 +428,11 @@ function make({ F, deck, labels, scene }) {
       const per = Math.max(6, Math.floor((i1 - i0) / Math.max(1, gs.length)));
       for (const g of gs) {
         const P0 = rowSlot(s, a, g.ids[0]), P1 = rowSlot(s, a, g.ids[g.ids.length - 1]), xa = P0.x - P0.w / 2, xb = P1.x + P1.w / 2, y = ioY(a);
+        /* 이 스텝에 묶인 괄호는 금빛으로 굵게 — 06/3 의 '한 I/O 로 묶는다' 가 실선 한 가닥이라 거의 안 보였다 */
+        const fresh = on && !g.ids.some((id) => prev[a].some((x) => x.id === id && String(x.io) === g.io));
         for (let m = 0; m < per && i < i1; m++, i++) {
           const u = m / (per - 1), [xx, yy] = into(i, U.lerp(xa, xb, u), y + (m === 0 || m === per - 1 ? -2 : 0));
-          put(o, i, xx, yy, (on ? 0.85 : 0.45) * dim * form, 0, 0.02, 1, ACCENT);
+          put(o, i, xx, yy, (fresh ? 1 : on ? 0.85 : 0.45) * dim * form, fresh ? 0.5 : 0, 0.02, fresh ? 1.8 : 1, fresh ? GOLD : ACCENT);
         }
       }
       for (; i < i1; i++) put(o, i, dust[i * 2], dust[i * 2 + 1], 0, 0, 2, 1, FAINT);
