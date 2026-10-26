@@ -190,6 +190,8 @@ function make({ F, deck, labels, scene }) {
   /* 필드 이름은 화면 폭에 따라 t_ 를 뗀다 — 글이 스텝마다 같으므로 build 에서 쓰고 paint 는 밝기만 */
   const hdrLb = HDRA ? Object.fromEntries(HDR.map(([k]) => [k, { name: label('aq'), v: label('aq') }])) : null;
   const hdrCap = HDRA ? label('aq ml aq-b') : null;
+  /* 칸마다 바이트 수 — 두 점 줄 사이 */
+  const hdrB = HDRA ? Object.fromEntries(HDR.map(([k]) => [k, label('aq aq-c')])) : null;
   const stripLb = Object.fromEntries(STR.map(([k]) => [k, { head: label('aq'), nat: NAT[k] ? label('aq') : null, fl: Object.fromEntries(FLU[k].map((f) => [f, label('aq')])) }]));
   const snapLb = SNAP ? { xmin: label('aq'), xmax: label('aq'), xip: label('aq'), rest: label('aq ml aq-b') } : null;
   const tupLb = Object.fromEntries(TIDS.map((id) => [id, label('aq ml aq-c')]));
@@ -228,7 +230,8 @@ function make({ F, deck, labels, scene }) {
   const SKEY = new Map(STR);
   const texts = (S, S0) => S.map((s, i) => {
     const t = new Map(), on = (a) => s.touch.has(a), pv = i ? S[i - 1] : S0;
-    for (const a of cast) t.set(hd[a], [A[a].nm + (a === HDRA ? '  ·  23 B' : ''), on(a)]);
+    /* 헤더 띠의 이름에 누구의 헤더인지('튜플' 키)를 붙인다 */
+    for (const a of cast) t.set(hd[a], [A[a].nm + (a === HDRA ? (s[a]['튜플'] ? `  ·  튜플 ${bare(s[a]['튜플'])}` : '') + '  ·  23 B' : ''), on(a)]);
     for (const a of TEXTS) t.set(tx[a], [kvHtml(s[a]), on(a), '', true, true]);
     if (HDRA) {
       const mod = modOf(s, HDRA), hot = (k) => on(HDRA) && (mod.has(k) || !mod.size);
@@ -236,7 +239,8 @@ function make({ F, deck, labels, scene }) {
         const v = s[HDRA][k], T = SKEY.get(k), d = T ? decode(v, T) : null;
         t.set(hdrLb[k].v, [v == null ? '—' : d && d.any ? hex4(d.mask) : val(v), hot(k), '', true, true]);
       }
-      t.set(hdrCap, [kvHtml(s[HDRA], HDR.map(([k]) => k)), on(HDRA), '', true, true]);
+      t.set(hdrCap, [kvHtml(s[HDRA], [...HDR.map(([k]) => k), '튜플']), on(HDRA), '', true, true]);
+      for (const [k, b] of HDR) t.set(hdrB[k], [b + ' B', false]);
       for (const [k, T] of STR) {
         const d = decode(s[HDRA][k], T), dp = decode(pv[HDRA][k], T);
         t.set(stripLb[k].head, [k + '  ·  16 bit', on(HDRA)]);
@@ -261,7 +265,7 @@ function make({ F, deck, labels, scene }) {
         const it = s[PAGE].find((x) => x.lp === j), st = it ? (it.lps || 'normal') : null;
         t.set(lpLb[j], ['lp ' + j, on(PAGE) && !!it && hotIt(s, PAGE, it.id), st === 'dead' ? 'red' : st === 'redirect' ? 'gold' : '', !!it]);
       }
-      t.set(phLb, ['24 B', on(PAGE)]);
+      t.set(phLb, ['page hdr 24 B', on(PAGE)]);
       /* 칸 안의 xmin · xmax 를 되풀이할 뿐인 설명은 뺀다 */
       const notes = s[PAGE].filter((x) => x.sub && !/^xmin \d+( · xmax \d+)?$/.test(x.sub.trim())).map((x) => `<span class="q-i">${esc(x.id)}</span> ${esc(x.sub)}`);
       t.set(capLb, [notes.join('\n'), on(PAGE), '', true, true]);
@@ -374,7 +378,7 @@ function make({ F, deck, labels, scene }) {
       }
     }
     /* heap 페이지 — 헤더 · lp 배열 · 튜플. 튜플 칸은 안의 글이 들어갈 만큼 */
-    const lpw = 40, lph = 20, phw = 52;
+    const lpw = 40, lph = 20, phw = PAGE ? Math.max(52, Math.ceil(most(phLb).w) + 14) : 52;
     const tm = TIDS.map((id) => most(tupLb[id]));
     const tw = Math.max(64, Math.ceil(Math.max(0, ...tm.map((m) => m.w))) + 16), th = Math.max(34, Math.ceil(Math.max(0, ...tm.map((m) => m.h))) + 12);
     const nst = PAGE ? Math.max(1, ...all.map((s) => s[PAGE].filter(stored).length)) : 1;
@@ -411,6 +415,7 @@ function make({ F, deck, labels, scene }) {
         for (const q of NM.out) { place(hdrLb[q.k].name, q.l, y - 3 - q.row * RH, 'l', 'b'); if (off(q)) G.hdrLead.push([q.cx, y - 3 - q.row * RH + 1, y - 2]); }
         for (const q of VL.out) { place(hdrLb[q.k].v, q.l, y + 26 + 5 + q.row * RH, 'l', 't'); if (off(q)) G.hdrLead.push([q.cx, y + 28, y + 26 + 5 + q.row * RH - 1]); }
         G.anc[HDRA] = { x: L.x0 + hw(4), y: y + 13 };
+        for (const [kf] of HDR) place(hdrB[kf], G.hdrF[kf].x + G.hdrF[kf].w / 2, y + 13, 'c', 'c');
         y += 26 + 5 + VL.rows * RH + 6; place(hdrCap, L.x0, y); y += hcH + (hcH > 1 ? 10 * k : 0) + 6 * k;
         G.strip = {};
         for (const [f] of STR) {
@@ -780,6 +785,9 @@ function make({ F, deck, labels, scene }) {
         }
       }
       if (G.hdrLead) for (const [x, y0, y1] of G.hdrLead) seg(ctx, x, y0, x, y1);
+      /* 칸 경계 — 바이트 폭이 읽히게 */
+      ctx.globalAlpha = 0.3 * o;
+      for (const [kf] of HDR.slice(1)) seg(ctx, G.hdrF[kf].x, G.hdr.y + 4, G.hdrF[kf].x, G.hdr.y + 22);
     }
     if (SNAP && XU) {
       /* 끊긴 자리는 선을 비우고 // 를 긋는다 */
@@ -800,7 +808,9 @@ function make({ F, deck, labels, scene }) {
         if (!stored(it) || !(it.xmin > 0)) continue;
         const y = G.bar[id], xa = xidX(it.xmin), xb = it.xmax > 0 ? xidX(it.xmax) : G.ax.x1, hot = s.touch.has(PAGE) && !end && hotIt(s, PAGE, id);
         ctx.globalAlpha = (hot ? 0.8 : 0.4) * o; ctx.strokeStyle = it.tag === 'x' ? css.red : ['hold', 'dirty', 'wait'].includes(it.tag) ? css.gold : css.ink; ctx.lineWidth = 1.5;
-        seg(ctx, xa, y, xb, y);
+        /* 이 snapshot 에 안 보이는 튜플(vis:false)은 점선 */
+        if (it.vis === false) ctx.setLineDash([3, 3]);
+        seg(ctx, xa, y, xb, y); ctx.setLineDash([]);
         if (it.xmax > 0) seg(ctx, xb, y - 4, xb, y + 4); else { seg(ctx, xb, y, xb - 5, y - 3); seg(ctx, xb, y, xb - 5, y + 3); }
         ctx.lineWidth = 1;
       }

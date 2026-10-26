@@ -14,7 +14,7 @@ const SCENES = [
   init:{
     op:{ kv:{ 'SQL':'—', '단계':'대기' } },
     tup:{ items:[{ id:'(비었다)', tag:'free', sub:'아직' }] },
-    hdr:{ kv:{ 't_xmin':'—', 't_xmax':'—', 't_cid':'—', 't_ctid':'—', 't_infomask2':'—', 't_infomask':'—', 't_hoff':'—' } },
+    hdr:{ kv:{ 't_xmin':'—', 't_xmax':'—', 't_cid':'—', 't_ctid':'—', 't_infomask2':'—', 't_infomask':'—', 't_hoff':'—', 't_xmax 의 뜻':'—', 'NULL bitmap':'—' } },
   },
   steps:[
   { act:{ f:'op', t:'tup', lb:'INSERT' },
@@ -26,7 +26,7 @@ const SCENES = [
           ['src/include/access/htup_details.h','inserting xact ID']],
     ops:{ op:{ set:{ 'SQL':'INSERT INTO t VALUES (1, NULL)', '단계':'튜플 쓰기' } },
           tup:{ del:['(비었다)'], add:[{ id:'튜플 A', tag:'clean', sub:'v=1 · c=NULL', lp:1, xmin:100, xmax:0 }] },
-          hdr:{ set:{ 't_xmin':'100', 't_xmax':'0', 't_ctid':'자기 자신',
+          hdr:{ set:{ 't_xmin':'100', 't_xmax':'0', 't_cid':'0', 't_ctid':'(0,1) · 자기 자신',
                       /* 쓰는 순간의 비트 — xmax 가 없으니 XMAX_INVALID(0x0800), NULL 이 있으니
                          HASNULL(0x0001). 둘 다 htup_details.h 에 정의돼 있다. 뜻은 5 스텝에서. */
                       't_infomask':'0x0801  XMAX_INVALID · HASNULL',
@@ -38,7 +38,8 @@ const SCENES = [
     key:'InnoDB 는 행 락을 <em>메모리의 락 구조체</em>로 만든다. PG 는 <em>행 락만 튜플에 적는다</em> — 그래서 행 락은 아무리 많아도 메모리를 안 먹지만, 대신 락을 잡으면 그 페이지가 더러워진다. 테이블·객체 락은 PG 도 공유 메모리 표에 두고 그것은 넘칠 수 있다(max_locks_per_transaction 기본 64) — locks 덱에서 본다.',
     ref:'src/include/access/htup_details.h', sym:'HeapTupleFields',
     fact:[['src/include/access/htup_details.h','deleting or locking xact ID'],
-          ['src/include/access/htup_details.h','#define HEAP_XMAX_LOCK_ONLY']] },
+          ['src/include/access/htup_details.h','#define HEAP_XMAX_LOCK_ONLY']],
+    ops:{ hdr:{ set:{ 't_xmax':'0 · 삭제 또는 락', 't_xmax 의 뜻':'XMAX_LOCK_ONLY(0x0080) 가 켜지면 row lock · 아니면 delete' } } } },
 
   { look:{ hdr:true },
     note:'virtual field 5개 → physical field 3개 : cmin · cmax 는 한 슬롯을 공유',
@@ -48,7 +49,7 @@ const SCENES = [
     fact:['We store five "virtual" fields Xmin, Cmin, Xmax, Cmax, and Xvac in three',
           'inserting or deleting command ID, or both',
           '#define HEAP_COMBOCID'],
-    ops:{ hdr:{ set:{ 't_cid':'0 (cmin)' } } } },
+    ops:{ hdr:{ set:{ 't_cid':'0 · cmin = cmax 한 칸' } } } },
 
   { look:{ hdr:true },
     note:'헤더 = 23 바이트 — 소스 주석이 그 자리에 박아 두었다',
@@ -68,7 +69,8 @@ const SCENES = [
           '#define HEAP_HASNULL',
           ['src/backend/access/common/heaptuple.c','len += BITMAPLEN(numberOfAttributes);'],
           ['src/backend/access/common/heaptuple.c','hoff = len = MAXALIGN(len); /* align user data safely */']],
-    ops:{ tup:{ set:{ '튜플 A':{ sub:'v=1 · c=NULL  ·  c 는 비트 하나' } } } } },
+    ops:{ tup:{ set:{ '튜플 A':{ sub:'v=1 · c=NULL  ·  c 는 비트 하나' } } },
+          hdr:{ set:{ 'NULL bitmap':'헤더 뒤 1 B (열 2 개 = 2 bit)  ·  t_hoff 24 = MAXALIGN(23 + 1)' } } } },
 
   { act:{ f:'op', t:'hdr', lb:'ADD COLUMN' },
     note:'natts 를 튜플이 든다 — ADD COLUMN 이 옛 튜플을 rewrite 하지 않는 이유',
@@ -88,13 +90,14 @@ const SCENES = [
     key:'이 포인터가 <em>갱신 사슬</em>이다. InnoDB 의 롤백 포인터가 <em>과거로</em> 가는 반면, PG 의 ctid 는 <em>미래로</em> 간다 — 방향이 반대다.',
     ref:'src/include/access/htup_details.h', sym:'HeapTupleHeaderData',
     fact:[['src/include/access/htup_details.h','current TID of this or newer tuple']],
+    ops:{ hdr:{ set:{ 't_ctid':'(0,1) · UPDATE 뒤엔 새 버전' } } },
     beat:1 },
   ],
 },
 {
   num:'02', tab:'Visibility', title:'MVCC Visibility: Snapshots, pg_xact & Hint Bits',
   sub:'snapshot 은 시점을, pg_xact 는 결과를 답한다 — 판정 결과는 reader 가 hint bit 로 캐시한다',
-  cast:['op','sn','tup','hdr'],
+  cast:['op','sn','tup','hdr','xact'],
   /* 이야기의 숫자 : 읽는 쪽의 스냅샷은 xmin 103 · xmax 106 · 진행 중 [103, 104].
      튜플 A 는 오래전 커밋된 100 이 넣었고, 튜플 B 는 스냅샷을 잡을 때 돌고 있던 104 가 넣었다. */
   knobs:[
@@ -112,7 +115,11 @@ const SCENES = [
     tup:{ items:[
       { id:'튜플 A', tag:'clean', sub:'xmin 100 · xmax 0', lp:1, xmin:100, xmax:0 },
       { id:'튜플 B', tag:'clean', sub:'xmin 104 · xmax 0', lp:2, xmin:104, xmax:0 }] },
-    hdr:{ kv:{ 't_xmin':'100', 't_xmax':'0', 't_infomask':'XMAX_INVALID', '힌트':'없음' } },
+    hdr:{ kv:{ 't_xmin':'100', 't_xmax':'0', 't_infomask':'XMAX_INVALID', '튜플':'A', '힌트':'없음' } },
+    xact:{ items:[
+      { id:'100 COMMITTED', tag:'clean' },
+      { id:'103 IN_PROGRESS', tag:'clean' },
+      { id:'104 IN_PROGRESS', tag:'clean' }] },
   },
   steps:[
   { look:{ op:true, sn:true },
@@ -134,15 +141,17 @@ const SCENES = [
     fact:[['src/backend/access/heap/heapam_visibility.c','See SNAPSHOT_MVCC\'s definition for the intended behaviour.']],
     ops:{ op:{ set:{ '판정':'튜플마다 헤더를 본다' } } } },
 
-  { look:{ hdr:true, sn:true },
+  { look:{ hdr:true, sn:true, xact:['100 COMMITTED'] },
     note:'튜플 A : xmin 100 < snapshot xmin 103 — 끝났다는 것까지만 안다',
     why:'XidInMVCCSnapshot 의 첫 판정이 "xmin 보다 작은 XID 는 진행 중이 아니다" 다. 그러나 끝났다는 것은 커밋이거나 롤백이다. 그래서 HeapTupleSatisfiesMVCC 는 이어서 TransactionIdDidCommit 으로 pg_xact 를 본다 — 커밋이면 보이고, 아니면 "중단됐거나 죽었다" 로 안 보인다.',
     key:'snapshot 은 <em>시간</em>을, pg_xact 는 <em>결과</em>를 답한다. 둘을 다 물어야 판정이 끝난다.',
     ref:'src/backend/access/heap/heapam_visibility.c', sym:'HeapTupleSatisfiesMVCC',
     fact:['else if (TransactionIdDidCommit(HeapTupleHeaderGetRawXmin(tuple)))',
           'it must have aborted or crashed',
-          ['src/backend/utils/time/snapmgr.c','Any xid < xmin is not in-progress']],
+          ['src/backend/utils/time/snapmgr.c','Any xid < xmin is not in-progress'],
+          ['src/include/access/clog.h','#define TRANSACTION_STATUS_COMMITTED']],
     ops:{ op:{ set:{ '판정':'튜플 A — 끝났다 → pg_xact : 커밋 → 보인다' } },
+          xact:{ set:{ '100 COMMITTED':{ tag:'ok' } } },
           tup:{ set:{ '튜플 A':{ sub:'xmin 100 · xmax 0  ·  보인다' } } } } },
 
   { look:{ hdr:true },
@@ -152,7 +161,8 @@ const SCENES = [
     ref:'src/backend/access/heap/heapam_visibility.c', sym:'HeapTupleSatisfiesMVCC',
     fact:[['src/backend/access/heap/heapam_visibility.c','would require access to high-traffic'],
           ['src/include/access/htup_details.h','#define HEAP_XMIN_COMMITTED']],
-    ops:{ hdr:{ set:{ 't_infomask':'XMIN_COMMITTED · XMAX_INVALID', '힌트':'적어 둠  ·  페이지 더러워짐' } } } },
+    ops:{ hdr:{ set:{ 't_infomask':'XMIN_COMMITTED · XMAX_INVALID', '힌트':'적어 둠  ·  페이지 더러워짐' } },
+          tup:{ set:{ '튜플 A':{ tag:'dirty', hb:'XMIN_COMMITTED' } } } } },
 
   { look:{ hdr:true },
     note:'hint bit 를 쓰는 쪽 — 처음 그 사실을 볼 수 있게 된 reader',
@@ -160,6 +170,7 @@ const SCENES = [
     key:'판정 비용이 <em>첫 독자에게 몰린다</em>. 그래서 같은 조회를 두 번 하면 두 번째가 빠르고, 그 차이를 캐시 효과로 착각하기 쉽다.',
     ref:'src/backend/access/heap/heapam_visibility.c', sym:'HeapTupleSatisfiesMVCC',
     fact:[['src/backend/access/heap/heapam_visibility.c','will be updated by the first visitor']],
+    ops:{ hdr:{ set:{ '힌트':'적어 둠  ·  쓴 쪽 = 이 SELECT (첫 방문자)' } } },
     beat:1 },
 
   { look:{ tup:true, sn:true },
@@ -169,10 +180,10 @@ const SCENES = [
     ref:'src/backend/access/heap/heapam_visibility.c', sym:'HeapTupleSatisfiesMVCC',
     fact:['else if (XidInMVCCSnapshot(HeapTupleHeaderGetRawXmin(tuple), snapshot))',
           ['src/backend/utils/time/snapmgr.c','if (pg_lfind32(xid, snapshot->xip, snapshot->xcnt))']],
-    ops:{ tup:{ set:{ '튜플 B':{ sub:'xmin 104  ·  안 보인다 — xip 에 있다' } } },
+    ops:{ tup:{ set:{ '튜플 B':{ vis:false, sub:'xmin 104  ·  안 보인다 — xip 에 있다' } } },
           op:{ set:{ '판정':'튜플 B — 진행 중 → 안 보인다' } } } },
 
-  { look:{ tup:true },
+  { look:{ tup:true, hdr:true },
     note:'B 에 XMIN_COMMITTED 가 박혀도 — 이 snapshot 에선 여전히 invisible',
     why:'XMIN_COMMITTED 가 켜진 튜플은 pg_xact 를 건너뛴다. 그래도 코드는 한 번 더 묻는다 — 주석이 "xmin 은 커밋됐지만 우리 스냅샷에서도 그런지는 모른다" 다. XidInMVCCSnapshot 이 104 를 여전히 xip 에서 찾으므로 "아직 진행 중으로 본다".',
     key:'힌트 비트는 <em>결과</em>만 기억한다. <em>누구에게 보이는가</em>는 매번 snapshot 이 정한다 — 그래서 힌트 하나를 모든 snapshot 이 함께 써도 안전하다.',
@@ -180,7 +191,8 @@ const SCENES = [
     fact:['xmin is committed, but maybe not according to our snapshot',
           'treat as still in progress'],
     beat:1,
-    ops:{ tup:{ set:{ '튜플 B':{ tag:'hold', sub:'xmin 104 · XMIN_COMMITTED  ·  이 snapshot 에는 여전히 안 보인다' } } } } },
+    ops:{ tup:{ set:{ '튜플 B':{ tag:'hold', hb:'XMIN_COMMITTED', sub:'xmin 104  ·  이 snapshot 에는 여전히 안 보인다' } } },
+          hdr:{ set:{ '튜플':'B', 't_xmin':'104', '힌트':'켜짐 — 보이는지는 여전히 snapshot 이 정한다' } } } },
 
   { look:{ hdr:true },
     note:'18 은 data checksums 기본 — hint bit 하나가 FPI 를 WAL 에 남길 수 있다',

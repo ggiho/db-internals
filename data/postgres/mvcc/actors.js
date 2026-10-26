@@ -21,6 +21,8 @@ const ACTORS = {
   /* 03 죽은 튜플에서 쓴다 — 즉시 정리의 문턱(pd_prune_xid · 빈 공간)이 페이지 헤더에 있다 */
   ph:  { nm:'PAGE HEADER',    lane:'heap', kind:'kv' },
   lk:  { nm:'PG_LOCKS',       lane:'shm',  kind:'list' },
+  /* 02 판정에서 쓴다 — 트랜잭션마다 2 비트 상태(clog.h 의 TRANSACTION_STATUS_*). SLRU 라 공유 메모리에 올려 읽는다 */
+  xact:{ nm:'PG_XACT',        lane:'shm',  kind:'list' },
   /* 09 horizon — 백엔드 · walsender 의 xmin, 그리고 MIN() 의 시작값 latestCompletedXid + 1 */
   pa:  { nm:'PROCARRAY',      lane:'shm',  kind:'list' },
   /* 10 MultiXact — 멤버 명단(pg_multixact) */
