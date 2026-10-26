@@ -1676,7 +1676,8 @@ function make({ F, deck, labels, scene }) {
 function pack(items, x0, x1, gap = 8) {
   const out = [], by = [];
   for (const it of [...items].sort((p, q) => p.cx - q.cx)) { const g = by.find((b) => Math.abs(b.cx - it.cx) < 2); if (g) g.its.push(it); else by.push({ cx: it.cx, its: [it] }); }
-  const free = (l, r, row) => l >= x0 - 0.5 && r <= x1 + 0.5 && !out.some((q) => q.row === row && l < q.r + gap && q.l < r + gap);
+  const clash = (l, r, row) => out.some((q) => q.row === row && l < q.r + gap && q.l < r + gap);
+  const free = (l, r, row) => l >= x0 - 0.5 && r <= x1 + 0.5 && !clash(l, r, row);
   for (const g of by) {
     if (g.its.length > 1) {
       const W = g.its.reduce((t, it) => t + it.w, 0) + gap * (g.its.length - 1);
@@ -1697,7 +1698,9 @@ function pack(items, x0, x1, gap = 8) {
           : sp ? (strip.length % 2 ? [sp[1] + gap, sp[0] - gap - it.w] : [sp[0] - gap - it.w, sp[1] + gap]) : [it.cx + 3, it.cx - 3 - it.w];
         for (const l of cands) if (free(l, l + it.w, row)) { pick = { l, r: l + it.w, row }; break; }
       }
-      if (!pick) { const l = Math.max(x0, Math.min(x1 - it.w, it.cx - it.w / 2)); pick = { l, r: l + it.w, row: 0 }; }
+      /* 어느 자리도 범위에 안 들면 범위 안으로 당기고, 그 자리가 빈 첫 줄에 — 줄 0 에 두자 13 / 10 의 460 합친 이름표(488 px)가
+         같은 줄의 oldest 160 위에 놓였다(1024×768) */
+      if (!pick) { const l = Math.max(x0, Math.min(x1 - it.w, it.cx - it.w / 2)); let row = 0; while (clash(l, l + it.w, row)) row++; pick = { l, r: l + it.w, row }; }
       const sp = strip[pick.row];
       strip[pick.row] = sp ? [Math.min(sp[0], pick.l), Math.max(sp[1], pick.r)] : [pick.l, pick.r];
       out.push({ ...it, ...pick });
