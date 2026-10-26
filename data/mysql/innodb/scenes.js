@@ -2077,7 +2077,7 @@ const SCENES = [
          BINARY(16) UUID_TO_BIN(UUID())         잎 3,923 · 높이 3   ← 순서를 바꾼 UUID_TO_BIN(UUID(), 1) 과 같다
      전에는 잎 2,700 / 4,300 · "무작위만 높이 +1" 이라 적었다 — 둘 다 셈으로 만든 값이었고 높이는 틀렸다. */
   init:{
-    ses:{ kv:{ 'PK 방식':'INT AUTO_INCREMENT (순차)', '삽입':'0', '잎 페이지':'1' } },
+    ses:{ kv:{ 'PK 방식':'INT AUTO_INCREMENT (순차)', '삽입':'0', '잎 페이지':'1', '순차 결과':'—', 'UUID 결과':'—' } },
     stmt:{ kv:{ '테이블':'t (id INT PRIMARY KEY, c INT, pad CHAR(20))', '순차':'INSERT … id = 1, 2, 3, …   -- AUTO_INCREMENT', '무작위':'INSERT … id 를 무작위 순서로   -- 앱이 만든 키' } },
     tree:{ items:[
       { id:'root', lvl:0, keys:'| p:5 |', fill:.1 },
@@ -2129,6 +2129,7 @@ const SCENES = [
     ops:{ tree:{ set:{ 'root':{ keys:'| p:5 | p:9 |', fill:.15 } },
                  add:[{ id:'p:9', lvl:1, keys:'321', fill:.02 }] },
           bp:{ add:[{ id:'p:9', tag:'dirty', sub:'새 잎 · 한 줄로 시작' }] },
+          ibd:{ set:{ 't.ibd':{ sub:'잎 2 개' } } },
           ses:{ set:{ '잎 페이지':'2' } } } },
   { note:'100만 행 후 — leaf 3,126 (실측) · 높이 3',
     why:'100만 행을 넣고 ANALYZE 로 잰 잎 페이지가 3,126 이다 — 잎마다 약 320 행. 행 하나가 레코드 헤더 5 바이트와 숨은 열 13 바이트(DB_TRX_ID 6 · DB_ROLL_PTR 7)를 더해 46 바이트쯤이다. 루트 아래 중간 노드 4 개, 높이는 3 이다.',
@@ -2155,7 +2156,9 @@ const SCENES = [
           'if (page_header_get_ptr(page, PAGE_LAST_INSERT) == insert_point) {',
           ['sql/item_strfunc.cc','#define UUID_VERSION 0x1000'],
           ['sql/item_strfunc.cc','tohex(s, time_low, 8);']],
-    ops:{ ses:{ set:{ 'PK 방식':'INT 무작위 순서|gold', '삽입':'0', '잎 페이지':'1' } },
+    /* 새 테이블에 341 행 — p:5 가 끝까지 찬 순간. 순차의 결과는 SESSION 에 남겨 둔다 */
+    ops:{ ses:{ set:{ 'PK 방식':'INT 무작위 순서|gold', '삽입':'341', '잎 페이지':'1', '순차 결과':'잎 3,126|green' } },
+          ibd:{ set:{ 't.ibd':{ tag:'clean', sub:'잎 1 개 · 다시 시작' } } },
           tree:{ del:['p:9','중간 ×4'],
                  set:{ 'root':{ keys:'| p:5 |', fill:.1 },
                        'p:5':{ lvl:1, keys:'무작위 341 개', fill:1 } } },
@@ -2173,8 +2176,9 @@ const SCENES = [
     ops:{ tree:{ set:{ 'p:5':{ keys:'앞 절반', fill:.5 },
                        'root':{ keys:'| p:5 | p:9 |', fill:.15 } },
                  add:[{ id:'p:9', lvl:1, keys:'뒤 절반', fill:.5 }] },
-          bp:{ add:[{ id:'p:9', tag:'dirty', sub:'절반만 찼다 · 옮겨 담았다' }] },
-          ses:{ set:{ '잎 페이지':'2' } } } },
+          bp:{ add:[{ id:'p:9', tag:'dirty', sub:'절반만 찼다 · 옮겨 담았다' }], set:{ 'p:5':{ sub:'앞 절반만 남았다' } } },
+          ibd:{ set:{ 't.ibd':{ sub:'잎 2 개' } } },
+          ses:{ set:{ '삽입':'342', '잎 페이지':'2' } } } },
   { note:'100만 행 후 — leaf 4,435 (실측), 같은 키 · 같은 행인데 1.42 배',
     why:'잎마다 평균 약 225 행이다. 끝까지 찬 페이지(약 341 행)에 견주면 평균 66% 쯤 찬 셈이다. 높이는 순차와 같은 3 이다.',
     key:'디스크만의 문제가 아니다. <em>buffer pool 에 올라야 할 페이지도 1.42 배</em>여서, 같은 메모리로 담을 수 있는 행이 그만큼 줄어든다.',
@@ -2203,8 +2207,16 @@ const SCENES = [
                  add:[{ id:'중간 노드 A', lvl:1, keys:'옛 루트의 내용', fill:.5 },
                       { id:'중간 노드 B', lvl:1, keys:'A 에서 갈라짐', fill:.5 }],
                  set:{ 'root':{ keys:'| A | B |', fill:.05 } } },
-          ses:{ set:{ 'PK 방식':'INT 무작위 순서 · 높이 3' } } } },
+          /* 되돌아본 순간이다 — 세는 값도 그때로. 루트 한 장이 잎 ≈ 1,100 개를 가리키면 넘친다(잎마다 ≈ 225 행) */
+          ibd:{ set:{ 't.ibd':{ sub:'잎 ≈ 1,100 · 루트가 넘친 순간' } } },
+          ses:{ set:{ 'PK 방식':'INT 무작위 순서 · 높이 3', '삽입':'≈ 25만 (루트가 넘친 순간)', '잎 페이지':'≈ 1,100' } } } },
   { look:{ ses:true, tree:true, ibd:true },
+    /* 8 의 되돌아보기에서 100만 행의 끝 상태로 돌아온다 */
+    ops:{ tree:{ del:['중간 노드 A','중간 노드 B'],
+                 add:[{ id:'중간 ×4', lvl:1, keys:'잎 ≈ 1,100 개씩', fill:.5 }],
+                 set:{ 'root':{ keys:'| 중간 노드 4 개 |', fill:.05 } } },
+          ibd:{ set:{ 't.ibd':{ sub:'잎 4,435 · 파일 88 MB' } } },
+          ses:{ set:{ '삽입':'1,000,000', '잎 페이지':'4,435|red', 'UUID 결과':'v4 5,515 · UUID() 3,923|gold' } } },
     note:'잎 1.42× · 높이는 같다 — 그리고 MySQL 의 UUID() 는 거의 순차다',
     why:'같은 크기의 키라면 순서만으로 잎이 1.42 배다. 16 바이트 BINARY 열에 무작위 키(앱의 UUIDv4)를 넣으면 잎 5,515, MySQL 의 UUID() 를 UUID_TO_BIN 으로 넣으면 3,923 — 순서를 바꿔 넣은 UUID_TO_BIN(UUID(), 1) 과 똑같았다. UUID() 는 v1 이라 맨 앞 4 바이트가 시각의 낮은 32 비트이고, 한 서버에서 몰아 넣으면 증가 순서로 나온다. 그 32 비트는 약 7 분마다 한 바퀴 돌아 처음으로 돌아간다.',
     key:'UUID 를 PK 로 쓰지 말라는 조언의 실체는 <em>무작위 순서</em>다. 순서를 지키는 키는 크기만큼만 대가를 낸다 — 16 바이트 키는 4 바이트 키보다 잎이 1.25 배였다.',
