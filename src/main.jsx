@@ -13,6 +13,10 @@ import './rail.css';    /* 레일·소스·재생   (에이전트 B) */
 import { parse } from './route.js';
 import { hasStory, isLab } from './story/has.js';
 
+/* 저장한 테마를 그리기 전에 건다 — Lab(App.jsx)만 이것을 읽어서, Story 에서 '어둡게' 를 누르고 새로 열면
+   시스템 설정으로 돌아갔다(Story 는 data-theme 이 없으면 prefers-color-scheme 을 따른다). 'auto' 는 저장하지 않는다 */
+try { const t = localStorage.getItem('theme'); if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t); } catch { /* 저장소를 못 쓰면 시스템 설정 */ }
+
 /* Story 는 그 장면에 세계가 있을 때만 받는다 — Lab 만 보는 사람은 내려받지 않는다 */
 const Story = lazy(() => import('./story/Story.jsx'));
 
