@@ -26,8 +26,29 @@ export default {
   make,
 };
 
+/* 짝 장면(05 · 05v)은 한 세계가 둘을 다 들고 setScene 으로 바꾼다 — Story 는 짝을 바꿔도 세계를 다시 만들지 않는다
+   (열쇠가 같은 innodb-lru). 하나만 들고 있었더니 V 로 05v 를 골라도 05 의 그림이 남았다. 둘은 더 높은 쪽의 높이로
+   가운데를 맞춘다 — 바꿀 때 세계가 뛰지 않게 */
 function make({ F, deck, labels, scene }) {
-  const N = F.N, sc = scene(), A = deck.ACTORS;
+  const sc = scene();
+  const mate = (deck.SCENES || []).find((x) => x !== sc && (x.num === sc.pair || x.pair === sc.num) && x.steps.length === sc.steps.length);
+  const W = new Map([[sc.num, one({ F, deck, labels, sc })]]);
+  if (mate) W.set(mate.num, one({ F, deck, labels, sc: mate }));
+  let cur = W.get(sc.num);
+  return {
+    build(L) { const ws = [...W.values()], T = Math.max(...ws.map((w) => w.build(L))); ws.forEach((w) => w.fin(T)); W.forEach((w) => w !== cur && w.hide()); },
+    theme() { W.forEach((w) => w.theme()); },
+    setScene(n2) { const w = W.get(n2); if (w && w !== cur) { cur.hide(); cur = w; cur.reset(); } },
+    setVary(v) { W.forEach((w) => w.setVary(v)); },
+    pose: (...a) => cur.pose(...a),
+    paint: (...a) => cur.paint(...a),
+    overlay: (...a) => cur.overlay(...a),
+    dispose() { W.forEach((w) => w.dispose()); },
+  };
+}
+
+function one({ F, deck, labels, sc }) {
+  const N = F.N, A = deck.ACTORS;
   const cast = sc.cast.filter((a) => A[a]);
   const VALS = valuesOf(sc).length ? valuesOf(sc) : [null];
   const base = sc.vary ? String(sc.vary.base) : null;
@@ -210,11 +231,16 @@ function make({ F, deck, labels, scene }) {
     if (total > wh) { k = 0.2; total = lay(L.y0, k); }
     if (total > wh + 1) console.error(`innodb ${sc.num} 세계 : 높이 ${Math.round(total)} 가 무대 ${Math.round(wh)} 를 넘는다 (${L.W}×${L.H})`);
     if (LRU && sepW + most(hd[LRU]).w + 20 > ww) console.error(`innodb ${sc.num} 세계 : LRU 제목 줄에 경계 이름이 들어가지 않는다 (${L.W}×${L.H})`);
-    const dy = L.narrow ? 0 : Math.max(0, (wh - total) / 2);
-    if (dy) lay(L.y0 + dy, k);
-    for (let i = 0; i < N; i++) { dust[i * 2] = L.x0 + rnd() * ww; dust[i * 2 + 1] = L.y0 + rnd() * wh; }
-    shown = -2;
+    /* 가운데 맞춤은 짝과 함께 — fin(T) 가 둘 중 높은 쪽의 높이로 놓는다 */
+    fin = (T) => {
+      const dy = L.narrow ? 0 : Math.max(0, (wh - T) / 2);
+      lay(L.y0 + dy, k);
+      for (let i = 0; i < N; i++) { dust[i * 2] = L.x0 + rnd() * ww; dust[i * 2 + 1] = L.y0 + rnd() * wh; }
+      shown = -2;
+    };
+    return total;
   }
+  let fin = () => {};
   /* 칸 자리 — LRU 의 sep 은 SEPW 폭의 경계 */
   const rowSlot = (s, a, id) => { let x = G.slot[a].x0; for (const it of s[a]) { if (it.tag === 'sep') { if (it.id === id) return { x: x + SEPW / 2, y: G.slot[a].y + 13, w: SEPW, sep: true }; x += SEPW + 6; continue; } const w = G.slot[a].sw[it.id]; if (it.id === id) return { x: x + w / 2, y: G.slot[a].y + 13, w }; x += w + 6; } return null; };
   const sepSlot = (s) => { const sp = sepOf(s); return sp ? rowSlot(s, LRU, sp.id) : null; };
@@ -373,7 +399,10 @@ function make({ F, deck, labels, scene }) {
   }
 
   return {
-    build(L) { this.theme(); build(L); },
+    build(L) { this.theme(); return build(L); },
+    fin: (T) => fin(T),
+    hide() { for (const lb of made) { lb.el.style.opacity = '0'; lb.o = 0; } tokO = 0; },
+    reset() { shown = -2; },
     theme() { const cs = getComputedStyle(document.documentElement), v = (n) => cs.getPropertyValue(n).trim(); css = { faint: v('--faint'), gold: v('--gold'), ink: v('--ink'), red: v('--red'), accent: v('--accent'), green: v('--green') }; },
     setVary(v) { const b = BAKES.get(keyOf(v)); if (b && b !== cur) { cur = b; shown = -2; } },
     pose, paint, overlay,
