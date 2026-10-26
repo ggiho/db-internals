@@ -223,10 +223,16 @@ function make({ F, deck, labels, scene }) {
     /* 글 블록은 세 단까지 — 한 단이 150px 보다 좁아지면 한 단 줄인다(좁은 단은 줄바꿈이 늘어 오히려 높아진다) */
     let tn = Math.max(1, Math.min(3, TEXTS.length));
     while (tn > 1 && (ww - (tn - 1) * gap) / tn < 150) tn--;
-    const tW = (ww - (tn - 1) * gap) / tn;
-    for (const a of TEXTS) wrap(tx[a], tW);
-    /* 글 블록은 줄마다 그 줄에서 가장 긴 것만큼 */
-    const tRows = Math.ceil(TEXTS.length / tn), tHs = Array.from({ length: tRows }, (_, r) => hMax(TEXTS.slice(r * tn, r * tn + tn).map((a) => tx[a])));
+    const tW = (ww - (tn - 1) * gap) / tn, tRows = Math.ceil(TEXTS.length / tn);
+    /* 글 블록은 줄마다 그 줄에서 가장 긴 것만큼. spread 면 모자란 끝 줄의 글이 그 줄의 폭을 나눠 쓴다
+       (04 : 1024×768 에서 vs INNODB 혼자 한 단 폭에 다섯 줄 — 무대가 낮을 때만) */
+    let tWs, tHs;
+    const cols = (spread) => {
+      tWs = Array.from({ length: tRows }, (_, r) => { const m = Math.min(tn, TEXTS.length - r * tn); return spread ? (ww - (m - 1) * gap) / m : tW; });
+      TEXTS.forEach((a, i) => wrap(tx[a], tWs[Math.floor(i / tn)]));
+      tHs = Array.from({ length: tRows }, (_, r) => hMax(TEXTS.slice(r * tn, r * tn + tn).map((a) => tx[a])));
+    };
+    cols(false);
     /* 글자 폭을 스텝마다 재는 도구 — 이름표 줄 나누기에 쓴다 */
     const wc = new Map();
     const wOf = (lb, html) => {
@@ -288,7 +294,7 @@ function make({ F, deck, labels, scene }) {
     const lay = (y0, k = 1) => {
       let y = y0;
       const rowY = [y]; for (let r = 0; r < tRows; r++) rowY.push(rowY[r] + HD + tHs[r] + 12 * k);
-      TEXTS.forEach((a, i) => { const x = L.x0 + (i % tn) * (tW + gap), yy = rowY[Math.floor(i / tn)]; place(hd[a], x, yy); place(tx[a], x, yy + HD); G.anc[a] = { x: x + tW - 18, y: yy + 8 }; });
+      TEXTS.forEach((a, i) => { const w = tWs[Math.floor(i / tn)], x = L.x0 + (i % tn) * (w + gap), yy = rowY[Math.floor(i / tn)]; place(hd[a], x, yy); place(tx[a], x, yy + HD); G.anc[a] = { x: x + w - 18, y: yy + 8 }; });
       y = rowY[tRows];
       for (const a of STRIPS) {
         place(hd[a], L.x0, y); y += HD + 6 + SW[a].nr * RH;
@@ -315,6 +321,7 @@ function make({ F, deck, labels, scene }) {
     };
     let k = 1, total = lay(L.y0, 1);
     if (total > wh) { k = 0.2; total = lay(L.y0, k); }
+    if (total > wh && TEXTS.length % tn) { cols(true); total = lay(L.y0, k); }
     if (total > wh + 1) console.error(`pg wal ${sc.num} 세계 : 높이 ${Math.round(total)} 가 무대 ${Math.round(wh)} 를 넘는다 (${L.W}×${L.H})`);
     const dy = L.narrow ? 0 : Math.max(0, (wh - total) / 2);
     if (dy) lay(L.y0 + dy, k);
