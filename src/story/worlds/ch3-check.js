@@ -7,7 +7,7 @@
      · 슬롯 주인의 n_owned 합 = record 수 + 2(06 · 08a), next 사슬이 record 를 키 순서로 한 번씩 돈다(08a)
      · PAGE_FREE 가 0 이면 목록이 비고, 아니면 목록의 머리다(09 · 09a). GARBAGE · HEAP_TOP 이 움직인 만큼이 record 크기다
      · 04c 의 header · descriptor · inode 값이 dump 를 푼 값과 같다 */
-import { bake, valuesOf } from '../../bake.js';
+import { bake, valuesOf, stepsOf } from '../../bake.js';
 
 export const PAGE = 16384;
 /* 장면의 사실(fact)이 대는 상수 — FIL_PAGE_DATA 38 · FIL_PAGE_DATA_END 8 · PAGE_DATA = 38 + 36 + 2 × 10 */
@@ -124,7 +124,7 @@ export function statesOf(sc) {
   const base = sc.vary ? String(sc.vary.base) : null;
   return vals.map((v) => {
     const key = v == null || String(v) === base ? null : String(v);
-    return { key, list: [sc.init, ...bake(sc, key).map((f) => f.st)] };
+    return { key, list: [sc.init, ...bake(sc, key).map((f) => f.st)], steps: [null, ...stepsOf(sc, key)] };
   });
 }
 
@@ -138,12 +138,20 @@ export function checkScene(deck, sc) {
   const OWN06 = owns06(allStates);
   /* 08a 의 next — 마지막으로 적힌 것을 들고 간다(6 스텝은 Leslie 의 sub 를 lock 이야기로 바꾼다) */
   const NEXT = new Map();
-  for (const { key, list } of runs) list.forEach((st, k) => {
+  for (const { key, list, steps } of runs) list.forEach((st, k) => {
     const say = (m) => out.push(`ch3 ${sc.num} 세계${key ? ' (' + sc.vary.knob + '=' + key + ')' : ''} : ${k ? k + ' 스텝' : 'init'} — ${m}`);
     const items = (a) => (st[a] && st[a].items) || [];
     const kv = (a) => (st[a] && st[a].kv) || {};
     const has = (a) => sc.cast.includes(a);
 
+    /* 바이트 줄(fil · phd) — look 이 칸을 이름으로 고르면 금빛 칸은 그 안에만. 칸 줄과 hexdump 는 금빛 칸을 짚으므로,
+       앞 스텝의 금빛을 끄지 않으면 이 스텝이 고른 칸과 다른 칸이 함께 짚인다(04b · 04bv 2 스텝) */
+    const lk = steps[k] && steps[k].look;
+    for (const a of ['fil', 'phd']) {
+      if (!has(a) || !lk || !Array.isArray(lk[a])) continue;
+      const stale = items(a).filter((it) => it.tag === 'gold' && !lk[a].includes(it.id)).map((it) => it.id);
+      if (stale.length) say(`look 은 ${a} 의 ${lk[a].join(' · ')} 를 짚는데 ${stale.join(' · ')} 가 금빛이다`);
+    }
     /* FIL header — 칸의 오프셋(sub 의 맨 앞 수) + 폭(sz)이 0 부터 38 까지 빈틈없이 */
     if (has('fil')) {
       let at = 0;
@@ -384,9 +392,16 @@ export function checkScene(deck, sc) {
       if (fl != null && fl !== SD.files.small.p0.f.FSP_SPACE_FLAGS) say(`FSP FLAG 0x${fl.toString(16)} 가 t.ibd page 0 의 0x${SD.files.small.p0.f.FSP_SPACE_FLAGS.toString(16)} 와 다르다`);
       if (fl != null) for (const [n, a] of FSP_FLAGS) if (bare(h['FSP FLAG']).includes(n) && !(Math.floor(fl / 2 ** a) % 2)) say(`FSP FLAG 에 ${n} 이 적혔는데 bit ${a} 가 꺼져 있다`);
     }
-    /* 04c — header 의 칸을 dump 에서 다시 풀어 kv 와 맞춘다. 파일은 그 스텝의 fsA.file */
+    /* 04c — header 의 칸을 dump 에서 다시 풀어 kv 와 맞춘다. 파일은 그 스텝의 fsA.file — 그리고 그 파일이 이 스텝의
+       실측 조건(src 의 파일)과 같아야 한다. fsA 를 fsA 자신의 file 하고만 맞췄더니 src 가 big.ibd 로 바뀐 스텝에
+       t.ibd 의 header 가 남은 것(4 · 9 스텝)을 못 잡았다 */
     if (has('fsA')) {
       const fa = kv('fsA'), fl = kv('fsL'), f = fileOf(SD, fa.file);
+      const sf = bare(kv('src')['파일'] || '').split('·')[0].trim();
+      if (sf && sf !== '—') for (const [n, v] of [['fsA', fa], ['fsL', fl]]) {
+        const ff = bare(v.file || '').trim();
+        if (ff && ff !== '—' && ff !== sf) say(`${n}.file ${ff} 가 실측 조건의 파일 ${sf} 와 다르다`);
+      }
       if (f) {
         const h = f.p0.hex, O = (n) => FIL_DATA + FSP_FIELDS.find((x) => x[0] === n)[1];
         const dec = { SPACE_ID: hexU(h, O('SPACE_ID'), 4), SIZE: hexU(h, O('SIZE'), 4), FREE_LIMIT: hexU(h, O('FREE_LIMIT'), 4), SPACE_FLAGS: hexU(h, O('SPACE_FLAGS'), 4), FRAG_N_USED: hexU(h, O('FRAG_N_USED'), 4), SEG_ID: hexU(h, O('SEG_ID'), 8) };

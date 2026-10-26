@@ -3,10 +3,13 @@
 
    그리는 것은 모두 데이터에서 온다 —
      · 값 0xAABBCCDD 와 칸의 순서는 두 장면의 init(val.items) 그대로
+     · 스텝마다 byte 의 색과 칸 밑 꼬리표는 그 스텝의 val 항목(tag · sub 의 'a+N' 뒤), 값 줄 위의 한 줄은 그 스텝에 바뀐 op 값,
+       5 스텝의 결과 줄은 rec 의 sub 와 op '값' 의 '←' 뒤 — 데이터의 op 가 무대에 닿지 않아 둘이 어긋났다(01v 2 의 AA red)
      · 코드 판의 줄은 덱의 발췌(CODE) 그대로 — 번호도 발췌의 번호다(mach_write_to_4 129–132 · mach_read_from_4 141–143)
      · double 1.0 의 8 byte 와 0.1f 의 32 bit 는 이 파일이 계산한다(DataView · Math.fround) — 손으로 적지 않는다 */
 import { INK, GOLD, ACCENT, GREEN, RED, FAINT, U } from '../field.js';
 import { highlight } from '../../hl.js';
+import { bake } from '../../bake.js';
 
 const MONO = '"IBM Plex Mono", ui-monospace, monospace';
 const WRITE = 'storage/innobase/include/mach0data.ic#mach_write_to_4';
@@ -52,6 +55,32 @@ function make({ F, deck, labels, scene }) {
   /* byte b(큰 자리부터 0) 가 놓이는 칸 — 장면이 바뀌면 바뀐다 */
   const cellOf = (b) => ORDER[num].indexOf(BYTES[b]);
   const little = () => num === '01v';
+  /* 스텝 k 의 상태(bake) — byte 의 tag · sub, op 의 바뀐 값, rec */
+  const ST = Object.fromEntries([sA, sB].map((sc) => [sc.num, bake(sc, null)]));
+  const stOf = (k) => { const fr = ST[num][Math.max(0, Math.min(k, ST[num].length - 1))]; return fr ? fr.st : null; };
+  const chgOf = (k) => { const fr = ST[num][k]; return fr ? fr.chg : {}; };
+  const itemOf = (k, b) => ((stOf(k) || {}).val || { items: [] }).items.find((it) => it.id === BYTES[b]) || {};
+  const TAGC = { gold: GOLD, red: RED };
+  const colB = (k, b) => TAGC[itemOf(k, b).tag] || INK;
+  const heatB = (k, b) => (TAGC[itemOf(k, b).tag] ? 0.7 : 0);
+  /* sub 'a+0  MSB  ← n >> 24' 의 주소 뒤 — 칸 밑 꼬리표 */
+  const restOf = (k, b) => String(itemOf(k, b).sub || '').replace(/^a\+\d+\s*/, '').trim();
+  const bareV = (v) => String(v || '').replace(/\|(gold|red|green)$/, '');
+  const toneV = (v) => (/\|(gold|red|green)$/.exec(String(v || '')) || [])[1] || '';
+  /* 그 스텝에 바뀐 op 값 하나 — '가장 큰 자리  낮은 주소 · 플랫폼 무관' */
+  const opLine = (k) => {
+    const st = stOf(k), keys = ((chgOf(k).op || {}).keys || []).filter((q) => q !== '값');
+    if (!st || !keys.length) return null;
+    const v = st.op.kv[keys[0]];
+    return { t: `${keys[0]} : ${bareV(v)}`, tone: toneV(v) };
+  };
+  /* 5 스텝 — rec 의 sub 와 op '값' 의 '←' 뒤 */
+  const resLine = (k) => {
+    const st = stOf(k), r = st && st.rec && st.rec.items.find((it) => it.id !== '—'), v = st && st.op.kv['값'];
+    if (!r) return null;
+    const why = /←\s*(.+)$/.exec(bareV(v));
+    return { t: r.sub + (why ? '  —  ' + why[1] : ''), tone: toneV(v) };
+  };
   /* 짝을 바꾸면 byte 가 0.9 초 동안 호를 그리며 새 칸으로 간다 — 오른쪽으로 가는 것은 위로, 왼쪽은 아래로 넘어
      서로 부딪치지 않는다. 같은 줄의 칸(cells)이면 어느 단계에서든 같은 궤적을 쓴다 */
   let prev = null, swapT0 = -1;
@@ -100,6 +129,11 @@ function make({ F, deck, labels, scene }) {
     made.push(lb);
     return lb;
   }
+  function setLb(lb, text, cls) {
+    if (lb.el.textContent === text && lb.cls === cls) return;
+    lb.el.textContent = text; lb.cls = cls;
+    lb.el.className = 'wl ' + cls + (HANGUL.test(text) ? ' serif' : '');
+  }
   function place(lb, x, y, al = 'c') {
     lb.x = x; lb.y = y;
     const tx = al === 'c' ? '-50%' : al === 'l' ? '0%' : '-100%';
@@ -118,14 +152,18 @@ function make({ F, deck, labels, scene }) {
   const cr = codePanel(READ, 139, 144);
 
   const addr = [0, 1, 2, 3].map((i) => label('a+' + i));
-  const tagMSB = label('MSB', 'gold'), tagLSB = label('LSB');
+  /* byte 마다 칸 밑 꼬리표(MSB · LSB · '← n >> 24') — byte 를 따라 칸을 옮긴다 */
+  const tagB = BYTES.map(() => label('', ''));
   const axis = label('주소가 커진다', 'axis');
   const intLb = label('INT  0xAABBCCDD  ·  mach_write_to_4', 'ink');
   const dblLb = label('DOUBLE  1.0  ·  mach_double_write', 'ink');
   const dblAddr = [...Array(8).keys()].map((i) => label('+' + i));
   const bigInt = label('큰 자리', 'gold'), bigDbl = label('큰 자리', 'gold');
   const widLb = [1, 2, 3, 4, 5, 6, 7, 8].map((w) => label('mach_write_to_' + w, w === 5 ? '' : 'ink'));
-  const none5 = label('없다 — 5 byte 필드가 없다');
+  const NONE5 = '없다 — 5 byte 정수 필드가 없다';
+  const none5 = label(NONE5);
+  /* 01v 4 — 폭마다 함수가 아니라 swap 하나가 1 – 8 바이트를 switch 로 뒤집는다(mach_swap_byte_order) */
+  const swapLb = label('mach_swap_byte_order  ·  switch (len & 0x7)', 'ink');
   const lenLb = { 6: label('DATA_TRX_ID_LEN', 'gold'), 7: label('DATA_ROLL_PTR_LEN', 'gold') };
   const misLb = label('그대로 파일에 쓰고 big-endian 기계가 읽으면', 'red');
   const okLb = label('x86 이 다시 읽으면', 'green');
@@ -134,7 +172,12 @@ function make({ F, deck, labels, scene }) {
   const bitLb = [label('sign 1', 'ink'), label('exponent 8', 'gold'), label('mantissa 23', 'ink')];
   const bitHex = label('0.1f  =  0x' + parseInt(BITS, 2).toString(16).toUpperCase(), 'ink big');
   const bitVal = label('실제로 저장되는 값  ' + F32.toPrecision(17) + ' …');
-  const bitRep = label('가수는 끝없이 반복되는 1100 을 23 bit 에서 끊어 반올림한다');
+  /* 칸에 보이는 가수는 1001 1001 … 101 — 반복 무늬도 보이는 그대로 부른다 */
+  const bitRep = label('가수는 1001 이 끝없이 반복되다 23 bit 에서 끊겨 반올림된다');
+  /* 01v 6 — 같은 32 bit 를 두 기계가 메모리에 두는 순서 */
+  const F4 = parseInt(BITS, 2).toString(16).toUpperCase().padStart(8, '0').match(/../g);
+  const bitOrd = label(`x86 메모리  ${[...F4].reverse().join(' ')}   ·   big-endian 메모리  ${F4.join(' ')}`, 'ink');
+  const opLb = label('', '');
 
   /* ── 자리 ── */
   let G = null;
@@ -158,7 +201,7 @@ function make({ F, deck, labels, scene }) {
     const tw = (t, f) => { probe.font = f; return probe.measureText(t).width; };
     const MF = `400 12px ${MONO}`, SF = '400 13px Hahmlet, serif';
     const leftW = tw('mach_write_to_8', MF), wx = L.x0 + leftW + 16;
-    const rightOf = { 5: tw('없다 — 5 byte 필드가 없다', SF), 6: tw('DATA_TRX_ID_LEN', MF), 7: tw('DATA_ROLL_PTR_LEN', MF) };
+    const rightOf = { 5: tw(NONE5, SF), 6: tw('DATA_TRX_ID_LEN', MF), 7: tw('DATA_ROLL_PTR_LEN', MF) };
     const fitC = Math.min(...Object.entries(rightOf).map(([w, lw]) => (L.x1 - 6 - 16 - lw - wx) / (+w * 1.22)));
     const cs3 = Math.max(8, Math.min(ww * 0.058, wh * 0.065, 32, fitC)), gap3 = cs3 * 0.22, rh = Math.min(Math.max(cs3 * 1.55, 18), wh / 9);
     const wy0 = L.y0 + wh * 0.5 - 3.5 * rh;
@@ -177,7 +220,7 @@ function make({ F, deck, labels, scene }) {
     }
 
     addr.forEach((lb, i) => place(lb, cells[i].x + cs / 2, cy + cs / 2 + 20));
-    place(tagMSB, 0, cy + cs / 2 + 40); place(tagLSB, 0, cy + cs / 2 + 40);
+    tagB.forEach((lb) => place(lb, 0, cy + cs / 2 + 40));
     place(axis, cells[3].x + cs, cy + cs / 2 + 78, 'r');
     /* 코드 판 — 줄이 긴 발췌(mach_read_from_4 의 143 줄)는 좁은 세계에서 넘쳤다. 실제 폭을 재서 남는 폭에 맞춰 글자를 줄인다 */
     [cw, cr].forEach((c) => {
@@ -197,18 +240,21 @@ function make({ F, deck, labels, scene }) {
     place(bigDbl, dblR[7].x + cs2 / 2, dblR[7].y + cs2 + 36);
     widLb.forEach((lb, r) => place(lb, wx - 16, wy0 + r * rh, 'r'));
     place(none5, widR[4][4].x + cs3 + 16, wy0 + 4 * rh, 'l');
+    place(swapLb, L.x0, wy0 - rh, 'l');
     place(lenLb[6], widR[5][5].x + cs3 + 16, wy0 + 5 * rh, 'l');
     place(lenLb[7], widR[6][6].x + cs3 + 16, wy0 + 6 * rh, 'l');
     place(misLb, cx, vRes.y - 50);
     place(okLb, cx, intR[0].y + cs2 + 48);
     place(misLb2, cx, dblR[0].y + 2);
     place(resLb, cx, (vTop.y + cells[0].y) / 2 + 14);
+    place(opLb, cx, (vTop.y + cells[0].y) / 2 + 14);
     place(bitLb[0], bits[0].x + bits[0].w / 2, L.narrow ? bits[0].y + bits[0].h + 14 : bits[0].y - 18, L.narrow ? 'l' : 'c');
     place(bitLb[1], (bits[1].x + bits[8].x + bits[8].w) / 2, bits[0].y - 18);
     place(bitLb[2], (bits[9].x + bits[31].x + bits[31].w) / 2, bits[0].y - 18);
     place(bitHex, cx, bits[0].y + bits[0].h + 38);
     place(bitVal, cx, bits[0].y + bits[0].h + 70);
     place(bitRep, cx, bits[0].y + bits[0].h + 96);
+    place(bitOrd, cx, bits[0].y + bits[0].h + 122);
   }
 
   /* ── 자세 ── */
@@ -321,7 +367,7 @@ function make({ F, deck, labels, scene }) {
       cellsBox(o, cells, 0.75, U.smooth(U.range(p, 0.24, 0.42)));
       for (let b = 0; b < 4; b++) {
         const k2 = U.smooth(U.range(p, 0.38 + b * 0.05, 0.5 + b * 0.05));
-        glyphIn(o, b, cellAt(b, cells), 0.9, b === 0 ? 0.9 * k2 : 0, b === 0 ? GOLD : INK, v, k2);
+        glyphIn(o, b, cellAt(b, cells), 0.9, heatB(k, b) * 1.3 * k2, colB(k, b), v, k2);
       }
       park(o, 'STR', vTop.x, vTop.y); park(o, 'DBL'); park(o, 'SML');
       return;
@@ -329,7 +375,7 @@ function make({ F, deck, labels, scene }) {
     if (k === 1 || k === 4) {
       const read = k === 4;
       cellsBox(o, cells, 0.75, 1);
-      for (let b = 0; b < 4; b++) glyphIn(o, b, cellAt(b, cells), 1, b === 0 ? 0.7 : 0, b === 0 ? GOLD : INK);
+      for (let b = 0; b < 4; b++) glyphIn(o, b, cellAt(b, cells), 1, heatB(k, b), colB(k, b));
       park(o, 'SML');
       if (little() && !read) {
         /* 01v 2 : 메모리 순서 그대로 파일에 쓰면 — 다른 기계가 반대로 읽는다 */
@@ -367,7 +413,7 @@ function make({ F, deck, labels, scene }) {
     }
     if (k === 2) {
       cellsBox(o, intR, 0.75, 1);
-      for (let b = 0; b < 4; b++) glyphIn(o, b, cellAt(b, intR), 1, b === 0 ? 0.6 : 0, b === 0 ? GOLD : INK);
+      for (let b = 0; b < 4; b++) glyphIn(o, b, cellAt(b, intR), 1, heatB(k, b) * 0.85, colB(k, b));
       park(o, 'STR'); park(o, 'SML');
       if (little()) {
         /* 01v 3 : 같은 byte 를 두 기계가 다르게 읽는다 */
@@ -381,16 +427,16 @@ function make({ F, deck, labels, scene }) {
       return;
     }
     if (k === 3) {
-      /* 4 : 폭마다 함수 — int 는 4 칸 줄로, double 은 8 칸 줄로 들어간다. 5 칸 줄은 비어 있다 */
-      const row4 = widR[3], row8 = widR[7];
+      /* 4 : 폭마다 함수 — int 는 4 칸 줄로. 5 칸 줄은 비어 있다. 8 칸 줄은 빈 칸 — double 은 이 함수들이 아니라
+         mach_double_write 가 little-endian 으로 쓴다(3 스텝). 01v 는 같은 사다리가 swap 하나의 len 이다 */
+      const row4 = widR[3];
       cellsBox(o, row4, 0.8, 1);
-      for (let b = 0; b < 4; b++) glyphIn(o, b, cellAt(b, row4), 0.95, 0, b === 0 ? GOLD : INK);
-      dblGlyphs(o, row8, 0.9, 1, -1);
-      const others = [];
-      [0, 1, 2, 4, 5, 6].forEach((r) => widR[r].forEach((c) => others.push({ ...c, dash: r === 4, color: r === 5 || r === 6 ? GOLD : INK })));
+      for (let b = 0; b < 4; b++) glyphIn(o, b, cellAt(b, row4), 0.95, 0, colB(k, b));
+      const others = [], L2 = little();
+      [0, 1, 2, 4, 5, 6, 7].forEach((r) => widR[r].forEach((c) => others.push({ ...c, dash: !L2 && r === 4, color: !L2 && (r === 5 || r === 6) ? GOLD : INK })));
       smallCells(o, others, 0.85);
       valAt(o, { x: vTop.x, y: vTop.y - 30, sc: vTop.sc * 0.5 }, () => 0, big, () => 0);
-      park(o, 'STR');
+      park(o, 'STR'); park(o, 'DBL');
       return;
     }
     if (k === 5) {
@@ -424,14 +470,16 @@ function make({ F, deck, labels, scene }) {
     const lit = k === 0 ? U.smooth(U.range(p, 0.42, 0.55)) : main ? 1 : 0;
     addr.forEach((lb) => v.set(lb, lit));
     const tags = k === 0 ? U.smooth(U.range(p, 0.58, 0.66)) : main ? 1 : 0;
-    v.set(tagMSB, tags); v.set(tagLSB, tags); v.set(axis, tags * 0.9);
+    tagB.forEach((lb, b) => v.set(lb, restOf(k, b) ? tags : 0)); v.set(axis, tags * 0.9);
     v.set(intLb, io(k === 2 && !L));
     v.set(dblLb, io(k === 2 && !L, 0.1, 0.3));
     dblAddr.forEach((lb) => v.set(lb, io(k === 2 && !L, 0.3, 0.45)));
     v.set(bigInt, io(k === 2 && !L, 0.38, 0.5)); v.set(bigDbl, v.get(bigInt));
     widLb.forEach((lb) => v.set(lb, io(k === 3)));
-    v.set(none5, io(k === 3, 0.2, 0.35));
-    v.set(lenLb[6], io(k === 3, 0.3, 0.45)); v.set(lenLb[7], v.get(lenLb[6]));
+    v.set(none5, io(k === 3 && !L, 0.2, 0.35));
+    v.set(lenLb[6], io(k === 3 && !L, 0.3, 0.45)); v.set(lenLb[7], v.get(lenLb[6]));
+    v.set(swapLb, io(k === 3 && L, 0.2, 0.35));
+    v.set(opLb, io(k === 1 && !!opLine(k), 0.44, 0.52));
     v.set(misLb, io(L && k === 1, 0.2, 0.4));
     v.set(okLb, io(L && k === 2, 0.1, 0.3));
     v.set(misLb2, io(L && k === 2, 0.3, 0.5));
@@ -440,6 +488,7 @@ function make({ F, deck, labels, scene }) {
     v.set(bitHex, io(k === 5, 0.32, 0.42));
     v.set(bitVal, io(k === 5, 0.38, 0.48));
     v.set(bitRep, io(k === 5, 0.44, 0.54));
+    v.set(bitOrd, io(k === 5 && L, 0.46, 0.54));
     return v;
   }
   const codeVis = (kk, pp, which) => {
@@ -453,11 +502,18 @@ function make({ F, deck, labels, scene }) {
       const o = Math.min(1, B ? U.lerp(A.get(lb) || 0, B.get(lb) || 0, b) : A.get(lb) || 0);
       if (Math.abs(o - lb.o) > 0.004) { lb.el.style.opacity = o.toFixed(3); lb.o = o; }
     }
-    /* MSB · LSB 의 자리는 장면(순서)을 따른다 */
-    const msb = cellAt(0, G.cells), lsb = cellAt(3, G.cells);
-    place(tagMSB, msb.x + G.cs / 2, tagMSB.y); place(tagLSB, lsb.x + G.cs / 2, tagLSB.y);
-    const rt = little() ? '뒤집어 읽어 복원 — 읽는 쪽에 분기가 생긴다' : '쓴 순서 그대로 읽어 복원 — 왕복';
-    if (resLb.el.textContent !== rt) { resLb.el.textContent = rt; resLb.el.className = 'wl serif ' + (little() ? 'gold' : 'green'); }
+    /* 칸 밑 꼬리표 — byte 를 따라 칸을 옮기고, 글은 그 스텝의 sub(다음 스텝으로 넘어가는 중이면 절반부터 다음 것) */
+    const kt = b > 0.5 ? k + 1 : k;
+    tagB.forEach((lb, bb) => {
+      const c = cellAt(bb, G.cells), t = restOf(kt, bb) || restOf(k, bb), cl = { gold: 'gold', red: 'red' }[itemOf(kt, bb).tag] || '';
+      setLb(lb, t, cl);
+      place(lb, c.x + G.cs / 2, lb.y);
+    });
+    const ol = opLine(k) || opLine(kt);
+    if (ol) setLb(opLb, ol.t, { green: 'green', red: 'red', gold: 'gold' }[ol.tone] || '');
+    const rl = resLine(4);
+    if (rl) setLb(resLb, rl.t, { green: 'green', red: 'red', gold: 'gold' }[rl.tone] || '');
+    widLb.forEach((lb, r) => setLb(lb, little() ? 'len = ' + (r + 1) : 'mach_write_to_' + (r + 1), little() || r !== 4 ? 'ink' : ''));
     for (const [c, w] of [[cw, 'w'], [cr, 'r']]) {
       const o = Math.max(codeVis(k, p, w), b > 0 ? codeVis(k + 1, 0, w) : 0);
       if (Math.abs(o - c.o) > 0.004) { c.el.style.opacity = o.toFixed(3); c.o = o; }

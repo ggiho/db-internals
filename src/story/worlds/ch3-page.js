@@ -25,6 +25,9 @@ const span = { gold: 'q-g', red: 'q-r', green: 'q-gr' };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const val = (v) => (tone(v) ? `<span class="${span[tone(v)]}">${esc(bare(v))}</span>` : esc(bare(v)));
 const fmt = (n) => Number(n).toLocaleString('en-US');
+/* 그리는 동안의 검사는 매 프레임 돈다 — 같은 문장은 한 번만 낸다 */
+const said = new Set();
+const once = (m) => { if (!said.has(m)) { said.add(m); console.error(m); } };
 const TAGC = { clean: INK, '': INK, hdr: ACCENT, gold: GOLD, red: RED, free: FAINT, x: RED, ok: GREEN, hold: GOLD, pin: GOLD, wait: ACCENT, dirty: GOLD };
 const TAGL = { gold: 'gold', red: 'red', x: 'red', ok: 'green', hold: 'gold', pin: 'gold' };
 /* 짝 — B 쪽이 A 의 세계를 쓴다(index.js 와 같은 짝) */
@@ -57,7 +60,16 @@ function modelOf(deck, sc) {
     const s = { i, step: step || {}, touch: touch || new Set(), chg: chg || {}, look: (step && step.look) || {}, byl: {} };
     for (const a of cast) {
       if (A[a].kind === 'kv') s[a] = { ...((st[a] && st[a].kv) || {}) };
-      else s[a] = ((st[a] && st[a].items) || []).map((it) => ({ ...it, id: String(it.id), tag: it.tag || 'clean', sub: it.sub || '' }));
+      else {
+        /* k = 칸의 열쇠 — 같은 id 가 한 상태에 둘 이상이면(03 의 0x01 · 0x00 · 0x01) 두 번째부터 '#n' 을 붙인다.
+           id 로만 열쇠를 삼았더니 두 0x01 이 한 칸으로 합쳐져 세 바이트가 두 칸으로 그려졌다 */
+        const seen = new Map();
+        s[a] = ((st[a] && st[a].items) || []).map((it) => {
+          const id = String(it.id), n = seen.get(id) || 0;
+          seen.set(id, n + 1);
+          return { ...it, id, k: n ? id + '#' + n : id, tag: it.tag || 'clean', sub: it.sub || '' };
+        });
+      }
       s.byl[a] = (st[a] && st[a].byl) || null;
     }
     return s;
@@ -71,6 +83,8 @@ function modelOf(deck, sc) {
   return { deck, sc, A, cast, B, keyOf, all, MEAS: deck.MEASURED };
 }
 const ids = (M, a) => [...new Set(M.all.flatMap((s) => (s[a] || []).map((x) => x.id)))];
+/* 칸 열쇠(k) — 바이트 줄은 id 가 아니라 이것으로 알갱이 · 이름표를 나눈다 */
+const keysOf = (M, a) => [...new Set(M.all.flatMap((s) => (s[a] || []).map((x) => x.k)))];
 
 /* ── 장면 → 그림판(panel). 배우의 모양과 이름으로 고른다 ── */
 function specsOf(M) {
@@ -132,13 +146,16 @@ const unitsOf = (a, it) => {
   /* 'N B' 가 sz 와 다르면(여분 5B · sz 2) 그 줄은 비례가 아니다 — 글이 말한 바이트를 쓴다 */
   return b != null && b > 0 && b < 200 && !/[~]/.test(it.sub) ? b : it.sz || 1;
 };
+const bkey = (r, a, it) => 'b:' + r + ':' + a + ':' + it.k;
 function bytesSpec(M, o) {
   const need = new Map();
-  for (const row of o.rows) for (const a of row) for (const s of M.all) for (const it of s[a] || []) {
-    const u = unitsOf(a, it), k = 'b:' + a + ':' + it.id;
+  /* 줄마다 따로 — 한 배우가 두 줄에 나오면(02a 의 rdat) 줄마다 제 알갱이를 갖는다. 줄 번호 없이 열쇠를 삼았더니
+     COMPACT 줄이 REDUNDANT 줄의 데이터 알갱이를 가져가 REDUNDANT 칸이 비었다 */
+  o.rows.forEach((row, r) => { for (const a of row) for (const s of M.all) for (const it of s[a] || []) {
+    const u = unitsOf(a, it), k = bkey(r, a, it);
     need.set(k, Math.max(need.get(k) || 0, C.isMark(it) ? 40 : Math.min(520, 80 + 14 * Math.min(32, u))));
-    if (o.glyph) tokensOf(it).forEach((_, j) => need.set('g:' + a + ':' + it.id + ':' + j, GLN));
-  }
+    if (o.glyph) tokensOf(it).forEach((_, j) => need.set(k.replace(/^b:/, 'g:') + ':' + j, GLN));
+  } });
   return { kind: 'bytes', ...o, need: [...need] };
 }
 /* 칸 안에 글자로 그릴 바이트 — 16진 id(0x0006 → 00 06), 글자 id('L e s l i e'), 16진 sub('00 02') */
@@ -677,7 +694,7 @@ PANEL.bytes = (W, M, sp) => {
   for (const row of rows) {
     for (const a of row.acts) {
       if (!L.hd.has(key(row.r, a, ''))) L.hd.set(key(row.r, a, ''), W.label('aq'));
-      for (const id of ids(M, a)) { L.nm.set(key(row.r, a, id), W.label('aq')); L.sb.set(key(row.r, a, id), W.label('aq')); }
+      for (const id of keysOf(M, a)) { L.nm.set(key(row.r, a, id), W.label('aq')); L.sb.set(key(row.r, a, id), W.label('aq')); }
     }
     L.rl[row.r] = Array.from({ length: 16 }, () => W.label('aq'));
   }
@@ -703,17 +720,17 @@ PANEL.bytes = (W, M, sp) => {
     lbs, acts: [...new Set(rows.flatMap((r) => r.acts)), ...SUBS], snap: () => geo, use: (g) => { geo = g; reg(); },
     texts(s, T) {
       for (const row of rows) {
-        const { g } = geomOf(s, row), here = new Set(g.map((c) => c.a + '|' + c.it.id));
+        const { g } = geomOf(s, row), here = new Set(g.map((c) => c.a + '|' + c.it.k));
         for (const a of row.acts) {
           const on = touchOf(s, a);
           /* 배우 이름 — 02a 의 원점 뒤(rdat)는 첫 줄에만 */
           T.set(L.hd.get(key(row.r, a, '')), [row.r > 0 && a === row.post ? '' : M.A[a].nm, on, '', !(row.r > 0 && a === row.post)]);
-          for (const id of ids(M, a)) {
-            const it = (s[a] || []).find((x) => x.id === id), vis = !!it && here.has(a + '|' + id);
+          for (const id of keysOf(M, a)) {
+            const it = (s[a] || []).find((x) => x.k === id), vis = !!it && here.has(a + '|' + id);
             const hot = vis && isHot(s, a, it), cls = it ? TAGL[it.tag] || (hot && it.tag !== 'free' ? 'gold' : '') : '';
             /* 칸 안에 id 를 글자로 그리면(0x0006 · L e s l i e) 위 이름표는 겹말이다 — 크게 그릴 때만 숨긴다 */
             const glyphName = sp.glyph && it && tokSrc(it) === 'id';
-            T.set(L.nm.get(key(row.r, a, id)), [vis ? id : '', hot || (on && !focusOf(s, a)), cls, vis && !glyphName]);
+            T.set(L.nm.get(key(row.r, a, id)), [vis ? it.id : '', hot || (on && !focusOf(s, a)), cls, vis && !glyphName]);
             const onlyOff = sp.ruler && it && /^\+?\d+$/.test(bare(it.sub).trim());
             T.set(L.sb.get(key(row.r, a, id)), [vis && it.sub ? it.sub : '', hot || (on && !focusOf(s, a)), '', vis && !!it.sub && !onlyOff]);
           }
@@ -762,8 +779,8 @@ PANEL.bytes = (W, M, sp) => {
         for (const [bk, b] of M.B) b.S.forEach((s, si) => {
           const T = W.TX[M.sc.num].get(bk)[si], { g } = geomOf(s, row);
           const xs = (c) => { const [a0, a1] = cellX(row, c); return (a0 + a1) / 2; };
-          const NM = rowsOf(W, g.map((c) => ({ c, cx: xs(c), w: W.wOf(L.nm.get(key(row.r, c.a, c.it.id)), T.get(L.nm.get(key(row.r, c.a, c.it.id)))) })), x0, x0 + ww);
-          const VL = rowsOf(W, g.map((c) => ({ c, cx: xs(c), w: W.wOf(L.sb.get(key(row.r, c.a, c.it.id)), T.get(L.sb.get(key(row.r, c.a, c.it.id)))) })), x0, x0 + ww);
+          const NM = rowsOf(W, g.map((c) => ({ c, cx: xs(c), w: W.wOf(L.nm.get(key(row.r, c.a, c.it.k)), T.get(L.nm.get(key(row.r, c.a, c.it.k)))) })), x0, x0 + ww);
+          const VL = rowsOf(W, g.map((c) => ({ c, cx: xs(c), w: W.wOf(L.sb.get(key(row.r, c.a, c.it.k)), T.get(L.sb.get(key(row.r, c.a, c.it.k)))) })), x0, x0 + ww);
           const mk = this.marks(s, row);
           const RL = rowsOf(W, mk.map((m, j) => ({ j, cx: geo.ox + m.u * px, w: W.tw(m.t) + 2 })), x0, x0 + ww, 3);
           nr = Math.max(nr, NM.rows); vr = Math.max(vr, VL.rows); rr = Math.max(rr, RL.rows);
@@ -808,18 +825,25 @@ PANEL.bytes = (W, M, sp) => {
           if (a === row.post) W.place(lb, Math.min(geo.x0 + geo.ww - W.most(lb).w, geo.ox + 6), ry.hd);
           else W.place(lb, geo.x0, ry.hd);
         }
-        for (const it of q.NM) W.place(L.nm.get(key(row.r, it.c.a, it.c.it.id)), it.l, ry.nm + (ry.nr - 1 - it.row) * RH);
-        for (const it of q.VL) W.place(L.sb.get(key(row.r, it.c.a, it.c.it.id)), it.l, ry.sb + it.row * RH);
+        for (const it of q.NM) W.place(L.nm.get(key(row.r, it.c.a, it.c.it.k)), it.l, ry.nm + (ry.nr - 1 - it.row) * RH);
+        for (const it of q.VL) W.place(L.sb.get(key(row.r, it.c.a, it.c.it.k)), it.l, ry.sb + it.row * RH);
         for (const it of q.RL) W.place(L.rl[row.r][it.j], it.l, ry.rl + it.row * 13);
       }
     },
     pose(s, P) {
       const pv = P.prev;
+      /* 한 상태의 칸 둘이 한 알갱이 구역을 나눠 쓰면 뒤 칸이 앞 칸을 지운다(03 의 두 0x01, 02a 의 두 줄에 나오는 rdat) */
+      const took = new Set();
+      for (const row of rows) for (const c of geomOf(s, row).g) if (!c.mark) {
+        const kk = bkey(row.r, c.a, c.it);
+        if (took.has(kk)) once(`ch3 ${M.sc.num} 세계 : ${c.a} 의 칸 ${c.it.id} 가 다른 칸과 알갱이 구역 ${kk} 를 나눠 쓴다`);
+        took.add(kk);
+      }
       for (const row of rows) {
         const ry = geo.rows[row.r], { g } = geomOf(s, row), q0 = geomOf(pv, row), H = geo.BH;
         for (const c of g) {
-          const kk = 'b:' + c.a + ':' + c.it.id, [r0, r1] = W.R[kk], n = r1 - r0;
-          const [a0, a1] = cellX(row, c), was = q0.g.find((x) => x.a === c.a && x.it.id === c.it.id);
+          const kk = bkey(row.r, c.a, c.it), [r0, r1] = W.R[kk], n = r1 - r0;
+          const [a0, a1] = cellX(row, c), was = q0.g.find((x) => x.a === c.a && x.it.k === c.it.k);
           const [b0, b1] = was ? cellX(row, was) : [a0, a1];
           const x0 = U.lerp(b0, a0, P.mv), x1 = U.lerp(b1, a1, P.mv), w = Math.max(0, x1 - x0);
           const hot = isHot(s, c.a, c.it), col = hot && c.it.tag !== 'red' ? GOLD : TAGC[c.it.tag] ?? INK, lv = P.level(c.a, hot) * P.form;
@@ -844,7 +868,7 @@ PANEL.bytes = (W, M, sp) => {
           }
           /* 칸 안의 글자 바이트 */
           toks.forEach((t, j) => {
-            const kk2 = 'g:' + c.a + ':' + c.it.id + ':' + j;
+            const kk2 = kk.replace(/^b:/, 'g:') + ':' + j;
             if (!W.R[kk2]) return;
             const [g0, g1] = W.R[kk2], pts = W.glyph(t), bw = w / Math.max(1, toks.length), sc = Math.min(bw * 0.5, H * 0.62) / 64, cx = x0 + bw * (j + 0.5), cy = ry.band + H / 2;
             for (let m = 0; m < g1 - g0; m++) {
@@ -859,8 +883,8 @@ PANEL.bytes = (W, M, sp) => {
         /* 원점 — 세로 점선 */
         const mk = row.pre ? (s[row.pre] || []).find(C.isMark) : (s[row.acts[0]] || []).find(C.isMark);
         const mkA = row.pre || row.acts[0];
-        if (mk && W.R['b:' + mkA + ':' + mk.id]) {
-          const [m0, m1] = W.R['b:' + mkA + ':' + mk.id], hot = isHot(s, mkA, mk);
+        if (mk && W.R[bkey(row.r, mkA, mk)]) {
+          const [m0, m1] = W.R[bkey(row.r, mkA, mk)], hot = isHot(s, mkA, mk);
           for (let m = 0; m < m1 - m0; m++) {
             const i = m0 + m, u = m / (m1 - m0), [xx, yy] = P.into(i, geo.ox, ry.band - 6 + u * (geo.BH + 12));
             W.put(P.o, i, xx, yy, P.level(mkA, hot) * P.form * (m % 3 === 2 ? 0 : 0.9), hot ? 0.6 : 0.2, 0.02, 1.3, hot ? GOLD : ACCENT);
@@ -1157,15 +1181,36 @@ PANEL.hex = (W, M, sp) => {
   const hexOf = (no) => (no === 0 ? W.MEAS.SPACE.files.small.p0.hex : W.MEAS.DUMP[no].hex);
   /* 04 — PAGE HEADER kv 의 칸이 앞 38 B 의 어디인가(fil0types.h 의 오프셋) */
   const HDR = { FIL_PAGE_OFFSET: [4, 8], FIL_PAGE_LSN: [16, 24], FIL_PAGE_TYPE: [24, 26] };
+  /* 금빛 바이트 = 그 스텝이 짚는 칸 — 금빛 칸, look 이 이름으로 고른 칸, act 이름이 대는 칸. 바뀐 칸 전부를 세었더니
+     금빛을 끄는 칸(앞 스텝의 '← 지금' 을 hdr 로 되돌리는 set)까지 금빛으로 남았다(04a 3 – 7 스텝) */
+  const pointed = (s, b, it) => {
+    if (!touchOf(s, b)) return false;
+    const f = focusOf(s, b);
+    return it.tag === 'gold' || (f ? f.has(it.id) : false) || actNames(s, b, it.id) || ((it.tag === 'x' || it.tag === 'red') && modOf(s, b).has(it.id));
+  };
+  /* 06a — PAGE header 의 2 B 칸(fsp · fins)도 제 두 바이트를 짚는다('+4  N_HEAP' → 42 – 43) */
+  const SUBS = a === 'phd' ? ['fsp', 'fins'] : [];
+  const hotItems = (s) => {
+    if (a === 'hdr') return [];
+    const out = [], base = a === 'phd' ? 38 : 0;
+    for (const it of s[a] || []) { const o = C.lead(it.sub); if (o != null && pointed(s, a, it)) out.push({ it, r: [base + o, base + o + (it.sz || 0)] }); }
+    for (const b of SUBS) for (const it of s[b] || []) { const o = C.lead(it.id); if (o != null && pointed(s, b, it)) out.push({ it, r: [base + o, base + o + 2] }); }
+    return out;
+  };
   const hotRanges = (s) => {
     if (a === 'hdr') return Object.entries(HDR).filter(([k2]) => s.hdr && s.hdr[k2] && bare(s.hdr[k2]) !== '—').map(([, r]) => r);
-    const out = [], base = a === 'phd' ? 38 : 0;
-    for (const it of s[a] || []) {
-      const o = C.lead(it.sub);
-      if (o == null) continue;
-      if (touchOf(s, a) && (hotIt(s, a, it.id) && (focusOf(s, a) || modOf(s, a).size) || it.tag === 'gold')) out.push([base + o, base + o + (it.sz || 0)]);
+    return hotItems(s).map((x) => x.r);
+  };
+  /* 검사 — 이 스텝에서 금빛을 잃은 칸(앞 상태 gold → 지금 아님)의 바이트가 금빛이면 칸 줄과 hexdump 가 서로 다른 것을 짚는다 */
+  const prevOf = new Map();
+  for (const b of M.B.values()) b.S.forEach((s, i) => prevOf.set(s, i ? b.S[i - 1] : b.S0));
+  const guard = (s) => {
+    const pv = prevOf.get(s);
+    if (!pv) return;
+    for (const { it } of hotItems(s)) {
+      const was = (pv[a] || []).find((x) => x.k === it.k);
+      if (was && was.tag === 'gold' && it.tag !== 'gold' && !(focusOf(s, a) && focusOf(s, a).has(it.id)) && !actNames(s, a, it.id)) once(`ch3 ${M.sc.num} 세계 : ${s.i + 1} 스텝 — ${it.id} 는 금빛을 껐는데 hexdump 에서 금빛이다`);
     }
-    return out;
   };
   const html = (s) => {
     const no = pageOf(s), h = hexOf(no), hot = hotRanges(s), isH = (o) => hot.some(([p, q]) => o >= p && o < q);
@@ -1184,7 +1229,7 @@ PANEL.hex = (W, M, sp) => {
   return {
     optional: true,
     lbs: [host], acts: [a], snap: () => null, use: () => {},
-    texts(s, T) { const vis = a !== 'hdr' || hotRanges(s).length > 0; T.set(host, [vis ? html(s) : html(s), touchOf(s, a) || a !== 'hdr', '', vis, true]); },
+    texts(s, T) { guard(s); const vis = a !== 'hdr' || hotRanges(s).length > 0; T.set(host, [vis ? html(s) : html(s), touchOf(s, a) || a !== 'hdr', '', vis, true]); },
     layout(x0, y, ww) {
       el.style.width = '';
       W.place(host, x0, y);
@@ -1209,6 +1254,23 @@ PANEL.tiles = (W, M, sp) => {
   const startOf = (it) => { const m = /(?:^|\s)p(?:age)?\s*(\d+)/.exec(it.id); return m ? +m[1] : null; };
   const spans = (s) => { const its = (s[a] || []).map((it) => ({ it, p: startOf(it) })).filter((x) => x.p != null).sort((p, q) => p.p - q.p); return its.map((x, i) => ({ ...x, q: i + 1 < its.length ? its[i + 1].p - 1 : NP - 1 })); };
   const pick = (s) => { const m = s.step.act && /page\s+(\d+)/.exec(s.step.act.lb); return m ? +m[1] : null; };
+  /* 10 — 타입 두 바이트의 금빛은 그 스텝이 대는 타입에만. hdr 가 바뀌기만 하면 45 bf 를 켰더니 page 0 의 FSP FLAG 를
+     말하는 2 스텝에서 INDEX 줄이 금빛이었다. FIL_PAGE_TYPE 이 바뀌면 그 값(17855)의 줄, hdr 전체를 보면 INDEX 계열(≥ 0x45bd),
+     FSP FLAG 가 바뀌면 page 0 */
+  const hk = (s) => modOf(s, 'hdr');
+  const typeNo = (s) => C.nums((s.hdr || {}).FIL_PAGE_TYPE).find((x) => x >= 10000) ?? null;
+  const flagOn = (s) => hk(s).has('FSP FLAG');
+  const runHot = (s, r) => {
+    if (!r.t || !touchOf(s, 'hdr')) return false;
+    const v = parseInt(r.t, 16);
+    if (hk(s).has('FIL_PAGE_TYPE')) return v === typeNo(s);
+    if (flagOn(s)) return r.a === 0;
+    return s.look.hdr === true && v >= 0x45bd;
+  };
+  if (TY) for (const b of M.B.values()) for (const s of b.S) {
+    const t = hk(s).has('FIL_PAGE_TYPE') && typeNo(s);
+    if (t && !runs.some((r) => r.t && parseInt(r.t, 16) === t)) console.error(`ch3 ${M.sc.num} 세계 : ${s.i + 1} 스텝 — FIL_PAGE_TYPE ${t} 인 page 가 실측 ${W.MEAS.M.file} 에 없다`);
+  }
   let geo = null;
   const tx = (p) => geo.x0 + p * (geo.ts + geo.gap);
   return {
@@ -1216,9 +1278,13 @@ PANEL.tiles = (W, M, sp) => {
     texts(s, T) {
       const on = touchOf(s, a), sps = spans(s), pk = pick(s);
       T.set(hd, [`${M.A[a].nm}  ·  ${W.MEAS.M.file}  ${NP} page × 16,384 B`, on]);
-      for (const id of II) { const x = sps.find((q) => q.it.id === id); T.set(nm[id], [x ? id : '', on && hotIt(s, a, id), x ? TAGL[x.it.tag] || '' : '', !!x]); T.set(sb[id], [x ? x.it.sub : '', on && hotIt(s, a, id), '', !!x && !!x.it.sub]); }
+      for (const id of II) {
+        const x = sps.find((q) => q.it.id === id), fh = !!x && flagOn(s) && x.p === 0;
+        T.set(nm[id], [x ? id : '', (on && hotIt(s, a, id)) || fh, x ? TAGL[x.it.tag] || (fh ? 'gold' : '') : '', !!x]);
+        T.set(sb[id], [x ? x.it.sub : '', (on && hotIt(s, a, id)) || fh, '', !!x && !!x.it.sub]);
+      }
       no.forEach((lb, p) => T.set(lb, [String(p), pk === p, pk === p ? 'gold' : '', true]));
-      tyl.forEach((lb, j) => { const r = runs[j]; T.set(lb, [r.t ? `${r.t.slice(0, 2)} ${r.t.slice(2)}${r.b > r.a ? ' × ' + (r.b - r.a + 1) : ''}` : '', touchOf(s, 'hdr'), r.t === '45bf' && touchOf(s, 'hdr') ? 'gold' : '', !!r.t]); });
+      tyl.forEach((lb, j) => { const r = runs[j], h = runHot(s, r); T.set(lb, [r.t ? `${r.t.slice(0, 2)} ${r.t.slice(2)}${r.b > r.a ? ' × ' + (r.b - r.a + 1) : ''}` : '', touchOf(s, 'hdr'), h ? 'gold' : '', !!r.t]); });
       T.set(off, [pk != null ? `${pk} × 16,384 = ${fmt(pk * 16384)}` : '', true, 'gold', pk != null]);
       T.set(cap, [s.byl[a] ? `${esc(s.byl[a].l || '')}  ·  ${esc(s.byl[a].r || '')}` : '', on, '', !!s.byl[a], true]);
     },
@@ -1252,7 +1318,7 @@ PANEL.tiles = (W, M, sp) => {
     pose(s, P) {
       const [r0, r1] = W.R.tl, per = Math.floor((r1 - r0) / NP), sps = spans(s), pk = pick(s), on = touchOf(s, a);
       for (let p = 0; p < NP; p++) {
-        const q = sps.find((x) => p >= x.p && p <= x.q), it = q && q.it, hot = pk === p || (it && on && hotIt(s, a, it.id) && !pk);
+        const q = sps.find((x) => p >= x.p && p <= x.q), it = q && q.it, hot = pk === p || (it && on && hotIt(s, a, it.id) && !pk) || (flagOn(s) && p === 0);
         const col = hot ? GOLD : it ? TAGC[it.tag] ?? INK : FAINT, lv = P.level(a, hot) * P.form;
         for (let m = 0; m < per; m++) {
           const i = r0 + p * per + m, [x, y] = m < per - 6 ? rim(tx(p) + geo.ts / 2, geo.band + geo.ts / 2, geo.ts - 2, geo.ts - 2, per - 6, m) : [tx(p) + geo.ts * (0.3 + 0.2 * ((m - per + 6) % 3)), geo.band + geo.ts * (0.4 + 0.25 * Math.floor((m - per + 6) / 3))];
