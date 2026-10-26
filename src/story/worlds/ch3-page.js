@@ -1401,6 +1401,8 @@ PANEL.map = (W, M, sp) => {
   const hd = W.label('aq'), side = Array.from({ length: 8 }, () => W.label('aq'));
   const lbs = [hd, ...side];
   const hdrOf = (s) => s.hdr || {};
+  const PVM = new Map();
+  for (const b of M.B.values()) b.S.forEach((s2, i) => PVM.set(s2, i ? b.S[i - 1] : b.S0));
   /* 영역 — [lo, hi) · 색 · 밝기 · 이름(옆 이름표) · 짚음 */
   function regions(s) {
     const R0 = [];
@@ -1446,6 +1448,8 @@ PANEL.map = (W, M, sp) => {
   function rings(s) {
     const out = [];
     if (n === '09a') for (const it of s.freeL || []) { const o = C.lead(it.sub); if (o && o > 120 && o < PAGE) out.push({ at: o, c: it.tag === 'x' ? RED : GOLD, id: it.id, it }); }
+    /* 09a 2 — 머리를 썼으면(PAGE_FREE 가 다음 원소로) 옛 머리 자리에 새 record 가 들어갔다 : 그 자리를 초록 고리로 */
+    if (n === '09a' && modOf(s, 'hdr').has('PAGE_FREE')) { const pv = PVM.get(s), o0 = pv && C.lead(hdrOf(pv).PAGE_FREE), o1 = C.lead(hdrOf(s).PAGE_FREE); if (o0 && o1 && o0 !== o1 && /^\d+$/.test(bare(hdrOf(pv).PAGE_FREE).trim())) out.push({ at: o0, c: GREEN, id: 'used' }); }
     if (n === '06a') for (const it of s.dir || []) { const to = /\((\d+)\)/.exec(it.sub); if (to) out.push({ at: +to[1], c: ACCENT, id: it.id, it, from: /슬롯 0/.test(it.id) ? PAGE - 8 - 2 : PAGE - 8 - 2 * P5.PAGE_N_DIR_SLOTS }); }
     /* 04 — 짚은 영역이 한 줄 안의 몇 바이트(trailer 8 B)면 128 × 128 격자에서 안 보인다. 그 줄 둘레에 고리 */
     if (n === '04') for (const r of regions(s)) if (r.hot && r.hi - r.lo <= 64 && Math.floor(r.lo / COLS) === Math.floor((r.hi - 1) / COLS)) out.push({ at: r.lo, n: r.hi - r.lo, c: GOLD, id: r.it.id, it: r.it });
@@ -1457,7 +1461,7 @@ PANEL.map = (W, M, sp) => {
     lbs, acts: ['pg', 'addr', 'hdr', 'freeL', 'dir', 'sum', 'phd'], snap: () => geo, use: (g) => { geo = g; },
     texts(s, T) {
       const R0 = regions(s), on = touchOf(s, 'pg') || touchOf(s, 'addr') || touchOf(s, 'hdr') || touchOf(s, 'freeL');
-      const t = n === '06a' ? 'p:5  ·  16 KB = 128 × 128 B' : n === '09a' ? `16 KB page  ·  ${bare((s.op || {})['실측'] || '')}` : n === '11' ? 'page 5  ·  16 KB = 128 × 128 B' : 'page 5  ·  16 KB = 128 × 128 B';
+      const t = n === '06a' ? 'p:5  ·  16 KB = 128 × 128 B' : n === '09a' ? `16 KB page  ·  ${bare((s.op || {})['상황'] || '')}` : n === '11' ? 'page 5  ·  16 KB = 128 × 128 B' : 'page 5  ·  16 KB = 128 × 128 B';
       T.set(hd, [t, on]);
       side.forEach((lb, j) => {
         const r = R0[j];
@@ -1952,7 +1956,8 @@ PANEL.gauge = (W, M, sp) => {
     lbs: [hd, lg, lc, lt, lm], acts: ['addr'], snap: () => geo, use: (g) => { geo = g; },
     texts(s, T) {
       const q = v(s), vis = q.g != null && q.mx != null, on = touchOf(s, 'addr');
-      T.set(hd, [vis ? '정리하면 생길 여유  ·  page 의 1/32' : '', on, '', vis]);
+      /* insert 전의 판단 — 6 스텝은 hdr 가 정리 뒤 값을 보이므로 이 막대가 어느 때의 것인지 적는다 */
+      T.set(hd, [vis ? 'insert 전 판단  ·  정리하면 생길 여유  ·  page 의 1/32' : '', on, '', vis]);
       T.set(lg, [vis ? `GARBAGE ${q.g}` : '', on, 'red', vis]);
       T.set(lc, [vis && q.c != null ? `연속 ${q.c}` : '', on, 'green', vis && q.c != null]);
       T.set(lt, [q.lim != null ? `${q.lim} = 16,384 / 32` : '', on, 'gold', vis && q.lim != null]);

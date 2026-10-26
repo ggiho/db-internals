@@ -2662,9 +2662,11 @@ const SCENES = [
   links:[['09','free list 와 GARBAGE 의 개념'],['08a','heap_no 가 lock 의 이름'],['06b','실측 page 헤더 56 B']],
   /* 실측 e9 M4 — 1,000 B · 200 B 행을 섞어 넣은 page 에서 둘을 지우고 purge 한 뒤 500 B 행을 넣었다.
      경우 1 은 머리가 1,000 B 행의 record, 경우 2 는 지우는 순서를 바꿔 머리가 200 B 행의 record 다.
-     실측 e15 — VARCHAR(400) 300 자 행(324 B) 50 개를 무작위 순서로 넣은 root leaf, 연속 여유 36 B. */
+     실측 e15 — VARCHAR(400) 300 자 행(324 B) 50 개를 무작위 순서로 넣은 root leaf, 연속 여유 36 B.
+     두 실험의 dump 는 저장소에 없다 — 글은 '실측' 이라 하지 않고, 무대의 page 이름은 op 의 '상황' 이 댄다.
+     GARBAGE · HEAP_TOP 이 움직인 만큼이 record 크기인지는 ch3-check 가 맞춘다(상황이 바뀐 스텝은 다른 page 라 건너뛴다). */
   init:{
-    op:{ kv:{ '실측':'—', '넣는 행':'—', '결과':'—' } },
+    op:{ kv:{ '상황':'—', '넣는 행':'—', '결과':'—' } },
     freeL:{ items:[
       { id:'1,000 B 행 record', tag:'hold', sub:'1375 · 머리' },
       { id:'200 B 행 record', tag:'hold', sub:'1151' } ] },
@@ -2677,7 +2679,7 @@ const SCENES = [
   steps:[
   { look:{ freeL:true, hdr:true },
     note:'목록의 원소는 지운 record — 크기 칸이 없다',
-    why:'책의 목록은 빈 조각의 오프셋과 크기를 적는다. InnoDB 는 지운 record 를 그 next 칸으로 잇고, 크기는 꺼낼 때 그 record 헤더에서 다시 읽는다. 실측 page 는 머리 1375(1,000 B 행), GARBAGE 1248.',
+    why:'책의 목록은 빈 조각의 오프셋과 크기를 적는다. InnoDB 는 지운 record 를 그 next 칸으로 잇고, 크기는 꺼낼 때 그 record 헤더에서 다시 읽는다. 이 page 는 머리 1375(1,000 B 행), GARBAGE 1248.',
     key:'얹는 곳은 언제나 머리다 — page_mem_free 가 <em>옛 머리를 자기 next 에 달고 PAGE_FREE 를 자기로</em> 바꾼다. 그래서 LIFO, 마지막에 지운 것이 맨 앞이다.',
     ref:'storage/innobase/include/page0page.ic', sym:'page_mem_free',
     fact:['page_rec_set_next(rec, free);',
@@ -2685,11 +2687,11 @@ const SCENES = [
           'garbage + rec_offs_size(offsets));',
           ['storage/innobase/page/page0cur.cc','foffsets = rec_get_offsets(free_rec, index, foffsets, ULINT_UNDEFINED, UT_LOCATION_HERE, &heap);']],
     cite:['the availability list stores offsets of freed segments and their sizes'],
-    ops:{ op:{ set:{ '실측':'record 둘이 목록에 · 머리 1375' } } } },
+    ops:{ op:{ set:{ '상황':'record 둘이 목록에 · 머리 1375' } } } },
 
   { act:{ f:'op', t:'freeL', lb:'500 B 행 INSERT' },
     note:'500 B 행 — 머리의 1,000 B 자리를 쓴다',
-    why:'page_cur_insert_rec_low 는 PAGE_FREE 의 머리 하나만 재 본다. 1,000 B 행의 record 가 새 record(524 B)보다 크므로 그 자리에 쓴다. 실측 HEAP_TOP 3864 그대로, PAGE_FREE 1375 → 1151, GARBAGE 1248 → 724.',
+    why:'page_cur_insert_rec_low 는 PAGE_FREE 의 머리 하나만 재 본다. 1,000 B 행의 record 가 새 record(524 B)보다 크므로 그 자리에 쓴다. HEAP_TOP 3864 그대로, PAGE_FREE 1375 → 1151, GARBAGE 1248 → 724.',
     key:'결과는 책의 <em>first fit</em> 과 같다 — 다만 목록을 훑어서가 아니라 머리가 마침 컸을 뿐이다. 머리를 떼면 그 next(1151)가 새 머리가 된다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_insert_rec_low',
     fact:['Try to allocate from the head of the free list.',
@@ -2698,11 +2700,11 @@ const SCENES = [
     cite:["we first check the availability list to find if there's a segment where it may fit"],
     ops:{ freeL:{ del:['1,000 B 행 record'], set:{ '200 B 행 record':{ sub:'1151 · 새 머리' } } },
           hdr:{ set:{ 'PAGE_FREE':'1151|gold', 'PAGE_GARBAGE':'724 B|gold', 'HEAP_TOP':'3864  그대로|green' } },
-          op:{ set:{ '넣는 행':'500 B 행 · record 524 B', '결과':'머리를 재사용' } } } },
+          op:{ set:{ '상황':'같은 page · 머리 1375 를 썼다 → 1151', '넣는 행':'500 B 행 · record 524 B', '결과':'머리를 재사용' } } } },
 
   { look:{ hdr:true, freeL:true },
     note:'남은 꼬리는 어느 목록에도 없다',
-    why:'page_mem_alloc_free 는 PAGE_FREE 를 다음 원소로 바꾸고 GARBAGE 에서 새 record 크기(need)만 뺀다. 실측 −524 — 1,000 B 자리에서 남은 부분은 GARBAGE 숫자로만 남는다.',
+    why:'page_mem_alloc_free 는 PAGE_FREE 를 다음 원소로 바꾸고 GARBAGE 에서 새 record 크기(need)만 뺀다. −524 — 1,000 B 자리에서 남은 부분은 GARBAGE 숫자로만 남는다.',
     key:'책이 first fit 의 약점으로 든 <em>쓸 데 없는 나머지</em>가 InnoDB 에선 확정이다. 목록에서 빠졌으니 reorganize 가 page 를 다시 쓸 때까지 누구도 못 쓴다.',
     ref:'storage/innobase/include/page0page.ic', sym:'page_mem_alloc_free',
     fact:['page_header_set_ptr(page, page_zip, PAGE_FREE, next_rec);',
@@ -2714,7 +2716,7 @@ const SCENES = [
 
   { act:{ f:'op', t:'hdr', lb:'머리가 200 B 라면' },
     note:'머리가 작으면 HEAP_TOP — 목록의 1,000 B 는 안 본다',
-    why:'지우는 순서를 바꿔 머리를 200 B 행의 record 로 두면 524 B 가 안 들어가 곧장 use_heap 으로 간다. 실측 HEAP_TOP 3864 → 4388, PAGE_FREE · GARBAGE 그대로 — 1,000 B 자리가 목록에 있었는데도.',
+    why:'지우는 순서를 바꿔 머리를 200 B 행의 record 로 두면 524 B 가 안 들어가 곧장 use_heap 으로 간다. HEAP_TOP 3864 → 4388, PAGE_FREE · GARBAGE 그대로 — 1,000 B 자리가 목록에 있었는데도.',
     key:'<em>first fit</em> 이면 둘째 원소를, <em>best fit</em> 이어도 그 1,000 B 를 골랐을 것이다. InnoDB 는 목록을 훑지 않는다 — 고르지 않는 셋째 길이다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_insert_rec_low',
     fact:['if (rec_offs_size(foffsets) < rec_size) {',
@@ -2724,12 +2726,13 @@ const SCENES = [
     beat:1,
     ops:{ freeL:{ del:['꼬리'], set:{ '200 B 행 record':{ sub:'머리 · 524 B 가 안 들어간다' } },
                   add:[{ id:'1,000 B 행 record', tag:'wait', sub:'둘째 · 보지 않는다' }] },
-          hdr:{ set:{ 'PAGE_FREE':'200 B 행 record · 그대로', 'PAGE_GARBAGE':'그대로 — insert 전 값', 'HEAP_TOP':'4388|red' } },
-          op:{ set:{ '실측':'지우는 순서를 바꾼 page', '결과':'HEAP_TOP 에서 뗀다|red' } } } },
+          /* 같은 두 행을 지웠으니 GARBAGE 는 경우 1 의 처음과 같은 1248(1,000 B 행 + 200 B 행의 record) */
+          hdr:{ set:{ 'PAGE_FREE':'200 B 행 record · 그대로', 'PAGE_GARBAGE':'1248 B  그대로', 'HEAP_TOP':'4388|red' } },
+          op:{ set:{ '상황':'지우는 순서를 바꾼 page', '결과':'HEAP_TOP 에서 뗀다|red' } } } },
 
   { act:{ f:'op', t:'addr', lb:'356 B · GARBAGE 324' },
     note:'정리하면 들어가는데 split — 1/32 규칙',
-    why:'실측 : 50 행 root leaf 에서 한 행(324 B)을 지워 GARBAGE 324, 연속 여유 36. 356 B record 는 정리하면 들어가지만(최대 ≈ 360) 그 값이 512 미만이라 split 했다 — reorganize 0.',
+    why:'50 행 root leaf 에서 한 행(324 B)을 지워 GARBAGE 324, 연속 여유 36. 356 B record 는 정리하면 들어가지만(최대 ≈ 360) 그 값이 512 미만이라 split 했다 — reorganize 0.',
     key:'책은 <em>조각 합이 충분하면 정리</em>한다. btr_cur_optimistic_insert 는 정리 뒤 여유가 page 의 1/32(512 B)에 못 미치면 정리하지 않고 실패를 돌려 split 으로 보낸다.',
     ref:'storage/innobase/btr/btr0cur.cc', sym:'btr_cur_optimistic_insert',
     fact:['#define BTR_CUR_PAGE_REORGANIZE_LIMIT (UNIV_PAGE_SIZE / 32)',
@@ -2742,11 +2745,11 @@ const SCENES = [
     ops:{ freeL:{ del:['200 B 행 record', '1,000 B 행 record'], add:[{ id:'지운 한 행 · 324 B', tag:'hold', sub:'머리 · 356 B 가 안 들어간다' }] },
           hdr:{ set:{ 'PAGE_FREE':'지운 한 행의 record', 'PAGE_GARBAGE':'324 B', 'HEAP_TOP':'16320' } },
           addr:{ set:{ 'GARBAGE':'324 B', '연속 여유':'36 B', '정리 후 최대':'≈ 360 B  < 512|red' } },
-          op:{ set:{ '실측':'50 행 leaf · 한 행 지움', '넣는 행':'356 B record', '결과':'split +1 · reorganize 0|red' } } } },
+          op:{ set:{ '상황':'50 행 leaf · 한 행 지움', '넣는 행':'356 B record', '결과':'split +1 · reorganize 0|red' } } } },
 
   { act:{ f:'op', t:'addr', lb:'340 B · GARBAGE 648' },
     note:'여유가 512 B 를 넘으면 그때 정리한다',
-    why:'두 행을 지워 GARBAGE 648 이면 정리 후 최대 ≈ 684. 340 B record 는 머리(324 B)에도 연속 36 B 에도 안 들어가 한 번 실패하고, 그제야 btr_page_reorganize 가 돈다. 실측 reorganize +1 · split 0 · n_recs 49.',
+    why:'두 행을 지워 GARBAGE 648 이면 정리 후 최대 ≈ 684. 340 B record 는 머리(324 B)에도 연속 36 B 에도 안 들어가 한 번 실패하고, 그제야 btr_page_reorganize 가 돈다. reorganize +1 · split 0 · n_recs 49.',
     key:'reorganize 는 page 를 <em>임시 block 에 통째로 복사</em>하고 빈 page 를 다시 만든 뒤 키 순서로 다시 넣는다. heap_no 가 새로 매겨지므로 lock 도 옛 번호에서 새 번호로 옮긴다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_page_reorganize_low',
     fact:['buf_frame_copy(temp_page, page);',
@@ -2759,7 +2762,7 @@ const SCENES = [
     ops:{ freeL:{ del:['지운 한 행 · 324 B'], add:[{ id:'(비었다)', tag:'free', sub:'reorganize 가 목록을 비웠다' }] },
           hdr:{ set:{ 'PAGE_FREE':'0', 'PAGE_GARBAGE':'0 B|green', 'HEAP_TOP':'16012' } },
           addr:{ set:{ 'GARBAGE':'648 B', '정리 후 최대':'≈ 684 B  ≥ 512|green' } },
-          op:{ set:{ '실측':'같은 50 행 page · 두 행 지움', '넣는 행':'340 B record', '결과':'reorganize +1 · split 0|green' } } } },
+          op:{ set:{ '상황':'같은 50 행 page · 두 행 지움', '넣는 행':'340 B record', '결과':'reorganize +1 · split 0|green' } } } },
   ],
 },
 {

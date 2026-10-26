@@ -377,7 +377,9 @@ export function checkScene(deck, sc) {
       if (!po && !z && chain[0] && /record/.test(pf) && !pf.startsWith(chain[0].id) && !/지운/.test(pf)) say(`PAGE_FREE '${pf}' 가 목록 머리 ${chain[0].id} 가 아니다`);
     }
     if (sc.num === '09a' && k > 0) {
-      const prev = list[k - 1], h0 = (prev.hdr && prev.hdr.kv) || {}, h1 = kv('hdr'), need = nums((kv('op')['넣는 행'] || '').split('·')[1] || '')[0];
+      /* 상황(page)이 바뀐 스텝은 앞 스텝과 다른 page 다 — 움직임을 맞추지 않는다(4 스텝 : 지우는 순서를 바꾼 page) */
+      const prev = list[k - 1], same = bare(((prev.op && prev.op.kv) || {})['상황'] || '') === bare(kv('op')['상황'] || '') || /같은/.test(kv('op')['상황'] || '');
+      const h0 = (prev.hdr && prev.hdr.kv) || {}, h1 = kv('hdr'), need = same ? nums((kv('op')['넣는 행'] || '').split('·')[1] || '')[0] : null;
       const g0 = lead(h0.PAGE_GARBAGE), g1 = lead(h1.PAGE_GARBAGE), t0 = lead(h0.HEAP_TOP), t1 = lead(h1.HEAP_TOP);
       if (need && g0 != null && g1 != null && g0 !== g1 && g0 - g1 !== need && g1 !== 0) say(`GARBAGE ${g0} → ${g1} 이 record ${need} B 만큼 줄지 않았다`);
       if (need && t0 != null && t1 != null && t1 > t0 && t1 - t0 !== need && /HEAP_TOP/.test(kv('op')['결과'] || '')) say(`HEAP_TOP ${t0} → ${t1} 이 record ${need} B 만큼 늘지 않았다`);
