@@ -196,6 +196,9 @@ function make({ F, deck, labels, scene }) {
   const snapLb = SNAP ? { xmin: label('aq'), xmax: label('aq'), xip: label('aq'), rest: label('aq ml aq-b') } : null;
   const tupLb = Object.fromEntries(TIDS.map((id) => [id, label('aq ml aq-c')]));
   const tickLb = Object.fromEntries(TIDS.map((id) => [id, label('aq aq-c')]));
+  /* 생애 막대 끝의 xmax — 잠금뿐인 xmax(xk)는 막대를 끝내지 않는다 */
+  const endLb = Object.fromEntries(TIDS.map((id) => [id, label('aq')]));
+  const xEnd = (t) => (t && t.xmax > 0 && !t.xk ? t.xmax : 0);
   const lpLb = Object.fromEntries(Array.from({ length: MAXLP }, (_, j) => [j + 1, label('aq aq-c')]));
   const phLb = PAGE ? label('aq aq-c') : null;
   const capLb = PAGE ? label('aq ml aq-b') : null;
@@ -232,7 +235,7 @@ function make({ F, deck, labels, scene }) {
   /* 튜플 칸 안의 글 — 이름, 헤더의 xmin · xmax, 헤더 비트(hb) */
   const tupText = (t) => {
     const ln = [`<span class="q-i">${esc(t.id)}</span>`];
-    if (t.xmin != null) ln.push('xmin ' + t.xmin, 'xmax ' + (t.xmax || 0));
+    if (t.xmin != null) ln.push('xmin ' + t.xmin, 'xmax ' + (t.xmax || 0) + (t.xk ? ' ' + t.xk : ''));
     if (t.hb) ln.push(...String(t.hb).split(/\s*·\s*/).map(esc));
     return ln.join('\n');
   };
@@ -268,7 +271,9 @@ function make({ F, deck, labels, scene }) {
       for (const id of TIDS) {
         const it = s[PAGE].find((x) => x.id === id);
         t.set(tupLb[id], [it ? tupText(it) : '', on(PAGE) && !!it && hotIt(s, PAGE, id), it && it.tag === 'x' ? 'red' : '', stored(it), true]);
-        t.set(tickLb[id], [it ? id.replace(/^튜플\s*/, '').replace(/^버전\s*/, 'v') : '', on(PAGE) && !!it && hotIt(s, PAGE, id), '', !!(SNAP && stored(it) && it.xmin > 0)]);
+        const bh = on(PAGE) && !!it && hotIt(s, PAGE, id), bv = !!(SNAP && stored(it) && it.xmin > 0);
+        t.set(tickLb[id], [it ? id.replace(/^튜플\s*/, '').replace(/^버전\s*/, 'v') + '  ' + (it.xmin || '') : '', bh, '', bv]);
+        t.set(endLb[id], [xEnd(it) ? String(it.xmax) : '', bh, it && it.tag === 'x' ? 'red' : '', bv && !!xEnd(it)]);
       }
       for (let j = 1; j <= MAXLP; j++) {
         const it = s[PAGE].find((x) => x.lp === j), st = it ? (it.lps || 'normal') : null;
@@ -614,7 +619,7 @@ function make({ F, deck, labels, scene }) {
       for (const a of PROCS) for (const it of s[a]) if (isFinite(pv0(it))) marks.push([pv0(it), ACCENT, 8]);
       if (PAGE) for (const tp of s[PAGE]) if (stored(tp) && tp.xmin > 0 && G.bar[tp.id] != null) {
         marks.push([tp.xmin, TAGC[tp.tag] ?? INK, 0, G.bar[tp.id]]);
-        if (tp.xmax > 0) marks.push([tp.xmax, TAGC[tp.tag] ?? INK, 0, G.bar[tp.id]]);
+        if (xEnd(tp)) marks.push([tp.xmax, TAGC[tp.tag] ?? INK, 0, G.bar[tp.id]]);
       }
       const PL = [[0, 0], [-1.8, 0], [1.8, 0], [0, -1.8], [0, 1.8]];
       for (let m = 0; m < AX; m++) {
@@ -739,7 +744,11 @@ function make({ F, deck, labels, scene }) {
       if (SNAP && XU) {
         for (const q of cur.TOP[kk].out) place(q.lb, q.l, G.ax.y - 14 - q.row * RH, 'l', 'b');
         /* 막대 이름은 막대가 시작하는 xmin 바로 왼쪽 */
-        for (const id of Object.keys(G.bar)) { const it = PAGE && s[PAGE].find((x) => x.id === id); place(tickLb[id], (it && it.xmin > 0 ? xidX(it.xmin) : G.ax.x0) - 8, G.bar[id], 'r', 'c'); }
+        for (const id of Object.keys(G.bar)) {
+          const it = PAGE && s[PAGE].find((x) => x.id === id);
+          place(tickLb[id], (it && it.xmin > 0 ? xidX(it.xmin) : G.ax.x0) - 8, G.bar[id], 'r', 'c');
+          if (xEnd(it)) place(endLb[id], xidX(it.xmax) + 7, G.bar[id], 'l', 'c');
+        }
       }
       if (PAGE) {
         for (const tp of s[PAGE]) { const P = tupAt(s, tp.id); if (P) place(tupLb[tp.id], P.x, P.y, 'c', 'c'); }
@@ -834,17 +843,21 @@ function make({ F, deck, labels, scene }) {
       if (n.xmin && n.xmax) { ctx.globalAlpha = 0.25 * o; ctx.fillStyle = css.gold; ctx.fillRect(xidX(n.xmin), G.ax.y - 2, xidX(n.xmax) - xidX(n.xmin), 4); }
       /* 줄을 내렸거나 옆으로 밀린 선 위 이름표는 제 XID 로 잇는다 */
       ctx.globalAlpha = 0.35 * o; ctx.strokeStyle = css.faint;
-      for (const q of cur.TOP[kk].out) if (q.row > 0 || q.pins.length > 1 || q.cx < q.l || q.cx > q.r) for (const x of q.pins) seg(ctx, x, G.ax.y - 14 - q.row * RH + 1, x, G.ax.y - 14);
+      /* 아랫줄 이름표가 그 XID 위에 이미 서 있으면 선을 긋지 않는다 — 선이 그 이름표를 가른다 */
+      const TOPQ = cur.TOP[kk].out, under = (q, x) => TOPQ.some((o) => o.row < q.row && o.l - 3 <= x && x <= o.r + 3);
+      for (const q of TOPQ) if (q.row > 0 || q.pins.length > 1 || q.cx < q.l || q.cx > q.r) for (const x of q.pins) if (!under(q, x)) seg(ctx, x, G.ax.y - 14 - q.row * RH + 1, x, G.ax.y - 14);
       /* 튜플 생애 막대 [xmin, xmax) — xmax 가 없으면 오른쪽 끝까지 열려 있다 */
       if (PAGE) for (const id of Object.keys(G.bar)) {
         const it = s[PAGE].find((x) => x.id === id);
         if (!stored(it) || !(it.xmin > 0)) continue;
-        const y = G.bar[id], xa = xidX(it.xmin), xb = it.xmax > 0 ? xidX(it.xmax) : G.ax.x1, hot = s.touch.has(PAGE) && !end && hotIt(s, PAGE, id);
+        const y = G.bar[id], xa = xidX(it.xmin), xb = xEnd(it) ? xidX(it.xmax) : G.ax.x1, hot = s.touch.has(PAGE) && !end && hotIt(s, PAGE, id);
         ctx.globalAlpha = (hot ? 0.8 : 0.4) * o; ctx.strokeStyle = it.tag === 'x' ? css.red : ['hold', 'dirty', 'wait'].includes(it.tag) ? css.gold : css.ink; ctx.lineWidth = 1.5;
         /* 이 snapshot 에 안 보이는 튜플(vis:false)은 점선 */
-        if (it.vis === false) ctx.setLineDash([3, 3]);
-        seg(ctx, xa, y, xb, y); ctx.setLineDash([]);
-        if (it.xmax > 0) seg(ctx, xb, y - 4, xb, y + 4); else { seg(ctx, xb, y, xb - 5, y - 3); seg(ctx, xb, y, xb - 5, y + 3); }
+        /* 넣은 쪽이 중단한 튜플(tag x, 끝 없음)은 누구에게도 산 적이 없다 — xmin 에서 짧은 점선만 */
+        const dead = it.tag === 'x' && !xEnd(it);
+        if (it.vis === false || dead) ctx.setLineDash([3, 3]);
+        seg(ctx, xa, y, dead ? Math.min(xb, xa + 22) : xb, y); ctx.setLineDash([]);
+        if (xEnd(it)) seg(ctx, xb, y - 4, xb, y + 4); else if (!dead) { seg(ctx, xb, y, xb - 5, y - 3); seg(ctx, xb, y, xb - 5, y + 3); }
         ctx.lineWidth = 1;
       }
       /* horizon — 이보다 앞에서 지워진 튜플만 치울 수 있다 */
