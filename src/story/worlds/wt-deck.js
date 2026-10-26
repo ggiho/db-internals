@@ -489,6 +489,14 @@ function make({ F, deck, labels, scene }) {
   const capHtml = (its) => its.map((x) => `<span class="q-i">${esc(x.id)}</span>  ${esc(x.sub || '')}`).join('\n');
   const idsOf = (a) => [...new Set(all.flatMap((s) => (s[a] || []).map((x) => x.id)))];
 
+  /* 경계 이름 — 덱의 'reconciliation · journal' 은 두 길의 이름이다. 장면의 배우가 건너는 길만 적는다
+     (09 · 10 에는 journal 이 없고 06 에는 디스크 이미지가 없다). 둘 다 안 맞으면 그대로 */
+  const edgeName = (lb) => {
+    const jr = cast.some((a) => A[a].nm === 'JOURNAL'), rec = cast.some((a) => A[a].lane === 'disk' && kind(a) === 'list' && A[a].nm !== 'JOURNAL');
+    const keep = String(lb).split(' · ').filter((x) => (x === 'journal' ? jr : x === 'reconciliation' ? rec : true));
+    return keep.length ? keep.join(' · ') : lb;
+  };
+
   /* ── 알갱이 구역 ── */
   const R = {};
   let at = 0;
@@ -650,10 +658,34 @@ function make({ F, deck, labels, scene }) {
     take('t:rdr', 36);
     /* 층이 바뀌는 곳 — 덱의 EDGES 에 그 두 층의 경계가 있으면 점선과 이름(reconciliation · journal, oplog 복제) */
     const CUTS = [];
-    lanes.forEach((L, li) => { if (!li) return; const pl = A[lanes[li - 1].a].lane, cl = A[L.a].lane, e = pl !== cl && (deck.EDGES || []).find((x) => x.after === pl && x.before === cl); if (e) CUTS.push({ li, lb: e.lb, hot: e.hot }); });
+    lanes.forEach((L, li) => { if (!li) return; const pl = A[lanes[li - 1].a].lane, cl = A[L.a].lane, e = pl !== cl && (deck.EDGES || []).find((x) => x.after === pl && x.before === cl); if (e) CUTS.push({ li, lb: edgeName(e.lb), hot: e.hot }); });
     const cutLb = CUTS.map(() => label('aq'));
     /* 읽는 시각의 줄이 SNAPSHOT 이면 이름에 그 키를 붙인다 — 위의 'SNAPSHOT · 트랜잭션 id' 와 같은 이름이 둘이었다(02) */
     const titleOf = (L) => (L.k === 'rl' && L.a === M.IDSNAP ? A[L.a].nm + '  ·  read_timestamp' : A[L.a].nm);
+    /* 같은 시각의 표시 — 값의 머리(수 + 단위)가 같고, 덧붙인 말이 많아야 하나, 색이 같으면 이름표 하나로 :
+       'oldest · pinned  1000 s  ·  stable − 300 s'(09), '가져감 · journal · 적용  ts 101 (journal 뒤)'(06 / 7).
+       따로 두면 둘째 이름표가 첫째의 폭만큼 눈금에서 밀려났다(09 / 2 의 pinned 가 260 px) */
+    const HEAD = /^(?:ts\s+)?\d[\d,]*(?:\.\d+)?(?:\u00a0(?:s|ms|%|GB|MB|KB))?/;
+    const merged = (ms, off = false) => {
+      const out = new Map(), by = new Map();
+      if (off) { for (const m of ms) out.set(m.k, { txt: m.txt, vis: true, keys: [m.k] }); return out; }
+      for (const m of ms) { if (!by.has(m.n)) by.set(m.n, []); by.get(m.n).push(m); }
+      for (const g of by.values()) {
+        const vs = g.map((m) => (m.txt.startsWith(m.k + '  ') ? m.txt.slice(m.k.length + 2) : null)), hs = vs.map((v) => (v == null ? '' : (HEAD.exec(v) || [''])[0]));
+        const rests = vs.map((v, i) => (v == null ? '' : v.slice(hs[i].length)));
+        const ok = g.length > 1 && hs.every((h) => h && h === hs[0]) && rests.filter(Boolean).length <= 1 && g.every((m) => m.tn === g[0].tn);
+        if (!ok) { for (const m of g) out.set(m.k, { txt: m.txt, vis: true, keys: [m.k] }); continue; }
+        const txt = g.map((m) => m.k).join(' · ') + '  ' + hs[0] + (rests.find(Boolean) || '');
+        g.forEach((m, j) => out.set(m.k, { txt, vis: j === 0, keys: g.map((x) => x.k) }));
+      }
+      return out;
+    };
+    /* 버전 막대의 이름 — id 가 RecordId 면(한 문서의 버전들) 그 값으로. 단계들이 c = 500 · 600 · 700 으로 말한다(09) */
+    const verTxt = (id, c) => (/^RecordId\b/.test(id) && c != null ? `c = ${c}` : id);
+    /* 읽기가 보는 버전의 초록 — 그 스텝이 그 값을 말하거나(kv · 읽기의 'c = N') 그 버전의 줄을 건드릴 때만.
+       읽기를 여는 스텝(09 / 3)에서 이미 초록이면 다음 스텝(어디서 찾았나)의 요점이 한 스텝 먼저 나왔다 */
+    const named = (s, c) => cast.some((a2) => kind(a2) === 'kv' && Object.values(s[a2] || {}).some((v) => cOf(bare(v)) === c)) || (!!M.READS && (s[M.READS] || []).some((x) => cOf(x.sub) === c));
+    const seenOn = (s, d) => !!d.seen && !d.seen.wait && (named(s, d.seen.c) || lanes.some((L) => L.k === 'ver' && on(s, L.a) && d.vers.some((v) => v.h === L.a && v.c === d.seen.c)));
     panels.time = {
       id: 'time', rank: 1, actors: lanes.map((L) => L.a), lanes,
       tx(s, t) {
@@ -662,8 +694,8 @@ function make({ F, deck, labels, scene }) {
           const a = L.a, o = on(s, a);
           t.set(L.title, [titleOf(L), o]);
           if (L.k === 'mk' || L.k === 'rl') {
-            const ms = d.marks.get(a), ns = d.notes.get(a);
-            for (const k of L.keys) { const m = ms.find((x) => x.k === k); t.set(L.lb[k], [m ? esc(m.txt) : '', o && (modOf(s, a).has(k) || !s.chg[a]), m ? m.tn : '', !!m, true]); }
+            const ms = d.marks.get(a), ns = d.notes.get(a), mg = merged(ms, L.nomerge);
+            for (const k of L.keys) { const m = ms.find((x) => x.k === k), g = m && mg.get(k); t.set(L.lb[k], [m ? esc(g.txt) : '', o && !!g && (g.keys.some((kk) => modOf(s, a).has(kk)) || !s.chg[a]), m ? m.tn : '', !!m && g.vis, true]); }
             /* 숫자가 없는 값 — 줄 이름 아래(한 줄에 하나)이거나 선 아래 한 줄에 이어서. 줄이 덜 높아지는 쪽을 geo 가 고른다 */
             t.set(L.note, [ns.map(([k, v]) => `${esc(k)}  <span class="q-v">${val(v)}</span>`).join(L.nmode === 'g' ? '\n' : '    /    '), o, '', ns.length > 0, true]);
           } else {
@@ -672,8 +704,8 @@ function make({ F, deck, labels, scene }) {
               : L.k === 'pt' ? false : d.reads.some((r) => r.id === id));
             for (const id of L.ids) {
               const it = s[a].find((x) => x.id === id && x.tag !== 'free');
-              const txt = !it ? '' : L.k === 'rd' ? `<span class="q-i">${esc(id)}</span>  ${esc(it.sub)}` : esc(id);
-              const sv = L.k === 'ver' && d.seen && !d.seen.wait && d.vers.some((v) => v.h === a && v.id === id && v.c === d.seen.c);
+              const txt = !it ? '' : L.k === 'rd' ? `<span class="q-i">${esc(id)}</span>  ${esc(it.sub)}` : L.k === 'ver' ? esc(verTxt(id, cOf(it.sub))) : esc(id);
+              const sv = L.k === 'ver' && seenOn(s, d) && d.vers.some((v) => v.h === a && v.id === id && v.c === d.seen.c);
               t.set(L.lb[id], [txt, (o && !!it && hotIt(s, a, id)) || sv, it ? (it.tag === 'x' ? 'red' : sv ? 'green' : it.tag === 'wait' ? 'gold' : '') : '', !!it && placed(id), true]);
             }
             t.set(L.note, ['', false, '', false]);
@@ -689,6 +721,13 @@ function make({ F, deck, labels, scene }) {
         const GW = Math.round(Math.min(Math.max(110, w * 0.2), 140, Math.max(78, ...lanes.map((L) => widthOf(L.title, esc(titleOf(L))) + 12))));
         const ax0 = GW, ax1 = w - (ZW ? ZW + 10 : 0);
         for (const L of lanes) { wrap(L.title, GW - 6); wrap(L.note, w - ax0); if (L.cap) wrap(L.cap, w - ax0); }
+        /* 합친 이름표가 축보다 넓으면 그 줄은 합치지 않는다(13 / 10 의 460 다섯 이름이 768 에서 488 px) — 폭마다 다시 정한다 */
+        let re = false;
+        for (const L of lanes) if (L.k === 'mk' || L.k === 'rl') {
+          const wide = all.some((s2) => [...merged(M.TSD.get(s2).marks.get(L.a)).values()].some((g2) => g2.keys.length > 1 && g2.vis && widthOf(L.lb[g2.keys[0]], esc(g2.txt)) > ax1 - ax0));
+          if (!!L.nomerge !== wide) { L.nomerge = wide; re = true; }
+        }
+        if (re) retext();
         const per = new Map();
         const XS = new Map();
         for (const s of all) { const [lo, hi] = M.domOf(s); XS.set(s, (n) => ax0 + ((n - lo) / (hi - lo)) * (ax1 - ax0)); }
@@ -700,12 +739,12 @@ function make({ F, deck, labels, scene }) {
             let items = [];
             if (L.k === 'mk' || L.k === 'rl') {
               /* 오른쪽 끝은 축의 끝 — '커밋 전' 칸(ZW)으로 넘어가면 그 점선 테두리를 지났다(06 / 7 의 journal ts 101) */
-              const st = pack(d.marks.get(L.a).map((m) => ({ id: m.k, cx: X(m.n), w: widthOf(L.lb[m.k], T.get(L.lb[m.k])[0]) })), ax0 - 4, ax1);
+              const st = pack(d.marks.get(L.a).filter((m) => T.get(L.lb[m.k])[3] !== false).map((m) => ({ id: m.k, cx: X(m.n), w: widthOf(L.lb[m.k], T.get(L.lb[m.k])[0]) })), ax0 - 4, ax1);
               rows[li] = Math.max(rows[li], st.rows); info.L[li] = st.out; return;
             }
             if (L.k === 'ver') {
               const zs = d.vers.filter((v) => v.h === L.a && v.zone);
-              items = d.vers.filter((v) => v.h === L.a && !/^ts \d+$/.test(v.id)).map((v) => { const ww = widthOf(L.lb[v.id], esc(v.id)); const zi = zs.indexOf(v); const x = v.zone ? zoneX + (zi - (zs.length - 1) / 2) * 14 : v.start != null ? X(v.start) : null; return x == null ? null : { id: v.id, cx: v.zone ? x : x + ww / 2 - 2, w: ww, pins: [x] }; }).filter(Boolean);
+              items = d.vers.filter((v) => v.h === L.a && !/^ts \d+$/.test(v.id)).map((v) => { const ww = widthOf(L.lb[v.id], esc(verTxt(v.id, v.c))); const zi = zs.indexOf(v); const x = v.zone ? zoneX + (zi - (zs.length - 1) / 2) * 14 : v.start != null ? X(v.start) : null; return x == null ? null : { id: v.id, cx: v.zone ? x : x + ww / 2 - 2, w: ww, pins: [x] }; }).filter(Boolean);
             } else if (L.k === 'pt') { info.L[li] = []; rows[li] = 0; return; }   /* 칸의 id 는 'ts N' — 아래 눈금과 설명 줄의 첫머리가 이미 적는다 */
             else if (L.k === 'rd') {
               /* 읽기는 한 줄에 하나 — 점은 그 시각에, 글은 점의 넓은 쪽. 어느 쪽에도 안 들어가면 그 폭으로 접는다(아래 rdW) */
@@ -782,7 +821,7 @@ function make({ F, deck, labels, scene }) {
       pose(c) {
         const g = this.g, { s, prev } = c, d = M.TSD.get(s), dp = prev ? M.TSD.get(prev) : null, info = g.per.get(s), ip = prev ? g.per.get(prev) : null;
         const ox = this.ox, oy = this.oy, end = c.end;
-        const seenC = d.seen && !d.seen.wait ? d.seen.c : null;
+        const seenC = seenOn(s, d) ? d.seen.c : null;
         lanes.forEach((L, li) => {
           const yL = oy + g.ly[li].yL, lit = on(s, L.a) && !end;
           if (L.k === 'mk' || L.k === 'rl') {
@@ -800,7 +839,7 @@ function make({ F, deck, labels, scene }) {
               const v = d.vers.find((u) => u.h === L.a && u.id === id), pv = dp && dp.vers.find((u) => u.h === L.a && u.id === id);
               const xa = v ? this.vx(s, v, g) : null;
               if (xa == null && !(pv && !end && this.vx(prev, pv, g) != null)) { c.hideK(key); continue; }
-              const span = (vv, st, gg) => { const x0 = this.vx(st, vv, gg); if (vv.zone) return [x0 - 22, x0 + 22]; const inf = gg.per.get(st); return [x0, vv.stop != null ? inf.X(vv.stop) - 3 : g.ax1]; };
+              const span = (vv, st, gg) => { const x0 = this.vx(st, vv, gg); if (vv.zone) return [x0 - 22, x0 + 22]; const inf = gg.per.get(st); return [x0, vv.stop != null ? inf.X(vv.stop) - 8 : g.ax1]; };   /* 다음 버전과 8 px 띄운다 — 3 px 로는 두 막대가 하나로 읽혔다(09 의 history store) */
               const [a1, b1] = v && xa != null ? span(v, s, g) : span(pv, prev, g);
               const [a0, b0] = pv && !end && this.vx(prev, pv, g) != null ? span(pv, prev, g) : [a1, b1];
               const lo = U.lerp(a0, a1, c.mv), hi2 = U.lerp(b0, b1, c.mv), born = v && !pv && !end, from = born && c.act && c.act.t === L.a ? c.src : null;
@@ -880,6 +919,17 @@ function make({ F, deck, labels, scene }) {
             const z = cv[cv.length - 1], x = ox + this.vx(s, z, g), down = !z.zone && iv.stop != null && z.start === iv.stop;
             const x2 = down ? x : z.zone ? ox + (iv.stop != null ? info.X(iv.stop) : g.ax1) - 3 : ox + info.X(iv.start);
             ctx.globalAlpha = 0.4 * o; ctx.setLineDash([2, 4]); arrow(ctx, x, yL + 7, x2, oy + g.ly[im].yL - 8); ctx.setLineDash([]);
+          }
+        }
+        /* 시간 창 — 손잡이의 창(minSnapshotHistoryWindowInSeconds)이 있으면 TIMESTAMPS 줄 아래에 oldest 에서 stable 까지 꺾쇠.
+           audit 이 oldest = stable − 창 을 확인하므로 그 폭이 곧 창이다 */
+        const tl = lanes.findIndex((L) => L.k === 'mk' && A[L.a].nm === 'TIMESTAMPS');
+        if (M.WIN != null && tl >= 0) {
+          const ms = d.marks.get(lanes[tl].a), mo = ms.find((m) => m.k === 'oldest'), mst = ms.find((m) => m.k === 'stable');
+          if (mo && mst && mst.n > mo.n) {
+            const a2 = lanes[tl].a, hot = on(s, a2) && (['oldest', 'stable'].some((k) => modOf(s, a2).has(k)) || !s.chg[a2]), y = oy + g.ly[tl].yL + 5, x0 = ox + info.X(mo.n), x1 = ox + info.X(mst.n);
+            ctx.globalAlpha = (hot ? 0.75 : 0.35) * o; ctx.strokeStyle = hot ? css.gold : css.faint; ctx.lineWidth = 1;
+            seg(ctx, x0, y, x1, y); seg(ctx, x0, y - 3, x0, y + 3); seg(ctx, x1, y - 3, x1, y + 3);
           }
         }
         /* 읽는 시각 */
@@ -1460,15 +1510,20 @@ function make({ F, deck, labels, scene }) {
     /* 고르는 순서 — 덜 촘촘한 것, 판 사이가 넓은 것, 한 열을 먼저. 들어가는 첫 배치, 없으면 가장 낮은 것 */
     const lay2 = (gap, cols) => {
       if (cols === 1) { const one = stack(P, W, gap); return { cols: [{ x0: L.x0, w: W, n: P.length }], h: one.h, gap }; }
+      /* 글 블록은 위에 온 폭으로, 나머지는 그 아래 두 열 — kv 가 넷인 장면(10)에서 반 폭의 2 × 2 로 두자 값마다 줄이 꺾였고 아래 1/3 이 비었다 */
+      const top = cols === 'top' ? stack([P[0]], W, gap).h + gap : 0, Q = cols === 'top' ? P.slice(1) : P, i1 = cols === 'top' ? 1 : 0;
       const w2 = (W - 28) / 2;
       let best = null;
-      for (let k = 1; k < P.length; k++) { const h = Math.max(stack(P.slice(0, k), w2, gap).h, stack(P.slice(k), w2, gap).h); if (!best || h < best.h) best = { cols: [{ x0: L.x0, w: w2, n: k }, { x0: L.x0 + w2 + 28, w: w2, n: P.length - k }], h, gap }; }
+      for (let k = 1; k < Q.length; k++) {
+        const h = top + Math.max(stack(Q.slice(0, k), w2, gap).h, stack(Q.slice(k), w2, gap).h);
+        if (!best || h < best.h) best = { cols: [...(i1 ? [{ x0: L.x0, w: W, n: 1, y0: 0 }] : []), { x0: L.x0, w: w2, n: k, y0: top }, { x0: L.x0 + w2 + 28, w: w2, n: Q.length - k, y0: top }], h, gap };
+      }
       return best;
     };
     let plan = null, low = null;
     for (const [dn, gap] of [[false, 22], [false, 14], [false, 8], [true, 10], [true, 6]]) {
       if (dn !== DN) { dense(dn); wcache.clear(); }
-      for (const cols of W >= 640 && P.length >= 2 ? [1, 2] : [1]) {
+      for (const cols of W >= 640 && P.length >= 2 ? [1, ...(TEXTS.length >= 4 && P[0] === panels.text && P.length >= 3 ? ['top'] : []), 2] : [1]) {
         const c = lay2(gap, cols);
         c.dn = dn;
         if (!low || c.h < low.h) low = c;
@@ -1481,15 +1536,15 @@ function make({ F, deck, labels, scene }) {
     /* 고른 배치를 다시 쌓는다 — 칸 줄은 폭에 따라 설명을 아래로 모으고(capMode), 그 글이 지금의 글이어야 한다 */
     let i0 = 0;
     for (const col of plan.cols) { const ps = P.slice(i0, i0 + col.n); i0 += col.n; cache.clear(); Object.assign(col, stack(ps, col.w, plan.gap)); }
-    plan.h = Math.max(...plan.cols.map((c) => c.h));
+    plan.h = Math.max(...plan.cols.map((c) => (c.y0 || 0) + c.h));
     if (plan.h > H + 1) console.error(`wiredtiger ${sc.num} 세계 : 높이 ${Math.round(plan.h)} 가 무대 ${Math.round(H)} 를 넘는다 (${L.W}×${L.H})`);
     const dy = L.narrow ? 0 : Math.max(0, (H - plan.h) / 2);
     G = { L, edges: [] };
     for (const lb of made) place(lb, L.x0, L.y0);
     for (const col of plan.cols) for (const q of col.out) {
-      q.p.w = col.w; q.p.g = q.g; q.p.ox = col.x0; q.p.oy = L.y0 + dy + q.y;
+      q.p.w = col.w; q.p.g = q.g; q.p.ox = col.x0; q.p.oy = L.y0 + dy + (col.y0 || 0) + q.y;
       q.p.lay(q.g, q.p.ox, q.p.oy);
-      if (q.edge != null) G.edges.push({ x0: col.x0, x1: col.x0 + col.w, y: L.y0 + dy + q.edge });
+      if (q.edge != null) G.edges.push({ x0: col.x0, x1: col.x0 + col.w, y: L.y0 + dy + (col.y0 || 0) + q.edge });
     }
     if (EDGE && G.edges[0]) place(edgeLb, G.edges[0].x1, G.edges[0].y + 3, 'r', 't');
     for (let i = 0; i < N; i++) { dust[i * 2] = L.x0 + rnd() * W; dust[i * 2 + 1] = L.y0 + rnd() * H; }
@@ -1553,7 +1608,7 @@ function make({ F, deck, labels, scene }) {
       setO(lb, vis && txt ? dimO * (emph ? 1 : 0.42) * (same ? 1 : fade) : 0);
     }
     setO(edgeLb, EDGE && G.edges.length ? dimO * 0.42 : 0);
-    if (EDGE && edgeLb.t !== EDGE.lb) setText(edgeLb, EDGE.lb);
+    if (EDGE && edgeLb.t !== edgeName(EDGE.lb)) setText(edgeLb, edgeName(EDGE.lb));
     const s = S[Math.min(k, NK - 1)], act = k < NK && s.step.act ? s.step.act : null;
     const o = act ? show(p, 0.06, 0.12) * (1 - show(p, 0.44, 0.52)) * (1 - b) : 0;
     if (act) {

@@ -94,7 +94,8 @@ function make({ F, deck, labels, scene }) {
     const mem = lane('mem'), disk = lane('disk');
     if (mem) t.set(memLb, [`${mem.lb}  ·  ${mem.note}`, on('chain')]);
     if (disk) t.set(diskLb, [`${disk.lb}  ·  ${disk.note}`, on('img')]);
-    if (EDGE) t.set(edgeLb, [EDGE.lb, false]);
+    /* 경계 이름 — 이 장면에는 journal 이 없다. 덱의 'reconciliation · journal' 중 건너는 길만 */
+    if (EDGE) t.set(edgeLb, [String(EDGE.lb).split(' · ').filter((x) => x !== 'journal' || sc.cast.some((a) => A[a] && A[a].nm === 'JOURNAL')).join(' · '), false]);
     t.set(headLb, [`${A.chain.nm}  ·  head`, on('chain'), s.looked ? 'gold' : '']);
     for (const id of NIDS) {
       const it = s.chain.find((x) => x.id === id);
