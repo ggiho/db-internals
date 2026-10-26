@@ -1647,7 +1647,7 @@ const SCENES = [
 {
   num:'12', tab:'Observability', title:'Lock Diagnostics: metadata_locks & data_locks',
   sub:'두 층을 두 표로 — metadata_locks 와 data_locks',
-  cast:['stmt','ps','mdl','rl'],
+  cast:['stmt','ps','mdl','tl','rl'],
   knobs:[
     ['performance_schema','ON','8.4 에서는 metadata lock 계측기(wait/lock/metadata/sql/mdl)가 기본으로 켜져 있다']],
   watch:[
@@ -1660,14 +1660,14 @@ const SCENES = [
     stmt:{ kv:{ '알고 싶은 것':'—', '볼 표':'—' } },
     ps:{ items:[{ id:'(비었다)', tag:'free', sub:'아직' }] },
     mdl:{ items:[{ id:'trx 110  ·  t', tag:'hold', sub:'SHARED_WRITE  ·  GRANTED' }] },
-    rl:{ items:[
-      { id:'t  TABLE', tag:'hold', sub:'IX' },
-      { id:'PRIMARY  id=20', tag:'x', sub:'X,REC_NOT_GAP' }] },
+    /* 테이블 락은 TABLE LOCKS 에(01 – 08 과 같은 배우) */
+    tl:{ items:[{ id:'t', tag:'hold', sub:'IX  ·  trx 110' }] },
+    rl:{ items:[{ id:'PRIMARY  id=20', tag:'x', sub:'trx 110  ·  X,REC_NOT_GAP' }] },
   },
   steps:[
   { act:{ f:'stmt', t:'ps', lb:'"누가 이 테이블을 붙잡고 있나"' },
     note:'table name 단위 문제 → metadata_locks',
-    why:'ALTER 나 DROP 이 안 끝날 때, 또는 SELECT 이 Waiting for table metadata lock 일 때. 행 락(row lock) 표에는 아무것도 없다.',
+    why:'ALTER 나 DROP 이 안 끝날 때, 또는 SELECT 이 Waiting for table metadata lock 일 때. 원인은 data_locks 에 없다 — 거기엔 trx 110 의 평범한 행 락뿐이고, 막힌 것은 테이블 이름이다.',
     key:'두 표를 <em>증상으로 갈라 쓴다</em> — 테이블이 안 열리면 MDL, 특정 행이 안 되면 data_locks.',
     ref:'sql/mdl.cc', sym:'MDL_context::acquire_lock',
     fact:['{0, "Waiting for table metadata lock", 0, PSI_DOCUMENT_ME},',
@@ -1675,6 +1675,7 @@ const SCENES = [
           ['storage/perfschema/table_md_locks.cc','LOCK_TYPE VARCHAR(32) not null,'],
           ['storage/perfschema/table_md_locks.cc','LOCK_STATUS VARCHAR(32) not null,']],
     ops:{ stmt:{ set:{ '알고 싶은 것':'테이블이 왜 안 열리나', '볼 표':'P_S.metadata_locks|gold' } },
+          mdl:{ add:[{ id:'trx 111  ·  t', tag:'wait', sub:'EXCLUSIVE  ·  PENDING  (ALTER)' }] },
           ps:{ del:['(비었다)'], add:[{ id:'metadata_locks', tag:'hold', sub:'LOCK_STATUS 로 원인·피해자 구분' }] } } },
 
   { act:{ f:'stmt', t:'rl', lb:'"어떤 모드로 잠겼나"' },
@@ -1689,7 +1690,7 @@ const SCENES = [
     ops:{ stmt:{ set:{ '알고 싶은 것':'이 행이 왜 안 고쳐지나', '볼 표':'P_S.data_locks|gold' } },
           ps:{ add:[{ id:'data_locks', tag:'x', sub:'LOCK_MODE · INDEX_NAME · LOCK_DATA' }] } } },
 
-  { act:{ f:'stmt', t:'ps', lb:'"누가 누구를 막았나"' },
+  { act:{ f:'stmt', t:'ps', lb:'"대기는 어떻게 끝나나"' },
     note:'대기는 영원하지 않다 — 시간 · KILL · 고리 셋 중 하나로 끝난다',
     why:'대기 중인 트랜잭션은 lock_wait_check_and_cancel 이 주기적으로 본다 — innodb_lock_wait_timeout(기본 50초)을 넘기면 DB_LOCK_WAIT_TIMEOUT 으로, KILL 되면 DB_INTERRUPTED 로 끝낸다. 고리는 따로 lock_wait_find_and_handle_deadlocks 가 찾아 DB_DEADLOCK 으로 한쪽을 죽인다 — innodb_deadlock_detect 가 켜져 있을 때만이다.',
     key:'"멈췄다" 를 볼 때 먼저 가릴 것은 <em>어느 쪽인가</em>다. 타임아웃(1205)은 <em>기다린 쪽</em>이 실패하고, deadlock(1213)은 InnoDB 가 <em>희생자를 고른다</em> — 잰 값: 서로의 행을 기다린 두 트랜잭션 중 하나만 1213 을 받고 다른 하나는 끝까지 갔다.',
@@ -1700,9 +1701,10 @@ const SCENES = [
           'if (!trx_is_interrupted(trx) && !timeout) {',
           'trx->error_state = DB_LOCK_WAIT_TIMEOUT;',
           'chosen_victim->lock.was_chosen_as_deadlock_victim = true;',
-          ['storage/innobase/handler/ha_innodb.cc','nullptr, nullptr, 50, 1, 1024 * 1024 * 1024, 0);']] },
+          ['storage/innobase/handler/ha_innodb.cc','nullptr, nullptr, 50, 1, 1024 * 1024 * 1024, 0);']],
+    ops:{ stmt:{ set:{ '알고 싶은 것':'대기는 언제 끝나나', '볼 표':'1205 timeout  ·  1213 deadlock|gold' } } } },
 
-  { look:{ ps:true },
+  { look:{ ps:true, rl:true },
     note:'대기 관계 — data_lock_waits 가 pair 로 제시',
     why:'REQUESTING_ENGINE_TRANSACTION_ID 와 BLOCKING_ENGINE_TRANSACTION_ID 가 짝으로 나와 조인 없이 관계를 읽을 수 있다. 대기 하나가 막는 쪽 여럿과 짝지어지면 find_blockers 가 찾은 수만큼 줄이 생긴다 — deadlock 검출기의 그래프(대기 하나에 간선 하나)와는 다르다. 잰 값: 한 행을 두고 기다리자 한 줄이 생겼고, sys.innodb_lock_waits 는 거기에 KILL 문까지 붙였다.',
     key:'deadlock 은 이 표에 거의 남지 않는다 — innodb_deadlock_detect 가 고리를 찾는 즉시 한쪽을 죽이기 때문이다. 이 표가 보여 주는 것은 <em>지금 오래 기다리는 줄</em>이다.',
@@ -1711,7 +1713,8 @@ const SCENES = [
           ['storage/perfschema/table_data_lock_waits.cc','BLOCKING_ENGINE_TRANSACTION_ID BIGINT unsigned,'],
           'locksys::find_blockers(wait_lock, [&](const lock_t &curr_lock) {',
           ['storage/innobase/include/lock0iter.h','/** Calls visitor for each lock_t object which is a reason that wait_lock has to']],
-    ops:{ ps:{ add:[{ id:'data_lock_waits', tag:'wait', sub:'REQUESTING ↔ BLOCKING' }] },
+    ops:{ ps:{ add:[{ id:'data_lock_waits', tag:'wait', sub:'REQUESTING trx 112 ↔ BLOCKING trx 110' }] },
+          rl:{ add:[{ id:'PRIMARY  id=20 (112)', tag:'wait', sub:'trx 112  ·  X,REC_NOT_GAP  ·  WAITING' }] },
           stmt:{ set:{ '알고 싶은 것':'누가 누구를 기다리나', '볼 표':'P_S.data_lock_waits|gold' } } } },
 
   { look:{ ps:true, stmt:true },
@@ -1723,9 +1726,10 @@ const SCENES = [
           ['storage/innobase/handler/ha_innodb.cc','"Print all deadlocks to MySQL error log (off by default)", nullptr, nullptr,'],
           ['storage/innobase/srv/srv0srv.cc','bool srv_print_innodb_lock_monitor = false;'],
           'rewind(lock_latest_err_file);',
-          'if (lock_deadlock_found) {'] },
+          'if (lock_deadlock_found) {'],
+    ops:{ stmt:{ set:{ '알고 싶은 것':'지난 deadlock 은', '볼 표':'LATEST DETECTED DEADLOCK|gold' } } } },
 
-  { look:{ ps:true },
+  { look:{ ps:true, mdl:true, tl:true, rl:true },
     note:'정리 — 층을 알면 표가, 표를 알면 mode 가 읽힌다',
     why:'MDL(테이블 이름) → metadata_locks. InnoDB 테이블·행 → data_locks. 대기 관계 → data_lock_waits.',
     key:'이 덱의 전체가 한 줄로 압축된다 — <em>락은 두 층에서 잡히고, 각 층은 자기 표를 갖는다</em>.',
