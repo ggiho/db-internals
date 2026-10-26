@@ -1306,7 +1306,7 @@ const SCENES = [
     ['I_S.INNODB_TABLESTATS','CLUST_INDEX_SIZE 가 줄지 않으면 페이지가 헐거워진 것']],
   links:[['08','반대 방향 연산'],['11','비리프 병합 — 책은 분리 키를 내린다'],['04','여유 공간의 값']],
   init:{
-    op:{ kv:{ '삭제할 키':'16', '대상 리프':'키 2개', '임계값':'MERGE_THRESHOLD 50%' } },
+    op:{ kv:{ '삭제할 키':'16', '대상 리프':'키 2개', '임계값':'MERGE_THRESHOLD 50%', '실측':'—' } },
     bt:{ items:[
       { id:'parent', lvl:0, keys:'| 15 |', fill:.3 },
       { id:'leaf L', lvl:1, keys:'12 13', fill:.33 },
@@ -1315,9 +1315,9 @@ const SCENES = [
       { id:'leaf L', tag:'clean', sub:'2/6 · 33%' },
       { id:'leaf R', tag:'clean', sub:'2/6 · 33%' } ] },
     blk:{ items:[
-      { id:'헤더', sz:2, tag:'hdr', sub:'120B 까지' },
-      { id:'15 16', sz:3, tag:'', sub:'2개만 남았다' },
-      { id:'빈 곳', sz:8, tag:'free', sub:'낭비' } ],
+      { id:'헤더', sz:1, tag:'hdr', sub:'120B 까지' },
+      { id:'15 16', sz:5, tag:'', sub:'2개만 남았다' },
+      { id:'빈 곳', sz:10, tag:'free', sub:'낭비' } ],
       byl:{ l:'리프 R 의 블록', r:'33% 만 쓴다' } },
   },
   cite:[
@@ -1347,8 +1347,9 @@ const SCENES = [
           'When the leaf is located, the key and the value associated with it are removed'],
     ops:{ bt:{ set:{ 'leaf R':{ keys:'15', fill:.17 } } },
           node:{ set:{ 'leaf R':{ tag:'x', sub:'1/6 · 17% · 임계값 미달' } } },
-          blk:{ set:{ '15 16':{ id:'15', sz:2, tag:'red', sub:'하나만' },
-                      '빈 곳':{ id:'빈 곳', sz:9, tag:'free', sub:'83% 낭비' } } },
+          blk:{ set:{ '15 16':{ id:'15', sz:2.5, tag:'red', sub:'하나만' },
+                      '빈 곳':{ id:'빈 곳', sz:12.5, tag:'free', sub:'83% 낭비' } },
+                byl:{ r:'17% 만 쓴다' } },
           op:{ set:{ '대상 리프':'키 1개|red' } } } },
 
   { look:{ node:true },
@@ -1376,7 +1377,7 @@ const SCENES = [
                      'leaf R':{ keys:'(비었다)', fill:0 } } },
           node:{ set:{ 'leaf L':{ tag:'ok', sub:'3/6 · 50%' },
                        'leaf R':{ tag:'x', sub:'비었다 · 제거 대상' } } },
-          blk:{ del:['15'], set:{ '빈 곳':{ sz:11, sub:'15 는 L 로 옮겨 갔다' } } } } },
+          blk:{ del:['15'], set:{ '빈 곳':{ sz:15, sub:'15 는 L 로 옮겨 갔다' } }, byl:{ r:'비었다' } } } },
 
   { act:{ f:'bt', t:'bt', lb:'2·3단계 · 부모에서 포인터를 빼고 노드를 없앤다' },
     note:'책 2·3단계 — parent 에서 오른쪽 pointer 제거, 빈 node 반납',
@@ -1390,10 +1391,11 @@ const SCENES = [
     cite:['Remove the right node pointer from the parent (or demote it in the case of a nonleaf merge)'],
     ops:{ bt:{ del:['leaf R'], set:{ 'parent':{ keys:'| (키 없음) |', fill:.1 } } },
           node:{ del:['leaf R'], set:{ 'leaf L':{ tag:'ok', sub:'3/6 · sibling 흡수 완료' } } },
-          blk:{ del:['헤더'], set:{ '빈 곳':{ id:'반납된 page', sz:13, tag:'free', sub:'btr_page_free — 다시 할당될 수 있다' } } },
+          blk:{ del:['헤더'], set:{ '빈 곳':{ id:'반납된 page', sz:16, tag:'free', sub:'btr_page_free — 다시 할당될 수 있다' } },
+                byl:{ r:'트리에서 빠져 반납됐다' } },
           op:{ set:{ '대상 리프':'병합 완료|green' } } } },
 
-  { look:{ blk:true },
+  { look:{ blk:true, op:true },
     note:'"너무 비었다" 의 기준 — code 에 수식으로',
     why:'BTR_CUR_PAGE_COMPRESS_LIMIT(index) 는 (UNIV_PAGE_SIZE × index->merge_threshold) / 100 이다. merge_threshold 기본값은 DICT_INDEX_MERGE_THRESHOLD_DEFAULT = 50 이므로 16KB × 50 / 100 = 8192바이트다. 주석이 그대로 말한다 — 비관적 삭제(pessimistic delete)에서 페이지 데이터 크기가 이 한계 아래로 떨어지면 이웃과 병합을 시도한다.',
     key:'절반이라는 기준은 <em>인덱스마다 바꿀 수 있다</em>. merge_threshold 는 인덱스 속성이므로, 삭제가 많은 인덱스만 문턱을 낮춰 병합을 덜 하게 만들 수 있다.',
@@ -1401,7 +1403,8 @@ const SCENES = [
     fact:['#define BTR_CUR_PAGE_COMPRESS_LIMIT(index)',
           ['storage/innobase/include/dict0mem.h','constexpr uint32_t DICT_INDEX_MERGE_THRESHOLD_DEFAULT = 50;'],
           '((UNIV_PAGE_SIZE * (ulint)((index)->merge_threshold)) / 100)',
-          ['storage/innobase/include/dict0mem.h','in percent, merging it to a neighbor is tried */ unsigned merge_threshold : 6;']] },
+          ['storage/innobase/include/dict0mem.h','in percent, merging it to a neighbor is tried */ unsigned merge_threshold : 6;']],
+    ops:{ op:{ set:{ '임계값':'16 KB × 50 / 100 = 8,192 B|gold' } } } },
 
   { look:{ blk:true, op:true },
     note:'block 하나 반납 — 그러나 InnoDB 는 이걸 잘 하지 않는다',
@@ -1411,6 +1414,7 @@ const SCENES = [
     fact:['avail_space = fsp_get_available_space_in_free_extents(ib_table->space);',
           ['storage/innobase/fsp/fsp0fsp.cc','ulint n_free = space->free_len + n_free_up;'],
           'return (HA_ADMIN_TRY_ALTER);'],
+    ops:{ op:{ set:{ '실측':'40% 삭제 → 리프당 32.4행 · 8,975 B > 8,192 B · merge 1 / 3,705|red' } } },
     beat:1 },
   ],
 },
@@ -1473,7 +1477,7 @@ const SCENES = [
     fact:['avail_space = fsp_get_available_space_in_free_extents(ib_table->space);',
           'stats->delete_length = avail_space * 1024;',
           ['storage/innobase/fsp/fsp0fsp.cc','ulint n_free = space->free_len + n_free_up;']],
-    ops:{ op:{ set:{ 'Data_free':'흩어짐 그대로 · 연속 35,651,584|gold' } } } },
+    ops:{ op:{ set:{ 'Data_free':'6,291,456 그대로 · 연속 50% 삭제면 35,651,584|gold' } } } },
 
   { act:{ f:'op', t:'bt', lb:'5 KB 행 page 에서 59 · 60 삭제' },
     note:'길 2 — discard: 마지막 한 행을 지울 때',
@@ -1483,7 +1487,7 @@ const SCENES = [
     fact:['if (UNIV_UNLIKELY(page_get_n_recs(page) < 2) && UNIV_UNLIKELY(dict_index_get_page(index) != block->page.id.page_no())) {',
           '/* If there is only one record, drop the whole page in btr_discard_page, if this is not the root page */',
           ['storage/innobase/btr/btr0btr.cc','if (data_size > max_ins_size_reorg) {']],
-    ops:{ op:{ set:{ '표본':'약 5 KB 행 · page 당 3행', '삭제':'59 · 60 · 61 차례로', '리프 수':'41', '높이':'2', 'Data_free':'—' } },
+    ops:{ op:{ set:{ '표본':'약 5 KB 행 · page 당 3행', '삭제':'59 · 60', '리프 수':'41', '높이':'2', 'Data_free':'—' } },
           bt:{ del:['root','level 1','leaf'], add:[
             { id:'parent', lvl:0, keys:'리프 41개', fill:.05 },
             { id:'L', lvl:1, keys:'3행 · 여유 1,252B', fill:.92 },
@@ -1504,7 +1508,7 @@ const SCENES = [
     beat:1,
     ops:{ bt:{ del:['P'], set:{ 'parent':{ keys:'리프 40개' } } },
           node:{ set:{ 'discard':{ tag:'ok', sub:'61 삭제 때 1회 · 리프 41 → 40' } } },
-          op:{ set:{ '리프 수':'40|green' } } } },
+          op:{ set:{ '삭제':'61|red', '리프 수':'40|green' } } } },
 
   { act:{ f:'bt', t:'bt', lb:'level 1 이 page 하나로 줄었다' },
     note:'길 3 — lift: 레벨에 page 가 하나뿐일 때',
@@ -1522,14 +1526,17 @@ const SCENES = [
             { id:'leaf', lvl:1, keys:'926 page', fill:.73 } ] },
           node:{ set:{ 'lift':{ tag:'ok', sub:'80% 삭제 · 높이 3 → 2 · 루트 page 4' } } } } },
 
-  { look:{ node:true },
+  { look:{ node:true, op:true },
     note:'정리 — 세 길을 세는 카운터, 그리고 Data_free',
     why:'merge 와 lift 는 btr_compress 안에서 일어나 index_page_merge_successful 로 세고, discard 는 index_page_discards 로 센다. 합치지 못한 시도는 index_page_merge_attempts 에만 남는다.',
     key:'책의 underflow 는 <em>merge 하나</em>로 끝나지만 InnoDB 는 셋으로 갈린다. 어느 길이든 extent 를 통째로 비우지 못하면 <em>Data_free 는 그대로</em>다.',
     ref:'storage/innobase/btr/btr0btr.cc', sym:'btr_compress',
     fact:['MONITOR_INC(MONITOR_INDEX_MERGE_ATTEMPTS);',
           'merge_block = btr_lift_page_up(index, block, mtr); goto func_exit;',
-          'MONITOR_INC(MONITOR_INDEX_MERGE_SUCCESSFUL);'] },
+          'MONITOR_INC(MONITOR_INDEX_MERGE_SUCCESSFUL);'],
+    ops:{ node:{ set:{ 'merge':{ sub:'40% 1회 · 60% 1,854회 → index_page_merge_successful' },
+                       'discard':{ sub:'61 삭제 때 1회 → index_page_discards' },
+                       'lift':{ sub:'높이 3 → 2 → index_page_merge_successful' } } } } },
   ],
 },
 {
@@ -1545,14 +1552,14 @@ const SCENES = [
     ['SHOW ENGINE INNODB STATUS','BUFFER POOL 절 : 높이가 줄면 상주 상위 블록도 줄어든다']],
   links:[['10','전파의 출발점'],['09','반대 방향으로 높이가 바뀐다'],['06','분리 키 불변식']],
   init:{
-    op:{ kv:{ '삭제할 키':'10', '트리 높이':'3', '전파':'—' } },
+    op:{ kv:{ '원인':'하위 page 소멸 · 포인터 −1', '트리 높이':'3', '전파':'—' } },
     bt:{ items:[
       { id:'root', lvl:0, keys:'| 40 |', fill:.2 },
       { id:'internal L', lvl:1, keys:'| 10 |', fill:.33 },
       { id:'internal R', lvl:1, keys:'| 60 |', fill:.33 } ] },
     node:{ items:[
-      { id:'internal L', tag:'clean', sub:'키 1 / 3' },
-      { id:'internal R', tag:'clean', sub:'키 1 / 3' } ] },
+      { id:'internal L', tag:'dirty', sub:'키 1 / 3 · underfull' },
+      { id:'internal R', tag:'dirty', sub:'키 1 / 3 · underfull' } ] },
     cost:{ kv:{ '쓴 블록':'0', '높이 변화':'—' } },
   },
   cite:[

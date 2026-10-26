@@ -1206,7 +1206,9 @@ function model(F, deck, labels, sc, cssOf) {
           n.par.forEach((par, pj) => {
             const ks = par.kidsOf, j = ks.indexOf(n), A0 = anchorOf(a, kk, par, n, j, ks.length);
             if (!A0) return;
-            const bad = (par.bad || []).some((q) => q.c === n), shared = par.gapOf && par.gapOf.get(n) != null && ks.some((x) => x !== n && par.gapOf.get(x) === par.gapOf.get(n));
+            /* 낡은 분리 키가 있고 형제 중 비어 버린 자식이 있으면 빠질 포인터는 그 자식의 것 — 범위가 걸친 형제가 아니다(10/4) */
+            const gone = (par.bad || []).length ? ks.find((x) => x.P.lo == null && x.P.hi == null && !(x.P.chips && x.P.chips.length) && !(x.fill > 0)) : null;
+            const bad = gone ? n === gone : (par.bad || []).some((q) => q.c === n), shared = par.gapOf && par.gapOf.get(n) != null && ks.some((x) => x !== n && par.gapOf.get(x) === par.gapOf.get(n));
             /* 이 스텝에 새로 할당된 빈 노드 — 부모에는 아직 그 포인터가 없다(08/2 의 책 1단계). 칸을 나눠 갖는 자식처럼 점선 */
             const fresh = par.P.pipes && n.P.lo == null && n.P.hi == null && !(n.P.chips && n.P.chips.length) && !(TI(a, prevIdx[kk]).nodes || []).some((x) => x.id === n.id);
             const band = n.par.length > 1, cx = band ? C.x - C.w / 2 + (C.w * (pj + 0.5)) / n.par.length : C.x;
