@@ -273,10 +273,19 @@ function make({ F, deck, labels, scene }) {
         put(o, i, U.lerp(SP.x, heal.P.x, q) + jit[i * 2] * 8, U.lerp(SP.y, heal.P.y, q) - arc + jit[i * 2 + 1] * 8, q > 0 && q < 1 ? 0.9 : 0, 0.8, 0.1, 1.2, GREEN);
       }
     } else if (fid && s.items.some((x) => x.id === fid)) {
-      const P = posIn(s, fid), y0 = G.edgeY - 14, y1 = P.y - chh / 2 - 6, grow = show(p, 0.1, 0.4);
+      /* 평시 읽기 — compute 의 DB 인스턴스(작은 상자, 앞 STUB 알갱이)에서 그 복사본으로 곧은 선 하나 */
+      const STUB = 36, P = posIn(s, fid), bw = 30, bh = 12, by = G.edgeY - 8 - bh, y0 = G.edgeY - 8, y1 = P.y - chh / 2 - 6, grow = show(p, 0.1, 0.4);
       for (let m = 0; m < FLOW; m++) {
-        const i = f0 + m, u = m / (FLOW - 1), [x, y] = into(i, P.x + jit[i * 2] * 1.5, U.lerp(y0, y1, u));
-        put(o, i, x, y, u <= grow ? 0.9 * form : 0, 0.5, 0.04, 1.1, GOLD);
+        const i = f0 + m;
+        if (m < STUB) {
+          const d = ((m + 0.5) / STUB) * 2 * (bw + bh), x = d < bw ? P.x - bw / 2 + d : d < bw + bh ? P.x + bw / 2 : d < 2 * bw + bh ? P.x + bw / 2 - (d - bw - bh) : P.x - bw / 2;
+          const y = d < bw ? by : d < bw + bh ? by + (d - bw) : d < 2 * bw + bh ? by + bh : by + bh - (d - 2 * bw - bh);
+          const [xx, yy] = into(i, x, y);
+          put(o, i, xx, yy, 0.85 * form, 0, 0.03, 1.05, INK);
+          continue;
+        }
+        const u = (m - STUB) / (FLOW - STUB - 1), [x, y] = into(i, P.x, U.lerp(y0, y1, u));
+        put(o, i, x, y, u <= grow ? 0.9 * form : 0, 0.5, 0.02, 1.1, GOLD);
       }
     } else hide('flow');
     /* 표 막대 — 칸 V 개, 살아 있는 표만큼 찬다. 칸이 늘면(3 → 6) 새 칸은 끝 칸에서 나온다 */

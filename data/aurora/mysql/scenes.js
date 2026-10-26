@@ -25,9 +25,9 @@ const SCENES = [
 
   { look:{ chk:true },
     note:'cite 의 보증 범위 — 저장한 문서 문장과 글자 단위 일치',
-    why:'덱마다 인용 말뭉치를 따로 둔다(이 덱은 AWS 문서에서 그대로 옮긴 26문장). verify.js 가 스텝의 cite 구절을 그 말뭉치에서 찾지 못하면 오류를 낸다 — 공백과 대소문자만 정규화하고 그 밖은 글자 그대로다.',
+    why:'덱마다 인용 말뭉치를 따로 둔다(이 덱은 AWS 문서에서 그대로 옮긴 26구절). verify.js 가 스텝의 cite 구절을 그 말뭉치에서 찾지 못하면 오류를 낸다 — 공백과 대소문자만 정규화하고 그 밖은 글자 그대로다.',
     key:'그러니 cite 가 통과했다는 것은 <em>내가 문장을 지어내지 않았다</em>는 뜻이다. 그 문장이 사실인지는 AWS 가 보증할 몫이다.',
-    ops:{ chk:{ set:{ 'cite (문서)':'말뭉치 26문장과 대조', '대조되는 것':'문서 cite' } } } },
+    ops:{ chk:{ set:{ 'cite (문서)':'말뭉치 26구절과 대조', '대조되는 것':'문서 cite' } } } },
 
   { look:{ chk:true, grade:true },
     note:'fact 의 보증 범위 — InnoDB 쪽은 여전히 소스 등급',
@@ -58,7 +58,7 @@ const SCENES = [
 {
   num:'02', tab:'Compute · Storage', title:'Disaggregated Storage: Compute vs. Cluster Volume',
   sub:'인스턴스 하나여도 클러스터 — 볼륨이 여러 storage node 에 분산돼 있다',
-  cast:['op','wr','vol','cmp'],
+  cast:['op','wr','rd','vol','cmp'],
   knobs:[
     ['—','—','복제 정도는 인스턴스 수와 무관하다']],
   watch:[
@@ -68,10 +68,8 @@ const SCENES = [
   init:{
     op:{ kv:{ 'SQL':'UPDATE t SET c=200 WHERE id=5', '단계':'—' } },
     wr:{ kv:{ '역할':'쓰기 전담', 'buffer pool':'로컬', '데이터 파일':'—' } },
-    vol:{ items:[
-      { id:'AZ-a 복사본', tag:'clean', sub:'클러스터 볼륨' },
-      { id:'AZ-b 복사본', tag:'clean', sub:'클러스터 볼륨' },
-      { id:'AZ-c 복사본', tag:'clean', sub:'클러스터 볼륨' }] },
+    rd:{ items:[{ id:'리더 1', tag:'free', sub:'아직 없다' }] },
+    vol:{ items:[{ id:'클러스터 볼륨', tag:'hold', sub:'세 AZ 에 걸친 복사본 — 몇 개인지는 05' }] },
     cmp:{ kv:{ 'Aurora':'—', 'InnoDB':'—' } },
   },
   steps:[
@@ -101,7 +99,8 @@ const SCENES = [
     cite:["you can add a DB instance quickly because Aurora doesn't make a new copy of the table data. Instead, the DB instance connects to the shared volume that already contains all your data.",
           "The amount of replication is independent of the number of DB instances in your cluster."],
     ref:'storage/innobase/fil/fil0fil.cc', sym:'fil_space_create',
-    ops:{ cmp:{ set:{ 'Aurora':'노드 추가 = 볼륨 연결', 'InnoDB':'replica 추가 = 전체 복사' } } },
+    ops:{ cmp:{ set:{ 'Aurora':'노드 추가 = 볼륨 연결', 'InnoDB':'replica 추가 = 전체 복사' } },
+          rd:{ set:{ '리더 1':{ tag:'clean', sub:'볼륨에 연결 · 복사 없음' } } } },
     beat:1 },
   ],
 },
@@ -136,14 +135,14 @@ const SCENES = [
 
   { look:{ rd:true },
     note:'lag 은 0 이 아니다 — 문서 기준 보통 100ms 미만',
-    why:'"모든 Aurora replica 가 최소한의 replica 지연으로 같은 데이터를 돌려준다. 이 지연은 보통 프라이머리가 갱신을 쓴 뒤 100밀리초보다 훨씬 작다" 고 적고, 쓰기가 많은 구간에서는 지연이 늘 수 있다고 덧붙인다.',
+    why:'"모든 Aurora replica 가 최소한의 replica 지연으로 같은 데이터를 돌려준다. 이 지연은 보통 프라이머리가 갱신을 쓴 뒤 100밀리초보다 훨씬 작다" 고 적는다.',
     key:'볼륨을 공유해도 <em>리더의 buffer pool 은 각자</em>다. 문서가 지연을 0 이라 하지 않는 이유가 거기 있다 — 캐시에 남은 옛 페이지를 무효화하는 일이 남는다.',
     cite:["As a result, all Aurora Replicas return the same data for query results with minimal replica lag. This lag is usually much less than 100 milliseconds after the primary instance has written an update."],
     ref:'storage/innobase/buf/buf0buf.cc', sym:'buf_page_get_gen',
     ops:{ rd:{ set:{ '리더 1':{ sub:'지연 < 100ms  ·  buffer pool 은 각자' } } } } },
 
 
-  { act:{ f:'wr', t:'rd', lb:'log stream 을 replica 에도' },
+  { act:{ f:'wr', t:'rd', lb:'log stream 을 replica 에도' }, look:{ wr:true, rd:true, vol:true },
     note:'같은 redo 가 두 곳으로 간다 — storage 와 replica',
     why:'논문이 적는다 — 지연을 줄이려고 writer 가 만들어 storage 노드로 보내는 log stream 을 모든 read replica 에도 보낸다. replica 는 그 stream 을 writer 와 비동기로 소비하고, writer 는 replica 와 상관없이 사용자 커밋에 응답한다.',
     key:'공유 볼륨이 있어도 <em>replica 의 캐시를 맞추는 길</em>은 따로 있다 — MySQL 의 binlog → relay log 와 비슷해 보이지만, 오가는 것이 논리 이벤트가 아니라 redo 레코드다.',
@@ -152,7 +151,8 @@ const SCENES = [
     ref:'storage/innobase/log/log0recv.cc', sym:'recv_recover_page_func',
     fact:[['storage/innobase/log/log0recv.cc','void recv_recover_page_func(']],
     ops:{ wr:{ set:{ '변경 전달':'볼륨 공유 + replica 에 log stream' } },
-          rd:{ set:{ '리더 1':{ sub:'log stream 을 받는다' }, '리더 2':{ sub:'log stream 을 받는다' } } } } },
+          rd:{ set:{ '리더 1':{ sub:'log stream 을 받는다' }, '리더 2':{ sub:'log stream 을 받는다' } } },
+          vol:{ set:{ '단일 논리 볼륨':{ sub:'같은 log stream 을 받는다 — storage 쪽' } } } } },
 
   { act:{ f:'wr', t:'rd', lb:'캐시에 있는 page 만' },
     note:'cache 에 있는 page 에만 적용 — 없으면 버린다',
@@ -173,7 +173,7 @@ const SCENES = [
     ref:'storage/innobase/log/log0recv.cc', sym:'recv_parse_or_apply_log_rec_body',
     fact:[['storage/innobase/include/mtr0types.h','MLOG_MULTI_REC_END = 31,'],
           ['storage/innobase/include/mtr0types.h','If a single mtr writes several log records, this log']],
-    ops:{ rd:{ set:{ '리더 1':{ tag:'clean', sub:'VDL 이하 · MTR 단위로만 적용' } } } },
+    ops:{ rd:{ set:{ '리더 1':{ sub:'VDL 이하 · MTR 단위로만 적용' }, '리더 2':{ tag:'clean', sub:'VDL 이하 · MTR 단위로만 적용' } } } },
     beat:1 },
 
   { look:{ cmp:true },
@@ -193,7 +193,7 @@ const SCENES = [
           "Promoting an Aurora Replica by failover is much faster than recreating the primary instance."],
     ref:'sql/binlog/recovery.cc', sym:'Binlog_recovery::recover',
     ops:{ rd:{ set:{ '리더 1':{ tag:'hold', sub:'프라이머리로 promote' } } },
-          wr:{ set:{ '역할':'교체됨' } } },
+          wr:{ set:{ '역할':'교체됨', '변경 전달':'— (새 writer 가 맡는다)' } } },
     beat:1 },
   ],
 },
@@ -207,7 +207,7 @@ const SCENES = [
   watch:[
     ['재시작 소요','binlog 를 켜면 늘어난다고 문서가 명시한다'],
     ['buffer pool 적중률','재시작 직후에도 떨어지지 않는다']],
-  links:[['01','2PC 순서'],['02','compute·storage'],['03','replica'],['05','quorum 과 세그먼트']],
+  links:[['02','compute·storage'],['03','replica · binlog 복제가 돌아오는 곳'],['05','quorum 과 세그먼트']],
   init:{
     op:{ kv:{ '상황':'예기치 않은 재시작', 'replay 대상':'—' } },
     pc:{ kv:{ '사는 곳':'DB 프로세스 안', '재시작 후':'—' } },
@@ -219,7 +219,7 @@ const SCENES = [
   { look:{ op:true },
     note:'InnoDB 라면 — checkpoint 를 찾고 그 뒤 redo replay',
     why:'재시작 경로가 recv_recovery_from_checkpoint_start 로 들어가 recv_recovery_on 을 켜고 "가장 최근 checkpoint 를 찾는다". replay 할 양이 곧 재시작 시간이다.',
-    key:'이 replay 는 <em>인스턴스 안에서 일어난다</em>. 그래서 buffer pool 이 비어 있고, replay 가 끝날 때까지 열리지 않는다.',
+    key:'이 replay 는 <em>인스턴스 안에서 일어난다</em>. replay 가 끝날 때까지 데이터베이스가 열리지 않는다.',
     fact:[['storage/innobase/log/log0recv.cc','recv_recovery_on = true;'],
           ['storage/innobase/log/log0recv.cc','/* Look for the latest checkpoint */']],
     ref:'storage/innobase/log/log0recv.cc', sym:'recv_recovery_from_checkpoint_start',
@@ -284,12 +284,12 @@ const SCENES = [
     ref:'storage/innobase/trx/trx0roll.cc', sym:'trx_recovery_rollback_thread',
     fact:[['storage/innobase/trx/trx0roll.cc','Starting in background the rollback'],
           ['storage/innobase/trx/trx0roll.cc','void trx_recovery_rollback_thread() {']],
-    ops:{ cmp:{ set:{ 'InnoDB 복구':'replay 뒤 열림 · undo 는 백그라운드' } } } },
+    ops:{ cmp:{ set:{ 'InnoDB 복구':'replay 뒤 열림 · undo 는 백그라운드', 'Aurora 복구':'VDL 위를 자르고 바로 열림 · undo 는 열린 뒤' } } } },
 
   { look:{ cmp:true, op:true },
-    note:'binlog 를 켜면 그 이점이 사라진다 — 문서가 직접 명시',
+    note:'binlog 를 켜면 복구 시간이 늘어난다 — 문서가 직접 명시',
     why:'"Aurora 에서 바이너리 로깅을 켜면 예기치 않은 재시작 후의 복구 시간에 직접 영향을 준다. 바이너리 로그 복구를 수행하도록 강제하기 때문이다" 라고 적고, 이어서 "Aurora 는 DB 클러스터 내부에서 데이터를 복제하거나 PITR 을 수행하는 데 바이너리 로그가 필요하지 않다" 고 적는다.',
-    key:'01 에서 고친 순서 — redo 그룹 fsync → binlog 쓰기 → binlog fsync(커밋 판정) — 는 <em>binlog 를 켠 대가</em>다. 클러스터 안에서만 쓴다면 그 대가에 대응하는 이득이 없다. 그래서 문서가 OFF 를 권한다.',
+    key:'mysql/innodb 01 에서 고친 순서 — redo 그룹 fsync → binlog 쓰기 → binlog fsync(커밋 판정) — 는 <em>binlog 를 켠 대가</em>다. 클러스터 안에서만 쓴다면 그 대가에 대응하는 이득이 없다. 그래서 문서가 OFF 를 권한다.',
     cite:["Enabling binary logging on Aurora directly affects the recovery time after an unplanned restart, because it forces the DB instance to perform binary log recovery.",
           "Aurora does not need the binary logs to replicate data within a DB cluster or to perform point-in-time restore (PITR).",
           "If you don't need the binary log for external replication (or an external binary log stream), we recommend that you set the binlog_format parameter to OFF to disable binary logging. Doing so reduces recovery time."],
@@ -367,7 +367,7 @@ const SCENES = [
     cite:["the failure of AZ C, due to a fire, roof failure, flood, etc, will break quorum for any of the replicas that concurrently have failures in AZ A or AZ B.",
           "At that point, in a 2/3 read quorum model, we will have lost two copies and will be unable to determine if the third is up to date.",
           "the failure of an AZ is a correlated failure of all disks and nodes in that AZ."],
-    ops:{ vol:{ set:{ 'AZ-c':{ tag:'x', sub:'AZ 통째로 실패' }, 'AZ-a':{ tag:'x', sub:'배경 고장 — 수리 중' } } },
+    ops:{ vol:{ set:{ 'AZ-c':{ tag:'x', sub:'AZ 통째로 실패' }, 'AZ-a':{ tag:'x', sub:'배경 고장 — 수리 중' }, 'AZ-b':{ sub:'남은 하나 — 최신인가?' } } },
           qm:{ set:{ '살아 있는 표':'1|red', '쓰기':'불가|red', '읽기':'불가 — 최신인지 모른다|red' } } },
     beat:1 },
 
@@ -399,7 +399,8 @@ const SCENES = [
     key:'셋이 남으니 Vr = 3 이 선다. <em>최신본이 그 셋 안에 반드시 있다</em> — Vr + Vw > V 가 뜻하는 것이 이것이다. 2/3 모델은 같은 고장에서 하나가 남아 판단할 수 없었다. 남은 셋으로 새 복사본을 만들어 넷을 채우면 쓰기가 돌아온다.',
     cite:["lose a single AZ and one additional node (a failure of 3 nodes) without losing read availability",
           "Ensuring read quorum enables us to rebuild write quorum by adding additional replica copies."],
-    ops:{ vol:{ set:{ 'AZ-a · 1':{ tag:'x', sub:'배경 고장 — 수리 중' } } },
+    ops:{ vol:{ set:{ 'AZ-a · 1':{ tag:'x', sub:'배경 고장 — 수리 중' },
+            'AZ-a · 2':{ sub:'남은 셋 — Vr = 3' }, 'AZ-b · 1':{ sub:'남은 셋 — Vr = 3' }, 'AZ-b · 2':{ sub:'남은 셋 — Vr = 3' } } },
           qm:{ set:{ '살아 있는 표':'3', '쓰기':'멈춤 — 4 에 못 미친다|red', '읽기':'가능 — 최신본이 이 셋 안에 있다|green' } } },
     beat:1 },
 
@@ -411,8 +412,9 @@ const SCENES = [
           "partitioning the database volume into small fixed size segments, currently 10GB in size.",
           "These are each replicated 6 ways into Protection Groups (PGs) so that each PG consists of six 10GB segments, organized across three AZs, with two segments in each AZ.",
           "A 10GB segment can be repaired in 10 seconds on a 10Gbps network link."],
-    ops:{ vol:{ set:{ 'AZ-a · 1':{ tag:'ok', sub:'재복제 — 약 10초' } } },
-          qm:{ set:{ '살아 있는 표':'4', '쓰기':'다시 가능 — 4/6|green' } },
+    ops:{ vol:{ set:{ 'AZ-a · 1':{ tag:'ok', sub:'재복제 — 약 10초' },
+            'AZ-a · 2':{ sub:'10GB 세그먼트' }, 'AZ-b · 1':{ sub:'10GB 세그먼트' }, 'AZ-b · 2':{ sub:'10GB 세그먼트' } } },
+          qm:{ set:{ '살아 있는 표':'4', '쓰기':'다시 가능 — 4/6|green', '읽기':'가능' } },
           grade:{ set:{ '지금 서비스의 값':'문서에 없다 — 2017 년 기준|gold' } } },
     beat:1 },
 
@@ -521,7 +523,8 @@ const SCENES = [
     cite:["(5) coalesce log records into new data pages, (6) periodically stage log and new pages to S3, (7) periodically garbage collect old versions, and finally (8) periodically validate CRC codes on pages.",
           "In Aurora, background processing has negative correlation with foreground processing.",
           "This is unlike a traditional database, where background writes of pages and checkpointing have positive correlation with the foreground load on the system."],
-    ops:{ sn:{ add:[{ id:'5 ~ 8 배경', tag:'free', sub:'page 합치기 · S3 · GC · CRC' }] } } },
+    ops:{ sn:{ add:[{ id:'5 ~ 8 배경', tag:'free', sub:'page 합치기 · S3 · GC · CRC' }] },
+          cmp:{ set:{ 'MySQL 미러링':'page 쓰기 · checkpoint — 부하와 같이 오른다', 'Aurora':'배경 작업 — 부하와 반대로' } } } },
 
   { look:{ io:true, cmp:true },
     note:'논문의 측정 — 트랜잭션 35 배, 트랜잭션당 I/O 7.7 분의 1',
@@ -563,7 +566,7 @@ const SCENES = [
     ref:'storage/innobase/mtr/mtr0mtr.cc', sym:'mtr_t::commit',
     fact:[['storage/innobase/include/mtr0types.h','MLOG_MULTI_REC_END = 31,'],
           ['storage/innobase/mtr/mtr0mtr.cc','void mtr_t::commit() {']],
-    ops:{ wr:{ set:{ '트랜잭션':'MTR 셋 — 끝이 900 · 1000 · 1100' } },
+    ops:{ wr:{ set:{ '트랜잭션':'MTR 셋 — 끝마다 CPL' } },
           lsn:{ set:{ 'CPL':'900 · 1000 · 1100' } } } },
 
   { look:{ vol:true, lsn:true },
@@ -624,7 +627,7 @@ const SCENES = [
     key:'2PC 도 스레드의 동기 대기도 없다 — <em>커밋은 VDL 이라는 수 하나가 commit LSN 을 넘는 사건</em>이다. 그래서 replica 도 복구도 같은 수 하나(VDL)로 경계를 긋는다(03 · 04 장면).',
     cite:["The equivalent to the WAL protocol is based on completing a commit, if and only if, the latest VDL is greater than or equal to the transaction",
           "As the VDL advances, the database identifies qualifying transactions that are waiting to be committed and uses a dedicated thread to send commit acknowledgements to waiting clients."],
-    ops:{ lsn:{ set:{ 'CPL':'… 1100 · 1160', 'VCL':'1166', 'VDL':'1160|green' } },
+    ops:{ lsn:{ set:{ 'CPL':'900 · 1000 · 1100 · 1160', 'VCL':'1166', 'VDL':'1160|green' } },
           vol:{ set:{ 'storage 의 log':{ sub:'‥ 1166 빠짐없이 · ‥ 1160 durable' } } },
           cq:{ set:{ 'trx  ·  commit LSN 1150':{ tag:'ok', sub:'VDL 1160 ≥ 1150 — 응답 보냄' } } } },
     beat:1 },

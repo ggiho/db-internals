@@ -1,7 +1,7 @@
 /* aurora mysql — 덱의 모든 장면을 이 모듈이 맡는다. 그리는 것은 모두 장면의 bake 상태에서 읽는다(손으로 적은 값이 없다).
    05 처럼 kv 키가 'quorum' 으로 끝나는(쓰기 quorum · 읽기 quorum) 장면은 aurora-05(AZ 칸 · 표 막대)를 그대로 부른다. 나머지는 데이터의 모양으로 역할을 고른다 —
      · 근거(01) — list 가 없고, 키에 괄호로 출처를 적은 kv('cite (문서)' · 'fact (소스)')가 있으면. 괄호 속 이름마다 말뭉치 더미 하나.
-       값에 수가 있으면(말뭉치 26문장) 그 수만큼 문장 띠, 없으면 문서 · 코드 모양. 값이 '—' 가 아니면 대조된 더미(초록).
+       값에 수가 있으면(말뭉치 26구절) 그 수만큼 문장 띠, 없으면 문서 · 코드 모양. 값이 '—' 가 아니면 대조된 더미(초록).
        다른 kv 의 주장은 값이 그 이름(문서 · 논문 · 소스)을 부르는 더미 아래에 놓고 선으로 잇는다
      · compute 층 — '역할' 을 가진 kv 는 WRITER 인스턴스, 항목이 처음부터 끝까지 같은 list 는 리더 인스턴스들(설명에 buffer pool ·
        캐시가 있으면 상자 안에 page 칸). '사는 곳' 을 가진 kv 는 page cache — 값에 '별개' 가 있으면 DB 인스턴스 밖의 상자로 나가고,
@@ -134,10 +134,15 @@ function metricsOf(kv) {
   return out;
 }
 
+/* 두 값의 비 — 반올림 구간 [lo, hi]. note 의 'N 배' · 'N 분의 1' 이 그 안에 들면 그 막대의 비다 */
+const ratioOf = (m) => { const big = m.v[0] > m.v[1] ? 0 : 1; return [(m.v[big] - m.half[big]) / (m.v[1 - big] + m.half[1 - big]), (m.v[big] + m.half[big]) / (m.v[1 - big] - m.half[1 - big])]; };
+const ratioHit = (m, c) => { const want = +c[1], h = 0.5 * 10 ** -((c[1].split('.')[1] || '').length), [lo, hi] = ratioOf(m); return want + h >= lo && want - h <= hi; };
+const RATIO = /(\d+(?:\.\d+)?)\s*(배|분의 1)/g;
+
 /* ── 셈 맞추기 — 장면 하나. 어긋나면 그 글을 돌려준다(make 가 console.error 로 낸다) ──
      근거 : '대조되는 것' 이 적은 더미 = 값이 '—' 가 아닌 출처 키들 · 주장의 값이 부르는 출처는 하나
      AZ : 복사본의 AZ 수 = 글(why · cite)이 말하는 AZ 수('three Availability Zones' · '세 개 가용 영역')
-     리더 : tag 와 설명 — dirty 는 '적용', free 는 '버림'
+     리더 : tag 와 설명 — dirty 는 '적용', free 는 '버림'(record 를 버린다) 아니면 '아직'(아직 없는 인스턴스 — 흐린 테두리)
      볼륨 : 'N 중 M' 은 M < N, 그 스텝의 why 도 같은 'N 중 M' 을 말한다 · tag x 구간의 두 끝은 VDL 과 LAL 을 부른다(04)
      네트워크 쓰기 : 'N 종류' = 그 스텝의 항목 수 · 'N 곳' = 사슬의 길이 · act 이 '여섯에 … 넷을' 이면 여섯 = PG 의 노드 수, 넷 ≤ 여섯
      storage 단계 : 번호가 겹치지 않고, 마지막 스텝에서 1 부터 빠짐없이
@@ -194,7 +199,7 @@ export function audit(deck, sc) {
     }
     if (R.READERS) for (const it of s[R.READERS]) {
       if (it.tag === 'dirty' && !/적용/.test(it.sub)) out.push(`${at(i)} 의 ${it.id} 는 dirty(적용)인데 설명 "${it.sub}" 에 적용이 없다`);
-      if (it.tag === 'free' && !/버림/.test(it.sub)) out.push(`${at(i)} 의 ${it.id} 는 free(버림)인데 설명 "${it.sub}" 에 버림이 없다`);
+      if (it.tag === 'free' && !/버림|아직/.test(it.sub)) out.push(`${at(i)} 의 ${it.id} 는 free(버림 · 아직 없음)인데 설명 "${it.sub}" 에 버림도 아직도 없다`);
     }
     if (R.IO && i >= 0) {
       const its = s[R.IO].filter((x) => !isHold(x)), d = destOf(s, R.IO);
@@ -219,10 +224,9 @@ export function audit(deck, sc) {
     if (i >= 0) for (const a of R.TEXTS) {
       const ms = metricsOf(s[a]);
       if (!ms.length) continue;
-      const note = st.steps[i].note || '', ratio = (m) => { const big = m.v[0] > m.v[1] ? 0 : 1; return [(m.v[big] - m.half[big]) / (m.v[1 - big] + m.half[1 - big]), (m.v[big] + m.half[big]) / (m.v[1 - big] - m.half[1 - big])]; };
-      for (const c of [...note.matchAll(/(\d+(?:\.\d+)?)\s*(배|분의 1)/g)]) {
-        const want = +c[1], h = 0.5 * 10 ** -((c[1].split('.')[1] || '').length);
-        if (!ms.some((m) => { const [lo, hi] = ratio(m); return want + h >= lo && want - h <= hi; })) out.push(`${at(i)} 의 note '${c[0]}' 가 ${a} 의 어느 두 값의 비와도 맞지 않는다 (${ms.map((m) => m.name + ' ' + m.txt.join(' / ')).join(' · ')})`);
+      const note = st.steps[i].note || '';
+      for (const c of [...note.matchAll(RATIO)]) {
+        if (!ms.some((m) => ratioHit(m, c))) out.push(`${at(i)} 의 note '${c[0]}' 가 ${a} 의 어느 두 값의 비와도 맞지 않는다 (${ms.map((m) => m.name + ' ' + m.txt.join(' / ')).join(' · ')})`);
       }
     }
     if (R.LSNK) {
@@ -317,8 +321,8 @@ function makeEvid(F, deck, labels, sc, st, R) {
     const hit = PILES.findIndex((p) => all.some((s) => bare(s[a][k]).includes(p.name)));
     return { a, k, pile: hit };
   }));
-  /* 문장 띠의 수 — 그 출처 값이 어느 스텝에서든 'N문장' 을 적으면(말뭉치 26문장). 없으면 문서 · 코드 모양만 */
-  const STRIPS = PILES.map((p) => Math.max(0, ...all.map((s) => +((/(\d+)\s*문장/.exec(bare(s[R.CHK][p.key])) || [])[1] || 0))));
+  /* 문장 띠의 수 — 그 출처 값이 어느 스텝에서든 'N구절' 을 적으면(말뭉치 26구절). 없으면 문서 · 코드 모양만 */
+  const STRIPS = PILES.map((p) => Math.max(0, ...all.map((s) => +((/(\d+)\s*(?:문장|구절)/.exec(bare(s[R.CHK][p.key])) || [])[1] || 0))));
   const PN = 520, R0 = {};
   let at = 0;
   const take = (k, n) => { R0[k] = [at, at + n]; at += n; };
@@ -358,7 +362,7 @@ function makeEvid(F, deck, labels, sc, st, R) {
     const lH = loose.reduce((t, i) => t + most(cLb[i], TX).h + 8, 0), sH = most(sumLb, TX).h;
     const lay = (z) => {
       const ph = Math.round(U.clamp(wh * 0.3, 70, 150) * z), lg = 24 * z;
-      return { ph, lg, h: 18 + 18 + vH + 10 + ph + lg + Math.max(0, ...cH) + 10 + 18 + lH + 14 + sH };
+      return { ph, lg, h: 18 + 18 + vH + 10 + ph + lg + 18 + Math.max(0, ...cH) + 10 + lH + 14 + sH };
     };
     let z = 1, Ls = lay(z);
     while (Ls.h > wh && z > 0.45) { z -= 0.08; Ls = lay(z); }
@@ -371,12 +375,13 @@ function makeEvid(F, deck, labels, sc, st, R) {
     PILES.forEach((p, j) => { const x = L.x0 + j * (cw + gap); P(pHd[j], x, y, 'l', 't'); P(pV[j], x, y + 18, 'l', 't'); });
     y += 18 + vH + 10;
     PILES.forEach((p, j) => G.piles.push({ x: L.x0 + j * (cw + gap), y, w: Math.min(cw, 220), h: Ls.ph }));
-    y += Ls.ph + Ls.lg;
+    /* 주장 줄의 머리 — 더미와 주장 사이 틈에, 첫 열의 잇는 선(x0 + 6) 오른쪽. 아래의 주장 모두(더미 밑 · 그 아래 줄)가 이 머리에 든다 */
+    y += Ls.ph;
+    R.GRADES.forEach((a, j) => P(gHd[j], L.x0 + 16, y + Ls.lg / 2, 'l', 't'));
+    y += Ls.lg + 18;
     PILES.forEach((_, j) => { let yy = y; for (const i of colClaims[j]) { P(cLb[i], L.x0 + j * (cw + gap), yy, 'l', 't'); G.claims[i] = { x: L.x0 + j * (cw + gap), y: yy }; yy += most(cLb[i], TX).h + 8; } });
     y += Math.max(0, ...cH);
     y += 10;
-    R.GRADES.forEach((a, j) => P(gHd[j], L.x0, y, 'l', 't'));
-    y += 18;
     for (const i of loose) { P(cLb[i], L.x0, y, 'l', 't'); G.claims[i] = null; y += most(cLb[i], TX).h + 8; }
     y += 14; P(sumLb, L.x0, y, 'l', 't');
     for (let i = 0; i < N; i++) { dust[i * 2] = L.x0 + rnd() * ww; dust[i * 2 + 1] = L.y0 + rnd() * wh; }
@@ -463,8 +468,8 @@ function makeEvid(F, deck, labels, sc, st, R) {
 }
 
 /* ══════════ compute · storage — 인스턴스 · 네트워크 · 볼륨 · LSN ══════════ */
-const BOXN = 120, CELLN = 16, NCELL = 8, COPY = 200, SLAB = 720, STRIP = 210, STREAM = 120, NODEN = 64, MAXNODE = 6,
-  PIPEN = 24, PAGEN = 64, FANN = 160, AXN = 160, MARKN = 18, SLOG = 450, CHIPN = 44, BARN = 60, TOK = 150;
+const BOXN = 120, CELLN = 16, NCELL = 8, COPY = 200, SLAB = 720, STRIP = 210, STREAM = 120, NODEN = 128, MAXNODE = 6,
+  PIPEN = 24, PAGEN = 64, FANN = 160, AXN = 160, MARKN = 18, SLOG = 450, CHIPN = 44, BARN = 240, TOK = 150, BARP = 3;
 function makeLanes(F, deck, labels, sc, st, R) {
   const N = F.N, { A, S0, S, NK } = st, all = [S0, ...S];
   const { made, label, setText, place, wrap, most, widthOf } = kit(labels);
@@ -497,6 +502,10 @@ function makeLanes(F, deck, labels, sc, st, R) {
   const segOf = (it) => { const m = new RegExp(`(${KW})\\s*중\\s*(${KW})`).exec(it.sub); return m ? [KN[m[1]], KN[m[2]]] : null; };
   const RANGE = VOLMODE === 'slab' ? VIDS.find((id) => all.some((s) => s[R.VOL].some((x) => x.id === id && x.tag === 'x' && rangeNames(x.sub)))) || null : null;
   const SLABID = VOLMODE === 'slab' ? VIDS.find((id) => id !== RANGE) : null;
+  /* 세그먼트 복구 — 판의 설명이 'N 중 M' 없이 '복구' 를 말하면, 앞 스텝들이 나눈 세그먼트 수(그런 스텝이 없으면 나누지 않는다)로
+     판을 나누고 하나가 무너졌다가 이웃에서 다시 찬다. 수는 그리지만 적지 않는다 */
+  const SEGN = VOLMODE === 'slab' ? Math.max(0, ...all.flatMap((s) => s[R.VOL].filter((x) => x.id === SLABID).map((x) => (segOf(x) || [0])[0]))) : 0;
+  const repOf = (it) => !!it && SEGN > 1 && !segOf(it) && /복구/.test(it.sub);
   /* ── 네트워크 · storage 노드 ── */
   const IOIDS = idsOf(R.IO).filter((id) => all.some((s) => s[R.IO].some((x) => x.id === id && !isHold(x))));
   const IOMAX = Math.max(1, ...all.map((s) => real(R.IO, s).length));
@@ -556,7 +565,8 @@ function makeLanes(F, deck, labels, sc, st, R) {
   const TX = S.map((s, kk) => {
     const t = new Map(), hotE = (s.step.hot || (s.step.act && s.step.act.hot)) === (EDGE && EDGE.hot);
     if (comp) t.set(compLb, [`${comp.lb}  ·  ${comp.note}`, INST.some((b) => on(s, b.kv) || (b.item && on(s, R.READERS))) || on(s, R.IO)]);
-    if (stor) t.set(storLb, [`${stor.lb}  ·  ${stor.note}`, on(s, R.VOL) || on(s, R.SN)]);
+    const dch = destOf(s, R.IO);
+    if (stor) t.set(storLb, [`${stor.lb}  ·  ${dch && dch.kind === 'chain' ? dch.names[0] : stor.note}`, on(s, R.VOL) || on(s, R.SN)]);
     if (EDGE) t.set(edgeLb, [EDGE.lb, hotE, hotE ? 'gold' : '']);
     for (const a of [...TXA, ...R.TEXTS]) { t.set(hd[a], [A[a].nm, on(s, a)]); t.set(tx[a], [kvHtml(s[a]), on(s, a), '', true, true]); }
     for (const b of INST) {
@@ -566,7 +576,7 @@ function makeLanes(F, deck, labels, sc, st, R) {
         t.set(bd[b.key], [it && it.sub ? esc(it.sub) : '', lit, '', !!(it && it.sub), true]);
       } else if (b.kv) {
         t.set(nm[b.key], [b.name, on(s, b.kv) || on(s, R.IO), failed(s, b) ? 'red' : '']);
-        t.set(bd[b.key], [(b.key === 'db' ? `<span class="q-i">${esc(A[b.kv].nm)}</span>\n` : '') + kvHtml(s[b.kv]), on(s, b.kv), '', true, true]);
+        t.set(bd[b.key], [(b.key === 'db' && cacheIn(s) ? `<span class="q-i">${esc(A[b.kv].nm)}</span>\n` : '') + kvHtml(s[b.kv]), on(s, b.kv), '', true, true]);
       } else t.set(nm[b.key], [b.name, on(s, R.IO)]);
     }
     if (SEP) t.set(cbHd, [A[R.CACHE].nm, on(s, R.CACHE), '', !cacheIn(s)]);
@@ -584,7 +594,9 @@ function makeLanes(F, deck, labels, sc, st, R) {
       for (const id of idsOf(R.IO)) { const it = s[R.IO].find((x) => x.id === id); t.set(ioLb[id], [it ? ioHtml(it) : '', on(s, R.IO) && !!it && hotIt(s, R.IO, id), '', !!it, true]); }
       const d = destOf(s, R.IO);
       for (let j = 0; j < DESTMAX; j++) t.set(destLb[j], [d && d.kind === 'chain' && j < d.n ? d.names[j] : '', on(s, R.IO), '', !!(d && d.kind === 'chain' && j < d.n)]);
-      t.set(pgCap, [d && d.kind === 'pg' ? d.cap : '', on(s, R.IO) || on(s, R.SN), '', !!(d && d.kind === 'pg')]);
+      /* 여섯에 보내고 넷을 기다리는 스텝 — 아래 이름에 ack 의 셈(act 의 두 수) */
+      const a2 = s.step.act && s.step.act.f === R.IO && s.step.act.t === R.SN ? knums(s.step.act.lb) : null;
+      t.set(pgCap, [d && d.kind === 'pg' ? d.cap + (a2 && a2[1] ? `  ·  ack ${Math.min(a2[0], a2[1])} / ${a2[0]}` : '') : '', on(s, R.IO) || on(s, R.SN), '', !!(d && d.kind === 'pg')]);
     }
     if (R.SN) {
       t.set(snHd, [A[R.SN].nm, on(s, R.SN)]);
@@ -603,12 +615,14 @@ function makeLanes(F, deck, labels, sc, st, R) {
       cplLb.forEach((lb, j) => t.set(lb, [j < l.cpl.length ? `${l.ell && j === 0 ? '… ' : ''}CPL ${l.cpl[j]}` : '', lit, 'gold', j < l.cpl.length]));
       t.set(mkLb.vcl, [l.vcl != null ? `VCL ${l.vcl}` : '', lit, '', l.vcl != null]);
       t.set(mkLb.vdl, [l.vdl != null ? `VDL ${l.vdl}` : '', lit, 'green', l.vdl != null]);
-      t.set(mkLb.cmt, [l.cmt != null ? `${l.cmtKey} ${l.cmt}` : '', R.OPK.some((a) => on(s, a)) || on(s, R.CQ), 'gold', l.cmt != null]);
+      t.set(mkLb.cmt, [l.cmt != null ? `${l.cmtKey} ${l.cmt}` : '', R.OPK.some((a) => on(s, a)) || on(s, R.CQ), l.cmt != null && l.vdl != null && l.vdl >= l.cmt ? 'green' : 'gold', l.cmt != null]);
       t.set(lalLb, [l.lalV ? `${l.lal}  ${l.lalV}  →` : '', lit, '', !!l.lalV]);
     }
     if (BARS) {
       const ms = metricsOf(s[BARS]);
-      barT.forEach((lb, j) => t.set(lb, [j < ms.length ? ms[j].name : '', on(s, BARS), '', j < ms.length]));
+      /* 막대 머리 — 이름, 그리고 note 가 그 두 값의 비를 말하면 그 말(7.7 분의 1 · 35 배). 값은 아래 막대 이름표가 적는다 */
+      const rs = [...String(s.step.note || '').matchAll(RATIO)];
+      barT.forEach((lb, j) => { const r = j < ms.length ? rs.find((c) => ratioHit(ms[j], c)) : null; t.set(lb, [j < ms.length ? ms[j].name + (r ? `  ·  ${r[0]}` : '') : '', on(s, BARS), '', j < ms.length]); });
       /* 막대의 색은 그 값의 색 표시(|green) 그대로 — 큰 것 · 작은 것 중 어느 쪽이 나은지는 세계가 정하지 않는다 */
       barL.forEach((lb, j) => { const m = ms[j >> 1]; t.set(lb, [m ? `${m.keys[j & 1]}  ${m.txt[j & 1]}` : '', on(s, BARS), m ? tone(s[BARS][m.keys[j & 1]]) : '', !!m]); });
     }
@@ -665,7 +679,7 @@ function makeLanes(F, deck, labels, sc, st, R) {
     /* storage 단계 이름표 — 스텝마다 칸 가운데에, 겹치면 줄을 내린다 */
     const pw = PAGES.length ? ww * 0.76 : ww, pcw = NCELLS ? pw / NCELLS : 0;
     const snSpan = (id) => { const sg = stagesOf(id); if (sg.length) return [L.x0 + (Math.min(...sg) - 1) * pcw, L.x0 + Math.max(...sg) * pcw]; if (PAGES.includes(id)) return [L.x0 + pw + gap, L.x1]; return [L.x0, L.x0 + Math.min(ww, 200)]; };
-    for (const id of SNIDS) { const [a, b] = snSpan(id); wrap(snLb[id], Math.max(120, b - a - 6)); }
+    for (const id of SNIDS) { const [a, b] = snSpan(id); wrap(snLb[id], Math.max(120, b - a - 6, stagesOf(id).length ? Math.min(280, ww * 0.3) : 0)); }
     const snRowH = R.SN ? Math.max(LH, ...SNIDS.map((id) => most(snLb[id], TX).h)) + 4 : 0;
     const snLay = S.map((s) => stagger(s[R.SN] ? s[R.SN].map((it) => { const [a, b] = snSpan(it.id); return { id: it.id, cx: (a + b) / 2, w: widthOf(snLb[it.id], TX[S.indexOf(s)].get(snLb[it.id])[0]) }; }).filter((q) => q.w) : [], L.x0, L.x1));
     const snRows = R.SN ? Math.max(1, ...snLay.map((q) => q.rows)) : 0;
@@ -677,7 +691,15 @@ function makeLanes(F, deck, labels, sc, st, R) {
       if (!R.LSNK) return null;
       const l = LS[kk + 1], T = TX[kk], w = (lb) => widthOf(lb, T.get(lb)[0]);
       const up = stagger(l.cpl.map((v, j) => ({ j, cx: X(v), w: w(cplLb[j]) })), L.x0, L.x1, 6);
-      const dn = stagger([['vcl', l.vcl], ['vdl', l.vdl], ['cmt', l.cmt]].filter(([, v]) => v != null).map(([m, v]) => ({ m, cx: X(v), w: w(mkLb[m]) })), L.x0, L.x1, 6);
+      /* 아래 줄(VCL · VDL · commit) — 서로 몇 LSN 떨어지지 않아 가운데 정렬이면 한 눈금의 이름이 이웃 눈금 위에 앉았다(07 / 3 의 VCL 화살표가
+         VDL 이름 위). 이름마다 눈금의 왼쪽(L) · 가운데(c) · 오른쪽(R)에 붙여 보고, 핀이 다른 이름을 지나지 않고(ok) 줄이 적고 가운데가 많은 쪽을 고른다 */
+      const its = [['vcl', l.vcl], ['vdl', l.vdl], ['cmt', l.cmt]].filter(([, v]) => v != null).sort((a, b) => a[1] - b[1]).map(([m, v]) => ({ m, x: X(v), w: w(mkLb[m]) }));
+      let dn = null, best = Infinity;
+      for (let code = 0; code < 3 ** its.length; code++) {
+        const al = its.map((_, q) => Math.floor(code / 3 ** q) % 3), cx = (it, a) => (a === 0 ? it.x : a === 1 ? it.x + 3 - it.w / 2 : it.x - 3 + it.w / 2);
+        const r = stagger(its.map((it, q) => ({ m: it.m, cx: cx(it, al[q]), w: it.w, pins: [it.x] })), L.x0, L.x1, 6), sc = (r.ok ? 0 : 100) + r.rows * 10 + al.filter(Boolean).length;
+        if (sc < best) { best = sc; dn = r; }
+      }
       return { up, dn };
     });
     const upRows = R.LSNK ? Math.max(1, ...marks.map((q) => q.up.rows)) : 0, dnRows = R.LSNK ? Math.max(1, ...marks.map((q) => q.dn.rows)) : 0;
@@ -741,6 +763,8 @@ function makeLanes(F, deck, labels, sc, st, R) {
         });
       }
     }
+    /* page cache 가 DB 밖으로 나간 스텝 — 그 kv 글은 밖의 상자 밑에(이름은 상자 머리 cbHd 가 적는다) */
+    if (SEP && INST.some((b) => b.key === 'db' && b.kv === R.CACHE)) S.forEach((s, kk) => { if (!cacheIn(s)) PK(kk, bd.db, G.box.cb.x, G.box.cb.y + G.box.cb.h + 8); });
     /* 인스턴스 상자 안의 page 칸 — 4 × 2 */
     for (const b of INST) if (b.grid) { const B = G.box[b.key]; G.box['g:' + b.key] = { x: B.x + 10, y: B.y + 10, w: Math.min(B.w - 20, 120), h: B.h - 20 }; }
     if (SEP) { const B = G.box.cb; G.box['g:cb'] = { x: B.x + 10, y: B.y + 10, w: Math.min(B.w - 20, 120), h: B.h - 20 }; }
@@ -788,6 +812,14 @@ function makeLanes(F, deck, labels, sc, st, R) {
     if (VOLMODE === 'log') {
       G.slog = { y: Y(Ly.slogY) + 8 };
       VIDS.forEach((id, j) => PA(volLb[id], L.x0 + j * (vW + gap), Y(Ly.volY)));
+      /* 잘린 구간 'LSN a ‥ b' 의 이름 — 그 띠가 시작하는 곳에(첫 이름표의 오른쪽 끝 + 틈보다 왼쪽으로는 가지 않는다) */
+      S.forEach((s, kk) => {
+        const first = s[R.VOL].find((x) => !rangeOf(x)), T = TX[kk];
+        for (const it of s[R.VOL].filter((x) => rangeOf(x))) {
+          const w0 = first ? widthOf(volLb[first.id], T.get(volLb[first.id])[0]) : 0, wr = widthOf(volLb[it.id], T.get(volLb[it.id])[0]);
+          PK(kk, volLb[it.id], U.clamp(X(rangeOf(it)[0]) - 4, L.x0 + w0 + gap, L.x1 - wr), Y(Ly.volY));
+        }
+      });
     }
     /* 목적지 노드 */
     if (R.IO && DESTMAX) {
@@ -866,14 +898,14 @@ function makeLanes(F, deck, labels, sc, st, R) {
       const it = b.item ? s[R.READERS].find((x) => x.id === b.item) : null, pit = b.item ? prev[R.READERS].find((x) => x.id === b.item) : null;
       const lit = b.item ? on(s, R.READERS) && hotIt(s, R.READERS, b.item) : on(s, b.kv) || on(s, R.IO);
       const dead = !b.item && failed(s, b), wasDead = !b.item && failed(prev, b), q = dead ? (wasDead || end ? 1 : show(p, 0.12, 0.4)) : 0;
-      const tg = it ? it.tag : 'clean', col = dead ? RED : tg === 'hold' ? GOLD : tg === 'free' ? FAINT : INK;
+      const tg = it ? it.tag : 'clean', absent = tg === 'free' && !/버림/.test(it.sub), col = dead ? RED : tg === 'hold' ? GOLD : absent ? FAINT : INK;
       const fresh = it && pit && pit.tag !== it.tag && !end;
       for (let m = 0; m < BOXN; m++) {
         const i = r0 + m;
         let [x, y] = rim(B.x, B.y, B.w, B.h, BOXN, m);
         if (q) { x += jit[i * 2] * 12 * q; y += (3 + Math.abs(jit[i * 2 + 1]) * 14) * q; }
         [x, y] = into(i, x, y);
-        put(o, i, x, y, (lit && !end ? 0.85 : 0.45) * dim * form * (1 - 0.55 * q) * (tg === 'free' ? 0.6 : 1), (lit && !end && (tg === 'hold' || fresh)) ? 0.5 : 0, 0.03, tg === 'hold' ? 1.3 : 1.05, col);
+        put(o, i, x, y, (lit && !end ? 0.85 : 0.45) * dim * form * (1 - 0.55 * q) * (absent ? 0.6 : 1), (lit && !end && (tg === 'hold' || fresh)) ? 0.5 : 0, 0.03, tg === 'hold' ? 1.3 : 1.05, col);
       }
       if (b.grid) poseGrid(o, 'g:' + b.key, b.key === 'db' ? (cacheIn(s) ? 'g:db' : 'g:cb') : 'g:' + b.key, b.key === 'db' ? (cacheIn(prev) ? 'g:db' : 'g:cb') : 'g:' + b.key, s, prev, b, into, dim, form, mv, end);
     }
@@ -919,7 +951,9 @@ function makeLanes(F, deck, labels, sc, st, R) {
         const v = m.v[j & 1], mx = Math.max(...m.v), x0 = G.bars.x + G.bars.lw + 10, len = Math.max(3, (G.bars.w - G.bars.lw - 10) * (v / mx)) * (fresh ? g : 1);
         const y = G.bars.y + (j >> 1) * (LH + 2 * (LH + 4)) + LH + 2 + (j & 1) * (LH + 4) + LH / 2;
         const bc = { green: GREEN, red: RED, gold: GOLD }[tone(s[BARS][m.keys[j & 1]])] ?? INK;
-        for (let q = 0; q < BARN; q++) { const i = b0 + q, [xx, yy] = into(i, x0 + ((q >> 1) + 0.5) / (BARN / 2) * len, y + (q & 1 ? 2.5 : -2.5)); put(o, i, xx, yy, (on(s, BARS) && !end ? 0.92 : 0.5) * dim * form, 0, 0.02, 1.25, bc); }
+        /* 같은 간격(BARP px)으로 — 알갱이 수를 고정하면 긴 막대가 성기고 짧은 막대가 빽빽해 작은 값이 더 무거워 보였다 */
+        const full = Math.max(3, (G.bars.w - G.bars.lw - 10) * (v / mx)), cols = U.clamp(Math.round(full / BARP), 2, BARN / 2);
+        for (let q = 0; q < BARN; q++) { const i = b0 + q, c = q >> 1; if (c >= cols) { put(o, i, dust[i * 2], dust[i * 2 + 1], 0, 0, 2, 1, FAINT); continue; } const [xx, yy] = into(i, x0 + (c + 0.5) / cols * len, y + (q & 1 ? 2.5 : -2.5)); put(o, i, xx, yy, (on(s, BARS) && !end ? 0.92 : 0.5) * dim * form, 0, 0.02, 1.25, bc); }
       }
     }
     /* act — 덩어리가 f 에서 t 로. 끝이 여럿이면(리더 둘) 나눠 간다 */
@@ -953,8 +987,10 @@ function makeLanes(F, deck, labels, sc, st, R) {
   /* 볼륨 판 — 설명이 'N 중 M' 이면 세그먼트 N 개로 나누고 앞 M 개를 밝힌다(그 스텝이 바꿨을 때). 잘린 구간은 판 아래의 log 띠 */
   function poseSlab(o, s, prev, into, dim, form, end, p) {
     const [s0] = R0.slab, it = s[R.VOL].find((x) => x.id === SLABID), pit = prev[R.VOL].find((x) => x.id === SLABID), B = G.slab;
-    const seg = it ? segOf(it) : null, pseg = pit ? segOf(pit) : null, lit = on(s, R.VOL) && !end, hot = lit && modOf(s, R.VOL).has(SLABID);
-    const mv = end ? 1 : show(p, 0.12, 0.4);
+    const rep = repOf(it), seg = it ? segOf(it) || (rep ? [SEGN, 0] : null) : null, pseg = pit ? segOf(pit) || (repOf(pit) ? [SEGN, 0] : null) : null;
+    const lit = on(s, R.VOL) && !end, hot = lit && modOf(s, R.VOL).has(SLABID);
+    const mv = end ? 1 : show(p, 0.12, 0.4), jr = Math.floor((SEGN - 1) / 2), newRep = rep && !repOf(pit) && !end;
+    const fall = newRep ? show(p, 0.1, 0.24) : 0, heal = newRep ? show(p, 0.26, 0.46) : 1;
     const ptOf = (sg, m) => {
       if (!sg) return grid(B.x, B.y, B.w, B.h, SLAB, m);
       const n = sg[0], per = Math.floor(SLAB / n), j = Math.min(n - 1, Math.floor(m / per)), sw = (B.w - (n - 1) * 8) / n;
@@ -962,9 +998,17 @@ function makeLanes(F, deck, labels, sc, st, R) {
       return [P[0], P[1], P[2] && m < per * n, j];
     };
     for (let m = 0; m < SLAB; m++) {
-      const i = s0 + m, P = ptOf(seg, m), Q = ptOf(pseg, m), read = seg && P[3] < seg[1] && hot;
-      const [x, y] = into(i, U.lerp(Q[0], P[0], mv), U.lerp(Q[1], P[1], mv));
-      put(o, i, x, y, (lit ? 0.85 : 0.42) * dim * form * (P[2] ? 1 : 0), read ? 0.5 : 0, 0.04, read ? 1.25 : 1.05, read ? GOLD : TAGC[it ? it.tag : 'clean'] ?? INK);
+      const i = s0 + m, P = ptOf(seg, m), Q = ptOf(pseg, m), read = seg && P[3] < seg[1] && hot, mend = rep && P[3] === jr;
+      let x = U.lerp(Q[0], P[0], mv), y = U.lerp(Q[1], P[1], mv);
+      if (mend && newRep) {
+        /* 무너진다(빨강) → 이웃 세그먼트의 같은 자리에서 흘러 들어와 다시 찬다(초록) */
+        const per = Math.floor(SLAB / SEGN), nb = ptOf(seg, U.clamp(jr + (m % 2 ? 1 : -1), 0, SEGN - 1) * per + (m % per));
+        x += jit[i * 2] * 10 * fall; y += (4 + Math.abs(jit[i * 2 + 1]) * 14) * fall;
+        if (heal > 0) { x = U.lerp(nb[0], P[0], heal); y = U.lerp(nb[1], P[1], heal); }
+      }
+      [x, y] = into(i, x, y);
+      const col = mend ? (newRep && heal < 0.5 ? (fall > 0.02 ? RED : INK) : GREEN) : read ? GOLD : TAGC[it ? it.tag : 'clean'] ?? INK;
+      put(o, i, x, y, (lit ? 0.85 : 0.42) * dim * form * (P[2] ? 1 : 0) * (mend && newRep && fall > 0 && heal === 0 ? 1 - 0.5 * fall : 1), read || (mend && lit) ? 0.5 : 0, 0.04, read || mend ? 1.25 : 1.05, col);
     }
     if (!RANGE) return;
     /* log 띠 — 새 VDL 까지는 남고, 그 뒤 VDL + LAL 까지는 무효(빨강으로 흩어진다). 그 너머는 비어 있다 */
@@ -1015,7 +1059,7 @@ function makeLanes(F, deck, labels, sc, st, R) {
       for (let m = 0; m < NODEN; m++) {
         const i = n0 + m, P = grid(Q.x, Q.y, Q.w, Q.h, NODEN, m), PP = P0 ? grid(P0.x, P0.y, P0.w, P0.h, NODEN, m) : P;
         const [x, y] = into(i, U.lerp(PP[0], P[0], mv), U.lerp(PP[1], P[1], mv));
-        put(o, i, x, y, (lit ? 0.85 : 0.45) * dim * form * born * (1 - gone) * (P[2] ? 1 : 0), acked ? 0.6 : 0, 0.03, 1.15, acked > 0.5 ? GREEN : d && d.kind === 'chain' ? GOLD : INK);
+        put(o, i, x, y, (acked > 0.5 ? 0.95 : lit ? 0.85 : 0.45) * dim * form * born * (1 - gone) * (P[2] ? 1 : 0), acked ? 0.6 : 0, 0.03, acked > 0.5 ? 1.6 : 1.15, acked > 0.5 ? GREEN : d && d.kind === 'chain' ? GOLD : INK);
       }
     }
     /* batch — 여섯 노드에 모두 가고(0.12 – 0.3), 넷이 응답한다(0.3 – 0.46) */
@@ -1071,6 +1115,7 @@ function makeLanes(F, deck, labels, sc, st, R) {
         if (shape === 'up') { px = x + ((m % 2) - 0.5) * 1.4; py = y - 2 - (Math.floor(m / 2) / (MARKN / 2)) * 8; }
         else if (shape === 'bar') { px = x + ((m % 2) - 0.5) * 1.8; py = y - 9 + (Math.floor(m / 2) / (MARKN / 2)) * 18; }
         else if (shape === 'dn') { const r = Math.floor(m / 3), c = (m % 3) - 1; px = x + c * (r / 6) * 4; py = y + 2 + (r / 6) * 7; }
+        else if (shape === 'dot') { const th = m * 2.399, r = Math.sqrt((m + 0.5) / MARKN) * 4.2; px = x + Math.cos(th) * r; py = y + Math.sin(th) * r; }
         else { const th = (m / MARKN) * Math.PI * 2; px = x + Math.cos(th) * 4; py = y + Math.sin(th) * 4; }
         const [xx, yy] = into(i, px, py);
         put(o, i, xx, yy, (hot ? 0.95 : 0.55) * dim * form * born, hot ? 0.5 : 0, 0.02, 1.2, col);
@@ -1079,7 +1124,9 @@ function makeLanes(F, deck, labels, sc, st, R) {
     for (let j = 0; j < CPLMAX; j++) mark('mk:c' + j, l.cpl[j] ?? null, pl.cpl.includes(l.cpl[j]) ? l.cpl[j] : null, 'up', GOLD, lit);
     mark('mk:vcl', l.vcl, pl.vcl, 'dn', INK, lit);
     mark('mk:vdl', l.vdl, pl.vdl, 'bar', GREEN, lit);
-    mark('mk:cmt', l.cmt, pl.cmt, 'dia', GOLD, R.OPK.some((a) => on(s, a)) && !end || on(s, R.CQ) && !end);
+    /* commit LSN — 기다리는 동안은 금빛 고리, VDL 이 넘으면(응답) 채운 초록 점 */
+    const acked = l.cmt != null && l.vdl != null && l.vdl >= l.cmt;
+    mark('mk:cmt', l.cmt, pl.cmt, acked ? 'dot' : 'dia', acked ? GREEN : GOLD, R.OPK.some((a) => on(s, a)) && !end || on(s, R.CQ) && !end);
   }
 
   /* ── 글 ── */
