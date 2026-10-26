@@ -1366,15 +1366,14 @@ const SCENES = [
 {
   num:'07', tab:'Gap Locks', title:'Next-Key Locking: Gap Locks Against Phantoms',
   sub:'phantom 을 막는 유일한 수단은 빈 구간을 잠그는 것 — REPEATABLE READ 의 range scan 은 next-key lock',
-  cast:['ses','stmt','idx','lock','undo'],
+  cast:['ses','stmt','idx','lock'],
   init:{
-    ses:{ kv:{ 'trx 60':'—', '격리 수준':'REPEATABLE READ', '잠근 것':'0' } },
-    stmt:{ kv:{ '테이블':'t (a INT PRIMARY KEY, …)', '범위 조회':'SELECT * FROM t WHERE a BETWEEN 15 AND 35 FOR UPDATE', '다른 세션':'INSERT INTO t (a) VALUES (25)   — autocommit' } },
+    ses:{ kv:{ 'trx 60':'—', 'trx 61':'—', '격리 수준':'REPEATABLE READ', '잠근 것':'0' } },
+    stmt:{ kv:{ '테이블':'t (a INT PRIMARY KEY, …)', '범위 조회':'SELECT … WHERE a BETWEEN 15 AND 35 FOR UPDATE', '다른 세션':'INSERT INTO t (a) VALUES (25)   — autocommit' } },
     idx:{ axis:{ min:0, max:60 }, items:[
       { id:'10', v:10 }, { id:'20', v:20 }, { id:'30', v:30 }, { id:'50', v:50 } ],
       spans:[] },
     lock:{ items:[] },
-    undo:{ items:[] },
   },
   knobs:[
     ['transaction_isolation','REPEATABLE-READ','RC 로 낮추면 gap lock 이 사라진다'],
@@ -1424,7 +1423,7 @@ const SCENES = [
                 '(trx->skip_gap_locks() && prebuilt->select_lock_type != LOCK_NONE &&',
                 ['storage/innobase/include/lock0lock.h','constexpr uint32_t LOCK_REC_NOT_GAP = 1024;']],
           ops:{ idx:{ span:{ add:[
-                  { id:'r20', from:20, to:20, kind:'rec', lb:'20', row:0 }] } },
+                  { id:'r20', from:20, to:20, kind:'rec', lb:'rec', row:0 }] } },
                 lock:{ add:[{ id:'20 · rec only', tag:'hold', sub:'LOCK_REC_NOT_GAP = 1024' }] },
                 ses:{ set:{ '잠근 것':'1' } } } },
 
@@ -1436,7 +1435,7 @@ const SCENES = [
           fact:['row_to_range_relation.gap_can_intersect_range = false;',
                 'lock_type = LOCK_REC_NOT_GAP;'],
           ops:{ idx:{ span:{ add:[
-                  { id:'r30', from:30, to:30, kind:'rec', lb:'30', row:0 }] } },
+                  { id:'r30', from:30, to:30, kind:'rec', lb:'rec', row:0 }] } },
                 lock:{ add:[{ id:'30 · rec only', tag:'hold', sub:'LOCK_REC_NOT_GAP = 1024' }] },
                 ses:{ set:{ '잠근 것':'2' } } } },
 
@@ -1450,14 +1449,17 @@ const SCENES = [
                 ['storage/innobase/handler/ha_innodb.cc','The purpose of unlock_row() is to release locks held on non-matching row']],
           beat:1,
           /* ops 를 생략하면 "아무것도 안 한다" 가 아니라 기본 스텝의 ops 를 물려받는다 —
-             처음 저작할 때 이 자리에서 갭 락이 그대로 붙었다. 빈 객체가 "안 한다" 다. */
-          ops:{} },
+             처음 저작할 때 이 자리에서 갭 락이 그대로 붙었다. 50 의 레코드 락은 여기서 걸고 6 에서 놓는다 */
+          ops:{ idx:{ span:{ add:[{ id:'r50', from:50, to:50, kind:'rec', lb:'rec · 곧 해제', row:0 }] } },
+                lock:{ add:[{ id:'50 · rec only', tag:'hold', sub:'조건 밖 · 곧 놓는다' }] },
+                ses:{ set:{ '잠근 것':'3' } } } },
 
       6:{ look:{ idx:['r20','r30'] },
           note:'결과 — 남은 lock 은 point 둘 (50 은 잠갔다 놓았다)',
           why:'조회가 반환한 행은 20 과 30, 끝에 남은 잠금도 20 과 30 이다. 50 은 읽고 잠깐 잠갔다가 놓았다.',
           key:'REPEATABLE READ 에서 깨졌던 직관이 여기서는 <em>맞는다</em>. 대신 다른 것을 잃는다 — 그것이 뒤에 나온다.',
           beat:1,
+          ops:{ idx:{ span:{ del:['r50'] } }, lock:{ del:['50 · rec only'] }, ses:{ set:{ '잠근 것':'2' } } },
           ref:'storage/innobase/row/row0sel.cc', sym:'row_search_mvcc',
           fact:[['storage/innobase/include/trx0trx.h','bool releases_non_matching_rows() const { return skip_gap_locks(); }'],
                 ['storage/innobase/include/trx0trx.h','do not match the WHERE clause are released */']], },
@@ -1471,7 +1473,7 @@ const SCENES = [
                 '/* Lock on gap does not need to wait for',
                 'if (!lock_rec_has_any(lock_sys->rec_hash, block->get_page_id(), heap_no)) {',
                 'if (conflicting.wait_for != nullptr) {'],
-          ops:{ idx:{ add:[{ id:'25', v:25 }] } } },
+          ops:{ idx:{ add:[{ id:'25', v:25 }] }, ses:{ set:{ 'trx 61':'INSERT 25 · 커밋|green' } } } },
 
       8:{ note:'trx 61 대기 시간 0',
           why:'REPEATABLE READ 에서는 이 자리에서 30 의 next-key 락에 막혀, trx 60 이 끝나거나 innodb_lock_wait_timeout(50초)이 지날 때까지 기다렸다.',
@@ -1492,7 +1494,7 @@ const SCENES = [
                 'bool skip_gap_locks() const {'],
           beat:1,
           ops:{ idx:{ span:{ add:[
-                  { id:'r25', from:25, to:25, kind:'rec', lb:'25', row:0 }] } },
+                  { id:'r25', from:25, to:25, kind:'rec', lb:'rec', row:0 }] } },
                 lock:{ add:[{ id:'25 · rec only', tag:'hold', sub:'두 번째 조회가 잡았다' }] },
                 ses:{ set:{ '잠근 것':'3' } } } },
 
@@ -1504,7 +1506,7 @@ const SCENES = [
                  ['storage/innobase/include/trx0trx.h','read the same snapshot; full next-key locking used in locking'],
                  ['storage/innobase/include/trx0trx.h','reads to block insertions into gaps */']],
            beat:1,
-           ops:{ ses:{ set:{ 'trx 60':'—' } } } },
+           ops:{} },   /* trx 60 은 아직 열려 있다 — 락은 커밋까지 */
     },
   } },
 
@@ -1565,7 +1567,7 @@ const SCENES = [
           'lock_type = LOCK_GAP;'],
     beat:1,
     ops:{ idx:{ span:{ add:[
-            { id:'g50', from:30, to:50, kind:'gap', lb:'gap  (30,50)', row:1 }] } },
+            { id:'g50', from:30, to:50, kind:'gap', lb:'gap  (30,50)', row:0 }] } },
           lock:{ add:[{ id:'50 · gap', tag:'hold', sub:'LOCK_GAP = 512' }] },
           ses:{ set:{ '잠근 것':'3' } } } },
 
@@ -1589,8 +1591,9 @@ const SCENES = [
           'the gap, waiting or granted, on the successor, the insert has to wait.',
           'Also, insert intention locks do not disturb each'],
     ops:{ idx:{ span:{ add:[
-            { id:'ii25', from:25, to:25, kind:'blk', lb:'INSERT 25  대기', row:2 }] } },
-          lock:{ add:[{ id:'30 · insert intention', tag:'x', sub:'trx 61 대기  ·  X,GAP,INSERT_INTENTION' }] } } },
+            { id:'ii25', from:25, to:25, kind:'blk', lb:'INSERT 25  대기', row:1 }] } },
+          lock:{ add:[{ id:'30 · insert intention', tag:'x', sub:'trx 61 대기  ·  X,GAP,INSERT_INTENTION' }] },
+          ses:{ set:{ 'trx 61':'INSERT 25 · 대기|red' } } } },
 
   { note:'trx 61 대기 — insert intention 이 30 의 next-key 와 충돌',
     why:'테이블에 25 는 존재하지 않는다. 충돌하는 것은 값이 아니라 "그 값이 들어갈 자리"에 대한 권리다. trx 61 은 trx 60 이 끝나거나 innodb_lock_wait_timeout(50초)이 지날 때까지 기다린다.',
@@ -1599,7 +1602,7 @@ const SCENES = [
     fact:['slot = lock_wait_table_reserve_slot(thr, lock_wait_timeout);',
           'os_event_wait(slot->event);',
           ['storage/innobase/lock/lock0lock.cc','const ulint type_mode = LOCK_X | LOCK_GAP | LOCK_INSERT_INTENTION;']],
-    look:{ idx:['ii25'], lock:true },
+    look:{ idx:['ii25','nk30'], lock:['30 · next-key','30 · insert intention'] },   /* 부딪히는 한 쌍 */
     beat:1 },
 
   { note:'READ COMMITTED — gap lock 비활성',
@@ -1613,8 +1616,8 @@ const SCENES = [
     beat:1,
     ops:{ ses:{ set:{ '격리 수준':'READ COMMITTED|green', '잠근 것':'2' } },
           idx:{ span:{ del:['nk20','nk30','g50','ii25'],
-                       add:[{ id:'r20', from:20, to:20, kind:'rec', lb:'20', row:0 },
-                            { id:'r30', from:30, to:30, kind:'rec', lb:'30', row:0 }] } },
+                       add:[{ id:'r20', from:20, to:20, kind:'rec', lb:'rec', row:0 },
+                            { id:'r30', from:30, to:30, kind:'rec', lb:'rec', row:0 }] } },
           lock:{ del:['20 · next-key','30 · next-key','50 · gap','30 · insert intention'],
                  add:[{ id:'20 · rec only', tag:'hold', sub:'LOCK_REC_NOT_GAP = 1024' },
                       { id:'30 · rec only', tag:'hold', sub:'LOCK_REC_NOT_GAP = 1024' }] } } },
@@ -1626,8 +1629,7 @@ const SCENES = [
     fact:[['storage/innobase/include/trx0trx.h','SELECT ... FOR UPDATE and ... LOCK IN SHARE MODE only lock'],
           ['storage/innobase/include/trx0trx.h','the index records, NOT the gaps before them, and thus allow'],
           ['storage/innobase/include/trx0trx.h','free inserting; each consistent read reads its own snapshot */']],
-    beat:1,
-    ops:{ ses:{ set:{ 'trx 60':'—', '격리 수준':'REPEATABLE READ' } } } },
+    beat:1 },
   ],
 },
 {
@@ -1708,7 +1710,7 @@ const SCENES = [
           beat:1,
           /* 사이클이 끊겼다 — e2 는 남지만 더는 사이클을 닫는 간선이 아니다(세계가 hot 간선이 사이클 위에 있는지 본다) */
           ops:{ wait:{ edge:{ del:['e1'], set:{ e2:{ hot:0 } } },
-                       set:{ 'trx 71':{ tag:'x', sub:'1205 · 문장만 실패' } } },
+                       set:{ 'trx 71':{ tag:'hold', sub:'1205 · 문장만 실패 · 10 보유' } } },
                 idx:{ span:{ del:['w71'] } },
                 ses:{ set:{ 'trx 71':'문장 실패 (1205)|red', '대기 중':'1' } } } },
 
@@ -1736,8 +1738,8 @@ const SCENES = [
     fact:[['storage/innobase/row/row0sel.cc','can use a LOCK_REC_NOT_GAP type record lock when locking a'],
           ['storage/innobase/row/row0sel.cc','(unique_search && !rec_get_deleted_flag(rec, comp)) ||'],
           'lock_rec_add_to_queue(LOCK_REC | mode, block, heap_no, index, trx);'],
-    ops:{ idx:{ span:{ add:[{ id:'a10', from:10, to:10, kind:'rec', lb:'71', row:0 }] } },
-          lock:{ add:[{ id:'10', tag:'hold', sub:'trx 71 X' }] } } },
+    ops:{ idx:{ span:{ add:[{ id:'a10', from:10, to:10, kind:'rec', lb:'trx 71 X', row:0 }] } },
+          lock:{ add:[{ id:'10 (71)', tag:'hold', sub:'trx 71 X' }] } } },
 
   { act:{ f:'ses', t:'idx', lb:'trx 72 : 50 에 X 락' },
     note:'trx 72 — 50 에 lock, 아직 정상',
@@ -1746,8 +1748,8 @@ const SCENES = [
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_lock',
     fact:[['storage/innobase/lock/lock0wait.cc','auto to = from->lock.blocking_trx.load();'],
           ['storage/innobase/lock/lock0wait.cc','infos.push_back({from, to, slot, slot->reservation_no});']],
-    ops:{ idx:{ span:{ add:[{ id:'a50', from:50, to:50, kind:'rec', lb:'72', row:0 }] } },
-          lock:{ add:[{ id:'50', tag:'hold', sub:'trx 72 X' }] } } },
+    ops:{ idx:{ span:{ add:[{ id:'a50', from:50, to:50, kind:'rec', lb:'trx 72 X', row:0 }] } },
+          lock:{ add:[{ id:'50 (72)', tag:'hold', sub:'trx 72 X' }] } } },
 
   { act:{ f:'ses', t:'wait', lb:'trx 71 → 50 요청' },
     note:'trx 71 → 50 요청, 72 보유',
@@ -1758,7 +1760,7 @@ const SCENES = [
           ['storage/innobase/lock/lock0lock.cc','waiter->lock.blocking_trx.store(blocker);'],
           'transactions, such that for each waiter we have one outgoing edge.',
           'outgoing[from] = static_cast<int>(to);'],
-    ops:{ idx:{ span:{ add:[{ id:'w71', from:50, to:50, kind:'blk', lb:'71 대기', row:1 }] } },
+    ops:{ idx:{ span:{ add:[{ id:'w71', from:50, to:50, kind:'blk', lb:'trx 71 대기', row:1 }] } },
           wait:{ set:{ 'trx 71':{ tag:'wait', sub:'50 을 기다림' } },
                  edge:{ add:[{ id:'e1', from:'trx 71', to:'trx 72', lb:'대기' }] } },
           ses:{ set:{ '대기 중':'1' } } } },
@@ -1772,7 +1774,7 @@ const SCENES = [
           'lock_wait_request_check_for_cycles();',
           'void lock_wait_request_check_for_cycles() { lock_set_timeout_event(); }'],
     beat:1,
-    ops:{ idx:{ span:{ add:[{ id:'w72', from:10, to:10, kind:'blk', lb:'72 대기', row:1 }] } },
+    ops:{ idx:{ span:{ add:[{ id:'w72', from:10, to:10, kind:'blk', lb:'trx 72 대기', row:1 }] } },
           wait:{ set:{ 'trx 72':{ tag:'wait', sub:'10 을 기다림' } },
                  edge:{ add:[{ id:'e2', from:'trx 72', to:'trx 71', lb:'대기', hot:1 }] } },
           ses:{ set:{ '대기 중':'2|red' } } } },
@@ -1825,8 +1827,8 @@ const SCENES = [
                  set:{ 'trx 71':{ tag:'hold', sub:'50 획득 · 계속' },
                        'trx 72':{ tag:'x', sub:'롤백됨 (1213)' } } },
           idx:{ span:{ del:['w71','w72','a50'],
-                       add:[{ id:'a50b', from:50, to:50, kind:'rec', lb:'71', row:0 }] } },
-          lock:{ del:['50'], add:[{ id:'50 (71)', tag:'hold', sub:'trx 71 X' }] },
+                       add:[{ id:'a50b', from:50, to:50, kind:'rec', lb:'trx 71 X', row:0 }] } },
+          lock:{ del:['50 (72)'], add:[{ id:'50 (71)', tag:'hold', sub:'trx 71 X' }] },
           ses:{ set:{ 'trx 72':'ROLLED BACK|red', '대기 중':'0|green' } } } },
 
   { note:'예방책은 하나 — 같은 순서로 잠근다',
@@ -1835,8 +1837,11 @@ const SCENES = [
     look:{ ses:true, wait:true },
     fact:[['storage/innobase/handler/ha_innodb.cc','Enable/disable InnoDB deadlock detector (default ON).']],
     beat:1,
-    ops:{ ses:{ set:{ 'trx 72':'ACTIVE' } },
-          wait:{ set:{ 'trx 72':{ tag:'hold', sub:'재시도 후 정상' } } } } },
+    /* 71 이 끝나야 72 의 재시도가 지나간다 — 71 이 10 · 50 을 쥔 채로 '재시도 후 정상' 이면 다시 막혔어야 했다 */
+    ops:{ ses:{ set:{ 'trx 71':'COMMIT|green', 'trx 72':'재시도 → COMMIT|green' } },
+          wait:{ set:{ 'trx 71':{ tag:'ok', sub:'커밋 · 잠금 해제' }, 'trx 72':{ tag:'ok', sub:'재시도 후 커밋' } } },
+          lock:{ del:['10 (71)','50 (71)'] },
+          idx:{ span:{ del:['a10','a50b'] } } } },
   ],
 },
 {
