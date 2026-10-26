@@ -350,6 +350,8 @@
 
   .st-copy,.st-hero{top:calc(var(--top-h,56px) + 14px);transform:translateY(var(--lift,0px))}
   .st-hero{transform:none}
+  /* 끝 목록은 무대 위 끝을 정하지 않는다(Story.jsx layout) — 흐려진 세계 위에 놓이므로 바탕을 깐다 */
+  .st-end .st-copy{background:var(--bg);padding-bottom:12px;box-shadow:calc(-1 * var(--gut)) 0 0 var(--bg),var(--gut) 0 0 var(--bg)}
   .st-note{font-size:20px;line-height:1.4}
   .st-dt{width:auto;right:0;bottom:auto;max-height:62vh;padding:14px var(--gut) 20px;border-right:0;border-bottom:1px solid var(--line);
     transform:translateY(-104%)}

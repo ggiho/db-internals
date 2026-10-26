@@ -205,8 +205,10 @@ export default function Story() {
       const W = innerWidth, H = innerHeight, narrow = W < 820;
       if (narrow) {
         /* 위 끝은 이 장면에서 가장 긴 글(제목 포함) 아래 — 화면의 54% 로 고정했을 때 글 아래가 70 – 130px 비어
-           무대가 그만큼 더 줄었다(storysweep text-small). 54% 는 상한으로 남긴다 */
-        const cb = Math.max(0, ...[...root.current.querySelectorAll('.st-copy, .st-hero')].map((c) => c.offsetTop + c.offsetHeight));
+           무대가 그만큼 더 줄었다(storysweep text-small). 54% 는 상한으로 남긴다.
+           끝 구간(이어지는 장면 목록)은 빼고 잰다 — 다음 장면을 맨 위에 더하자 그 목록이 가장 긴 글이 되어(768 에서 아래 끝
+           520px, 스텝 글은 240 – 270px) 모든 스텝의 무대가 250px 줄었다. 끝에서는 세계가 흐려지고 목록은 바탕을 깐다(story.css) */
+        const cb = Math.max(0, ...[...root.current.querySelectorAll('.st-sec:not(.st-end) .st-copy, .st-hero')].map((c) => c.offsetTop + c.offsetHeight));
         return { W, H, narrow, x0: 16, x1: W - 16, y0: Math.round(Math.min(H * 0.54, cb + 18)), y1: H - 30 };
       }
       /* 글 칸은 요약(제목 · key)만 담는다 — why · 근거는 '자세히' 패널로 갔다. 폭은 story.css 의 --copyw 와 같은 식 */
