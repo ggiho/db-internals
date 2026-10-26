@@ -728,9 +728,14 @@ PANEL.bytes = (W, M, sp) => {
   const lead = (a, s) => s.byl[a];
   let geo = null;
   /* 짚는 칸 — 그 배우에 금빛 칸이 있으면 금빛 칸(04a 의 '← 지금'), 없으면 look · 바뀐 칸, act 이름이 대는 칸 */
+  /* 금빛을 끄는 칸(앞 상태 gold → 지금 아님)은 바뀌었어도 짚는 칸이 아니다 — hexdump 와 같은 규칙(06a 3 의 '2B × 9') */
+  const PVB = new Map();
+  for (const b of M.B.values()) b.S.forEach((s2, i) => PVB.set(s2, i ? b.S[i - 1] : b.S0));
+  const reset = (s, a, it) => { const pv = PVB.get(s), was = pv && (pv[a] || []).find((x) => x.k === it.k); return !!was && was.tag === 'gold' && it.tag !== 'gold'; };
   const isHot = (s, a, it) => {
     if (!touchOf(s, a)) return false;
     if ((s[a] || []).some((x) => x.tag === 'gold') && TRUE_B.has(a)) return it.tag === 'gold' || it.tag === 'red';
+    if (TRUE_B.has(a) && reset(s, a, it) && !(focusOf(s, a) && focusOf(s, a).has(it.id))) return false;
     return hotIt(s, a, it.id) || actNames(s, a, it.id) || it.tag === 'gold' || it.tag === 'red';
   };
   const cellX = (row, c) => { const b = c.org ? geo.ox : geo.left; return [b + c.u0 * geo.px, b + c.u1 * geo.px]; };
@@ -1403,13 +1408,14 @@ PANEL.map = (W, M, sp) => {
     const A = s.addr || {};
     if (n === '06a') {
       /* 이름표 = addr 의 칸과 값(글 그대로) + 그 영역의 바이트. directory 의 끝은 p:5 실측 slot 147 개 */
-      const dir0 = PAGE - 8 - P5.PAGE_N_DIR_SLOTS * 2, set = (k) => A[k] && bare(A[k]) !== '—', kv = (k) => `${esc(k)} <span class="q-v">${val(A[k])}</span>`;
+      /* 값의 색은 그 스텝에 바뀐 칸에만 — 앞 스텝의 '|gold' 가 다음 스텝까지 금빛으로 남았다(PAGE_DATA · 디렉터리 시작) */
+      const dir0 = PAGE - 8 - P5.PAGE_N_DIR_SLOTS * 2, set = (k) => A[k] && bare(A[k]) !== '—', kv = (k) => `${esc(k)} <span class="q-v">${modOf(s, 'addr').has(k) ? val(A[k]) : esc(bare(A[k]))}</span>`;
       R0.push({ lo: 0, hi: 38, c: FAINT, a: 0.6, t: '0–37  FIL header 38 B' });
       if (set('PAGE_HEADER')) R0.push({ lo: 38, hi: 74, c: GOLD, a: 0.8, t: `${kv('PAGE_HEADER')}  ·  38–73 header 36 B`, html: true, hot: modOf(s, 'addr').has('PAGE_HEADER') || touchOf(s, 'phd') });
       if (set('PAGE_DATA')) R0.push({ lo: 74, hi: 94, c: INK, a: 0.6, t: `${kv('PAGE_DATA')}  ·  74–93 FSEG`, html: true, hot: modOf(s, 'addr').has('PAGE_DATA') });
       if (set('infimum')) R0.push({ lo: 94, hi: 120, c: ACCENT, a: 0.75, t: `${kv('infimum')}  ·  ${set('supremum') ? kv('supremum') : 'supremum —'}`, html: true, hot: modOf(s, 'addr').has('infimum') });
       if (set('infimum')) R0.push({ lo: 120, hi: P5.PAGE_HEAP_TOP, c: INK, a: 0.32, t: '' });
-      if (set('디렉터리 시작')) R0.push({ lo: dir0, hi: PAGE - 8, c: ACCENT, a: 0.7, t: `${kv('디렉터리 시작')}  ·  p:5 ${P5.PAGE_N_DIR_SLOTS} slot → ${fmt(dir0)}`, html: true, hot: modOf(s, 'addr').has('디렉터리 시작') });
+      if (set('디렉터리 시작')) R0.push({ lo: dir0, hi: PAGE - 8, c: ACCENT, a: 0.7, t: `${kv('디렉터리 시작')}  ·  p:5 슬롯 0 = ${fmt(PAGE - 8 - 2)} … 슬롯 ${P5.PAGE_N_DIR_SLOTS - 1} = ${fmt(dir0)}`, html: true, hot: modOf(s, 'addr').has('디렉터리 시작') });
       R0.push({ lo: PAGE - 8, hi: PAGE, c: FAINT, a: 0.6, t: '16,376–  trailer 8 B' });
       return R0;
     }
