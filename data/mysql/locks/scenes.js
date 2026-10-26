@@ -185,7 +185,9 @@ const SCENES = [
     ['I_S.INNODB_TRX','trx_rows_locked 가 0 인지 확인한다']],
   links:[['09','FOR SHARE 와 FOR UPDATE'],['04','S 와 X 는 무엇을 막나'],['01','그래도 MDL 은 잡힌다']],
   init:{
-    ses:{ kv:{ 'trx':'72  ACTIVE  ·  읽기만 — InnoDB trx id 는 아직 없다', '격리 수준':'REPEATABLE READ', '쥔 행 락':'0' } },
+    /* 세션 72 — 읽기만 한 트랜잭션에는 InnoDB trx id 가 없다(쓰기를 시작해야 trx_set_rw_mode 가 준다).
+       'trx 72' 라 적고 'trx id 는 없다' 를 붙였더니 서로 어긋났고, 그 줄이 접혀 두 줄이 됐다 */
+    ses:{ kv:{ '세션':'72  ·  읽기만', 'trx id':'없음 (읽기 전용)', '격리 수준':'REPEATABLE READ', '쥔 행 락':'0', 'trx 73':'—' } },
     stmt:{ kv:{ 'SQL':'SELECT c FROM t WHERE id=20', '잠금 방식':'—' } },
     mdl:{ items:[{ id:'trx 72  ·  t', tag:'hold', sub:'SHARED_READ  ·  획득' }] },
     tl:{ items:[{ id:'(비었다)', tag:'free', sub:'테이블 락도 없음' }] },
@@ -221,7 +223,7 @@ const SCENES = [
           'within the same transaction will get the same read view, which is created',
           '} else if (!MVCC::is_view_active(trx->read_view)) {',
           ['storage/innobase/row/row0sel.cc','/* Assign a read view for the query */']],
-    ops:{ rv:{ set:{ 'read view':'m_low_limit_id=73  ·  trx id 없음', '보는 시점':'첫 SELECT|gold' } } } },
+    ops:{ rv:{ set:{ 'read view':'m_low_limit_id=73', '보는 시점':'첫 SELECT|gold' } } } },
 
   { look:{ row:['id=20'], rl:true },
     note:'invisible version → undo 를 거슬러 이전 version 재구성',
@@ -233,7 +235,9 @@ const SCENES = [
           '/** Checks that a record is seen in a consistent read.',
           ['storage/innobase/row/row0sel.cc','!lock_clust_rec_cons_read_sees(rec, index, offsets,'],
           ['storage/innobase/row/row0sel.cc','/** Builds a previous version of a clustered index record for a consistent read'],
-          ['storage/innobase/trx/trx0purge.cc','trx_sys->mvcc->clone_oldest_view(&purge_sys->view);']] },
+          ['storage/innobase/trx/trx0purge.cc','trx_sys->mvcc->clone_oldest_view(&purge_sys->view);']],
+    /* 이 장면에는 고친 쓰기가 없어 id=20 은 그대로 보인다 — 재구성은 안 보일 때의 길이다 */
+    ops:{ row:{ set:{ 'id=20':{ sub:'c=200  ·  보인다 — 재구성 없이 읽음' } } } } },
 
   { look:{ rl:true },
     note:'이 경로엔 lock 범위 계산 코드 자체가 없다',
@@ -245,7 +249,7 @@ const SCENES = [
           'auto row_to_range_relation = row_compare_row_to_range(',
           '/* This is a non-locking consistent read: if necessary, fetch'] },
 
-  { look:{ row:true },
+  { look:{ row:true, ses:true },
     note:'row 미잠금 — 타 세션이 지금 이 row 를 UPDATE 가능',
     why:'행 락 목록이 비어 있다. 다른 트랜잭션이 같은 행에 X 를 잡는 데 아무 장애가 없다.',
     key:'테이블 락조차 없다 — <em>lock_table 은 호출되지 않는다</em>. select_lock_type 이 LOCK_NONE 이면 read view 만 만들고 그 분기를 빠져나간다.',
@@ -254,6 +258,7 @@ const SCENES = [
           ['storage/innobase/row/row0sel.cc','/* This is a consistent read */'],
           ['storage/innobase/row/row0sel.cc','err = lock_table(0, index->table,'],
           ['storage/innobase/handler/ha_innodb.cc','no lock for consistent read (plain SELECT).']],
+    ops:{ ses:{ set:{ 'trx 73':'UPDATE id=20  →  기다리지 않는다|green' } } },
     beat:1 },
 
   { look:{ mdl:true, tl:true },
@@ -280,8 +285,9 @@ const SCENES = [
     ['I_S.INNODB_TRX','trx_rows_locked 가 0 이 아니다']],
   links:[['09','FOR SHARE 와 FOR UPDATE'],['04','S 와 X 는 무엇을 막나'],['01','그래도 MDL 은 잡힌다']],
   init:{
-    ses:{ kv:{ 'trx':'72  ACTIVE', '격리 수준':'REPEATABLE READ', '쥔 행 락':'0' } },
-    stmt:{ kv:{ 'SQL':'SELECT c FROM t WHERE id=20 FOR UPDATE', '잠금 방식':'—' } },
+    /* lock_table 이 IX 를 잡으며 trx_set_rw_mode 로 trx id 를 준다. FOR 와 UPDATE 사이는 nbsp — 두 낱말이 줄 끝에서 갈렸다 */
+    ses:{ kv:{ '세션':'72  ·  FOR UPDATE', 'trx id':'있음 (IX 에서 rw 로)', '격리 수준':'REPEATABLE READ', '쥔 행 락':'0', 'trx 73':'—' } },
+    stmt:{ kv:{ 'SQL':'SELECT c FROM t WHERE id=20 FOR\u00a0UPDATE', '잠금 방식':'—' } },
     mdl:{ items:[{ id:'trx 72  ·  t', tag:'hold', sub:'SHARED_WRITE  ·  획득' }] },
     tl:{ items:[{ id:'t', tag:'hold', sub:'LOCK_IX  ·  intention exclusive' }] },
     rl:{ items:[{ id:'(비었다)', tag:'free', sub:'아직' }] },
@@ -340,9 +346,10 @@ const SCENES = [
           'lock_type = LOCK_REC_NOT_GAP;',
           'static row_to_range_relation_t row_compare_row_to_range(',
           'lock_type = LOCK_ORDINARY;',
-          '(unique_search && !rec_get_deleted_flag(rec, comp)) ||'] },
+          '(unique_search && !rec_get_deleted_flag(rec, comp)) ||'],
+    ops:{ rl:{ set:{ 'id=20':{ sub:'LOCK_X  ·  REC_NOT_GAP' } } } } },
 
-  { look:{ rl:true },
+  { look:{ rl:true, ses:true },
     note:'타 세션 UPDATE 는 여기서 block',
     why:'X 는 어떤 레코드 락과도 호환되지 않는다. 같은 행에 S 든 X 든 레코드 락을 요청하면 대기한다 — 잰 값: data_locks 에 IX 와 X,REC_NOT_GAP 20, metadata_locks 에 SHARED_WRITE. 잠금 없는 SELECT 는 막히지 않는다 — 락을 묻지 않기 때문이다.',
     key:'A 와 B 의 차이는 문장 끝의 <em>두 단어</em>뿐인데, 쓰는 쪽에서 본 동시성 성질이 정반대가 된다.',
@@ -351,6 +358,8 @@ const SCENES = [
           'Calculates if lock mode 1 is compatible with lock mode 2.',
           ['storage/innobase/lock/lock0lock.cc','Gap type locks without LOCK_INSERT_INTENTION flag'],
           ['storage/innobase/lock/lock0lock.cc','Lock on gap does not need to wait for']],
+    ops:{ ses:{ set:{ 'trx 73':'UPDATE id=20  →  대기|red' } },
+          rl:{ add:[{ id:'id=20 (73)', tag:'wait', sub:'trx 73  ·  X,REC_NOT_GAP  ·  WAITING' }] } },
     beat:1 },
 
   { look:{ mdl:true, tl:true },
