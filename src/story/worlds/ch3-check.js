@@ -414,6 +414,9 @@ export function checkScene(deck, sc) {
       if (ty != null && ty !== hexU(DUMP[4].hex, 24, 2)) say(`FIL_PAGE_TYPE ${ty} 가 실측 INDEX page 의 0x${DUMP[4].hex.slice(48, 52)} 와 다르다`);
       if (fl != null && fl !== SD.files.small.p0.f.FSP_SPACE_FLAGS) say(`FSP FLAG 0x${fl.toString(16)} 가 t.ibd page 0 의 0x${SD.files.small.p0.f.FSP_SPACE_FLAGS.toString(16)} 와 다르다`);
       if (fl != null) for (const [n, a] of FSP_FLAGS) if (bare(h['FSP FLAG']).includes(n) && !(Math.floor(fl / 2 ** a) % 2)) say(`FSP FLAG 에 ${n} 이 적혔는데 bit ${a} 가 꺼져 있다`);
+      /* VERSION 의 '+8 = 80408' · '+12 = 1' — t.ibd page 0 의 8 · 12 */
+      const vk = kv('ver'), p0 = SD.files.small.p0.hex;
+      for (const [k2, o] of [['SRV_VERSION', 8], ['SPACE_VERSION', 12]]) { const v = eqv(vk[k2]); if (v != null && v !== hexU(p0, o, 4)) say(`${k2} '${bare(vk[k2])}' 가 page 0 dump 의 ${hexU(p0, o, 4)} 와 다르다`); }
     }
     /* 04c — header 의 칸을 dump 에서 다시 풀어 kv 와 맞춘다. 파일은 그 스텝의 fsA.file — 그리고 그 파일이 이 스텝의
        실측 조건(src 의 파일)과 같아야 한다. fsA 를 fsA 자신의 file 하고만 맞췄더니 src 가 big.ibd 로 바뀐 스텝에

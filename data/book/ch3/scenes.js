@@ -2783,7 +2783,7 @@ const SCENES = [
       { id:'page 0  FSP_HDR', sz:3, tag:'hdr', sub:'FLAG 필드에 형식 비트' },
       { id:'page 1…', sz:10, tag:'', sub:'각 페이지에 FIL_PAGE_TYPE' } ],
       byl:{ l:'파일 자체가 형식을 말한다', r:'별도 파일 없음' } },
-    ver:{ kv:{ '방식':'—', '어디에':'—' } },
+    ver:{ kv:{ '방식':'—', '어디에':'—', 'SRV_VERSION':'—', 'SPACE_VERSION':'—' } },
     hdr:{ kv:{ 'FIL_PAGE_TYPE':'FIL_PAGE_INDEX', 'FSP FLAG':'—' } },
   },
   cite:[
@@ -2804,7 +2804,7 @@ const SCENES = [
 
   { act:{ f:'op', t:'file', lb:'InnoDB : 헤더 방식' },
     note:'InnoDB 는 header — filename 은 table 이름',
-    why:'page 0(FSP_HDR)의 FSP_SPACE_FLAGS 에 page 크기와 ATOMIC_BLOBS(DYNAMIC · COMPRESSED) 비트가 있다 — t.ibd 는 0x4021 이었다. 행 형식 자체는 아니다 : 실측 REDUNDANT 와 COMPACT 는 둘 다 0x4000 이었다 — 그 구별은 사전과 page 의 compact 비트가 한다.',
+    why:'page 0(FSP_HDR)의 FSP_SPACE_FLAGS 에 page 크기와 ATOMIC_BLOBS(DYNAMIC · COMPRESSED) 비트가 있다 — t.ibd 는 0x4021 이었다. 행 형식 자체는 아니다 : 같은 식(fsp_flags_init)으로 셈하면 REDUNDANT 와 COMPACT 는 둘 다 0x4000 이다 — 그 구별은 사전과 page 의 compact 비트가 한다.',
     key:'그래서 <em>테이블 이름을 바꿔도 형식 정보가 안 깨진다</em>. Cassandra 방식은 파일명을 함부로 못 바꾼다.',
     ref:'storage/innobase/include/fsp0fsp.ic', sym:'fsp_flags_is_valid',
     fact:[['storage/innobase/include/fsp0fsp.h','constexpr uint32_t FSP_SPACE_FLAGS = 16;'],
@@ -2812,7 +2812,7 @@ const SCENES = [
           ['storage/innobase/include/fsp0fsp.h','Note that the fsp_flags cannot show the difference between a']],
     cite:['The version can also be stored directly in the index file header',
           'a part of the header (or an entire header) has to be encoded in a format that does not change between versions'],
-    ops:{ ver:{ set:{ '방식':'헤더 안 FLAG|green', '어디에':'page 0 · FSP_HDR' } }, hdr:{ set:{ 'FSP FLAG':'0x4021 · ATOMIC_BLOBS · SDI|gold' } }, op:{ set:{ '형식 알기':'첫 페이지를 읽어서' } } } },
+    ops:{ ver:{ set:{ '방식':'헤더 안 FLAG|green', '어디에':'page 0 · FSP_HDR' } }, hdr:{ set:{ 'FSP FLAG':'0x4021 · POST_ANTELOPE · ATOMIC_BLOBS · SDI|gold' } }, op:{ set:{ '형식 알기':'첫 페이지를 읽어서' } } } },
 
   { look:{ ver:true },
     note:'version 은 page 0 에만 — 그것도 남의 자리를 차용',
@@ -2821,7 +2821,9 @@ const SCENES = [
     ref:'storage/innobase/include/fil0types.h', sym:'FIL_PAGE_SRV_VERSION',
     fact:['constexpr uint32_t FIL_PAGE_SRV_VERSION = 8;',
           'constexpr uint32_t FIL_PAGE_SPACE_VERSION = 12;',
-          'constexpr uint32_t FIL_PAGE_PREV = 8;'] },
+          'constexpr uint32_t FIL_PAGE_PREV = 8;'],
+    /* t.ibd page 0 의 실측 8 – 15 (spacedump) — 04bv 와 같은 값 */
+    ops:{ ver:{ set:{ 'SRV_VERSION':'+8 = 80408  (PREV 자리)|gold', 'SPACE_VERSION':'+12 = 1  (NEXT 자리)|gold' } } } },
 
   { act:{ f:'file', t:'hdr', lb:'페이지마다 종류도 적혀 있다' },
     note:'page 마다 자기 type — FIL_PAGE_TYPE',
@@ -2833,7 +2835,7 @@ const SCENES = [
           'can only be trusted in the following case: if the page is an uncompressed',
           ['storage/innobase/buf/buf0buf.cc','} else if ((space_id != 0 && space_id != read_space_id) ||']],
     cite:['Some file formats identify the version using magic numbers'],
-    ops:{ hdr:{ set:{ 'FIL_PAGE_TYPE':'FIL_PAGE_INDEX  (17855)|green' } } } },
+    ops:{ hdr:{ set:{ 'FIL_PAGE_TYPE':'FIL_PAGE_INDEX  (17855)|green', 'FSP FLAG':'0x4021 · POST_ANTELOPE · ATOMIC_BLOBS · SDI' } } } },
 
   { look:{ hdr:true },
     note:'page type 값 — INDEX 계열 셋만 큰 수, 나머지는 일련번호',
@@ -2852,7 +2854,10 @@ const SCENES = [
     fact:['FSP_FLAGS_WIDTH_PAGE_SSIZE',
           'constexpr uint32_t FSP_FLAGS_WIDTH_PAGE_SSIZE = 4;',
           ['storage/innobase/include/fsp0fsp.ic','if (post_antelope != atomic_blobs) {'],
-          ['storage/innobase/include/fsp0fsp.ic','/* Make sure there are no bits that we do not know about. */']] },
+          ['storage/innobase/include/fsp0fsp.ic','/* Make sure there are no bits that we do not know about. */']],
+    /* 이 스텝의 주제가 그 flag word 다 — FSP FLAG 를 다시 짚어 bit 판과 page 0 이 밝아지게 */
+    ops:{ hdr:{ set:{ 'FSP FLAG':'0x4021 · POST_ANTELOPE · ATOMIC_BLOBS · SDI|gold' } },
+          ver:{ set:{ 'SRV_VERSION':'+8 = 80408  (PREV 자리)', 'SPACE_VERSION':'+12 = 1  (NEXT 자리)' } } } },
 
   { look:{ op:true },
     note:'여러 format 의 동시 지원이 필요',

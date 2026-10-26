@@ -1203,7 +1203,9 @@ PANEL.flags = (W, M, sp) => {
       for (const f of fs) { const xa = bitX(f.hi) + 1, xb = bitX(f.lo) + geo.bw - 2, yt = geo.band - 3; ctx.beginPath(); ctx.moveTo(xa, yt + 2); ctx.lineTo(xa, yt); ctx.lineTo(xb, yt); ctx.lineTo(xb, yt + 2); ctx.stroke(); }
       const per = geo.per.get(s) || [], top = per.reduce((m, x) => Math.max(m, x.row), 0);
       ctx.globalAlpha = 0.3 * O.o;
-      for (const q of per) { const ly = geo.fy + (top - q.row) * RH + RH - 2; if (q.row < top || q.cx < q.l || q.cx > q.r) seg(ctx, q.cx, ly, q.cx, geo.band - 4); }
+      knock(ctx, boxesOf(per, (q) => geo.fy + (top - q.row) * RH), () => {
+        for (const q of per) { const ly = geo.fy + (top - q.row) * RH + RH - 2; if (q.row < top || q.cx < q.l || q.cx > q.r) seg(ctx, q.cx, ly, q.cx, geo.band - 4); }
+      });
     },
     anchor(a2) { return (a2 === a || (!a && a2 === 'hdr')) && geo ? [geo.x0 + 7 * geo.bw, geo.band + 6] : null; },
   };
@@ -1310,7 +1312,9 @@ PANEL.tiles = (W, M, sp) => {
      FSP FLAG 가 바뀌면 page 0 */
   const hk = (s) => modOf(s, 'hdr');
   const typeNo = (s) => C.nums((s.hdr || {}).FIL_PAGE_TYPE).find((x) => x >= 10000) ?? null;
-  const flagOn = (s) => hk(s).has('FSP FLAG');
+  const flagOn = (s) => hk(s).has('FSP FLAG') && tone((s.hdr || {})['FSP FLAG']) === 'gold';
+  /* 타입 두 바이트의 이름(fil0fil.h 의 FIL_PAGE_*) — 줄 아래 '45 bf' 만으로는 무엇인지 읽히지 않았다 */
+  const TYN = { 0x0002: 'UNDO_LOG', 0x0003: 'INODE', 0x0005: 'IBUF_BITMAP', 0x0008: 'FSP_HDR', 0x45bd: 'SDI', 0x45be: 'RTREE', 0x45bf: 'INDEX' };
   const runHot = (s, r) => {
     if (!r.t || !touchOf(s, 'hdr')) return false;
     const v = parseInt(r.t, 16);
@@ -1335,7 +1339,7 @@ PANEL.tiles = (W, M, sp) => {
         T.set(sb[id], [x ? x.it.sub : '', (on && hotIt(s, a, id)) || fh, '', !!x && !!x.it.sub]);
       }
       no.forEach((lb, p) => T.set(lb, [String(p), pk === p, pk === p ? 'gold' : '', true]));
-      tyl.forEach((lb, j) => { const r = runs[j], h = runHot(s, r); T.set(lb, [r.t ? `${r.t.slice(0, 2)} ${r.t.slice(2)}${r.b > r.a ? ' × ' + (r.b - r.a + 1) : ''}` : '', touchOf(s, 'hdr'), h ? 'gold' : '', !!r.t]); });
+      tyl.forEach((lb, j) => { const r = runs[j], h = runHot(s, r), nmT = r.t ? TYN[parseInt(r.t, 16)] : null; T.set(lb, [r.t ? `${r.t.slice(0, 2)} ${r.t.slice(2)}${nmT ? ' ' + nmT : ''}${r.b > r.a ? ' × ' + (r.b - r.a + 1) : ''}` : '', touchOf(s, 'hdr'), h ? 'gold' : '', !!r.t]); });
       T.set(off, [pk != null ? `${pk} × 16,384 = ${fmt(pk * 16384)}` : '', true, 'gold', pk != null]);
       T.set(cap, [s.byl[a] ? `${esc(s.byl[a].l || '')}  ·  ${esc(s.byl[a].r || '')}` : '', on, '', !!s.byl[a], true]);
     },
@@ -1382,8 +1386,10 @@ PANEL.tiles = (W, M, sp) => {
       const q = geo.per.get(s);
       if (!q) return;
       ctx.globalAlpha = 0.3 * O.o; ctx.strokeStyle = O.css.faint;
-      for (const it of q.NM) { const ly = geo.nm + (geo.nr - 1 - it.row) * RH + RH - 2; if (it.row > 0 || it.cx < it.l || it.cx > it.r) seg(ctx, it.cx, ly, it.cx, geo.band - 1); }
-      for (const it of q.VL) if (it.row > 0 || it.cx < it.l || it.cx > it.r) seg(ctx, it.cx, geo.no + 14, it.cx, geo.sb + it.row * RH + 1);
+      knock(ctx, [...boxesOf(q.NM, (it) => geo.nm + (geo.nr - 1 - it.row) * RH), ...boxesOf(q.VL, (it) => geo.sb + it.row * RH)], () => {
+        for (const it of q.NM) { const ly = geo.nm + (geo.nr - 1 - it.row) * RH + RH - 2; if (it.row > 0 || it.cx < it.l || it.cx > it.r) seg(ctx, it.cx, ly, it.cx, geo.band - 1); }
+        for (const it of q.VL) if (it.row > 0 || it.cx < it.l || it.cx > it.r) seg(ctx, it.cx, geo.no + 14, it.cx, geo.sb + it.row * RH + 1);
+      });
       /* 묶음의 괄호 — 칸 위 */
       ctx.globalAlpha = 0.45 * O.o;
       for (const sp2 of spans(s)) if (sp2.q > sp2.p) { const xa = tx(sp2.p) + 1, xb = tx(sp2.q) + geo.ts - 1, yy = geo.band - 3; ctx.beginPath(); ctx.moveTo(xa, yy + 2); ctx.lineTo(xa, yy); ctx.lineTo(xb, yy); ctx.lineTo(xb, yy + 2); ctx.stroke(); }
