@@ -509,6 +509,14 @@ function rim(cx, cy, w, h, n, m) {
   return [cx - w / 2, cy + h / 2 - (d - 2 * w - h)];
 }
 const seg = (ctx, x0, y0, x1, y1) => { ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); };
+/* 이름표 자리를 비우고 그린다 — 지시선 · 눈금이 다른 이름표의 글자를 가로질렀다(08a 'next +│49', 10 'FLA│G'). boxes = [x, y, w, h] */
+function knock(ctx, boxes, fn) {
+  ctx.save(); ctx.beginPath(); ctx.rect(-1e5, -1e5, 2e5, 2e5);
+  for (const b of boxes) ctx.rect(b[0] - 2, b[1] - 1, b[2] + 4, b[3] + 2);
+  ctx.clip('evenodd'); fn(); ctx.restore();
+}
+/* stagger 결과(l · r · row) 의 이름표 상자 — y 는 그 줄의 윗변 */
+const boxesOf = (list, yOf) => list.map((it) => [it.l, yOf(it), it.r - it.l, RH - 2]);
 function arrowHead(ctx, x, y, ang, s = 4) {
   ctx.beginPath();
   ctx.moveTo(x - Math.cos(ang - 0.45) * s, y - Math.sin(ang - 0.45) * s); ctx.lineTo(x, y); ctx.lineTo(x - Math.cos(ang + 0.45) * s, y - Math.sin(ang + 0.45) * s);
@@ -1812,8 +1820,11 @@ PANEL.raxis = (W, M, sp) => {
       if (!q) return;
       ctx.setLineDash([]);
       ctx.globalAlpha = 0.3 * O.o; ctx.strokeStyle = O.css.faint;
-      for (const it of q.NM) { const ly = geo.nm + (geo.nr - 1 - it.row) * RH + RH - 2; if (it.row > 0 || it.cx < it.l || it.cx > it.r) seg(ctx, it.cx, ly, it.cx, geo.up); }
-      for (const it of q.VL) if (it.row > 0 || it.cx < it.l || it.cx > it.r) seg(ctx, it.cx, geo.rl + 13, it.cx, geo.sb + it.row * RH + 1);
+      const bx = [...boxesOf(q.NM, (it) => geo.nm + (geo.nr - 1 - it.row) * RH), ...boxesOf(q.VL, (it) => geo.sb + it.row * RH)];
+      knock(ctx, bx, () => {
+        for (const it of q.NM) { const ly = geo.nm + (geo.nr - 1 - it.row) * RH + RH - 2; if (it.row > 0 || it.cx < it.l || it.cx > it.r) seg(ctx, it.cx, ly, it.cx, geo.up); }
+        for (const it of q.VL) if (it.row > 0 || it.cx < it.l || it.cx > it.r) seg(ctx, it.cx, geo.rl + 13, it.cx, geo.sb + it.row * RH + 1);
+      });
       /* 끊긴 자리 ≈ */
       const xb = X(A1) + geo.gw / 2;
       ctx.globalAlpha = 0.6 * O.o; seg(ctx, xb - 5, geo.band + geo.bh + 7, xb - 1, geo.band - 7); seg(ctx, xb + 1, geo.band + geo.bh + 7, xb + 5, geo.band - 7);

@@ -2411,7 +2411,9 @@ const SCENES = [
   links:[['08','책의 Tom · Leslie · Ron'],['06','슬롯 하나가 4–8 개를 맡는다'],['03a','heap_no 13 bit 를 꺼내는 식']],
   /* 실측 e13 — n3 (name VARCHAR(10) PK latin1) 에 Tom, Leslie, Ron 순으로 넣은 page. 원점 · heap_no 는 넣는 순간
      정해지고 바뀌지 않는다. 사슬의 상대값과 슬롯 · N_HEAP 은 세 개를 넣은 뒤, 슬롯 셋은 여섯을 더 넣은 뒤 잰 값이다.
-     중간 스텝의 n_owned 2 · 3 은 page_cur_insert_rec_low 의 7 단계(owner 의 n_owned + 1)를 따른 것이다. */
+     중간 스텝의 n_owned 2 · 3 은 page_cur_insert_rec_low 의 7 단계(owner 의 n_owned + 1)를 따른 것이다.
+     그 dump 는 저장소에 없다 — 원점 · heap · next 는 규칙(PAGE_NEW_SUPREMUM_END 120 + extra 6, 행 = 이름 + trx 6 + roll 7)으로
+     다시 셈해지고 ch3-check 가 사슬 · 상대 거리 · N_HEAP 을 맞춘다. 그래서 글은 '실측' 이라 하지 않는다. */
   init:{
     op:{ kv:{ '넣은 순서':'—', 'next 사슬':'infimum → supremum', '쓴 칸':'—', 'page 밖의 이름':'—' } },
     cells:{ items:[
@@ -2428,7 +2430,7 @@ const SCENES = [
   steps:[
   { act:{ f:'op', t:'cells', lb:'Tom' },
     note:'Tom — 빈 자리 맨 앞에, 들어온 순서 2 번',
-    why:'빈 page 의 heap 번호 0 · 1 은 infimum · supremum 몫이다. page_mem_alloc_heap 은 HEAP_TOP 에서 자리를 떼고 N_HEAP 을 그 record 의 heap_no 로 준 뒤 하나 올린다. 실측 Tom 은 원점 126, heap 2.',
+    why:'빈 page 의 heap 번호 0 · 1 은 infimum · supremum 몫이다. page_mem_alloc_heap 은 HEAP_TOP 에서 자리를 떼고 N_HEAP 을 그 record 의 heap_no 로 준 뒤 하나 올린다. Tom 은 원점 126(= 120 + extra 6), heap 2.',
     key:'슬롯은 늘지 않았다. Tom 은 <em>supremum 슬롯이 맡는 무리</em>에 들 뿐이고 사슬은 infimum → Tom → supremum 이다. 책의 그림은 셀마다 포인터를 하나씩 둔다.',
     ref:'storage/innobase/page/page0page.cc', sym:'page_mem_alloc_heap',
     fact:['block = page_header_get_ptr(page, PAGE_HEAP_TOP);',
@@ -2459,8 +2461,8 @@ const SCENES = [
 
   { act:{ f:'op', t:'cells', lb:'Ron' },
     note:'Ron — 책은 포인터를 밀고, InnoDB 는 next 둘을 쓴다',
-    why:'Leslie < Ron < Tom. 원점 173, heap 4. 실측 사슬은 infimum +49 → Leslie +25 → Ron −47 → Tom −14 → supremum 이고, 이번에 쓴 칸은 Ron.next 와 Leslie.next 다.',
-    key:'책은 삽입 지점 뒤의 <em>포인터를 한 칸씩 민다</em>. InnoDB 는 next 두 칸과 owner 의 n_owned 하나만 고친다 — 실측 슬롯은 여전히 2 개, supremum 이 넷을 맡는다.',
+    why:'Leslie < Ron < Tom. 원점 173, heap 4. 사슬은 infimum +49 → Leslie +25 → Ron −47 → Tom −14 → supremum 이고, 이번에 쓴 칸은 Ron.next 와 Leslie.next 다.',
+    key:'책은 삽입 지점 뒤의 <em>포인터를 한 칸씩 민다</em>. InnoDB 는 next 두 칸과 owner 의 n_owned 하나만 고친다 — 슬롯은 여전히 2 개, supremum 이 넷을 맡는다.',
     ref:'storage/innobase/page/page0cur.cc', sym:'page_cur_insert_rec_low',
     fact:['/* 4. Insert the record in the linked list of records */',
           'page_rec_set_next(insert_rec, next_rec);',
@@ -2479,8 +2481,8 @@ const SCENES = [
 
   { look:{ cells:['Ron · 173','Tom · 126'] },
     note:'next 칸은 위치가 아니라 상대 거리',
-    why:'Ron 의 next 두 바이트는 ff d1 이고 173 − 47 = 126 이 Tom 이다. Tom 은 ff f2, 126 − 14 = 112 가 supremum. 주소가 앞선 record 를 가리키면 값이 음수가 된다(실측).',
-    key:'rec_get_next_offs 는 <em>원점에 더하고 page 크기로 접는다</em>. REDUNDANT 는 같은 칸에 page 안 절대 주소를 적는다 — 02a 의 실측 next 116.',
+    why:'Ron 의 next 두 바이트는 ff d1 이고 173 − 47 = 126 이 Tom 이다. Tom 은 ff f2, 126 − 14 = 112 가 supremum. 주소가 앞선 record 를 가리키면 값이 음수가 된다.',
+    key:'rec_get_next_offs 는 <em>원점에 더하고 page 크기로 접는다</em>. REDUNDANT 는 같은 칸에 page 안 절대 주소를 적는다 — 02a 의 next 116.',
     ref:'storage/innobase/include/rem0rec.ic', sym:'rec_get_next_offs',
     fact:['field_value = mach_read_from_2(rec - REC_NEXT);',
           'return (ut_align_offset(rec + field_value, UNIV_PAGE_SIZE));',
@@ -2490,7 +2492,7 @@ const SCENES = [
 
   { act:{ f:'op', t:'dir', lb:'여섯 이름 더' },
     note:'여섯을 더 넣자 슬롯이 하나 생겼다',
-    why:'supremum 무리가 8 인 채 하나를 더 받으면 9 가 되고, page_dir_split_slot 이 가운데 record 에 새 슬롯을 세워 4 와 5 로 나눈다. 실측 : 이름 아홉에 슬롯 3, n_owned 1 · 4 · 6.',
+    why:'supremum 무리가 8 인 채 하나를 더 받으면 9 가 되고, page_dir_split_slot 이 가운데 record 에 새 슬롯을 세워 4 와 5 로 나눈다. 이름 아홉을 넣은 page 는 슬롯 3, n_owned 1 · 4 · 6 이었다.',
     key:'슬롯이 움직이는 것은 <em>split 때뿐</em>이다 — page_dir_add_slot 이 위쪽 슬롯을 memmove 로 한 칸 민다. 책처럼 insert 마다가 아니라 한 무리가 9 가 될 때다.',
     ref:'storage/innobase/page/page0page.cc', sym:'page_dir_split_slot',
     fact:['ut_ad(n_owned == PAGE_DIR_SLOT_MAX_N_OWNED + 1);',
@@ -2500,12 +2502,17 @@ const SCENES = [
           ['storage/innobase/page/page0cur.cc','if (UNIV_UNLIKELY(n_owned == PAGE_DIR_SLOT_MAX_N_OWNED)) {'],
           ['storage/innobase/include/page0page.h','constexpr uint32_t PAGE_DIR_SLOT_MAX_N_OWNED = 8;']],
     beat:1,
-    ops:{ cells:{ add:[{ id:'+ 여섯', tag:'free', sub:'heap 5 부터 · 사슬의 제자리에' }] },
+    /* 여섯의 원점은 이 장면에 없다 — 그리지 않은 record 를 가리키는 슬롯이라 sub 에 그렇게 적는다. 세 record 의 next 는 세 개일 때의 값 */
+    ops:{ cells:{ add:[{ id:'+ 여섯', tag:'free', sub:'heap 5 부터 · 사슬의 제자리에 · 원점은 그리지 않음' }],
+                  set:{ 'infimum · 99':{ sub:'heap 0 · next +49 → Leslie · 셋일 때' },
+                        'Leslie · 148':{ sub:'heap 3 · next +25 → Ron · 셋일 때' },
+                        'Ron · 173':{ tag:'ok', sub:'heap 4 · next −47 → Tom · 셋일 때' },
+                        'Tom · 126':{ tag:'ok', sub:'heap 2 · next −14 → supremum · 셋일 때' } } },
           dir:{ del:['slot 1 → 112'],
-                add:[{ id:'slot 1 → 가운데', tag:'ok', sub:'n_owned 4 · split 이 세운 슬롯' },
+                add:[{ id:'slot 1 → 가운데', tag:'ok', sub:'n_owned 4 · split 이 세운 슬롯 → 여섯 중 하나(그리지 않음)' },
                      { id:'slot 2 → 112', tag:'hold', sub:'n_owned 6 · 한 칸 밀린 supremum 슬롯' }] },
           hdr:{ set:{ 'N_HEAP':'11', 'N_DIR_SLOTS':'3|gold' } },
-          op:{ set:{ '넣은 순서':'Tom · Leslie · Ron + 여섯', '쓴 칸':'next 둘씩 + split 한 번' } } } },
+          op:{ set:{ '넣은 순서':'Tom · Leslie · Ron + 여섯', 'next 사슬':'infimum → … 이름 아홉, 키 순서 … → supremum', '쓴 칸':'next 둘씩 + split 한 번' } } } },
 
   { look:{ cells:['Leslie · 148'], op:true },
     note:'page 밖이 부르는 이름은 슬롯이 아니라 heap_no',
