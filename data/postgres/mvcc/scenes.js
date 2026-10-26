@@ -612,10 +612,10 @@ const SCENES = [
     ['pageinspect','t_infomask2 의 HEAP_HOT_UPDATED · HEAP_ONLY_TUPLE 비트, lp_flags 2(REDIRECT) 를 본다']],
   links:[['03','죽은 튜플 — LP_DEAD 와 대조'],['04','VACUUM'],['05','VISIBILITY MAP']],
   init:{
-    op:{ kv:{ 'SQL':'—', '인덱스 갱신':'—' } },
+    op:{ kv:{ 'SQL':'—', '인덱스 갱신':'—', '빈 공간':'—' } },
     tup:{ items:[{ id:'튜플 A', tag:'clean', sub:'v=1  ·  lp 1  ·  같은 페이지', lp:1 }] },
     idx:{ items:[{ id:'idx → lp 1', tag:'clean', sub:'유효', to:1 }] },
-    hdr:{ kv:{ 't_ctid':'자기 자신', 't_infomask2':'—' } },
+    hdr:{ kv:{ '튜플':'A', 't_xmin':'100', 't_xmax':'0', 't_ctid':'(0,1) · 자기 자신', 't_infomask2':'—' } },
   },
   steps:[
   { act:{ f:'op', t:'tup', lb:'키가 아닌 열만 갱신' },
@@ -627,7 +627,7 @@ const SCENES = [
           'if (!bms_overlap(modified_attrs, hot_attrs))'],
     ops:{ op:{ set:{ 'SQL':'UPDATE t SET v=2', '인덱스 갱신':'없음' } },
           tup:{ set:{ '튜플 A':{ ctid:'튜플 A′' } }, add:[{ id:'튜플 A′', tag:'dirty', sub:'v=2  ·  lp 2  ·  같은 페이지', lp:2 }] },
-          hdr:{ set:{ 't_ctid':'→ 튜플 A′' } } } },
+          hdr:{ set:{ 't_xmax':'110', 't_ctid':'(0,2) → 튜플 A′' } } } },
 
   { look:{ hdr:true, tup:true, idx:true },
     note:'HEAP_HOT_UPDATED · HEAP_ONLY_TUPLE — 두 bit 가 HOT chain 을 표시',
@@ -647,7 +647,8 @@ const SCENES = [
     ref:'src/backend/access/heap/heapam.c', sym:'heap_update',
     fact:['INDEX_ATTR_BITMAP_HOT_BLOCKING);',
           'if (bms_overlap(modified_attrs, sum_attrs))',
-          'e.g. value bound changes in BRIN minmax indexes.'] },
+          'e.g. value bound changes in BRIN minmax indexes.'],
+    ops:{ op:{ set:{ '인덱스 갱신':'없음  ·  v 에 BRIN 이 있으면 그것만' } } } },
 
   { look:{ tup:true },
     note:'HOT 조건 둘 — 키 불변, 같은 페이지의 free space',
@@ -655,6 +656,7 @@ const SCENES = [
     key:'HOT 은 <em>공간을 미리 비워 두고 사는 이득</em>이다. 04 의 VACUUM 이 비싸지는 이유가 인덱스였는데, HOT 은 애초에 인덱스를 안 건드려 그 비용을 피한다.',
     ref:'src/backend/access/heap/pruneheap.c', sym:'heap_page_prune_opt',
     fact:['free space should be reused by UPDATEs to *this* page.'],
+    ops:{ op:{ set:{ '빈 공간':'A′ 가 들어갈 만큼 남았다 (fillfactor)' } } },
     beat:1 },
 
   { act:{ f:'op', t:'tup', lb:'한 번 더 갱신' },
@@ -679,7 +681,8 @@ const SCENES = [
     beat:1,
     ops:{ tup:{ set:{ '튜플 A':{ tag:'free', sub:'lp 1  ·  LP_REDIRECT → lp 3', lps:'redirect', rto:3 },
                       '튜플 A′':{ tag:'free', sub:'lp 2  ·  LP_UNUSED — 곧바로 비움', lps:'unused' } } },
-          idx:{ set:{ 'idx → lp 1':{ sub:'유효  ·  REDIRECT 를 거쳐 A″ 에 닿는다' } } } } },
+          idx:{ set:{ 'idx → lp 1':{ sub:'유효  ·  REDIRECT 를 거쳐 A″ 에 닿는다' } } },
+          hdr:{ set:{ 't_xmin':'—', 't_xmax':'—', 't_ctid':'— (lp 1 = REDIRECT · 헤더 없음)', 't_infomask2':'—' } } } },
   ],
 },
 {
