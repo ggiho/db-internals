@@ -536,14 +536,14 @@ const SCENES = [
     ['pg_stat_user_tables','n_dead_tup — 아직 정리되지 않은 죽은 튜플'] ],
   links:[['06','튜플을 넣는 셈'],['03','LP_DEAD · LP_UNUSED'],['05','FSM']],
   init:{
-    op:{ kv:{ '무엇':'—' } },
+    op:{ kv:{ '무엇':'—', '잠금':'—' } },
     pg:{ items:[
       { id:'헤더', off:0, len:24, k:'hdr' },
       { id:'lp 배열', off:24, len:16, k:'lp' },
       { id:'튜플 D', off:7920, len:64, k:'tup' },
       { id:'튜플 C', off:7984, len:40, k:'tup' },
       { id:'튜플 B', off:8024, len:104, k:'tup', sub:'100 B + 패딩 4' },
-      { id:'튜플 A', off:8128, len:64, k:'tup', sub:'60 B + 패딩 4' }] },
+      { id:'튜플 A', off:8128, len:64, k:'tup' }] },
     lp:{ items:[
       { id:'lp 1', fl:1, off:8128, len:60, to:'튜플 A', sub:'NORMAL · off 8128 · len 60' },
       { id:'lp 2', fl:1, off:8024, len:100, to:'튜플 B', sub:'NORMAL · off 8024 · len 100' },
@@ -586,7 +586,8 @@ const SCENES = [
     ref:'src/backend/storage/page/bufpage.c', sym:'compactify_tuples',
     fact:['descending order of itemoff. When this is true we can just memmove()',
           'PGAlignedBlock scratch;',
-          'if (last_offset > itemidptr->itemoff) last_offset = itemidptr->itemoff; else presorted = false;'] },
+          'if (last_offset > itemidptr->itemoff) last_offset = itemidptr->itemoff; else presorted = false;'],
+    ops:{ op:{ set:{ '무엇':'compactify_tuples — lp 1 8128 > lp 3 8088 : 내림차순 → memmove' } } } },
 
   { look:{ op:true, pg:true },
     note:'옮기는 동안 아무도 그 페이지를 들여다보면 안 된다',
@@ -596,6 +597,7 @@ const SCENES = [
     fact:['Caller had better have a full cleanup lock on page\'s buffer.',
           ['src/backend/storage/buffer/README','exclusive lock that the buffer\'s shared reference count is one (ie,'],
           ['src/backend/access/heap/pruneheap.c','if (!ConditionalLockBufferForCleanup(buffer))']],
+    ops:{ op:{ set:{ '잠금':'cleanup lock — 배타 + 참조 수 1, 못 얻으면 건너뛴다' } } },
     beat:1 },
 
   { act:{ f:'op', t:'pg', lb:'VACUUM 두 번째 패스' },
@@ -639,7 +641,7 @@ const SCENES = [
     ['pg_attribute','attalign · attlen — 열마다 정렬과 길이'] ],
   links:[['06','튜플을 넣는 셈 — MAXALIGN'],['01','페이지당 튜플 수'],['04','TOAST — 긴 값']],
   init:{
-    op:{ kv:{ '표 1':'CREATE TABLE t1 (a bool, b int8, c bool, d int8)', '표 2':'CREATE TABLE t2 (b int8, d int8, a bool, c bool)' } },
+    op:{ kv:{ '표 1':'CREATE TABLE t1 (a bool, b int8, c bool, d int8)', '표 2':'CREATE TABLE t2 (b int8, d int8, a bool, c bool)', '정렬':'—', '짧은 text':'—' } },
     r1:{ items:[] },
     r2:{ items:[] },
     sp:{ kv:{ '데이터 영역 t1':'—', '데이터 영역 t2':'—', '페이지당 행 t1':'—', '페이지당 행 t2':'—', 't1 에서 b = NULL':'—' } },
@@ -653,7 +655,8 @@ const SCENES = [
     fact:["#define TYPALIGN_CHAR 'c' /* char alignment (i.e. unaligned) */",
           "#define TYPALIGN_DOUBLE 'd' /* double alignment (often 8 bytes) */",
           'complete row on disk, padding is inserted before a datum of this',
-          ['src/include/catalog/pg_type.dat',"typreceive => 'int8recv', typsend => 'int8send', typalign => 'd' },"]] },
+          ['src/include/catalog/pg_type.dat',"typreceive => 'int8recv', typsend => 'int8send', typalign => 'd' },"]],
+    ops:{ op:{ set:{ '정렬':'bool c (1)  ·  int8 d (8)' } } } },
 
   { act:{ f:'op', t:'r1', lb:'t1 의 행' },
     note:'bool 다음 int8 — 8 의 배수까지 7 바이트를 건너뛴다, 데이터 영역 32 B 중 14 B 가 패딩',
@@ -699,7 +702,8 @@ const SCENES = [
     ref:'src/backend/access/common/heaptuple.c', sym:'heap_fill_tuple',
     fact:['Now, a short varlena (up to 126 data bytes) is reduced to a 1-byte header',
           '/* no alignment for short varlenas */',
-          ['src/include/varatt.h','#define VARATT_SHORT_MAX 0x7F']] },
+          ['src/include/varatt.h','#define VARATT_SHORT_MAX 0x7F']],
+    ops:{ op:{ set:{ '짧은 text':'1 B 머리 · 정렬 없음  (≤ 126 B)' } } } },
 
   { look:{ sp:true, r1:true },
     note:'NULL 은 데이터 영역에 0 바이트 — 비트맵은 열 8 개까지 헤더의 정렬 자리에 들어간다',
@@ -710,7 +714,12 @@ const SCENES = [
           ['src/include/access/htup_details.h','return (NATTS + 7) / 8;'],
           'len += BITMAPLEN(numberOfAttributes);'],
     beat:1,
-    ops:{ sp:{ set:{ 't1 에서 b = NULL':'16 B  (b 는 0 바이트, d 는 8 에서)' } } } },
+    ops:{ sp:{ set:{ 't1 에서 b = NULL':'16 B  (b 는 0 바이트, d 는 8 에서)' } },
+          r1:{ del:['a bool', '패딩 7', 'b int8', 'c bool', '패딩 7 ', 'd int8'],
+               add:[{ id:'a bool', sz:1, tag:'', sub:'0' },
+                    { id:'c bool', sz:1, tag:'', sub:'1' },
+                    { id:'패딩 6', sz:6, tag:'red', sub:'2 ‥ 7' },
+                    { id:'d int8', sz:8, tag:'', sub:'8 ‥ 15' }] } } },
   ],
 },
 {
@@ -792,7 +801,8 @@ const SCENES = [
     ref:'src/backend/access/heap/hio.c', sym:'RelationGetBufferForTuple',
     fact:['bool use_fsm = !(options & HEAP_INSERT_SKIP_FSM);',
           'if HEAP_INSERT_SKIP_FSM is specified, we just append a new empty page to',
-          ['src/backend/commands/copyfrom.c','If the target file is new-in-transaction, we assume that checking FSM']] },
+          ['src/backend/commands/copyfrom.c','If the target file is new-in-transaction, we assume that checking FSM']],
+    ops:{ op:{ set:{ '문장':'COPY t FROM …  (t 는 이 트랜잭션에서 만들었다)', '찾는 순서':'SKIP_FSM — ①② 없이 바로 ③ 확장' } } } },
   ],
 },
 {
@@ -819,7 +829,7 @@ const SCENES = [
       { id:'pd_special', sz:2, sub:'16',  tag:'hdr' },
       { id:'pd_size_ver', sz:2, sub:'18', tag:'hdr' },
       { id:'pd_prune_xid', sz:4, sub:'20', tag:'hdr' }] },
-    ck:{ kv:{ '알고리즘':'—', '쓸 때':'—', '읽을 때':'—', '결과':'—' } },
+    ck:{ kv:{ '알고리즘':'—', '쓸 때':'—', '읽을 때':'—', '결과':'—', '스위치':'—' } },
   },
   steps:[
   { look:{ hdr:['pd_checksum'] },
@@ -844,7 +854,7 @@ const SCENES = [
           'return (uint16) ((checksum % 65535) + 1);',
           'one. That avoids checksums of zero, which seems like a good idea.'],
     beat:1,
-    ops:{ ck:{ set:{ '알고리즘':'32 열 FNV-1a 변형 → XOR 로 접기 → ^ 블록 번호 → % 65535 + 1' } } } },
+    ops:{ ck:{ set:{ '알고리즘':'32 열 FNV-1a → XOR 접기 → ^ blkno → (%65535)+1' } } } },
 
   { look:{ ck:true, hdr:['pd_checksum'] },
     note:'자기 칸은 빼고 셈한다 — pd_checksum 을 잠시 0 으로',
@@ -853,7 +863,8 @@ const SCENES = [
     ref:'src/include/storage/checksum_impl.h', sym:'pg_checksum_page',
     fact:['Save pd_checksum and temporarily set it to zero, so that the checksum',
           'cpage->phdr.pd_checksum = 0;',
-          'cpage->phdr.pd_checksum = save_checksum;'] },
+          'cpage->phdr.pd_checksum = save_checksum;'],
+    ops:{ hdr:{ set:{ 'pd_checksum':{ sub:'8 · 0 (셈하는 동안)', tag:'gold' } } } } },
 
   { act:{ f:'op', t:'ck', lb:'FlushBuffer' },
     note:'쓸 때 — 공유 버퍼는 복사본에 셈한다, 그사이 hint bit 가 바뀔 수 있어서',
@@ -865,6 +876,7 @@ const SCENES = [
           ['src/backend/storage/buffer/localbuf.c','PageSetChecksumInplace(localpage, bufHdr->tag.blockNum);']],
     beat:1,
     ops:{ op:{ set:{ '무엇':'checkpoint 가 더러운 페이지 blk 7 을 쓴다' } },
+          hdr:{ set:{ 'pd_checksum':{ sub:'8 · 0x9C1E (복사본에, 예)', tag:'hdr' } } },
           ck:{ set:{ '쓸 때':'복사본에 셈해 그 복사본을 쓴다' } } } },
 
   { act:{ f:'op', t:'ck', lb:'읽기' },
@@ -877,7 +889,7 @@ const SCENES = [
           'errmsg("page verification failed, calculated checksum %u but expected %u",',
           ['src/backend/storage/buffer/bufmgr.c','msg_one = _("invalid page in block %u of relation \\"%s\\"");']],
     ops:{ op:{ set:{ '무엇':'SELECT 가 blk 7 을 읽는다' } },
-          ck:{ set:{ '읽을 때':'셈해서 비교 — 다르다', '결과':'ERROR : invalid page in block 7|red' } } } },
+          ck:{ set:{ '읽을 때':'셈 0x51A3 ≠ 저장 0x9C1E  (예)', '결과':'ERROR : invalid page in block 7|red' } } } },
 
   { look:{ ck:true },
     note:'못 읽는 페이지를 넘기는 두 스위치 — 둘 다 기본 off, 복구용 마지막 수단',
@@ -887,6 +899,7 @@ const SCENES = [
     fact:['bool zero_damaged_pages = false;',
           'if (zero_damaged_pages) flags |= READ_BUFFERS_ZERO_ON_ERROR;',
           ['src/backend/storage/page/bufpage.c','bool ignore_checksum_failure = false;']],
+    ops:{ ck:{ set:{ '스위치':'ignore_checksum_failure → WARNING 뒤 읽음  ·  zero_damaged_pages → 0 으로 채움, 행이 사라짐' } } },
     beat:1 },
   ],
 },
