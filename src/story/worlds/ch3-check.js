@@ -268,6 +268,9 @@ export function checkScene(deck, sc) {
       const on = items('bits').filter((x) => /=\s*1/.test(x.sub)).map((x) => hexList(x.id)[0] || 0).reduce((a, x) => a | x, 0);
       const v = items('val').length === 1 && /^0x/.test(items('val')[0].id) ? parseInt(items('val')[0].id, 16) : null;
       if (items('bits').length && v != null && on !== v) say(`켠 플래그의 mask OR 0x${on.toString(16)} 가 바이트 ${items('val')[0].id} 와 다르다`);
+      /* 셀 줄의 FIL_PAGE_TYPE — '24 · 45 bf = 17855' 의 두 바이트와 10진이 p:5 dump 의 오프셋 24 와 같다 */
+      const ft = items('rec').find((x) => x.id === 'FIL_PAGE_TYPE'), hx = ft && /([0-9a-f]{2})\s([0-9a-f]{2})\s*=\s*(\d+)/i.exec(bare(ft.sub));
+      if (hx && (hx[1] + hx[2] !== DUMP[5].hex.slice(48, 52) || +hx[3] !== DUMP[5].f.FIL_PAGE_TYPE)) say(`FIL_PAGE_TYPE '${bare(ft.sub)}' 가 p:5 dump 의 ${DUMP[5].hex.slice(48, 52)} = ${DUMP[5].f.FIL_PAGE_TYPE} 와 다르다`);
     }
 
     /* 03a · 07a — 헤더 bit 칸. 폭 합 = 8 × extra, 적힌 mask = 그 자리에서 셈한 mask, 바이트를 풀면 적힌 값 */

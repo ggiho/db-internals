@@ -610,7 +610,7 @@ const SCENES = [
     ['I_S.INNODB_BUFFER_PAGE','PAGE_TYPE 열이 그 enum 을 이름으로 풀어 준다']],
   links:[['02','가변 길이와 함께 레코드 앞에 놓인다'],['04','페이지 타입도 enum 이다'],['09','삭제 플래그가 여기서 쓰인다']],
   init:{
-    op:{ kv:{ '담을 것':'불리언 3개', '바이트로 쓰면':'3 B', '비트로 쓰면':'—' } },
+    op:{ kv:{ '담을 것':'불리언 3개', '바이트로 쓰면':'3 B', '비트로 쓰면':'—', '켜기':'—', '끄기':'—', '검사':'—', 'InnoDB info':'—' } },
     val:{ items:[
       { id:'0x01', sz:1, tag:'', sub:'is_leaf = true' },
       { id:'0x00', sz:1, tag:'', sub:'has_overflow = false' },
@@ -636,19 +636,21 @@ const SCENES = [
 
   { act:{ f:'op', t:'bits', lb:'한 바이트에 묶는다' },
     note:'셋을 한 byte 의 서로 다른 bit 에',
-    why:'비트 1번은 is_leaf, 2번은 var_size, 3번은 has_overflow. 나머지 5비트는 남겨 둔다.',
+    why:'책의 셈(#1 부터)으로 비트 #1 은 is_leaf, #2 는 var_size, #3 은 has_overflow. 나머지 5비트는 남겨 둔다.',
     key:'마스크가 <em>2의 거듭제곱</em>이어야 한다 — 그때만 켜진 비트가 하나이고, 서로 겹치지 않는다.',
     ref:'storage/innobase/rem/rec.h', sym:'REC_INFO_DELETED_FLAG',
     fact:['constexpr uint32_t REC_INFO_MIN_REC_FLAG = 0x10UL;',
           'constexpr uint32_t REC_INFO_DELETED_FLAG = 0x20UL;'],
     cite:['developers often batch boolean values together in groups of eight, each boolean occupying just one bit',
           'we can only use power-of-two values for masks (since powers of two in binary always have a single set bit'],
+    /* 칸 이름은 책의 셈 'bit #1' — 03a 의 InnoDB 소스는 0 부터 센다(FSP_FLAGS_POS_*) */
     ops:{ bits:{ add:[
-            { id:'bit 1  0x01', tag:'ok', sub:'is_leaf = 1' },
-            { id:'bit 2  0x02', tag:'ok', sub:'var_size = 1' },
-            { id:'bit 3  0x04', tag:'clean', sub:'has_overflow = 0' },
-            { id:'bit 4~8', tag:'free', sub:'예비' }] },
-          val:{ del:['0x00','0x01'], set:{ '0x01':{ id:'0x03', sz:1, tag:'gold', sub:'0000 0011' } } },
+            { id:'bit #1  0x01', tag:'ok', sub:'is_leaf = 1' },
+            { id:'bit #2  0x02', tag:'ok', sub:'var_size = 1' },
+            { id:'bit #3  0x04', tag:'clean', sub:'has_overflow = 0' },
+            { id:'bit #4~8', tag:'free', sub:'예비' }] },
+          val:{ del:['0x00','0x01'], set:{ '0x01':{ id:'0x03', sz:1, tag:'gold', sub:'0000 0011' } },
+                byl:{ l:'셋을 한 바이트에', r:'1 B · 5 비트 예비' } },
           op:{ set:{ '비트로 쓰면':'1 B|green' } } } },
 
   { look:{ bits:true },
@@ -661,6 +663,7 @@ const SCENES = [
           ['storage/innobase/rem/rec.h','return ((mach_read_from_1(rec - offs) & mask) >> shift);']],
     cite:['to unset the bit, we can use bitwise AND (&) and the bitwise negation operator (~)',
           'to test whether or not the bit n is set, we can compare the result of a bitwise AND with 0'],
+    ops:{ op:{ set:{ '켜기':'0x03 OR 0x04 = 0x07|green', '끄기':'0x07 AND ~0x04 = 0x03|green', '검사':'0x03 AND 0x01 ≠ 0 → is_leaf|green' } } },
     beat:1 },
 
   { act:{ f:'bits', t:'rec', lb:'enum 은 값 하나로' },
@@ -674,14 +677,17 @@ const SCENES = [
     cite:['enums are used to represent often-repeated low-cardinality values',
           'flags can represent non-mutually exclusive named boolean parameters'],
     ops:{ rec:{ del:['—'], add:[
-            { id:'FIL_PAGE_TYPE', sz:2, tag:'hdr', sub:'오프셋 24 · 2B · enum' },
-            { id:'플래그 바이트', sz:1, tag:'gold', sub:'0x03' }] },
-          op:{ set:{ '담을 것':'불리언 3개 + 타입 enum' } } } },
+            { id:'FIL_PAGE_TYPE', sz:2, tag:'hdr', sub:'24 · 45 bf = 17855 INDEX' },
+            { id:'플래그 바이트', sz:1, tag:'gold', sub:'0x03' }],
+                /* FIL_PAGE_TYPE 은 레코드가 아니라 FIL 헤더의 칸이다 — 이 줄이 무엇을 늘어놓는지 띠 글로 */
+                byl:{ l:'FIL 헤더의 타입 enum + 플래그 바이트', r:'p:5 실측 45 bf' } },
+          op:{ set:{ '담을 것':'불리언 3개 + 타입 enum', '켜기':'—', '끄기':'—', '검사':'—' } } } },
 
   { look:{ rec:true, op:true },
     note:'3 byte → 1 byte, type 은 2-byte enum 으로',
     why:'플래그는 묶고 enum 은 값으로. 둘을 섞지 않는 것이 핵심이다.',
     key:'책의 0x01 · 0x02 · 0x04 가 그대로 쓰이지는 않는다 — info bits 는 <em>바이트의 위 4 비트</em>(DELETED 는 0x20)이고, 아래 4 비트는 n_owned 라는 정수다.',
+    ops:{ op:{ set:{ 'InnoDB info':'위 4 bit 0x10 MIN_REC · 0x20 DELETED  ·  아래 4 bit n_owned|gold' } } },
     ref:'storage/innobase/rem/rec.h', sym:'REC_INFO_BITS_MASK',
     fact:['constexpr uint32_t REC_NEW_N_OWNED = 5; /* This is single byte bit-field */ constexpr uint32_t REC_N_OWNED_MASK = 0xFUL;',
           'constexpr uint32_t REC_NEW_INFO_BITS = 5; /* This is single byte bit-field */ constexpr uint32_t REC_TMP_INFO_BITS = 1; /* This is single byte bit-field */ constexpr uint32_t REC_INFO_BITS_MASK = 0xF0UL;',

@@ -1053,8 +1053,8 @@ PANEL.bits = (W, M, sp) => {
 /* ── 03 — 바이트마다 8 bit(높은 자리가 왼쪽). bits 목록의 mask(0x01 · 0x02 · 0x04)가 가리키는 자리에 그 플래그의 이름 ── */
 PANEL.bbits = (W, M, sp) => {
   const a = sp.a, II = ids(M, a), fl = Object.fromEntries(II.map((id) => [id, W.label('aq')])), cap = W.label('aq ml aq-b'), hd = W.label('aq');
-  /* 그 칸의 bit 자리 — id 의 16진 mask 가 있으면 그것, 없으면 'bit 4~8'(1 부터 센 자리) */
-  const posOf = (it) => { const m = C.hexList(it.id)[0]; if (m) return [Math.log2(m), Math.log2(m)]; const r = C.bitRange(it.id); return r ? [r[0] - 1, r[1] - 1] : null; };
+  /* 그 칸의 bit 자리 — id 의 16진 mask 가 있으면 그것, 없으면 'bit #4~8'(책의 셈 — 1 부터 센 자리) */
+  const posOf = (it) => { const m = C.hexList(it.id)[0]; if (m) return [Math.log2(m), Math.log2(m)]; const r = C.bitRange(String(it.id).replace('#', '')); return r ? [r[0] - 1, r[1] - 1] : null; };
   let geo = null;
   const bytesOf = (s) => (W.geo.val ? W.geo.val.cells(s) : []).filter((c) => /^0x[0-9a-f]{2}$/i.test(c.it.id));
   /* 바이트마다 8 bit 를 크게 — 바이트 칸들의 가운데 아래에 나란히(01 의 확대와 같다) */
