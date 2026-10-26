@@ -705,11 +705,13 @@ const SCENES = [
     ['innodb_page_size','16 KB','PAGE_SSIZE 칸 — 16 KB 는 0 으로 적는다'],
     ['innodb_default_row_format','dynamic','POST_ANTELOPE · ATOMIC_BLOBS 비트가 켜지는지를 정한다']],
   watch:[
-    ['I_S.INNODB_TABLESPACES','FLAG — 실측 0x4000 · 0x4021 · 0x4029 를 비트로 푼다'],
-    ['hexdump -C  *.ibd','INDEX page 오프셋 94 — infimum 헤더 5 B (실측 01 00 02 00 31)']],
+    ['I_S.INNODB_TABLESPACES','FLAG — 0x4000 · 0x4021 · 0x4029 를 비트로 푼다'],
+    ['hexdump -C  *.ibd','INDEX page 오프셋 94 — infimum 헤더 5 B (01 00 02 · next 2 B)']],
   links:[['03','한 비트짜리 플래그'],['07a','5 바이트 헤더의 배치'],['10','FSP flags 가 형식을 말한다']],
   /* 실측 e13 — n3 (name VARCHAR(10) PK latin1) 에 Tom, Leslie, Ron 을 넣은 page 의 헤더 5 B 와,
-     e9 M9 — 행 형식 넷의 I_S.INNODB_TABLESPACES.FLAG. 08a 와 같은 page 다. */
+     e9 M9 — 행 형식 넷의 I_S.INNODB_TABLESPACES.FLAG. 08a 와 같은 page 다.
+     그 dump 는 저장소에 없다 — 글은 저장소의 측정(t.ibd 의 0x4021 · spacedump)만 '실측' 이라 부르고, 나머지는 규칙으로 계산한
+     값이라 적는다. 헤더 바이트는 ch3-check 가 bit 칸 · 원점 · next 로 다시 맞춘다(infimum 의 01 00 02 는 page0page.cc 의 상수). */
   init:{
     op:{ kv:{ '레코드':'—', '꺼내는 식':'—', '비교':'—', 'FSP_SPACE_FLAGS':'—' } },
     rhd:{ items:[
@@ -747,7 +749,7 @@ const SCENES = [
 
   { act:{ f:'rhd', t:'bit5', lb:'infimum  01 00 02 00 31' },
     note:'infimum 다섯 바이트를 마스크로 풀면',
-    why:'실측 infimum(원점 99)의 헤더는 01 00 02 00 31. −5 를 0x0F 로 거르면 n_owned 1, −4 −3 의 0x0002 를 0xFFF8 로 거르고 3 밀면 heap_no 0, 0x07 로 거르면 status 2, next 는 +49 다.',
+    why:'Tom · Leslie · Ron 을 넣은 page(08a)에서 infimum(원점 99)의 헤더는 01 00 02 00 31 이다 — 앞 셋은 page0page.cc 의 상수, next 는 Leslie 원점 148 − 99 를 규칙으로 계산한 값. −5 를 0x0F 로 거르면 n_owned 1, −4 −3 의 0x0002 를 0xFFF8 로 거르고 3 밀면 heap_no 0, 0x07 로 거르면 status 2, next 는 +49 다.',
     key:'꺼내는 식은 <em>(값 & mask) >> shift</em> 하나다. 플래그는 결과를 0 과 비교하지만 여기서는 결과가 곧 값이다 — 개수 1, 번호 0, 종류 INFIMUM.',
     ref:'storage/innobase/rem/rec.h', sym:'rec_get_bit_field_2',
     fact:['return ((mach_read_from_2(rec - offs) & mask) >> shift);',
@@ -764,7 +766,7 @@ const SCENES = [
 
   { act:{ f:'rhd', t:'bit5', lb:'Leslie  00 00 18 00 19' },
     note:'Leslie 와 supremum — 같은 칸, 다른 정수',
-    why:'실측 Leslie(원점 148)는 00 00 18 00 19 — n_owned 0 · heap_no 3 · status 0 · next +25. supremum 은 04 00 0b 00 00 — n_owned 4 · heap_no 1 · status 3 이다.',
+    why:'Leslie(원점 148)는 00 00 18 00 19 — n_owned 0 · heap_no 3 · status 0 · next +25. supremum 은 04 00 0b 00 00 — n_owned 4 · heap_no 1 · status 3 이다(넣은 순서와 행 크기에서 규칙으로 계산).',
     key:'n_owned 4 는 supremum 슬롯이 <em>자기를 포함해 넷</em>을 맡는다는 개수, heap_no 3 은 Leslie 가 둘째로 들어왔다는 번호다(08a). 한 비트로는 못 담는다.',
     ref:'storage/innobase/include/rem0rec.ic', sym:'rec_get_heap_no_new',
     fact:['return (rec_get_bit_field_2(rec, REC_NEW_HEAP_NO, REC_HEAP_NO_MASK, REC_HEAP_NO_SHIFT));',
@@ -779,7 +781,7 @@ const SCENES = [
 
   { look:{ bit5:['heap_no'] },
     note:'쓰기 — ~mask 로 그 칸만 비우고 val << shift 를 OR',
-    why:'rec_set_bit_field_2 는 두 바이트를 읽어 ~mask 로 그 칸만 0 으로 만들고, 새 값을 shift 만큼 밀어 OR 한 뒤 다시 쓴다. Leslie 의 heap_no 3 이면 3 << 3 = 0x18 — 실측 바이트 00 18 그대로다.',
+    why:'rec_set_bit_field_2 는 두 바이트를 읽어 ~mask 로 그 칸만 0 으로 만들고, 새 값을 shift 만큼 밀어 OR 한 뒤 다시 쓴다. Leslie 의 heap_no 3 이면 3 << 3 = 0x18 — 헤더 바이트 00 18 그대로다.',
     key:'마스크의 조건이 책과 다르다 — <em>2의 거듭제곱이 아니라 1 이 이어진 덩어리</em>여야 하고 디버그 빌드가 그것을 검사한다. 네 마스크의 XOR 이 0xFFFFFF 라는 static_assert 도 있다.',
     ref:'storage/innobase/include/rem0rec.ic', sym:'rec_set_bit_field_2',
     fact:['(mach_read_from_2(rec - offs) & ~mask) | (val << shift));',
@@ -806,11 +808,12 @@ const SCENES = [
             { id:'bit 6–9  PAGE_SSIZE', tag:'hold', sub:'4 bit · mask 0x3C0' },
             { id:'bit 10–13', tag:'free', sub:'DATA_DIR · SHARED · TEMPORARY · ENCRYPTION' },
             { id:'bit 14  SDI', tag:'clean', sub:'1 bit' }] },
-          op:{ set:{ 'FSP_SPACE_FLAGS':'칸 9 개 · 15 bit' } } } },
+          /* 레코드 이야기가 끝났다 — 앞 스텝의 레코드 · 비교 · 쓰기 식을 이 스텝의 것으로 바꾼다 */
+          op:{ set:{ '레코드':'page 0 · FSP header', '꺼내는 식':'MASK = ~(~0U << WIDTH) << POS|gold', '비교':'—', 'FSP_SPACE_FLAGS':'칸 9 개 · 15 bit|gold' } } } },
 
   { act:{ f:'bits', t:'op', lb:'0x4000 · 0x4021 · 0x4029' },
-    note:'실측 FLAG 넷을 비트로 풀면',
-    why:'REDUNDANT · COMPACT 는 둘 다 0x4000 — bit 14 SDI 하나. DYNAMIC 0x4021 은 bit 0 · 5 가 더 켜진다. COMPRESSED 8K 의 0x4029 는 bit 3 이 더해져 bit 1–4 가 0b0100, ZIP_SSIZE 4 다.',
+    note:'행 형식 넷의 FLAG 를 비트로 풀면',
+    why:'REDUNDANT · COMPACT 는 둘 다 0x4000 — bit 14 SDI 하나. DYNAMIC 0x4021(t.ibd 실측)은 bit 0 · 5 가 더 켜진다. COMPRESSED 8K 의 0x4029 는 bit 3 이 더해져 bit 1–4 가 0b0100, ZIP_SSIZE 4 다. 0x4000 · 0x4029 는 같은 식(fsp_flags_init)으로 규칙으로 계산한 값이다.',
     key:'ZIP_SSIZE 4 는 켜짐 · 꺼짐이 아니라 <em>512 << 4 = 8 KB</em> 를 뜻하는 정수다. PAGE_SSIZE 0 도 "없음" 이 아니라 옛 기본 16 KB 라는 값이다.',
     ref:'storage/innobase/include/fsp0types.h', sym:'FSP_FLAGS_GET_ZIP_SSIZE',
     fact:['return (flags & FSP_FLAGS_MASK_ZIP_SSIZE) >> FSP_FLAGS_POS_ZIP_SSIZE;',
@@ -824,7 +827,7 @@ const SCENES = [
             'bit 5  ATOMIC_BLOBS':{ tag:'ok', sub:'REDUNDANT · COMPACT 0 · DYNAMIC · COMPRESSED 1' },
             'bit 6–9  PAGE_SSIZE':{ sub:'넷 다 0 → 16 KB' },
             'bit 14  SDI':{ tag:'ok', sub:'넷 다 1' } } },
-          op:{ set:{ 'FSP_SPACE_FLAGS':'0x4000 · 0x4000 · 0x4021 · 0x4029|gold' } } } },
+          op:{ set:{ '꺼내는 식':'(flags & MASK) >> POS', 'FSP_SPACE_FLAGS':'REDUNDANT 0x4000 · COMPACT 0x4000 · DYNAMIC 0x4021 · COMPRESSED 0x4029|gold' } } } },
   ],
 },
 {

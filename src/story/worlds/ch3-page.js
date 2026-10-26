@@ -1125,6 +1125,8 @@ PANEL.flags = (W, M, sp) => {
   const FL = C.FSP_FLAGS;
   const fieldsOf = (s) => (a ? (s[a] || []).map((it) => ({ it, r: C.bitRange(it.id) })).filter((x) => x.r).map((x) => ({ id: x.it.id, lo: x.r[0], hi: x.r[1], it: x.it })) : FL.map(([n, lo, hi]) => ({ id: n, lo, hi })));
   const valsOf = (s) => C.hexList(a ? s.op && s.op.FSP_SPACE_FLAGS : s.hdr && s.hdr['FSP FLAG']);
+  /* 값 앞에 적은 이름(03a 6 의 'REDUNDANT 0x4000 · COMPACT 0x4000 …') — 같은 값 두 줄이 어느 형식인지 */
+  const namesOf = (s) => [...bare(a ? s.op && s.op.FSP_SPACE_FLAGS : '').matchAll(/(?:([A-Za-z][\w]*)\s+)?0x[0-9a-f]+/gi)].map((m) => m[1] || '');
   const fids = a ? ids(M, a) : FL.map((x) => x[0]);
   const fl = Object.fromEntries(fids.map((id) => [id, W.label('aq')])), vl = Array.from({ length: 4 }, () => W.label('aq'));
   let geo = null;
@@ -1136,11 +1138,15 @@ PANEL.flags = (W, M, sp) => {
       const fs = fieldsOf(s), vs = valsOf(s), on = a ? touchOf(s, a) : touchOf(s, 'hdr'), vis = fs.length > 0 && (a || vs.length > 0);
       T.set(hd, [vis ? 'FSP_SPACE_FLAGS  ·  page 0 의 4 B 중 15 bit' : '', on, '', vis]);
       for (const id of fids) { const f = fs.find((x) => x.id === id); T.set(fl[id], [f && vis ? `${f.lo === f.hi ? f.lo : f.lo + '–' + f.hi}${nameOf(f) ? ' ' + nameOf(f) : ''}` : '', on && (!a || hotIt(s, a, id)), f && f.it ? TAGL[f.it.tag] || '' : '', !!f && vis]); }
-      vl.forEach((lb, j) => T.set(lb, [vs[j] != null ? '0x' + vs[j].toString(16) : '', on, 'gold', vs[j] != null]));
+      const ns = namesOf(s);
+      vl.forEach((lb, j) => T.set(lb, [vs[j] != null ? (ns[j] ? ns[j] + '  ' : '') + '0x' + vs[j].toString(16) : '', on, 'gold', vs[j] != null]));
       if (cap) T.set(cap, [capOf(s[a] || []), on, '', (s[a] || []).length > 0, true]);
     },
     layout(x0, y, ww, k, z) {
-      const lw = 52, bw = Math.min(26 * z + 4, (ww - lw) / 15);
+      /* 줄 이름 칸 — 모든 상태의 값 이름표를 재서 가장 넓은 것 */
+      let lw = 52;
+      for (const [bk, b] of M.B) b.S.forEach((s, si) => { const T = W.TX[M.sc.num].get(bk)[si]; for (const lb of vl) if (T.get(lb)) lw = Math.max(lw, W.wOf(lb, T.get(lb)) + 12); });
+      const bw = Math.min(26 * z + 4, (ww - lw) / 15);
       geo = { x0: x0 + lw, y, bw, per: new Map() };
       W.place(hd, x0, y);
       let fr = 0;
