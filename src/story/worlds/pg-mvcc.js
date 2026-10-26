@@ -22,7 +22,7 @@ import { bake, stepsOf, valuesOf } from '../../bake.js';
 import { stagger } from './stagger.js';
 
 const HANGUL = /[가-힣]/;
-const TU = 120, LPN = 30, SL = 44, HB = 160, AX = 150, VB = 40, RING = 220, TOK = 150, BC = 12;
+const TU = 120, LPN = 30, SL = 44, HB = 160, AX = 150, VB = 60, RING = 220, TOK = 150, BC = 12;
 const bare = (v) => String(v ?? '').replace(/\|(gold|red|green)$/, '');
 const tone = (v) => (/\|(gold|red|green)$/.exec(String(v ?? '')) || [])[1] || '';
 const span = { gold: 'q-g', red: 'q-r', green: 'q-gr' };
@@ -202,6 +202,10 @@ function make({ F, deck, labels, scene }) {
   const ixLb = Object.fromEntries(XIDS.map((id) => [id, label('aq aq-c')]));
   const ixCap = IDX ? label('aq ml aq-b') : null;
   const vmLb = Object.fromEntries(VIDS.map((id) => [id, label('aq ml aq-c aq-b')]));
+  /* 두 비트 칸 아래 V · F — 이름은 머리말에 한 번 */
+  const vmVF = Object.fromEntries(VIDS.map((id) => [id, [label('aq aq-c'), label('aq aq-c')]]));
+  /* 이어진 페이지(n > 1)가 있으면 칸 아래에 n 개의 눈금 — 32 번째(SKIP_PAGES_THRESHOLD)가 길다 */
+  const VRUN = VM && all.some((s) => s[VM].some((x) => x.n > 1));
   const rowLb = Object.fromEntries(ROWS.map((a) => [a, Object.fromEntries(RIDS[a].map((id) => [id, label('aq aq-c')]))]));
   const rowCap = Object.fromEntries(ROWS.map((a) => [a, label('aq ml aq-b')]));
   const ringLb = RINGA ? label('aq ml aq-b') : null;
@@ -231,7 +235,7 @@ function make({ F, deck, labels, scene }) {
   const texts = (S, S0) => S.map((s, i) => {
     const t = new Map(), on = (a) => s.touch.has(a), pv = i ? S[i - 1] : S0;
     /* 헤더 띠의 이름에 누구의 헤더인지('튜플' 키)를 붙인다 */
-    for (const a of cast) t.set(hd[a], [A[a].nm + (a === HDRA ? (s[a]['튜플'] ? `  ·  튜플 ${bare(s[a]['튜플'])}` : '') + '  ·  23 B' : ''), on(a)]);
+    for (const a of cast) t.set(hd[a], [A[a].nm + (a === HDRA ? (s[a]['튜플'] ? `  ·  튜플 ${bare(s[a]['튜플'])}` : '') + '  ·  23 B' : a === VM ? '  ·  V = ALL_VISIBLE  ·  F = ALL_FROZEN' : ''), on(a)]);
     for (const a of TEXTS) t.set(tx[a], [kvHtml(s[a]), on(a), '', true, true]);
     if (HDRA) {
       const mod = modOf(s, HDRA), hot = (k) => on(HDRA) && (mod.has(k) || !mod.size);
@@ -274,7 +278,11 @@ function make({ F, deck, labels, scene }) {
       for (const id of XIDS) { const it = s[IDX].find((x) => x.id === id); t.set(ixLb[id], [it ? id : '', on(IDX) && !!it && hotIt(s, IDX, id), it && it.tag === 'x' ? 'red' : '', !!it && it.tag !== 'free']); }
       t.set(ixCap, [s[IDX].filter((x) => x.sub).map((x) => `<span class="q-i">${esc(x.id)}</span> ${esc(x.sub)}`).join('\n'), on(IDX), '', true, true]);
     }
-    if (VM) for (const id of VIDS) { const it = s[VM].find((x) => x.id === id); t.set(vmLb[id], [it ? `<span class="q-i">${esc(id)}</span>\n${esc(it.sub || '')}` : '', on(VM) && !!it && hotIt(s, VM, id), '', !!it, true]); }
+    if (VM) for (const id of VIDS) {
+      const it = s[VM].find((x) => x.id === id), h = on(VM) && !!it && hotIt(s, VM, id);
+      t.set(vmLb[id], [it ? `<span class="q-i">${esc(id)}</span>\n${esc(it.sub || '')}` : '', h, '', !!it, true]);
+      t.set(vmVF[id][0], ['V', h, '', !!it]); t.set(vmVF[id][1], ['F', h, '', !!it]);
+    }
     for (const a of ROWS) {
       for (const id of RIDS[a]) { const it = s[a].find((x) => x.id === id); t.set(rowLb[a][id], [it ? id : '', on(a) && !!it && hotIt(s, a, id), '', !!it]); }
       t.set(rowCap[a], [s[a].filter((x) => x.sub).map((x) => `<span class="q-i">${esc(x.id)}</span> ${esc(x.sub)}`).join('\n') || (s[a].length ? '' : '—'), on(a), '', true, true]);
@@ -476,8 +484,9 @@ function make({ F, deck, labels, scene }) {
         y += h + 8 + 4 * k; G.capY = y; place(capLb, L.x0, y); y += cpH + 16 * k;
       };
       const vmBlk = () => {
-        place(hd[VM], L.x0, y); G.vm = { y: y + HD, w: vw }; G.anc[VM] = { x: L.x0 + vw / 2, y: y + HD + 12 };
-        y += HD + 26 + 6 + vlH + 16 * k;
+        G.vm = { y: y + HD + 4, w: vw, ly: 30 + (VRUN ? 14 : 0) };
+        place(hd[VM], L.x0, y); G.anc[VM] = { x: L.x0 + vw / 2, y: G.vm.y + 14 };
+        y += HD + 4 + 14 + G.vm.ly + 6 + vlH + 16 * k;
       };
       const BLK = [[HDRA, hdrBlk], ['', texts], [CACHE, cacheBlk], [SNAP, snapBlk], [RINGA, ringBlk], [IDX, idxBlk], [PAGE, pageBlk], [VM, vmBlk], ...ROWS.map((a) => [a, () => rowsAt(a)])].filter(([a]) => a !== null);
       G.edgeY = null; G.divs = [];
@@ -513,7 +522,7 @@ function make({ F, deck, labels, scene }) {
   const xidX = (x) => G.ax.x0 + ((XU.pos.get(x) ?? 0) / XU.n) * (G.ax.x1 - G.ax.x0);
   const rowSlot = (s, a, id) => { let x = G.L.x0; for (const it of s[a]) { const w = G.slot[a].sw[it.id]; if (it.id === id) return { x: x + w / 2, y: G.slot[a].y + 13, w }; x += w + 6; } return null; };
   const ixSlot = (s, id) => { const its = s[IDX], j = its.findIndex((x) => x.id === id); if (j < 0) return null; const w = 74; return { x: G.L.x0 + w / 2 + j * (w + 10), y: G.ixY, w }; };
-  const vmCell = (s, id) => { const j = s[VM].findIndex((x) => x.id === id); return j < 0 ? null : { x: G.L.x0 + G.vm.w / 2 + j * (G.vm.w + 12), y: G.vm.y + 12 }; };
+  const vmCell = (s, id) => { const j = s[VM].findIndex((x) => x.id === id); return j < 0 ? null : { x: G.L.x0 + G.vm.w / 2 + j * (G.vm.w + 12), y: G.vm.y + 14 }; };
   function anchor(a, s, lbText) {
     if (a === PAGE) {
       const id = TIDS.filter((x) => (lbText || '').includes(x)).sort((p, q) => q.length - p.length)[0] || [...modOf(s, PAGE)].find((x) => TIDS.includes(x));
@@ -655,11 +664,12 @@ function make({ F, deck, labels, scene }) {
       const key = 'v:' + id, [v0] = R[key], it = s[VM].find((x) => x.id === id);
       if (!it) { hide(key); continue; }
       const P = vmCell(s, id), on = level(VM, id), pv = prev[VM].find((x) => x.id === id);
+      /* 켠 비트는 칸을 채우고(6 × 5), 끈 비트는 테두리만 */
       for (let m = 0; m < VB; m++) {
-        const i = v0 + m, half = m < VB / 2, bit = half ? it.av : it.af, pb = pv ? (half ? pv.av : pv.af) : bit;
-        const b = !end && pb !== bit ? (show(p, 0.2, 0.42) > (m % 20) / 20 ? bit : pb) : bit;
-        const c = m % 20, cx = P.x + (half ? -9 : 9), [x, y] = into(i, cx + ((c % 5) - 2) * 2.6, P.y + (Math.floor(c / 5) - 1.5) * 2.6);
-        put(o, i, x, y, (b ? on : on * 0.3), b && modOf(s, VM).has(id) && !end ? 0.5 : 0, 0.02, b ? 1.2 : 1, b ? (half ? GREEN : ACCENT) : FAINT);
+        const i = v0 + m, half = m < VB / 2, bit = half ? it.av : it.af, pb = pv ? (half ? pv.av : pv.af) : bit, c = m % 30;
+        const b = !end && pb !== bit ? (show(p, 0.2, 0.42) > c / 30 ? bit : pb) : bit;
+        const cx = P.x + (half ? -16 : 16), [x, y] = into(i, ...(b ? [cx + ((c % 6) - 2.5) * 4.2, P.y + (Math.floor(c / 6) - 2) * 4.2] : rim(cx, P.y, 26, 22, 30, c)));
+        put(o, i, x, y, (b ? on : on * 0.45), b && modOf(s, VM).has(id) && !end ? 0.5 : 0, 0.02, b ? 1.25 : 1, b ? (half ? GREEN : ACCENT) : FAINT);
       }
     }
     /* 나머지 list — 칸 줄 */
@@ -726,7 +736,10 @@ function make({ F, deck, labels, scene }) {
         place(capLb, G.L.x0, G.capY);
       }
       if (IDX) for (const e of s[IDX]) { const P = ixSlot(s, e.id); if (P) place(ixLb[e.id], P.x, P.y, 'c', 'c'); }
-      if (VM) for (const v of s[VM]) { const P = vmCell(s, v.id); if (P) place(vmLb[v.id], P.x, P.y + 18, 'c', 't'); }
+      if (VM) for (const v of s[VM]) {
+        const P = vmCell(s, v.id);
+        if (P) { place(vmLb[v.id], P.x, P.y + G.vm.ly, 'c', 't'); place(vmVF[v.id][0], P.x - 16, P.y + 13, 'c', 't'); place(vmVF[v.id][1], P.x + 16, P.y + 13, 'c', 't'); }
+      }
       for (const a of ROWS) for (const it of s[a]) { const P = rowSlot(s, a, it.id); if (P) place(rowLb[a][it.id], P.x, P.y, 'c', 'c'); }
     }
     const form = k === 0 ? show(p, 0.18, 0.36) : 1, dimO = (end ? 0.18 : 1) * form, fade = Math.abs(1 - 2 * b);
@@ -853,6 +866,16 @@ function make({ F, deck, labels, scene }) {
         if (B0.j === A0.j + 1) curve(ctx, A0.x - P.tw / 2 - 2, A0.y, B0.x + P.tw / 2 + 3, B0.y, 0, 4);
         else curve(ctx, A0.x - P.tw / 4, A0.y + P.th / 2 + 2, B0.x + P.tw / 4, B0.y + P.th / 2 + 2, -12);
         ctx.lineWidth = 1;
+      }
+    }
+    /* 이어진 페이지 — n 개의 눈금, 32 번째가 길고 금빛(SKIP_PAGES_THRESHOLD) */
+    if (VM && VRUN) for (const v of s[VM]) {
+      if (!(v.n > 1)) continue;
+      const P = vmCell(s, v.id), x0 = P.x - G.vm.w / 2 + 8, x1 = P.x + G.vm.w / 2 - 8, y = P.y + 34, hot = s.touch.has(VM) && !end && hotIt(s, VM, v.id);
+      for (let j = 0; j < v.n; j++) {
+        const x = x0 + ((j + 0.5) / v.n) * (x1 - x0), mark = j === 31;
+        ctx.globalAlpha = (mark ? 0.9 : hot ? 0.55 : 0.3) * o; ctx.strokeStyle = mark ? css.gold : css.ink;
+        seg(ctx, x, y - (mark ? 3 : 0), x, y + 4);
       }
     }
     if (IDX && PAGE) {

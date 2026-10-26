@@ -412,11 +412,12 @@ const SCENES = [
     ['pg_class','relallvisible · relallfrozen — 비트가 켜진 페이지 수(VACUUM · ANALYZE 가 갱신)'] ],
   links:[['04','VACUUM'],['06','XID wraparound'],['03','LP_DEAD 가 남은 페이지']],
   init:{
-    op:{ kv:{ 'SQL':'—', 'heap 접근':'—' } },
+    op:{ kv:{ 'SQL':'—', 'heap 접근':'—', '조건':'—' } },
     vm:{ items:[
       { id:'페이지 0', tag:'clean', sub:'ALL_VISIBLE  ·  ALL_FROZEN', av:true, af:true },
       { id:'페이지 1', tag:'dirty', sub:'비트 없음  ·  최근 변경', av:false, af:false },
-      { id:'페이지 2 ~ 41', tag:'clean', sub:'ALL_VISIBLE  ·  40 장 이어짐', av:true, af:false, n:40 }] },
+      { id:'페이지 2 ~ 41', tag:'clean', sub:'ALL_VISIBLE  ·  40 장 이어짐', av:true, af:false, n:40 },
+      { id:'페이지 42 ~ 81', tag:'clean', sub:'ALL_VISIBLE  ·  ALL_FROZEN  ·  40 장', av:true, af:true, n:40 }] },
     tup:{ items:[{ id:'페이지 0 튜플들', tag:'clean', sub:'전부 보인다' }] },
   },
   steps:[
@@ -429,16 +430,17 @@ const SCENES = [
           ['src/include/access/visibilitymapdefs.h','#define VISIBILITYMAP_ALL_VISIBLE'],
           ['src/include/access/visibilitymapdefs.h','#define VISIBILITYMAP_ALL_FROZEN']] },
 
-  { look:{ vm:true },
+  { look:{ vm:true, tup:true },
     note:'conservative — set 이면 참, clear 면 unknown · set 할 때 WAL 을 남긴다',
     why:'주석 그대로 "비트가 켜져 있으면 그 조건이 참임을 안다. 꺼져 있으면 참일 수도 아닐 수도 있다". 켜는 것은 페이지의 모든 튜플이 모두에게 보인다고 확인한 VACUUM 이다. 호출하는 쪽이 먼저 페이지 헤더의 PD_ALL_VISIBLE 을 켜고, 맵의 비트를 켜면서 WAL 을 쓴다.',
     key:'두 곳에 적는다 — 페이지 헤더와 맵. 크래시 뒤 둘이 어긋나면 다음 쓰기가 맵 비트를 못 끄고 <em>인덱스만 읽는 조회가 틀린 답</em>을 낸다. 그래서 힌트 같은 비트인데도 켤 때는 WAL 을 쓴다.',
     ref:'src/backend/access/heap/visibilitymap.c', sym:'visibilitymap_set',
     fact:["Caller is expected to set the heap page's PD_ALL_VISIBLE bit before calling",
           ['src/backend/access/heap/visibilitymap.c','The map is conservative in the sense that we make sure that whenever a bit'],
-          ['src/backend/access/heap/visibilitymap.c','When we *set* a visibility map during VACUUM, we must write WAL.']] },
+          ['src/backend/access/heap/visibilitymap.c','When we *set* a visibility map during VACUUM, we must write WAL.']],
+    ops:{ tup:{ set:{ '페이지 0 튜플들':{ sub:'전부 보인다  ·  페이지 헤더 PD_ALL_VISIBLE 도 켜져 있다' } } } } },
 
-  { act:{ f:'op', t:'vm', lb:'인덱스만 읽는 조회' },
+  { act:{ f:'op', t:'vm', lb:'인덱스만 읽는 조회' }, look:{ op:true, vm:['페이지 0'] },
     note:'index-only scan — ALL_VISIBLE 페이지는 heap fetch 생략',
     why:'인덱스에는 visibility 정보가 없다. 그래서 보통은 인덱스에서 TID 를 얻은 뒤 heap 튜플을 읽어 xmin·xmax 를 봐야 한다. IndexOnlyNext 는 그 TID 의 페이지가 맵에서 ALL_VISIBLE 이면 그 확인을 건너뛴다 — 아니면 주석이 "Rats" 라 적고 heap 으로 간다.',
     key:'PG 의 인덱스만 읽는 조회는 <em>맵이 있어야 성립한다</em>. InnoDB 는 클러스터 인덱스에 행이 함께 있어 이 문제가 없다 — 대신 secondary 조회가 항상 클러스터를 한 번 더 방문한다(mysql/locks 05 장면).',
@@ -455,7 +457,8 @@ const SCENES = [
     fact:['PageClearAllVisible(page);',
           ['src/backend/access/heap/visibilitymap.c','Clearing visibility map bits is not separately WAL-logged.']],
     ops:{ vm:{ set:{ '페이지 0':{ tag:'dirty', sub:'비트 꺼짐  ·  쓰기 발생', av:false, af:false } } },
-          op:{ set:{ 'heap 접근':'필요  ·  Heap Fetches ↑' } } },
+          tup:{ set:{ '페이지 0 튜플들':{ tag:'dirty', sub:'방금 고친 튜플 — 아직 모두에게 보이지는 않는다  ·  PD_ALL_VISIBLE 꺼짐' } } },
+          op:{ set:{ 'SQL':'UPDATE t SET v=v+1 WHERE id=1  →  같은 SELECT', 'heap 접근':'필요  ·  Heap Fetches ↑' } } },
     beat:1 },
 
   { look:{ vm:true },
@@ -469,13 +472,14 @@ const SCENES = [
     beat:1,
     ops:{ vm:{ set:{ '페이지 2 ~ 41':{ sub:'ALL_VISIBLE  ·  40 장 ≥ 32 → VACUUM 이 건너뛴다' } } } } },
 
-  { look:{ vm:true },
+  { look:{ vm:['페이지 42 ~ 81'] },
     note:'ALL_FROZEN — anti-wraparound 의 전체 스캔에서도 skip',
     why:'맵 머리말이 두 비트의 뜻을 나눈다 : ALL_VISIBLE 은 "VACUUM 할 필요가 없다", ALL_FROZEN 은 "wraparound 를 막으려고 테이블 전체를 훑는 VACUUM 조차 필요 없다". ALL_FROZEN 은 ALL_VISIBLE 인 페이지에만 켤 수 있다.',
     key:'wraparound 를 막는 VACUUM 의 비용을 정하는 것이 이 비트다(06 장면) — <em>한번 얼린 페이지는 다시 안 읽는다</em>.',
     ref:'src/include/access/visibilitymapdefs.h', sym:'VISIBILITYMAP_ALL_FROZEN',
     fact:[['src/backend/access/heap/visibilitymap.c',"completely frozen, and therefore the page doesn't need to be vacuumed even"],
-          ['src/backend/access/heap/visibilitymap.c','The all-frozen bit must be set only when the page is already all-visible.']] },
+          ['src/backend/access/heap/visibilitymap.c','The all-frozen bit must be set only when the page is already all-visible.']],
+    ops:{ vm:{ set:{ '페이지 42 ~ 81':{ sub:'ALL_VISIBLE  ·  ALL_FROZEN  ·  aggressive VACUUM 도 건너뛴다' } } } } },
 
   { look:{ op:true, vm:true },
     note:'insert-only 테이블에도 autovacuum — dead tuple 이 아니라 VM bit 를 위해',
@@ -485,7 +489,9 @@ const SCENES = [
     fact:['vac_ins_scale_factor * reltuples * pcnt_unfrozen;',
           '(vac_ins_base_thresh >= 0 && instuples > vacinsthresh);',
           ['src/backend/utils/misc/guc_tables.c','Minimum number of tuple inserts prior to vacuum.']],
-    ops:{ op:{ set:{ 'SQL':'INSERT 만 계속 — 1000 + 0.2 × reltuples × 얼지 않은 비율', 'heap 접근':'VACUUM 뒤 다시 0' } } } },
+    ops:{ op:{ set:{ 'SQL':'INSERT INTO t …  (삽입만 계속)  →  autovacuum', '조건':'삽입 > 1000 + 0.2 × reltuples × 얼지 않은 비율', 'heap 접근':'VACUUM 뒤 다시 0' } },
+          vm:{ set:{ '페이지 0':{ tag:'clean', sub:'VACUUM 이 다시 켰다', av:true }, '페이지 1':{ tag:'clean', sub:'VACUUM 이 켰다', av:true } } },
+          tup:{ set:{ '페이지 0 튜플들':{ tag:'clean', sub:'전부 보인다  ·  PD_ALL_VISIBLE 다시 켜짐' } } } } },
   ],
 },
 {
