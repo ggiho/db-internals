@@ -95,8 +95,8 @@ const SCENES = [
     io:{ kv:{ '시크':'0', '읽은 바이트':'0' } },
     blk:{ items:[
       { id:'노드', sz:1, tag:'hdr', sub:'키 1 + 포인터 2' },
-      { id:'나머지 16KB 중 낭비', sz:12, tag:'free', sub:'같은 블록에 아무것도 없다' } ],
-      byl:{ l:'블록 하나를 읽어서 쓰는 부분', r:'1/13' } },
+      { id:'나머지 16KB 중 낭비', sz:60, tag:'free', sub:'같은 블록에 아무것도 없다' } ],
+      byl:{ l:'블록 하나를 읽어서 쓰는 부분', r:'수십 B / 16 KB' } },
   },
   cite:[
     "High fanout to improve locality",
@@ -137,7 +137,8 @@ const SCENES = [
     cite:['due to low fanout (fanout is the maximum allowed number of children per node), we have to perform balancing',
           'maintenance overhead from remapping these pointers as a result of balancing'],
     ops:{ op:{ set:{ 'fan-out':'2  ← 근본 원인|red' } },
-          io:{ set:{ '시크':'26|red' } } } },
+          cost:{ set:{ '블록 전송':'읽기 23 + 쓰기 3|red' } },
+          io:{ set:{ '시크':'26|red', '읽은 바이트':'368 KB|red' } } } },
 
   { look:{ op:true, blk:true },
     note:'필요한 성질 둘 — high fan-out, low height',
@@ -279,7 +280,8 @@ const SCENES = [
     beat:1,
     fact:['auto offset = (os_offset_t)page_no * page_size.physical();'],
     cite:['mapping page IDs to their physical locations, tracking empty, written, and discarded pages'],
-    ops:{ ftl:{ set:{ '블록 A':{ tag:'x', sub:'살아있는 3 · 버려진 6', live:3, dead:6 } } } } },
+    ops:{ ftl:{ set:{ '블록 A':{ tag:'x', sub:'살아있는 3 · 버려진 6', live:3, dead:6 },
+                      '블록 B':{ tag:'hold', sub:'새 위치 · 살아있는 1', live:1 } } } } },
 
   { act:{ f:'ftl', t:'ssd', lb:'가비지 컬렉션 : 살아있는 페이지를 옮기고 블록을 지운다' },
     note:'block erase 전 live page 를 relocate — garbage collection',
@@ -289,7 +291,7 @@ const SCENES = [
     cite:['it relocates live pages from these blocks to new locations and remaps page IDs to point there',
           'its effects may negatively impact write performance, especially in cases of random and unaligned write workloads'],
     ops:{ ftl:{ set:{ '블록 A':{ tag:'clean', sub:'지워졌다 · 쓸 수 있다', live:0, dead:0 },
-                      '블록 B':{ tag:'hold', sub:'옮겨온 3 페이지', live:3 } } },
+                      '블록 B':{ tag:'hold', sub:'살아있는 4 · 새로 쓴 하나 + 옮겨온 셋', live:4 } } },
           io:{ set:{ '비용':'쓰기 증폭|red' } } } },
 
   { look:{ ssd:true, ftl:true },
@@ -468,7 +470,7 @@ const SCENES = [
           'higher fanout helps to amortize the cost of structural changes required to keep the tree balanced'],
     ops:{ op:{ set:{ 'fan-out':'371  ← 두 문제를 한 번에|green' } } } },
 
-  { look:{ bt:['root'] },
+  { look:{ bt:['root','internal ×8'] },
     note:'상위 level 은 작다 — root 1 + internal 8 = 9 block, 약 144KB',
     why:'리프 2,700블록을 fan-out 371 로 덮는 데 internal 은 8개면 된다(2,700 ÷ 371 ≈ 7.3). 그 위에 루트 하나다. 상위 전체가 144KB 이고 조회마다 지나가므로 buffer pool 에서 밀려날 일이 거의 없다.',
     key:'그래서 실제 조회는 <em>디스크를 한 번만</em> 만지는 일이 많다. 3단계 중 앞 2단계가 메모리 히트다.',
@@ -542,7 +544,7 @@ const SCENES = [
     cite:['the tree is balanced after each operation'],
     ops:{ op:{ set:{ 'fan-out':'2  ← 두 문제의 근원|red' } } } },
 
-  { look:{ bst:['root'] },
+  { look:{ bst:['root','…  18 레벨'] },
     note:'상위 level 만도 거대 — leaf 직전까지 약 50만 block',
     why:'항목 100만 개 중 리프가 50만이고, 그 위 내부 노드가 나머지 50만이다. 가장 깊은 내부 레벨 하나만 해도 2^18 = 26만이다. 상위를 캐시한다는 전략이 성립하지 않는다.',
     key:'B-Tree 쪽은 상위 9블록(144KB)이면 됐다. 여기서는 그 자리가 약 50만 블록, 16KB 씩 약 8GB 라 기본 buffer pool(128MB)로는 어림없다 — <em>매 조회가 디스크로 간다</em>.',
@@ -658,7 +660,7 @@ const SCENES = [
   init:{
     op:{ kv:{ '책의 셈':'—', 'InnoDB':'—', 'level-1 한 page':'—', 'MIN_REC':'—' } },
     bt:{ items:[
-      { id:'root', lvl:0, keys:'| 32428 | 97390 | 162352 |', fill:.05 },
+      { id:'root', lvl:0, keys:'| 32428 | 97390 | 162352 |', fill:.05, page:4 },
       { id:'p37', lvl:1, keys:'< 32428', fill:.5 },
       { id:'p38', lvl:1, keys:'32428 ‥ 97389', fill:1 },
       { id:'p39', lvl:1, keys:'97390 ‥ 162351', fill:1 },
@@ -729,7 +731,7 @@ const SCENES = [
           bt:{ set:{ 'p37':{ keys:'601개' }, 'p38':{ keys:'1,203개 · 꽉 참' },
                      'p39':{ keys:'1,203개 · 꽉 참' }, 'p40':{ keys:'698개' } } } } },
 
-  { act:{ f:'bt', t:'bt', lb:'자식 page 의 첫 레코드를 본다' },
+  { act:{ f:'bt', t:'bt', lb:'자식 page 의 첫 레코드를 본다' }, look:{ bt:['root','p37','p38','p39','p40'] },
     note:'자식의 첫 키 = 부모의 키 — 복사본이다',
     why:'실측 — page 38 은 32428, 39 는 97390, 40 은 162352 로 시작했다. 부모의 키는 split 때 오른쪽 반쪽의 첫 레코드에서 복사한 접두사다.',
     key:'소스 규칙이다 — 자식이 non-leaf 면 <em>첫 레코드의 접두사가 부모 키와 같아야</em> 한다. leaf 자식에는 이 의무가 없어 leaf 첫 행은 부모를 건드리지 않고 지운다.',
@@ -824,7 +826,7 @@ const SCENES = [
           bt:{ set:{ 'internal':{ keys:'| 44 | 48 | 52 |  ← 읽음', fill:.6 } } } } },
 
   { act:{ f:'bt', t:'bt', lb:'leaf 도달' },
-    note:'leaf 에서 45 hit — transfer 3, comparison 27',
+    note:'leaf 에서 45 hit — transfer 3, comparison 21',
     why:'44 ≤ 45 < 48 → 두 번째 포인터. 리프 블록을 읽고 그 안에서 45를 찾는다.',
     key:'전송 3, 비교 21(3 + 9 + 9 — log₂10⁶ ≈ 20 과 맞는다). 블록은 세 번 읽었지만 <em>디스크에 간 것은 한 번</em>이다. 위 두 레벨은 buffer pool 히트다.',
     ref:'storage/innobase/btr/btr0cur.cc', sym:'btr_cur_search_to_nth_level',
@@ -917,7 +919,7 @@ const SCENES = [
           node:{ set:{ 'leaf L':{ tag:'clean', sub:'절반 남았다 · 3/6' },
                        'leaf R':{ tag:'clean', sub:'절반 받았다 · 3/6' } } },
           blk:{ set:{ '7 8 9 10 12 13':{ id:'7 8 9', sz:5, tag:'', sub:'남은 절반' },
-                      '여유 0':{ id:'여유 5', sz:6, tag:'free', sub:'분할이 만든 공간' } } },
+                      '여유 0':{ id:'여유 3', sz:6, tag:'free', sub:'분할이 만든 공간' } } },
           op:{ set:{ '단계':'2 · 절반 이동|gold' } } } },
 
   { look:{ bt:['leaf L','leaf R'] },
@@ -1339,7 +1341,8 @@ const SCENES = [
     ops:{ bt:{ set:{ 'leaf L':{ keys:'12 13 15', fill:.5 },
                      'leaf R':{ keys:'(비었다)', fill:0 } } },
           node:{ set:{ 'leaf L':{ tag:'ok', sub:'3/6 · 50%' },
-                       'leaf R':{ tag:'x', sub:'비었다 · 제거 대상' } } } } },
+                       'leaf R':{ tag:'x', sub:'비었다 · 제거 대상' } } },
+          blk:{ del:['15'], set:{ '빈 곳':{ sz:11, sub:'15 는 L 로 옮겨 갔다' } } } } },
 
   { act:{ f:'bt', t:'bt', lb:'2·3단계 · 부모에서 포인터를 빼고 노드를 없앤다' },
     note:'책 2·3단계 — parent 에서 오른쪽 pointer 제거, 빈 node 반납',
@@ -1353,9 +1356,7 @@ const SCENES = [
     cite:['Remove the right node pointer from the parent (or demote it in the case of a nonleaf merge)'],
     ops:{ bt:{ del:['leaf R'], set:{ 'parent':{ keys:'| (키 없음) |', fill:.1 } } },
           node:{ del:['leaf R'], set:{ 'leaf L':{ tag:'ok', sub:'3/6 · sibling 흡수 완료' } } },
-          blk:{ set:{ '15':{ id:'12 13 15', sz:4, tag:'', sub:'합쳐졌다' },
-                      '빈 곳':{ id:'여유', sz:7, tag:'free', sub:'미래의 삽입용' } },
-                gg:undefined },
+          blk:{ del:['헤더'], set:{ '빈 곳':{ id:'반납된 page', sz:13, tag:'free', sub:'btr_page_free — 다시 할당될 수 있다' } } },
           op:{ set:{ '대상 리프':'병합 완료|green' } } } },
 
   { look:{ blk:true },
@@ -1448,7 +1449,7 @@ const SCENES = [
     fact:['if (UNIV_UNLIKELY(page_get_n_recs(page) < 2) && UNIV_UNLIKELY(dict_index_get_page(index) != block->page.id.page_no())) {',
           '/* If there is only one record, drop the whole page in btr_discard_page, if this is not the root page */',
           ['storage/innobase/btr/btr0btr.cc','if (data_size > max_ins_size_reorg) {']],
-    ops:{ op:{ set:{ '표본':'약 5 KB 행 · page 당 3행', '삭제':'59 · 60 · 61 차례로', '리프 수':'41', '높이':'2' } },
+    ops:{ op:{ set:{ '표본':'약 5 KB 행 · page 당 3행', '삭제':'59 · 60 · 61 차례로', '리프 수':'41', '높이':'2', 'Data_free':'—' } },
           bt:{ del:['root','level 1','leaf'], add:[
             { id:'parent', lvl:0, keys:'리프 41개', fill:.05 },
             { id:'L', lvl:1, keys:'3행 · 여유 1,252B', fill:.92 },
@@ -1481,7 +1482,7 @@ const SCENES = [
           'if (left_page_no == FIL_NULL && right_page_no == FIL_NULL) { /* The page is the only one on the level, lift the records to the father */ merge_block = btr_lift_page_up(index, block, mtr);'],
     cite:['or when two nodes are merged to form a new root'],
     beat:1,
-    ops:{ op:{ set:{ '표본':'277 B 행 200K', '삭제':'흩어진 80%', '리프 수':'926', '높이':'2|green' } },
+    ops:{ op:{ set:{ '표본':'277 B 행 200K', '삭제':'흩어진 80%', '리프 수':'926', '높이':'2|green', 'Data_free':'6,291,456 그대로|gold' } },
           bt:{ del:['parent','L','R'], add:[
             { id:'root', lvl:0, keys:'page 4 · 자식 926', fill:.74, lift:'level 1' },
             { id:'leaf', lvl:1, keys:'926 page', fill:.73 } ] },

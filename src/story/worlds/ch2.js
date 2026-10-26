@@ -466,7 +466,8 @@ function model(F, deck, labels, sc, cssOf) {
       if (SEP) { place(hd[SEP], L.x0, y); G.sep.y = y + HD + 16 + 6; G.anc[SEP] = { x: L.x0 + ww / 2, y: G.sep.y }; y += G.sep.h + 12 * k; }
       if (NODE) {
         place(hd[NODE], L.x0, y); G.nl.y = y + HD; G.anc[NODE] = { x: L.x0 + 30, y: y + HD + 13 };
-        if (G.nl.side) place(nlCap, L.x0 + G.nl.side, y + HD + 2); else place(nlCap, L.x0, y + HD + G.nl.rows * 32 + 2);
+        G.nl.capAt = G.nl.side ? [L.x0 + G.nl.side, y + HD + 2] : [L.x0, y + HD + G.nl.rows * 32 + 2];
+        place(nlCap, ...G.nl.capAt);
         y += G.nl.h + 12 * k;
       }
       G.edgeY = null;
@@ -816,7 +817,7 @@ function model(F, deck, labels, sc, cssOf) {
         for (let j = 0; j < T.rows; j++) {
           const key = `w:${a}:${j}`, [r0] = R[key], b1 = NB.box.get('row:' + j), b0 = PB.box.get('row:' + j);
           if (!b1 && !(b0 && !end)) { hide(key); continue; }
-          const B = b1 || b0, n = B.n, hot = on && hotIt(s, a, n.id), lit = readRow(kk, p, j, end);
+          const B = b1 || b0, n = B.n, hot = on && hotIt(s, a, n.id), lit = readRow(kk, p, j, end, T.rows);
           const a0 = (on ? (hot ? 0.92 : 0.6) : 0.45) * dim * form;
           for (let m = 0; m < TOWR; m++) {
             const i = r0 + m, key1 = m >= 12, kw = Math.max(4, B.w * (n.fill || 0));
@@ -908,7 +909,7 @@ function model(F, deck, labels, sc, cssOf) {
             const col = k1 === 'D' || (k1 === 'E' && k0 === 'D') ? RED : k1 === 'L' ? (newLive ? GREEN : INK) : k0 === 'L' ? INK : FAINT;
             const heat = (turned ? 0.7 * (1 - show(p, 0.35, 0.5)) : 0) + (wroteFlash && k1 !== 'E' ? 0.6 * show(p, 0.3, 0.38) * (1 - show(p, 0.42, 0.5)) : 0);
             [x, y] = into(i, x, y);
-            put(o, i, x, y, a0 * al * (dd ? 0.7 : 0.95), heat, 0.02, dd ? 1.2 : 2.2, col);
+            put(o, i, x, y, a0 * al * (dd ? 0.9 : 0.95), heat, 0.02, dd ? 1.6 : 2.2, col);
           }
         }
         for (; i < R['fb:' + id][1]; i++) put(o, i, dust[i * 2], dust[i * 2 + 1], 0, 0, 2, 1, FAINT);
@@ -941,7 +942,7 @@ function model(F, deck, labels, sc, cssOf) {
         const col = d === 'rand' ? RED : d === 'seq' ? GREEN : d === 'write' ? GOLD : FAINT;
         for (let m = 0; m < SECG; m++, i++) {
           const t2 = th + m * 0.055, [x, y] = into(i, cx + Math.cos(t2) * r, cy + Math.sin(t2) * r);
-          put(o, i, x, y, (d ? 0.95 : sectorLit ? 0.7 : 0.38) * dim * form, d ? 0.5 : 0, 0.02, d ? (d === 'write' ? 2.6 : 2) : 1.05, d ? col : sectorLit ? INK : FAINT);
+          put(o, i, x, y, (d ? 0.95 : sectorLit ? 0.7 : 0.38) * dim * form, d ? 0.5 : 0, 0.02, d ? (d === 'write' ? 3.6 : 2) : 1.05, d ? col : sectorLit ? INK : FAINT);
         }
       }
       const hp = HP.head(HP.rad(H.r));
@@ -1026,11 +1027,13 @@ function model(F, deck, labels, sc, cssOf) {
     } else hide('tok');
   }
   /* 탑(BST)의 줄 j 를 지금 읽었나 — 하강하는 스텝에서 위부터 차례로 */
-  function readRow(k, p, j, end) {
+  function readRow(k, p, j, end, rows) {
     if (end || !TRAY) return false;
     const s = S[k], n1 = sqOf(s), n0 = refly(k) ? 0 : sqOf(stOf(prevIdx[k]));
     if (n1 <= n0) return false;
-    return j < n1 - n0 && p >= 0.08 + (j / Math.max(1, n1 - n0)) * 0.3;
+    /* 하강(트리에서 시작하는 act)이 아니면 다시 읽는 것은 아래 줄이다 — 02/4 의 회전은 리프 가까이에서 일어난다 */
+    const r = s.step.act && TREES.includes(s.step.act.f) ? j : rows - 1 - j;
+    return r >= 0 && r < n1 - n0 && p >= 0.08 + (r / Math.max(1, n1 - n0)) * 0.3;
   }
   /* 트리에서 io 로 가는 act — 수가 그대로여도(init 에 이미 적힌 셈) 그 하강을 다시 보인다 */
   function refly(k) { const a = S[k].step.act; return !!(a && a.t === IO && TREES.includes(a.f)); }
@@ -1048,6 +1051,12 @@ function model(F, deck, labels, sc, cssOf) {
         for (const b of bs) if (!per.some((q) => q.n.lvl === b.n.lvl)) per.push(b);
         return Array.from({ length: n }, (_, j) => { const b = per[Math.min(j, per.length - 1)]; return [b.x, b.y]; });
       }
+    }
+    /* act 없이 늘어난 읽기(02/4 의 회전) — 탑이 있으면 그 아래 줄들에서 */
+    for (const a of TREES) {
+      if (!TS[a].real || TS[a].mode !== 'tower') continue;
+      const bs = [...nodesAt(a, k).box.values()];
+      if (bs.length) return Array.from({ length: n }, (_, j) => { const b = bs[Math.max(0, bs.length - 1 - j)]; return [b.x, b.y]; });
     }
     return Array.from({ length: n }, () => src || [G.L.x0, G.L.y0]);
   }
@@ -1124,6 +1133,8 @@ function model(F, deck, labels, sc, cssOf) {
       const mk = markOf(s); if (mk != null) place(sepLb.mk, X(mk), y - 12, 'c', 'b');
     }
     if (NODE) for (const it of s[NODE]) { const P = nlSlot(s, it.id); if (P) place(nlLb[it.id], P.x, P.y, 'c', 'c'); }
+    /* 빈 목록의 '—' 는 칸이 놓일 자리(머리 이름 바로 아래)에 — 설명 열에 두면 머리에서 300px 떨어져 떠 있었다(04/1 · 07/1) */
+    if (NODE) { if (s[NODE].length) place(nlCap, ...G.nl.capAt); else place(nlCap, G.L.x0 + 4, G.nl.y + 6); }
     if (TRAY) place(sqCap, G.L.x0, G.tray.y + SQ + 5, 'l', 't');
     if (HDD && HP) {
       const P = HP.per[kk], last = P.seq[P.seq.length - 1];
@@ -1167,9 +1178,11 @@ function model(F, deck, labels, sc, cssOf) {
             const ks = par.kidsOf, j = ks.indexOf(n), A0 = anchorOf(a, kk, par, n, j, ks.length);
             if (!A0) return;
             const bad = (par.bad || []).some((q) => q.c === n), shared = par.gapOf && par.gapOf.get(n) != null && ks.some((x) => x !== n && par.gapOf.get(x) === par.gapOf.get(n));
+            /* 이 스텝에 새로 할당된 빈 노드 — 부모에는 아직 그 포인터가 없다(08/2 의 책 1단계). 칸을 나눠 갖는 자식처럼 점선 */
+            const fresh = par.P.pipes && n.P.lo == null && n.P.hi == null && !(n.P.chips && n.P.chips.length) && !(TI(a, prevIdx[kk]).nodes || []).some((x) => x.id === n.id);
             const band = n.par.length > 1, cx = band ? C.x - C.w / 2 + (C.w * (pj + 0.5)) / n.par.length : C.x;
             ctx.globalAlpha = (bad ? 0.85 : on ? 0.55 : 0.35) * o; ctx.strokeStyle = bad ? css.red : css.ink; ctx.lineWidth = bad ? 1.4 : 1;
-            ctx.setLineDash(bad || shared ? [3, 3] : []);
+            ctx.setLineDash(bad || shared || fresh ? [3, 3] : []);
             const PM = miniOf(box.get(par.id)), CM = miniOf(C), top = C.y - C.h / 2 - 1;
             if (PM && C.n.agg > 16) PM.forEach((m, q) => seg(ctx, m.x, m.y + m.h / 2 + 1, C.x - C.w / 2 + PADX + ((q + 0.5) / PM.length) * (C.w - 2 * PADX), top));
             else if (CM) CM.forEach((m) => seg(ctx, A0[0], A0[1], m.x, top));
