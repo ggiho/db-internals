@@ -30,7 +30,7 @@ const SCENES = [
     ops:{ op:{ set:{ '넣는 순서':'4 2 6 1 3 5 7  (섞임)', '트리 높이':'3', '최악 탐색':'3 회|green' } },
           bst:{ del:['—'], add:[
             { id:'4', lvl:0, keys:'root', fill:.5 },
-            { id:'2', lvl:1, keys:'1 · 3', fill:.5, kids:[1,3] }, { id:'6', lvl:1, keys:'5 · 7', fill:.5, kids:[5,7] } ] } } },
+            { id:'2', lvl:1, keys:'', fill:.5, kids:[1,3] }, { id:'6', lvl:1, keys:'', fill:.5, kids:[5,7] } ] } } },
 
   { act:{ f:'op', t:'bst', lb:'이번엔 정렬된 순서로' },
     note:'같은 7개를 오름차순 insert — 한쪽으로만 성장',
@@ -40,11 +40,12 @@ const SCENES = [
     cite:['we end up with a pathological tree, which looks more like a linked list',
           'instead of desired logarithmic complexity, we get linear'],
     ops:{ op:{ set:{ '넣는 순서':'1 2 3 4 5 6 7  (정렬)|red', '트리 높이':'7|red', '최악 탐색':'7 회|red' } },
+          cost:{ set:{ '병리적':'O(N)|red' } },
           bst:{ del:['4','2','6'], add:[
             { id:'1', lvl:0, keys:'root', fill:.5 },
             { id:'2', lvl:1, keys:'오른쪽만', fill:.5 },
             { id:'3', lvl:2, keys:'오른쪽만', fill:.5 },
-            { id:'…', lvl:3, keys:'7 까지', fill:.5, upto:7 } ] } } },
+            { id:'…', lvl:3, keys:'4 · 5 · 6', fill:.5, upto:7 } ] } } },
 
   { look:{ bst:true, cost:true },
     note:'pathological tree — 같은 데이터, 다른 순서',
@@ -55,15 +56,23 @@ const SCENES = [
     cite:['allow insertions and deletions order to determine tree shape'],
     beat:1 },
 
-  { act:{ f:'bst', t:'bst', lb:'회전으로 균형을 되돌린다' },
+  { act:{ f:'bst', t:'bst', lb:'회전 한 번 — 2 를 위로' },
     note:'rotation — parent 와 child 를 교체해 skew 를 줄인다',
-    why:'2 를 위로 올리고 1 을 왼쪽, 3 을 오른쪽에 둔다 — 키 순서는 그대로다. 1~7 을 AVL 방식으로 넣으면 이런 회전이 네 번 일어나 그림의 높이 3 트리가 된다.',
-    key:'회전 한 번에 <em>포인터 세 개</em>가 바뀐다. 메모리에서는 싸지만 디스크에서는 이 포인터들이 다른 페이지에 흩어져 있다.',
+    why:'2 를 위로 올리고 1 을 왼쪽, 3 을 오른쪽에 둔다 — 키 순서는 그대로다. 높이가 7 에서 6 으로 한 칸 준다.',
+    key:'회전 한 번에 <em>포인터 세 개</em>가 바뀐다 — 1 의 오른쪽, 2 의 왼쪽, 루트 포인터. 메모리에서는 싸지만 디스크에서는 이 포인터들이 다른 페이지에 흩어져 있다.',
     cite:['one of the ways to keep the tree balanced is to perform a rotation step after nodes are added or removed',
           'which means that node child pointers may span across several disk pages'],
+    ops:{ bst:{ set:{ '1':{ lvl:1, keys:'' }, '2':{ lvl:0, keys:'root' }, '3':{ lvl:1 }, '…':{ lvl:2 } } },
+          op:{ set:{ '트리 높이':'6|red', '최악 탐색':'6 회|red' } } } },
+
+  { act:{ f:'bst', t:'bst', lb:'회전을 세 번 더' },
+    note:'회전 넷이면 균형 — 높이 3',
+    why:'3 에서 한 번, 루트에서 한 번, 5 에서 한 번 더 돌리면 그림의 높이 3 트리가 된다. 1~7 을 AVL 방식으로 넣어도 회전은 네 번 일어난다.',
+    key:'높이가 <em>log₂ N</em> 으로 돌아왔다. 금색 선이 이번에 고쳐 쓴 포인터다 — 회전마다 세 개씩이다.',
     ops:{ bst:{ del:['1','2','3','…'], add:[
             { id:'4', lvl:0, keys:'root', fill:.5 },
-            { id:'2', lvl:1, keys:'1 · 3', fill:.5, kids:[1,3] }, { id:'6', lvl:1, keys:'5 · 7', fill:.5, kids:[5,7] } ] },
+            { id:'2', lvl:1, keys:'', fill:.5, kids:[1,3] }, { id:'6', lvl:1, keys:'', fill:.5, kids:[5,7] } ] },
+          cost:{ set:{ '병리적':'O(N)', '균형':'O(log₂ N)|green' } },
           op:{ set:{ '트리 높이':'3|green', '최악 탐색':'3 회|green' } } } },
 
   { look:{ cost:true, op:true },

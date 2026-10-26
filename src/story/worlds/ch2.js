@@ -237,7 +237,7 @@ function model(F, deck, labels, sc, cssOf) {
       const T = TS[a], st = TI(a, k), lb = TLB[a];
       t.set(lb.ph, [T.real ? '' : '— ' + T.label, false, '', !T.real]);
       for (const id of T.ids) {
-        const n = (st.nodes || []).find((x) => x.id === id), hot = !!n && on(a) && hotIt(s, a, id);
+        const n = (st.nodes || []).find((x) => x.id === id), hot = !!n && on(a) && hotIt(s, a, ownOf(n, id));
         if (T.mode === 'keyed') {
           t.set(lb.id[id], [n ? id : '', hot, n && n.ghost ? '' : '', !!n]);
           t.set(lb.tx[id], [n ? n.cap : '', hot, '', !!n && !!n.cap]);
@@ -297,6 +297,8 @@ function model(F, deck, labels, sc, cssOf) {
     return out;
   }
   const over1 = (n, q) => !!(n && n.cap && n.has > n.cap && q.k >= n.cap);
+  /* BST 의 잎(kids) · 사슬 끝(upto)은 그것을 그리게 한 항목과 함께 밝다 — 바뀐 항목만 밝히면 잎이 유령처럼 흐렸다(01) */
+  function ownOf(n, id) { return n && (n.kid || n.ghost) ? n.up : id; }
   /* 수직선의 짚은 값 — 'ii' 구간 이름의 '← 45' */
   function markOf(s) {
     if (!SEP) return null;
@@ -802,15 +804,15 @@ function model(F, deck, labels, sc, cssOf) {
           if (!f1 && !(f0 && !end)) { hide(key); continue; }
           const B = f1 && f0 && !end ? { x: U.lerp(f0.x, f1.x, mv), y: U.lerp(f0.y, f1.y, mv), w: f1.w, h: f1.h } : f1 || f0;
           const vis = b1 ? 1 : f1 ? 1 - show(p, 0.2, 0.42) : 1 - show(p, 0.1, 0.4);
-          const n = (b1 || b0 || f1 || f0).n, hot = on && hotIt(s, a, id), ghost = n && n.ghost && b1;
+          const n = (b1 || b0 || f1 || f0).n, hot = on && hotIt(s, a, ownOf(n, id));
           const from = b1 && !b0 && !f0 && !end ? src : null;
-          const a0 = (on ? (hot ? 0.92 : 0.6) : 0.45) * dim * form * vis * (ghost ? 0.5 : 1);
+          const a0 = (on ? (hot ? 0.92 : 0.6) : 0.45) * dim * form * vis;
           for (let m = 0; m < BKEY; m++) {
             const i = r0 + m, inner = m >= 32;
             let [x, y] = inner ? [B.x - B.w / 2 + 4 + ((m - 32) / 7) * (B.w - 8) * (n ? n.fill : 0), B.y + B.h / 2 - 4] : rim(B.x, B.y, B.w, B.h, 32, m);
             [x, y] = moveIn(i, x, y, from, fly, m / BKEY);
             [x, y] = into(i, x, y);
-            put(o, i, x, y, a0 * (inner ? 0.9 : 1), hot && modOf(s, a).has(id) ? 0.35 : 0, 0.02, inner ? 1.4 : 1.05, ghost ? FAINT : INK);
+            put(o, i, x, y, a0 * (inner ? 0.9 : 1), hot && modOf(s, a).has(id) ? 0.35 : 0, 0.02, inner ? 1.4 : 1.05, INK);
           }
         }
       } else {
@@ -1215,13 +1217,16 @@ function model(F, deck, labels, sc, cssOf) {
           }
         }
       } else if (T.mode === 'keyed') {
+        /* 트리 안의 act(회전)가 고쳐 쓴 포인터 — 앞 스텝에 없던 부모 → 자식 짝은 금색 */
+        const sp = TI(a, prevIdx[kk]), self = on && s.step.act && s.step.act.f === a && s.step.act.t === a && sp && !sp.empty;
         for (const n of st.nodes) {
           const P = box.get(n.up), C = box.get(n.id);
           if (!P || !C) continue;
-          ctx.globalAlpha = (on ? 0.6 : 0.4) * o; ctx.strokeStyle = n.ghost ? css.faint : css.ink;
+          const re = self && !sp.nodes.some((q) => q.id === n.id && q.up === n.up);
+          ctx.globalAlpha = (re ? 0.85 : on ? 0.6 : 0.4) * o; ctx.strokeStyle = re ? css.gold : n.ghost ? css.faint : css.ink; ctx.lineWidth = re ? 1.6 : 1;
           ctx.setLineDash(n.ghost ? [2, 4] : []);
           seg(ctx, P.x + (C.x - P.x) * (P.h / 2) / Math.hypot(C.x - P.x, C.y - P.y), P.y + P.h / 2, C.x, C.y - C.h / 2);
-          ctx.setLineDash([]);
+          ctx.setLineDash([]); ctx.lineWidth = 1;
         }
       } else {
         const rows = [...box.values()];

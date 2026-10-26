@@ -136,8 +136,11 @@ function bstKeyed(items) {
     if (Array.isArray(it.kids)) for (const k of it.kids) nodes.push({ id: String(k), v: k, lvl: (it.lvl ?? 0) + 1, fill: it.fill ?? 0, cap: '', kid: true, up: id });
     if (it.upto) nodes.push({ id: String(it.upto), v: it.upto, lvl: (it.lvl ?? 0) + (it.upto - v), fill: it.fill ?? 0, cap: '', ghost: true, up: id, from: v });
   }
-  /* 부모 — kids 는 그 노드, 아니면 바로 위 레벨의 노드(사슬) */
-  for (const n of nodes) if (!n.up) { const p = nodes.find((q) => q.item && q.lvl === n.lvl - 1); if (p) n.up = p.id; }
+  /* 부모 — kids 는 그 노드, 아니면 바로 위 레벨에서 값이 가장 가까운 노드(사슬 · 회전 한 번 뒤의 2(1, 3 → …)) */
+  for (const n of nodes) if (!n.up) {
+    const ps = nodes.filter((q) => q.item && q.lvl === n.lvl - 1).sort((x, y) => Math.abs(x.v - n.v) - Math.abs(y.v - n.v));
+    if (ps.length) n.up = ps[0].id;
+  }
   /* '…' 이 품은 값(사이의 키) — 그리지 않은 노드는 '…' 자리에 접힌다 */
   const hide = [];
   for (const n of nodes) if (n.ghost) for (let v = n.from; v < n.v; v++) hide.push(v);
