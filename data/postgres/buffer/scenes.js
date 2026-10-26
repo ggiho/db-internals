@@ -26,7 +26,7 @@ const SCENES = [
       { id:'buf 2', tag:'pin',   sub:'p:11  ·  usage 1  ·  핀 1' },
       { id:'buf 3', tag:'dirty', sub:'p:17  ·  usage 0  ·  dirty' },
       { id:'buf 4', tag:'clean', sub:'p:20  ·  usage 5' },
-      { id:'buf 5', tag:'dirty', sub:'p:26  ·  usage 1  ·  dirty' } ] },
+      { id:'buf 5', tag:'dirty', sub:'p:26  ·  usage 0  ·  dirty' } ] },
     heap:{ items:[
       { id:'p:17', tag:'clean', sub:'옛 내용' },
       { id:'p:26', tag:'clean', sub:'옛 내용' },
@@ -44,7 +44,7 @@ const SCENES = [
           ['src/include/storage/buf_internals.h','#define BM_MAX_USAGE_COUNT	5']],
     ops:{ be:{ set:{ '요청':'p:3' } },
           map:{ set:{ '찾는 것':'(t, 3)', '결과':'buf 0 — 있다' } },
-          pool:{ set:{ 'buf 0':{ sub:'p:3  ·  usage 3 → 4' } } } } },
+          pool:{ set:{ 'buf 0':{ tag:'pin', sub:'p:3  ·  usage 3 → 4  ·  핀 1' } } } } },
 
   { act:{ f:'be', t:'map', lb:'(t, 42) 찾기' },
     note:'p:42 miss — victim 이 필요한데 freelist 는 비어 있다',
@@ -55,6 +55,8 @@ const SCENES = [
           'if (StrategyControl->firstFreeBuffer >= 0)',
           ['src/backend/storage/buffer/bufmgr.c','Insert the buffer at the head of the list of free buffers.']],
     ops:{ be:{ set:{ '요청':'p:42', '단계':'빈 버퍼 찾기' } },
+          /* 1 스텝의 p:3 은 다 읽었으니 핀을 놓는다 — usage 는 4 로 남는다 */
+          pool:{ set:{ 'buf 0':{ tag:'clean', sub:'p:3  ·  usage 4' } } },
           map:{ set:{ '찾는 것':'(t, 42)', '결과':'없다' } } } },
 
   { act:{ f:'be', t:'pool', lb:'바늘 → buf 1' },
@@ -86,7 +88,8 @@ const SCENES = [
     beat:1,
     ops:{ pool:{ set:{ 'buf 3':{ tag:'clean', sub:'p:17  ·  방금 씀  ·  usage 0' } } },
           heap:{ set:{ 'p:17':{ sub:'백엔드가 방금 씀' } } },
-          be:{ set:{ '단계':'p:17 을 쓰는 동안 대기|gold' } } } },
+          /* ClockSweepTick 은 fetch_add — buf 3 을 돌려줄 때 바늘은 이미 buf 4 다 */
+          be:{ set:{ '단계':'p:17 을 쓰는 동안 대기|gold', '바늘':'buf 3 → buf 4' } } } },
 
   { act:{ f:'heap', t:'pool', lb:'p:42 읽기' },
     note:'buffer mapping 교체(p:17 → p:42) — p:42 를 읽어 buf 3 에',
@@ -109,7 +112,7 @@ const SCENES = [
           'double		bgwriter_lru_multiplier = 2.0;',
           ['src/backend/postmaster/bgwriter.c','to keep regular backends from having to write out dirty shared buffers']],
     ops:{ bgw:{ set:{ '이번 주기':'dirty 1개를 씀', '상태':'깨어남' } },
-          pool:{ set:{ 'buf 5':{ tag:'clean', sub:'p:26  ·  usage 1  ·  bgwriter 가 씀' } } },
+          pool:{ set:{ 'buf 5':{ tag:'clean', sub:'p:26  ·  usage 0  ·  bgwriter 가 씀' } } },
           heap:{ set:{ 'p:26':{ sub:'bgwriter 가 씀' } } } } },
 
   { look:{ pool:true, cmp:true },

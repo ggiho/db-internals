@@ -113,7 +113,9 @@ function make({ F, deck, labels, scene }) {
     /* freelist 는 덱의 배우가 아니다 — '빈 버퍼 찾기' 에 들어선 스텝에만 밝힌다(비어 있으므로 clock 으로 간다) */
     t.set(free, ['freelist  ·  비었다', showMap && /빈 버퍼/.test(bare(s.be['단계'])) && has(s.beKeys, '단계'), '', showMap]);
     t.set(hdCmp, [A.cmp.nm, on('cmp'), '', !showMap]);
-    t.set(txCmp, [Object.entries(s.cmp).map(([k, v]) => `<span class="pb-i">${esc(k)}</span>\n${esc(bare(v))}`).join('\n'), on('cmp'), '', !showMap, true]);
+    /* 값의 색(|gold) — bare 로 지웠더니 02 장면과 달리 'PG' 줄이 맨 글씨였다(08) */
+    const tv = (v) => { const m = /\|(gold|red)$/.exec(String(v ?? '')); return m ? `<span class="pb-${m[1] === 'gold' ? 'g' : 'r'}">${esc(bare(v))}</span>` : esc(bare(v)); };
+    t.set(txCmp, [Object.entries(s.cmp).map(([k, v]) => `<span class="pb-i">${esc(k)}</span>\n${tv(v)}`).join('\n'), on('cmp'), '', !showMap, true]);
     s.pool.forEach((b, i) => {
       const st = b.pin ? '<span class="pb-g">pin</span>' : b.dirty ? '<span class="pb-r">dirty</span>' : '';
       t.set(slotLb[i], [`<span class="pb-i">${esc(b.pg)}</span>\n${esc(b.id)}  ·  usage ${b.u}${st ? '\n' + st : ''}`, true, '', true, true]);
