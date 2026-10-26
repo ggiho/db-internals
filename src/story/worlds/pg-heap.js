@@ -322,10 +322,13 @@ function make({ F, deck, labels, scene }) {
     if (FSM) wrap(fCap, ww);
     const fcH = FSM ? most(fCap).h : 0;
     const fDepth = FSM ? Math.max(...all.map((s) => fsmTree(s).length)) : 0;
+    /* 잎 이름은 잎 칸 가운데 + 13 에서 시작한다 */
+    const fnH = FSM ? hMax(FIDS.map((id) => fLb[id].n)) : 0;
     const sw = Object.fromEntries(ROWS.map((a) => [a, Object.fromEntries(RIDS[a].map((id) => [id, Math.max(30, Math.ceil(most(rowLb[a][id]).w) + 14)]))]));
     for (const a of ROWS) wrap(rowCap[a], ww);
     const rcH = Object.fromEntries(ROWS.map((a) => [a, most(rowCap[a]).h]));
-    const lay = (y0, k = 1, gr = 18) => {
+    /* lh — FSM 트리 단 사이, fb — 잎 칸 가운데에서 설명까지 */
+    const lay = (y0, k = 1, gr = 18, lh = 34, fb = 22 + 30) => {
       let y = y0;
       const texts = (ln) => {
         const T = TL[ln];
@@ -368,8 +371,8 @@ function make({ F, deck, labels, scene }) {
       };
       const fsm = () => {
         place(hd[FSM], L.x0, y); y += HD + 8;
-        G.fsm = { y, lh: 34, depth: fDepth }; G.anc[FSM] = { x: L.x0 + ww / 2, y: y + 10 };
-        y += (fDepth - 1) * 34 + 22 + 30; place(fCap, L.x0, y); y += fcH + 14 * k;
+        G.fsm = { y, lh, depth: fDepth }; G.anc[FSM] = { x: L.x0 + ww / 2, y: y + 10 };
+        y += (fDepth - 1) * lh + fb; place(fCap, L.x0, y); y += fcH + 14 * k;
       };
       const rows = (a) => {
         const nl = TREE.includes(a) ? TLV[a] : 1;
@@ -390,9 +393,16 @@ function make({ F, deck, labels, scene }) {
     if (total > wh) { k = 0; total = lay(L.y0, k, gr); }
     /* 줄 높이 14 아래로는 영역 이름(글 높이 약 14)이 줄을 넘는다 */
     if (total > wh && GRID) { gr = Math.max(14, gr - Math.ceil((total - wh) / NR)); total = lay(L.y0, k, gr); }
+    /* 그래도 높으면 FSM 트리를 조인다 — 잎 이름 아래의 빈 자리(약 25px)를 8 로, 그래도 높으면 단 사이를 34 에서 26 까지
+       (26 에서 노드 고리 · 잎 칸(높이 20) 사이가 6px 남는다. 05 : 1280×720) */
+    let lh = 34, fb = 22 + 30;
+    if (total > wh && FSM) {
+      fb = 13 + fnH + 8; total = lay(L.y0, k, gr, lh, fb);
+      if (total > wh && fDepth > 1) { lh = Math.max(26, lh - Math.ceil((total - wh) / (fDepth - 1))); total = lay(L.y0, k, gr, lh, fb); }
+    }
     if (total > wh + 1) console.error(`pg heap ${sc.num} 세계 : 높이 ${Math.round(total)} 가 무대 ${Math.round(wh)} 를 넘는다 (${L.W}×${L.H})`);
     const dy = L.narrow ? 0 : Math.max(0, (wh - total) / 2);
-    if (dy) lay(L.y0 + dy, k, gr);
+    if (dy) lay(L.y0 + dy, k, gr, lh, fb);
     for (let i = 0; i < N; i++) { dust[i * 2] = L.x0 + rnd() * ww; dust[i * 2 + 1] = L.y0 + rnd() * wh; }
     shown = -2;
   }
