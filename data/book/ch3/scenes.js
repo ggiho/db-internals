@@ -612,7 +612,7 @@ const SCENES = [
     ['I_S.INNODB_BUFFER_PAGE','PAGE_TYPE 열이 그 enum 을 이름으로 풀어 준다']],
   links:[['02','가변 길이와 함께 레코드 앞에 놓인다'],['04','페이지 타입도 enum 이다'],['09','삭제 플래그가 여기서 쓰인다']],
   init:{
-    op:{ kv:{ '담을 것':'불리언 3개', '바이트로 쓰면':'3 B', '비트로 쓰면':'—', '켜기':'—', '끄기':'—', '검사':'—', 'InnoDB info':'—' } },
+    op:{ kv:{ '담을 것':'불리언 3개', '바이트로 쓰면':'3 B', '비트로 쓰면':'—', '비트 연산':'—' } },
     val:{ items:[
       { id:'0x01', sz:1, tag:'', sub:'is_leaf = true' },
       { id:'0x00', sz:1, tag:'', sub:'has_overflow = false' },
@@ -665,7 +665,8 @@ const SCENES = [
           ['storage/innobase/rem/rec.h','return ((mach_read_from_1(rec - offs) & mask) >> shift);']],
     cite:['to unset the bit, we can use bitwise AND (&) and the bitwise negation operator (~)',
           'to test whether or not the bit n is set, we can compare the result of a bitwise AND with 0'],
-    ops:{ op:{ set:{ '켜기':'0x03 OR 0x04 = 0x07|green', '끄기':'0x07 AND ~0x04 = 0x03|green', '검사':'0x03 AND 0x01 ≠ 0 → is_leaf|green' } } },
+    /* 한 줄에 셋 — 칸을 셋 두었더니 768 × 1024 에서 무대 높이를 넘었다 */
+    ops:{ op:{ set:{ '비트 연산':'켜기 OR 0x04 → 0x07 · 끄기 AND ~0x04 → 0x03 · 검사 AND 0x01 ≠ 0|green' } } },
     beat:1 },
 
   { act:{ f:'bits', t:'rec', lb:'enum 은 값 하나로' },
@@ -683,13 +684,13 @@ const SCENES = [
             { id:'플래그 바이트', sz:1, tag:'gold', sub:'0x03' }],
                 /* FIL_PAGE_TYPE 은 레코드가 아니라 FIL 헤더의 칸이다 — 이 줄이 무엇을 늘어놓는지 띠 글로 */
                 byl:{ l:'FIL 헤더의 타입 enum + 플래그 바이트', r:'p:5 실측 45 bf' } },
-          op:{ set:{ '담을 것':'불리언 3개 + 타입 enum', '켜기':'—', '끄기':'—', '검사':'—' } } } },
+          op:{ set:{ '담을 것':'불리언 3개 + 타입 enum', '비트 연산':'—' } } } },
 
   { look:{ rec:true, op:true },
     note:'3 byte → 1 byte, type 은 2-byte enum 으로',
     why:'플래그는 묶고 enum 은 값으로. 둘을 섞지 않는 것이 핵심이다.',
     key:'책의 0x01 · 0x02 · 0x04 가 그대로 쓰이지는 않는다 — info bits 는 <em>바이트의 위 4 비트</em>(DELETED 는 0x20)이고, 아래 4 비트는 n_owned 라는 정수다.',
-    ops:{ op:{ set:{ 'InnoDB info':'위 4 bit 0x10 MIN_REC · 0x20 DELETED  ·  아래 4 bit n_owned|gold' } } },
+    ops:{ op:{ set:{ '비트로 쓰면':'InnoDB : 위 4 bit 0x10 MIN_REC · 0x20 DELETED · 아래 4 bit n_owned|gold' } } },
     ref:'storage/innobase/rem/rec.h', sym:'REC_INFO_BITS_MASK',
     fact:['constexpr uint32_t REC_NEW_N_OWNED = 5; /* This is single byte bit-field */ constexpr uint32_t REC_N_OWNED_MASK = 0xFUL;',
           'constexpr uint32_t REC_NEW_INFO_BITS = 5; /* This is single byte bit-field */ constexpr uint32_t REC_TMP_INFO_BITS = 1; /* This is single byte bit-field */ constexpr uint32_t REC_INFO_BITS_MASK = 0xF0UL;',
