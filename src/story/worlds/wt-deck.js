@@ -1523,7 +1523,11 @@ function make({ F, deck, labels, scene }) {
     /* 촘촘하게 — 줄 간격 · 이름표 줄 · 판 사이를 줄인다. 다 안 들어갈 때만 */
     const dense = (on) => { DN = on; RH = on ? 14 : 15; for (const lb of made) lb.el.style.lineHeight = on ? '1.28' : ''; };
     dense(false);
-    const stack = (ps, w, gap) => { let y = 0; const out = []; ps.forEach((p, j) => { const e = j && ps[j - 1].rank <= 1 && p.rank >= 2; if (e) y += 26; const g = geoAt(p, w); out.push({ p, y, g, edge: e ? y - 16 : null }); y += g.h + gap; }); return { out, h: y - gap }; };
+    /* 경계 이름은 선 아래 3px 에 선다 — 선은 아래 판에서 그 이름의 높이 + 4 위(적어도 16). 16 으로 두자 이름(약 15px)이
+       판의 머리 줄로 2px 내려와 04 의 'journal 파일 · 디스크 — fsync 됨' 과 겹쳤다(1728×1117) */
+    const eh = {};
+    const edgeH = () => { if (!(DN in eh)) { const keep = edgeLb.el.innerHTML; edgeLb.el.textContent = EDGE ? edgeName(EDGE.lb) : ''; eh[DN] = EDGE ? edgeLb.el.getBoundingClientRect().height : 0; edgeLb.el.innerHTML = keep; } return eh[DN]; };
+    const stack = (ps, w, gap) => { let y = 0; const out = []; ps.forEach((p, j) => { const e = j && ps[j - 1].rank <= 1 && p.rank >= 2; if (e) y += 26; const g = geoAt(p, w); out.push({ p, y, g, edge: e ? y - Math.max(16, edgeH() + 4) : null }); y += g.h + gap; }); return { out, h: y - gap }; };
     /* 고르는 순서 — 덜 촘촘한 것, 판 사이가 넓은 것, 한 열을 먼저. 들어가는 첫 배치, 없으면 가장 낮은 것 */
     const lay2 = (gap, cols) => {
       if (cols === 1) { const one = stack(P, W, gap); return { cols: [{ x0: L.x0, w: W, n: P.length }], h: one.h, gap }; }
