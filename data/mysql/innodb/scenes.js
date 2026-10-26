@@ -1082,11 +1082,12 @@ const SCENES = [
           'UT_LIST_INSERT_AFTER(buf_pool->LRU, buf_pool->LRU_old, bpage);',
           'if (!old || (UT_LIST_GET_LEN(buf_pool->LRU) < BUF_LRU_OLD_MIN_LEN)) {'],
     ops:{ bp:{ add:[{ id:'p:41', tag:'pin', acc:0, sub:'방금 읽음 · old 진입' }],
-               move:[['p:41',4]] },
+               move:[['p:41',5]] },   /* LRU_old(경계 바로 뒤 p:17) 의 다음 — UT_LIST_INSERT_AFTER */
           fr:{ del:['free 1'] },
+          ibd:{ set:{ 'p:41 …':{ sub:'큰 테이블 · 스캔 중' } } },
           ses:{ set:{ '지금 하는 일':'테이블 스캔 시작|gold', '읽은 페이지':'1' } } } },
 
-  { look:{ bp:['p:41'] },
+  { act:{ f:'ses', t:'bp', lb:'p:41 재접근 · 행마다' }, look:{ bp:['p:41'] },
     note:'scan 은 같은 페이지를 곧바로 재접근',
     why:'한 페이지에 여러 행이 있으므로, 행을 순서대로 읽으면 같은 페이지를 연달아 여러 번 접근한다. 질의를 COUNT(*) 로 했다면 이 장면의 문제는 생기지도 않는다 — 8.4 는 그것을 parallel reader 로 읽고, 그 경로(Page_fetch::SCAN)는 페이지를 young 으로 올리는 판정을 아예 부르지 않는다.',
     key:'접근 횟수만 세면 이 페이지는 "자주 읽힌 페이지"로 보인다 — 그래서 <em>횟수만으로는 스캔을 구분할 수 없다</em>.',
@@ -1107,7 +1108,7 @@ const SCENES = [
           ['storage/innobase/handler/ha_innodb.cc','nullptr, nullptr, 1000, 0, UINT32_MAX, 0);']],
     beat:1,
     ops:{ bp:{ set:{ 'p:41':{ tag:'clean', acc:0.004, sub:'old 유지 · 1초 안에 재접근' } } },
-          ses:{ set:{ '읽은 페이지':'2', 'young promotion':'0  ← 막혔다|green' } } } },
+          ses:{ set:{ 'young promotion':'0  ← 막혔다|green' } } } },
 
   { act:{ f:'ibd', t:'bp', lb:'56 페이지 연속 → read-ahead' },
     note:'linear read-ahead — 미리 읽은 페이지도 old 로',
@@ -1118,11 +1119,13 @@ const SCENES = [
           '/* This is not a border page of the area: return */',
           ['storage/innobase/handler/ha_innodb.cc','nullptr, nullptr, 56, 0, 64, 0);'],
           ['storage/innobase/buf/buf0buf.cc','buf_LRU_add_block(bpage, true /* to old blocks */);']],
+    /* 앞질러 읽은 페이지도 LRU_old 바로 뒤에 — 나중에 읽은 것이 경계 쪽이다(p:43, p:42, p:41 순).
+       그림의 free list 는 세 칸뿐이지만 실제 풀에는 빈 frame 이 아직 많다 — 58 을 읽어도 축출은 없다 */
     ops:{ bp:{ add:[{ id:'p:42', tag:'clean', sub:'read-ahead · old' },
                     { id:'p:43', tag:'clean', sub:'read-ahead · old' }],
-               move:[['p:42',5],['p:43',6]] },
-          fr:{ del:['free 2','free 3'] },   /* 앞질러 읽기도 frame 을 쓴다 */
-          ses:{ set:{ '읽은 페이지':'58' } } } },
+               move:[['p:42',5],['p:43',5]] },
+          fr:{ del:['free 2','free 3'], add:[{ id:'…', tag:'free', sub:'빈 frame — 실제 풀에는 아직 많다' }] },   /* 앞질러 읽기도 frame 을 쓴다 */
+          ses:{ set:{ '읽은 페이지':'58  (그림엔 셋)' } } } },
 
   { look:{ bp:['p:31','p:28','p:24'] },
     note:'scan 통과 후에도 young sublist 불변',
@@ -1143,13 +1146,14 @@ const SCENES = [
           '(std::chrono::steady_clock::now() - access_time) >=',
           'If eviction has not started yet, do not update the',
           'either the warm-up phase or an in-memory workload.'],
-    ops:{ ses:{ set:{ '지금 하는 일':'p:41 재조회|green' } },
+    ops:{ ses:{ set:{ '지금 하는 일':'p:41 재조회|green', 'young promotion':'0  → 이번엔 허용|gold' } },
+          ibd:{ set:{ 'p:41 …':{ sub:'스캔 끝 · 다시 안 읽힌다' } } },
           bp:{ set:{ 'p:41':{ acc:1.2, sub:'old · 첫 접근 뒤 1.2초 — 창을 넘었다' } } } } },
 
   { act:{ f:'bp', t:'bp', lb:'young 으로 promote' },
     note:'p:41 → young head 로 promote',
-    why:'buf_page_make_young 이 블록을 떼어 LRU 맨 앞에 다시 붙인다. old 가 한 칸 줄어 경계가 목표에서 어긋나지만, 경계 포인터는 그 차이가 20 블록을 넘을 때에야 옮긴다 — 옮길 때는 young 의 마지막 블록이 old 가 된다.',
-    key:'promotion 은 <em>이동</em>이다. 목록 길이는 그대로이고 경계 위치도 그대로다 — 어느 페이지가 경계 어느 쪽에 있는지만 바뀐다.',
+    why:'buf_page_make_young 이 블록을 떼어 LRU 맨 앞에 다시 붙인다. p:41 은 old 의 첫 블록(LRU_old, 경계 바로 뒤의 p:17)이 아니므로 경계 포인터는 움직이지 않는다 — young 이 한 칸 늘고 old 가 한 칸 줄어 비율이 목표에서 어긋나지만, 포인터는 그 차이가 20 블록을 넘을 때에야 옮긴다. 옮길 때는 young 의 마지막 블록이 old 가 된다.',
+    key:'promotion 은 <em>이동</em>이다. 목록 길이도 경계 포인터도 그대로다 — 한 페이지가 경계를 건너 young 쪽으로 갈 뿐이다.',
     ref:'storage/innobase/buf/buf0buf.cc', sym:'buf_page_make_young',
     fact:['buf_LRU_make_block_young(bpage);',
           ['storage/innobase/buf/buf0lru.cc','buf_LRU_add_block_low(bpage, false);'],
@@ -1167,7 +1171,9 @@ const SCENES = [
           'HASH_SEARCH(hash, buf_pool->page_hash, page_id.hash(), buf_page_t *, bpage,',
           ['storage/innobase/buf/buf0buf.cc','ib_create(2 * buf_pool->curr_size, LATCH_ID_HASH_TABLE_RW_LOCK,'],
           'ulint i = id.hash() % srv_buf_pool_instances;'],
-    look:{ bp:true },
+    act:{ f:'ses', t:'bp', lb:'page hash → p:41' },
+    /* 올라간 뒤에는 시간 창을 따지지 않는다 — 막대를 거둔다 */
+    ops:{ bp:{ set:{ 'p:41':{ acc:null } } } },
     beat:1 },
 
   { note:'정리 — insertion point 와 time window 가 서로 다른 것을 막는다',
@@ -1186,7 +1192,7 @@ const SCENES = [
   sub:'04 와 원인이 다른 같은 증상 — free frame 이 없으면 user thread 가 LRU tail 을 직접 evict 한다',
   cast:['ses','stmt','bp','fr','fl','dw','ibd'],
   init:{
-    ses:{ kv:{ '하려는 일':'p:77 읽기', 'free 요청':'—', '훑는 곳':'—', '사용자 스레드':'대기 없음|green' } },
+    ses:{ kv:{ '하려는 일':'p:77 읽기', 'Free buffers':'0|red', 'free 요청':'—', '훑는 곳':'—', '사용자 스레드':'대기 없음|green' } },
     stmt:{ kv:{ '쓰기':'UPDATE t SET c = c + 1 WHERE id = 77', '이어서':'UPDATE t SET c = c + 1 WHERE id = 78' } },
     bp:{ items:[
       { id:'p:31', tag:'dirty', sub:'young · dirty' },
@@ -1212,7 +1218,7 @@ const SCENES = [
     ['05','eviction 후보를 꼬리에 모아 두는 장치'] ],
 
   steps:[
-  { look:{ fr:true },
+  { look:{ fr:true, ses:true },
     note:'free list 고갈 — 적재할 frame 없음',
     why:'평소에는 page cleaner 가 주기마다 free list 를 innodb_lru_scan_depth(1024) 개 가까이 채워 둔다 — buffer pool 인스턴스마다. 쓰기가 몰려 cleaner 의 LRU 쪽 일이 밀리면 이렇게 0 이 된다.',
     key:'8.4 의 건강한 서버는 <em>늘 여유 frame 을 들고 있다</em>. Free buffers 가 0 이면 cleaner 가 뒤처졌다는 신호다 — 문제는 그다음에 무엇이 일어나는가다.',
@@ -1257,7 +1263,7 @@ const SCENES = [
           'UT_LIST_ADD_FIRST(buf_pool->free, &block->page);'],
     ops:{ bp:{ del:['p:9'] },
           fr:{ add:[{ id:'free', tag:'free', sub:'p:9 자리' }] },
-          ses:{ set:{ '훑는 곳':'—' } } } },
+          ses:{ set:{ '훑는 곳':'—', 'Free buffers':'1' } } } },
 
   { act:{ f:'ibd', t:'bp', lb:'p:77 읽기' },
     note:'확보한 frame 에 p:77 — 읽고 곧바로 고친다',
@@ -1271,7 +1277,7 @@ const SCENES = [
           fl:{ add:[{ id:'p:77', tag:'dirty', sub:'oldest_modification 8,610' }] },
           ibd:{ set:{ 'p:77':{ sub:'buffer pool 로 읽힘 · 옛 값' } } },
           fr:{ del:['free'] },
-          ses:{ set:{ '하려는 일':'p:78 읽기', 'free 요청':'—' } } } },
+          ses:{ set:{ '하려는 일':'p:78 읽기', 'free 요청':'—', 'Free buffers':'0|red' } } } },
 
   { act:{ f:'ses', t:'bp', lb:'다시 꼬리 · 이번엔 p:17' },
     note:'다음 read — 훑은 범위가 전부 dirty',
@@ -1297,6 +1303,7 @@ const SCENES = [
           ['storage/innobase/buf/buf0lru.cc','if (!buf_flush_single_page_from_LRU(buf_pool)) {']],
     beat:1,
     ops:{ dw:{ add:[{ id:'p:17', tag:'ok', sub:'사본' }] },
+          bp:{ set:{ 'p:17':{ tag:'pin', sub:'old · dirty — 직접 flush 중' } } },
           ses:{ set:{ '사용자 스레드':'디스크 대기|red' } } } },
 
   { act:{ f:'dw', t:'ibd', lb:'제자리 쓰기 → eviction', hot:'io' },
@@ -1309,9 +1316,9 @@ const SCENES = [
           ['storage/innobase/buf/buf0buf.cc','if (evict && buf_LRU_free_page(bpage, true)) {'],
           'free list. That means that the free block is up for grabs for'],
     ops:{ ibd:{ add:[{ id:'p:17', tag:'clean', sub:'반영 완료' }] },
-          bp:{ del:['p:17'] }, fl:{ del:['p:17'] }, dw:{ del:['p:17'] },
+          bp:{ del:['p:17'], set:{ 'p:31':{ sub:'young · dirty' }, 'p:77':{ sub:'old · dirty' } } }, fl:{ del:['p:17'] }, dw:{ del:['p:17'] },
           fr:{ add:[{ id:'free', tag:'free', sub:'p:17 자리' }] },
-          ses:{ set:{ '사용자 스레드':'대기 해제|green', 'free 요청':'확보|green', '훑는 곳':'—' } } } },
+          ses:{ set:{ '하려는 일':'p:78 읽기 → frame 확보', 'Free buffers':'1', '사용자 스레드':'대기 해제|green', 'free 요청':'확보|green', '훑는 곳':'—' } } } },
 
   { look:{ ses:true, bp:true, fl:true },
     note:'04 와 06 — 원인은 다르고 증상은 같다',
@@ -2223,8 +2230,9 @@ const SCENES = [
     fact:[['storage/innobase/buf/buf0buf.cc','buf_LRU_add_block(bpage, true /* to old blocks */);'],
           'UT_LIST_INSERT_AFTER(buf_pool->LRU, buf_pool->LRU_old, bpage);',
           'if (!old || (UT_LIST_GET_LEN(buf_pool->LRU) < BUF_LRU_OLD_MIN_LEN)) {'],
-    ops:{ bp:{ add:[{ id:'p:41', tag:'pin', acc:0, sub:'방금 읽음 · old 진입' }], move:[['p:41',4]] },
+    ops:{ bp:{ add:[{ id:'p:41', tag:'pin', acc:0, sub:'방금 읽음 · old 진입' }], move:[['p:41',5]] },   /* LRU_old(p:17) 의 다음 */
           fr:{ del:['free 1'] },
+          ibd:{ set:{ 'p:41 …':{ sub:'큰 테이블 · 스캔 중' } } },
           ses:{ set:{ '지금 하는 일':'테이블 스캔 시작|gold', '읽은 페이지':'1' } } } },
 
   { look:{ bp:['p:41'] },
@@ -2248,7 +2256,7 @@ const SCENES = [
           ['storage/innobase/include/buf0buf.ic','return (!buf_page_peek_if_young(bpage));']],
     beat:1,
     ops:{ bp:{ set:{ 'p:41':{ tag:'clean', sub:'young promotion · 스캔인데도' } }, move:[['p:41',0]] },
-          ses:{ set:{ '읽은 페이지':'2', 'young promotion':'1  ← 뚫렸다|red' } } } },
+          ses:{ set:{ 'young promotion':'1  ← 뚫렸다|red' } } } },
 
   { act:{ f:'ibd', t:'bp', lb:'56 페이지 연속 → read-ahead' },
     note:'read-ahead 페이지도 곧 promote',
@@ -2259,14 +2267,15 @@ const SCENES = [
           ['storage/innobase/buf/buf0buf.cc','bpage->access_time = {};'],
           ['storage/innobase/buf/buf0buf.cc','/* In the case of a first access, try to apply linear read-ahead */'],
           ['storage/innobase/include/buf0buf.ic','return (!buf_page_peek_if_young(bpage));']],
-    ops:{ bp:{ add:[{ id:'p:42', tag:'clean', acc:0, sub:'read-ahead → 곧 promote' },
-                    { id:'p:43', tag:'clean', acc:0, sub:'read-ahead → 곧 promote' }],
-               move:[['p:42',1],['p:43',2]] },
-          fr:{ del:['free 2','free 3'] },
-          ses:{ set:{ '읽은 페이지':'58', 'young promotion':'3|red' } } } },
+    /* 스캔이 p:42 다음 p:43 을 처음 만지며 하나씩 머리로 — 나중에 올린 것이 앞이다 */
+    ops:{ bp:{ add:[{ id:'p:42', tag:'clean', acc:0, sub:'read-ahead → 첫 접근에 promote 됨' },
+                    { id:'p:43', tag:'clean', acc:0, sub:'read-ahead → 첫 접근에 promote 됨' }],
+               move:[['p:43',0],['p:42',1]] },
+          fr:{ del:['free 2','free 3'], add:[{ id:'…', tag:'free', sub:'빈 frame — 실제 풀에는 아직 많다' }] },
+          ses:{ set:{ '읽은 페이지':'58  (그림엔 셋)', 'young promotion':'3|red' } } } },
 
   { look:{ bp:['p:24','p:28'] },
-    note:'young sublist 가 scan 페이지로 — 기존 hot page eviction',
+    note:'young sublist 가 scan 페이지로 — 기존 hot page 가 old 로 밀린다',
     why:'p:41 · p:42 · p:43 이 앞으로 올라오면서 p:31 · p:28 · p:24 가 뒤로 밀린다.',
     key:'A 에서는 <em>이 세 페이지가 그대로 있었다</em>. 같은 스캔, 같은 삽입 지점, 파라미터 하나 차이.',
     beat:1,
@@ -2274,9 +2283,10 @@ const SCENES = [
     fact:['UT_LIST_ADD_FIRST(buf_pool->LRU, bpage);',
           'buf_LRU_add_block_low(bpage, false);',
           'buf_page_set_old(LRU_old, true);'],
-    ops:{ bp:{ set:{ 'p:24':{ tag:'clean', sub:'경계 아래로 밀렸다' },
-                     'p:28':{ tag:'clean', sub:'밀리는 중' } },
-               move:[['p:24',5]] } } },
+    /* young 이 여섯으로 늘어 비율이 어긋났다 — 경계 포인터가 앞으로 옮겨 p:24 가 old 가 된다(5 : 3 = 37.5%) */
+    ops:{ bp:{ set:{ 'p:24':{ tag:'clean', sub:'old · 경계 아래로 밀렸다' },
+                     'p:28':{ tag:'clean', sub:'young · 경계 바로 앞 — 밀리는 중' } },
+               move:[['midpoint  ·  old 37%',5]] } } },
 
   { note:'scan 종료 — buffer pool 은 이미 pollution',
     why:'스캔 페이지는 다시 읽히지 않을 것이지만 young 에 앉아 있다. 반면 작업 집합은 eviction 후보가 되었다.',
@@ -2286,7 +2296,8 @@ const SCENES = [
           ['storage/innobase/buf/buf0buf.cc','m_hp = UT_LIST_GET_LAST(m_buf_pool->LRU);']],
     beat:1,
     ops:{ ses:{ set:{ '지금 하는 일':'스캔 종료|red' } },
-          bp:{ set:{ 'p:9':{ tag:'clean', sub:'eviction 임박 · 원래 작업 집합' } } } } },
+          ibd:{ set:{ 'p:41 …':{ sub:'스캔 끝 · 다시 안 읽힌다' } } },
+          bp:{ set:{ 'p:24':{ tag:'clean', sub:'old · eviction 후보 · 원래 작업 집합' } } } } },
 
   { note:'1s 뒤 p:41 재접근 — 이미 young',
     why:'A 에서는 이 시점에 처음 promote 됐다. B 에서는 진짜 재사용과 스캔을 구별할 수 없으므로 이미 올라가 있다.',
@@ -2295,7 +2306,9 @@ const SCENES = [
     fact:[['storage/innobase/buf/buf0lru.cc','bpage->freed_page_clock = buf_pool->freed_page_clock;'],
           '(BUF_LRU_OLD_RATIO_DIV - buf_pool->LRU_old_ratio) /',
           '(BUF_LRU_OLD_RATIO_DIV * 4))));'],
-    ops:{ ses:{ set:{ '지금 하는 일':'p:41 재조회' } } } },
+    look:{ bp:['p:41'], ses:true },
+    ops:{ ses:{ set:{ '지금 하는 일':'p:41 재조회' } },
+          bp:{ set:{ 'p:41':{ sub:'young · 재접근 — 이미 올라가 있다' } } } } },
 
   { look:{ bp:true },
     note:'lookup 은 여전히 page hash — 차이 없음',

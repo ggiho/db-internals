@@ -122,7 +122,8 @@ function make({ F, deck, labels, scene }) {
     }
     const sep = sepOf(s);
     if (LRU) {
-      t.set(sepLb, [sep ? `${sep.id}  ·  old_blocks_time ${sep.win ?? 0} ms` : '', on(LRU) && (focusOf(s, LRU) ? focusOf(s, LRU).has(sep && sep.id) : true), sep && (sep.win ?? 0) === 0 ? 'red' : '', !!sep]);
+      /* 시간 창을 쓰지 않는 장면(06)에는 old_blocks_time 을 적지 않는다 */
+      t.set(sepLb, [sep ? sep.id + (hasAcc[LRU] ? `  ·  old_blocks_time ${sep.win ?? 0} ms` : '') : '', on(LRU) && (focusOf(s, LRU) ? focusOf(s, LRU).has(sep && sep.id) : true), sep && (sep.win ?? 0) === 0 ? 'red' : '', !!sep]);
       t.set(yLb, [sep ? '← young' : '', on(LRU), '', !!sep]);
       t.set(oLb, [sep ? 'old →' : '', on(LRU), '', !!sep]);
     }
@@ -197,14 +198,12 @@ function make({ F, deck, labels, scene }) {
         band.c.forEach((a, j) => {
           const x0 = L.x0 + j * (rW + gap), box = 26 + extra(a), up = above(a);
           place(hd[a], x0, y); G.slot[a] = { x0, y: y + HD + up, sw: sw[a] }; G.anc[a] = { x: x0 + 30, y: y + HD + up + 13 };
-          if (a === LRU) { G.lruY = y + HD; }
+          if (a === LRU) G.lruT = y;
           if (rSide[a]) { place(rowCap[a], x0 + rSide[a], y + HD + up + 4); hh = Math.max(hh, HD + up + Math.max(box, rcH[a] + 4)); }
           else { place(rowCap[a], x0, y + HD + up + box + 8); hh = Math.max(hh, HD + up + box + 8 + rcH[a]); }
         });
         y += hh + 14 * k;
       }
-      /* 경계의 이름은 LRU 제목 줄 오른쪽 — 칸 줄 위에 따로 줄을 쓰지 않는다 */
-      if (LRU) place(sepLb, L.x1, G.lruY - HD, 'r', 't');
       return y - y0;
     };
     let k = 1, total = lay(L.y0, 1);
@@ -317,12 +316,16 @@ function make({ F, deck, labels, scene }) {
       shown = kk;
       for (const [lb, [txt, , cls = '', , html = false]] of T) { setText(lb, txt, html); for (const c of ['gold', 'red', 'green']) lb.el.classList.toggle(c, cls === c); }
       const s = S[kk];
-      for (const a of ROWS) for (const it of s[a]) { if (it.tag === 'sep') continue; const P = rowSlot(s, a, it.id); if (P) { place(rowLb[a][it.id], P.x, P.y, 'c', 'c'); if (hasAcc[a]) place(barLb[a + ':' + it.id], P.x, barY(a) + 5, 'c', 't'); } }
+      /* 시간 창 경과 글은 칸보다 넓을 수 있다 — 머리 칸(05 의 8 스텝 p:41)에서 무대 왼쪽 끝을 넘었다 */
+      for (const a of ROWS) for (const it of s[a]) { if (it.tag === 'sep') continue; const P = rowSlot(s, a, it.id); if (P) { place(rowLb[a][it.id], P.x, P.y, 'c', 'c'); if (hasAcc[a]) { const lb = barLb[a + ':' + it.id], w = lb.el.offsetWidth / 2; place(lb, Math.max(G.L.x0 + w, Math.min(G.L.x1 - w, P.x)), barY(a) + 5, 'c', 't'); } } }
       if (LRU) {
         /* young · old 이름 — 경계의 양쪽, 칸 줄 바로 위 */
         const P = sepSlot(s), y0 = G.slot[LRU].y - 2;
         /* young 이 한 칸뿐이면(06) 경계 왼쪽에 다 들어가지 않는다 — 무대 왼쪽 끝에 맞춘다 */
         if (P) { const w = yLb.el.offsetWidth, xr = P.x - SEPW / 2 - 4; if (xr - w < G.L.x0) place(yLb, G.L.x0, y0, 'l', 'b'); else place(yLb, xr, y0, 'r', 'b'); place(oLb, P.x + SEPW / 2 + 4, y0, 'l', 'b'); }
+        /* 경계의 이름은 제목 줄에서 경계 바로 위 — 제목 줄 오른쪽 끝에 두었더니 05 · 05v · 06 에서 이름이 경계선과
+           400 ~ 700px 떨어졌다. 제목과 무대 오른쪽 끝 사이로 민다 */
+        if (P) { const w = sepLb.el.offsetWidth, lo = G.L.x0 + hd[LRU].el.offsetWidth + 16; place(sepLb, Math.max(lo, Math.min(G.L.x1 - w, P.x - w / 2)), G.lruT, 'l', 't'); }
       }
       const PL = cur.PL[kk];
       for (const r of Object.keys(PL)) for (const q of PL[r]) place(q.lb, G.slot[r].x0 + q.l, ptrY(r) + 10 + q.row * RH);
