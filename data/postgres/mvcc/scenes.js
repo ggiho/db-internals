@@ -563,6 +563,8 @@ const SCENES = [
     fact:[['src/include/access/htup_details.h','#define HEAP_XMIN_FROZEN'],
           ['src/include/access/htup_details.h','#define HEAP_XMIN_COMMITTED'],
           ['src/include/access/htup_details.h','#define HEAP_XMIN_INVALID']],
+    /* 같은 0x0b00 을 두 성분의 이름으로 — 띠가 비트 8 · 9 에 이름을 따로 붙인다 */
+    ops:{ hdr:{ set:{ 't_infomask':'XMIN_COMMITTED · XMIN_INVALID · XMAX_INVALID' } } },
     beat:1 },
 
   { look:{ vac:true, xid:true },
@@ -595,7 +597,7 @@ const SCENES = [
           ['src/backend/access/heap/vacuumlazy.c','that it started out with.'],
           ['src/backend/utils/misc/guc_tables.c','Age at which VACUUM should trigger failsafe to avoid a wraparound outage.']],
     ops:{ vac:{ set:{ '방식':'failsafe — 인덱스 정리 · 지연 · 링 버퍼를 버리고 freeze 만' } },
-          xid:{ set:{ '나이':'16억 초과  ·  failsafe' } } } },
+          xid:{ set:{ '나이':'21억 > 16억 (vacuum_failsafe_age)  ·  failsafe' } } } },
   ],
 },
 {

@@ -209,6 +209,11 @@ function make({ F, deck, labels, scene }) {
   const rowLb = Object.fromEntries(ROWS.map((a) => [a, Object.fromEntries(RIDS[a].map((id) => [id, label('aq aq-c')]))]));
   const rowCap = Object.fromEntries(ROWS.map((a) => [a, label('aq ml aq-b')]));
   const ringLb = RINGA ? label('aq ml aq-b') : null;
+  /* 고리 위의 이름 — 튜플의 xmin(헤더 띠의 t_xmin), 바늘 뒤 반 바퀴 · 앞 반 바퀴, 그리고 '한계' 가 적히면 wrap 한계
+     (varsup.c : xidWrapLimit = datfrozenxid + 2^31, 경고 4천만 전 · 거부 3백만 전. datfrozenxid 는 얼지 않은 가장 늙은 xmin) */
+  const ringX = RINGA ? { xmin: label('aq'), past: label('aq aq-c'), fut: label('aq aq-c'), wrap: label('aq') } : null;
+  const ringXmin = (s) => (HDRA ? nums(s[HDRA].t_xmin)[0] || 0 : 0);
+  const ringLim = (s) => !!s[RINGA] && bare(s[RINGA]['한계'] || '—') !== '—';
   const procLb = Object.fromEntries(PROCS.map((a) => [a, Object.fromEntries(RIDS[a].map((id) => [id, label('aq')]))]));
   const hzLb = HZA ? label('aq') : null, cacheCap = CACHE ? label('aq ml aq-b') : null;
   const edgeLb = label('aq'), tok = label('stn-tok');
@@ -287,7 +292,13 @@ function make({ F, deck, labels, scene }) {
       for (const id of RIDS[a]) { const it = s[a].find((x) => x.id === id); t.set(rowLb[a][id], [it ? id : '', on(a) && !!it && hotIt(s, a, id), '', !!it]); }
       t.set(rowCap[a], [s[a].filter((x) => x.sub).map((x) => `<span class="q-i">${esc(x.id)}</span> ${esc(x.sub)}`).join('\n') || (s[a].length ? '' : '—'), on(a), '', true, true]);
     }
-    if (RINGA) t.set(ringLb, [kvHtml(s[RINGA]), on(RINGA), '', true, true]);
+    if (RINGA) {
+      t.set(ringLb, [kvHtml(s[RINGA]), on(RINGA), '', true, true]);
+      const xm = ringXmin(s);
+      t.set(ringX.xmin, [xm ? 't_xmin ' + xm : '', on(RINGA), '', !!xm]);
+      t.set(ringX.past, ['과거 2^31', on(RINGA)]); t.set(ringX.fut, ['미래 2^31', on(RINGA)]);
+      t.set(ringX.wrap, ['wrap 한계', on(RINGA), 'red', ringLim(s) && !!xm]);
+    }
     for (const a of PROCS) for (const id of RIDS[a]) { const it = s[a].find((x) => x.id === id), v = it ? pv0(it) : Infinity; t.set(procLb[a][id], [isFinite(v) ? `${id}  ${v}` : '', on(a) && !!it && hotIt(s, a, id), '', isFinite(v)]); }
     if (HZA) { const h = nums(s[HZA].OldestXmin)[0]; t.set(hzLb, [h > 0 ? 'horizon ' + h : '', on(HZA), 'red', h > 0]); }
     if (CACHE) t.set(cacheCap, [kvHtml(s[CACHE]).split('\n').join('  ·  '), on(CACHE), '', true, true]);
@@ -519,6 +530,7 @@ function make({ F, deck, labels, scene }) {
     const P = G.page, j = sOrder(s).indexOf(t);
     return { x: P.x1 - 8 - P.tw / 2 - j * (P.tw + P.tg), y: P.ty, j };
   }
+  const ringTh = (v) => (v / 2 ** 32) * Math.PI * 2 - Math.PI / 2;
   const xidX = (x) => G.ax.x0 + ((XU.pos.get(x) ?? 0) / XU.n) * (G.ax.x1 - G.ax.x0);
   const rowSlot = (s, a, id) => { let x = G.L.x0; for (const it of s[a]) { const w = G.slot[a].sw[it.id]; if (it.id === id) return { x: x + w / 2, y: G.slot[a].y + 13, w }; x += w + 6; } return null; };
   const ixSlot = (s, id) => { const its = s[IDX], j = its.findIndex((x) => x.id === id); if (j < 0) return null; const w = 74; return { x: G.L.x0 + w / 2 + j * (w + 10), y: G.ixY, w }; };
@@ -741,6 +753,14 @@ function make({ F, deck, labels, scene }) {
         if (P) { place(vmLb[v.id], P.x, P.y + G.vm.ly, 'c', 't'); place(vmVF[v.id][0], P.x - 16, P.y + 13, 'c', 't'); place(vmVF[v.id][1], P.x + 16, P.y + 13, 'c', 't'); }
       }
       for (const a of ROWS) for (const it of s[a]) { const P = rowSlot(s, a, it.id); if (P) place(rowLb[a][it.id], P.x, P.y, 'c', 'c'); }
+      if (RINGA) {
+        const { x, y, r } = G.ring, th0 = ringTh(nums(s[RINGA]['현재 XID'])[0] || 0), xm = ringXmin(s);
+        const out = (lb, th, d) => { const c = Math.cos(th), sn = Math.sin(th); place(lb, x + c * (r + d), y + sn * (r + d), c > 0.3 ? 'l' : c < -0.3 ? 'r' : 'c', sn > 0.3 ? 't' : sn < -0.3 ? 'b' : 'c'); };
+        if (xm) out(ringX.xmin, ringTh(xm), 8);
+        if (xm) out(ringX.wrap, ringTh(xm + 2 ** 31), 14);
+        place(ringX.past, x + Math.cos(th0 - Math.PI / 2) * r * 0.55, y + Math.sin(th0 - Math.PI / 2) * r * 0.55, 'c', 'c');
+        place(ringX.fut, x + Math.cos(th0 + Math.PI / 2) * r * 0.55, y + Math.sin(th0 + Math.PI / 2) * r * 0.55, 'c', 'c');
+      }
     }
     const form = k === 0 ? show(p, 0.18, 0.36) : 1, dimO = (end ? 0.18 : 1) * form, fade = Math.abs(1 - 2 * b);
     for (const [lb, [txt, emph, , vis = true]] of T) {
@@ -867,6 +887,15 @@ function make({ F, deck, labels, scene }) {
         else curve(ctx, A0.x - P.tw / 4, A0.y + P.th / 2 + 2, B0.x + P.tw / 4, B0.y + P.th / 2 + 2, -12);
         ctx.lineWidth = 1;
       }
+    }
+    /* 고리 — t_xmin 눈금(먹), '한계' 가 적히면 경고 · 거부 · wrap 눈금(바깥으로) */
+    if (RINGA) {
+      const { x, y, r } = G.ring, xm = ringXmin(s);
+      const tick = (v, d, col, a) => { const th = ringTh(v), c = Math.cos(th), sn = Math.sin(th); ctx.globalAlpha = a * o; ctx.strokeStyle = col; seg(ctx, x + c * (r - 4), y + sn * (r - 4), x + c * (r + d), y + sn * (r + d)); };
+      ctx.lineWidth = 1.5;
+      if (xm) tick(xm, 6, css.ink, 0.8);
+      if (xm && ringLim(s)) { const w = xm + 2 ** 31; tick(w - 40e6, 6, css.gold, 0.9); tick(w - 3e6, 8, css.red, 0.9); tick(w, 11, css.red, 0.9); }
+      ctx.lineWidth = 1;
     }
     /* 이어진 페이지 — n 개의 눈금, 32 번째가 길고 금빛(SKIP_PAGES_THRESHOLD) */
     if (VM && VRUN) for (const v of s[VM]) {
