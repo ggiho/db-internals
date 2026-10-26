@@ -206,6 +206,12 @@ function make({ F, deck, labels, scene }) {
   const procLb = Object.fromEntries(PROCS.map((a) => [a, Object.fromEntries(RIDS[a].map((id) => [id, label('aq')]))]));
   const hzLb = HZA ? label('aq') : null, cacheCap = CACHE ? label('aq ml aq-b') : null;
   const edgeLb = label('aq'), tok = label('stn-tok');
+  /* 레인 — 배우의 lane 순서(SQL 계층 · HEAP · 공유 메모리)로 쌓는다. TABLE AM 은 EDGE.after 레인 다음,
+     그 밖의 레인 사이는 아래 레인의 이름으로 가른다 */
+  const LORD = [...new Set([...(deck.LANES || []).map((l) => l.id), ...cast.map((a) => A[a].lane)])];
+  const LUSE = LORD.filter((ln) => cast.some((a) => A[a].lane === ln));
+  const DIV = LUSE.filter((ln, i) => i > 0 && !(EDGE && EDGE.after === LUSE[i - 1]));
+  const laneLb = Object.fromEntries(DIV.map((ln) => [ln, label('aq')]));
 
   /* 스텝마다의 글과 강조 — [글, 또렷한가, 색, 보이나, html] */
   const focusOf = (s, a) => (Array.isArray(s.look[a]) ? new Set(s.look[a].map(String)) : null);
@@ -273,7 +279,8 @@ function make({ F, deck, labels, scene }) {
     for (const a of PROCS) for (const id of RIDS[a]) { const it = s[a].find((x) => x.id === id), v = it ? pv0(it) : Infinity; t.set(procLb[a][id], [isFinite(v) ? `${id}  ${v}` : '', on(a) && !!it && hotIt(s, a, id), '', isFinite(v)]); }
     if (HZA) { const h = nums(s[HZA].OldestXmin)[0]; t.set(hzLb, [h > 0 ? 'horizon ' + h : '', on(HZA), 'red', h > 0]); }
     if (CACHE) t.set(cacheCap, [kvHtml(s[CACHE]).split('\n').join('  ·  '), on(CACHE), '', true, true]);
-    if (EDGE) t.set(edgeLb, [EDGE.lb, false, (s.step.hot || (s.step.act && s.step.act.hot)) === EDGE.hot ? 'gold' : '']);
+    if (EDGE) t.set(edgeLb, [EDGE.lb, false, (s.step.hot || (s.step.act && s.step.act.hot)) === EDGE.hot ? 'gold' : '', LUSE.some((ln, j) => j > 0 && LUSE[j - 1] === EDGE.after)]);
+    for (const ln of DIV) t.set(laneLb[ln], [((deck.LANES || []).find((l) => l.id === ln) || { lb: ln }).lb, false]);
     return t;
   });
   for (const b of BAKES.values()) b.TX = texts(b.S, b.S0);
@@ -303,9 +310,11 @@ function make({ F, deck, labels, scene }) {
     const ww = L.x1 - L.x0, wh = L.y1 - L.y0, gap = 18, HD = 18;
     G = { L, anc: {}, slot: {} };
     /* 높이를 먼저 잰다 — 한 번 쌓아 보고, 넓은 화면은 가운데로 옮겨 다시 쌓는다 */
-    const tn = Math.max(1, Math.min(3, TEXTS.length)), tW = (ww - (tn - 1) * gap) / tn;
-    for (const a of TEXTS) wrap(tx[a], tW);
-    const tRows = Math.ceil(TEXTS.length / tn), tH = TEXTS.length ? hMax(TEXTS.map((a) => tx[a])) : 0;
+    const TL = Object.fromEntries(LUSE.map((ln) => {
+      const as = TEXTS.filter((a) => A[a].lane === ln), n = Math.max(1, Math.min(3, as.length)), w = (ww - (n - 1) * gap) / n;
+      for (const a of as) wrap(tx[a], w);
+      return [ln, { as, n, w, rows: Math.ceil(as.length / n), h: as.length ? hMax(as.map((a) => tx[a])) : 0 }];
+    }));
     /* 헤더 띠 — 칸의 폭은 바이트 수. 이름 · 값의 줄은 화면 폭마다 다시 나눈다 */
     const hw = (b) => (ww * b) / 23;
     let NM = null, VL = null;
@@ -384,13 +393,16 @@ function make({ F, deck, labels, scene }) {
     for (const a of ROWS) wrap(rowCap[a], ww);
     const rcH = Object.fromEntries(ROWS.map((a) => [a, most(rowCap[a]).h]));
     if (RINGA) wrap(ringLb, ww * 0.5);
-    const rgH = RINGA ? Math.max(most(ringLb).h, 150) : 0;
-    /* k — 블록 사이 간격의 배율. 무대보다 높으면 간격을 줄여 다시 쌓는다 */
-    const lay = (y0, k = 1) => {
+    const rgW = RINGA ? most(ringLb).w : 0, rgT = RINGA ? most(ringLb).h : 0;
+    /* k — 블록 사이 간격의 배율, rr — XID 고리의 반지름 상한. 무대보다 높으면 간격을, 그래도 높으면 고리를 줄여 다시 쌓는다 */
+    const lay = (y0, k = 1, rr = 120) => {
       let y = y0;
-      TEXTS.forEach((a, i) => { const x = L.x0 + (i % tn) * (tW + gap), yy = y + Math.floor(i / tn) * (HD + tH + 12); place(hd[a], x, yy); place(tx[a], x, yy + HD); G.anc[a] = { x: x + tW - 18, y: yy + 8 }; });
-      y += tRows * (HD + tH + 12 * k);
-      if (HDRA) {
+      const texts = (ln) => {
+        const T = TL[ln];
+        T.as.forEach((a, i) => { const x = L.x0 + (i % T.n) * (T.w + gap), yy = y + Math.floor(i / T.n) * (HD + T.h + 12); place(hd[a], x, yy); place(tx[a], x, yy + HD); G.anc[a] = { x: x + T.w - 18, y: yy + 8 }; });
+        y += T.rows * (HD + T.h + 12 * k);
+      };
+      const hdrBlk = () => {
         place(hd[HDRA], L.x0, y); y += HD + 6 + NM.rows * RH;
         G.hdr = { y };
         /* 줄을 내렸거나 옆으로 밀린 이름 · 값만 칸의 가운데로 잇는다 */
@@ -408,41 +420,39 @@ function make({ F, deck, labels, scene }) {
           G.strip[f].fl = FL[f].out;
           y += 12 + 8 + FL[f].rows * RH + 12 * k;
         }
-      }
-      if (CACHE) {
+      };
+      const cacheBlk = () => {
         place(hd[CACHE], L.x0, y); y += HD + 6;
         G.cache = { y, cw: ww / 32 }; G.anc[CACHE] = { x: L.x0 + ww / 4, y: y + 5 };
         y += 2 * 14 + 6; place(cacheCap, L.x0, y); y += ccH + 14 * k;
-      }
-      /* 백엔드 · 슬롯 칸은 XID 선 바로 위 — 선 위의 이름표가 그 칸들의 값이다 */
+      };
       const rowsAt = (a) => {
         place(hd[a], L.x0, y); G.slot[a] = { y: y + HD, sw: sw[a] }; G.anc[a] = { x: L.x0 + 30, y: y + HD + 13 };
         y += HD + 26 + 8; G.slot[a].capY = y; place(rowCap[a], L.x0, y); y += rcH[a] + 16 * k;
       };
-      for (const a of PROCS) rowsAt(a);
-      if (SNAP) {
+      const snapBlk = () => {
         place(hd[SNAP], L.x0, y); y += HD + 6 + topRows * RH + 8;
         G.ax.y = y; G.anc[SNAP] = { x: L.x0 + ww / 2, y };
         BR.forEach((id, r) => { G.bar[id] = y + 16 + r * 14; });
         y += 16 + BR.length * 14 + 4; place(snapLb.rest, L.x0, y); y += srH + 14 * k;
-      }
-      y += 6 * k; G.edgeY = y; if (EDGE) place(edgeLb, L.x1, y - 3, 'r', 'b'); y += 8 + 8 * k;
-      if (RINGA) {
+      };
+      /* 고리 — 오른쪽에 글을 두고 남는 폭만큼 키운다 */
+      const ringBlk = () => {
         place(hd[RINGA], L.x0, y);
-        const r = Math.min(70, rgH / 2 - 8);
+        const r = Math.max(56, Math.min(rr, (ww - rgW - 60) / 2));
         G.ring = { x: L.x0 + r + 10, y: y + HD + r + 6, r };
         place(ringLb, L.x0 + 2 * r + 40, y + HD + 6); G.anc[RINGA] = { x: G.ring.x, y: G.ring.y };
-        y += HD + Math.max(2 * r + 12, most(ringLb).h) + 16 * k;
-      }
+        y += HD + Math.max(2 * r + 12, rgT) + 16 * k;
+      };
       /* 인덱스 — 설명을 칸 위에 둔다(칸에서 lp 로 가는 선이 글을 지나지 않게) */
-      if (IDX) {
+      const idxBlk = () => {
         place(hd[IDX], L.x0, y); y += HD + 2;
         G.ixCapY = y; place(ixCap, L.x0, y); y += icH + (icH > 1 ? 8 : 0);
         G.ixY = y + 12; G.anc[IDX] = { x: L.x0 + 40, y: G.ixY };
         y += 24 + 12 + 10 * k;
-      }
+      };
       /* 페이지 이름은 페이지 안 오른쪽 위 — 왼쪽 위로 인덱스 선이 내려온다 */
-      if (PAGE) {
+      const pageBlk = () => {
         /* 한 줄 : 위쪽 22px 는 lp → 튜플 선이 넘어가는 자리, 페이지 이름은 lp 칸 아래.
            두 줄 : lp 줄 아래에 튜플 줄, 이름은 오른쪽 위 */
         let h, ry, ty;
@@ -459,19 +469,30 @@ function make({ F, deck, labels, scene }) {
         G.page = { x0: L.x0, x1: L.x1, y, h, tw, th, tg, lpw, lph, phw, one, ry, ty };
         G.anc[PAGE] = { x: L.x1 - tw / 2 - 8, y: ty };
         y += h + 8 + 4 * k; G.capY = y; place(capLb, L.x0, y); y += cpH + 16 * k;
-      }
-      if (VM) {
+      };
+      const vmBlk = () => {
         place(hd[VM], L.x0, y); G.vm = { y: y + HD, w: vw }; G.anc[VM] = { x: L.x0 + vw / 2, y: y + HD + 12 };
         y += HD + 26 + 6 + vlH + 16 * k;
-      }
-      for (const a of ROWS) if (!PROCS.includes(a)) rowsAt(a);
+      };
+      const BLK = [[HDRA, hdrBlk], ['', texts], [CACHE, cacheBlk], [SNAP, snapBlk], [RINGA, ringBlk], [IDX, idxBlk], [PAGE, pageBlk], [VM, vmBlk], ...ROWS.map((a) => [a, () => rowsAt(a)])].filter(([a]) => a !== null);
+      G.edgeY = null; G.divs = [];
+      LUSE.forEach((ln, j) => {
+        if (j) {
+          y += 4 + 10 * k;
+          if (EDGE && EDGE.after === LUSE[j - 1]) { G.edgeY = y; place(edgeLb, L.x1, y - 3, 'r', 'b'); }
+          else { G.divs.push(y); place(laneLb[ln], L.x1, y - 3, 'r', 'b'); }
+          y += 8 + 8 * k;
+        }
+        for (const [a, f] of BLK) if (a ? A[a].lane === ln : TL[ln].as.length) f(ln);
+      });
       return y - y0;
     };
-    let k = 1, total = lay(L.y0, 1);
-    if (total > wh) { k = 0.2; total = lay(L.y0, k); }
+    let k = 1, rr = 120, total = lay(L.y0, 1, rr);
+    if (total > wh) { k = 0.2; total = lay(L.y0, k, rr); }
+    if (total > wh && RINGA) { rr = 70; total = lay(L.y0, k, rr); }
     if (total > wh + 1) console.error(`pg mvcc ${sc.num} 세계 : 높이 ${Math.round(total)} 가 무대 ${Math.round(wh)} 를 넘는다 (${L.W}×${L.H})`);
     const dy = L.narrow ? 0 : Math.max(0, (wh - total) / 2);
-    if (dy) lay(L.y0 + dy, k);
+    if (dy) lay(L.y0 + dy, k, rr);
     for (let i = 0; i < N; i++) { dust[i * 2] = L.x0 + rnd() * ww; dust[i * 2 + 1] = L.y0 + rnd() * wh; }
     shown = -2;
   }
@@ -690,7 +711,8 @@ function make({ F, deck, labels, scene }) {
       const s = S[kk];
       if (SNAP && XU) {
         for (const q of cur.TOP[kk].out) place(q.lb, q.l, G.ax.y - 14 - q.row * RH, 'l', 'b');
-        for (const id of Object.keys(G.bar)) place(tickLb[id], G.ax.x0 - 8, G.bar[id], 'r', 'c');
+        /* 막대 이름은 막대가 시작하는 xmin 바로 왼쪽 */
+        for (const id of Object.keys(G.bar)) { const it = PAGE && s[PAGE].find((x) => x.id === id); place(tickLb[id], (it && it.xmin > 0 ? xidX(it.xmin) : G.ax.x0) - 8, G.bar[id], 'r', 'c'); }
       }
       if (PAGE) {
         for (const tp of s[PAGE]) { const P = tupAt(s, tp.id); if (P) place(tupLb[tp.id], P.x, P.y, 'c', 'c'); }
@@ -738,7 +760,9 @@ function make({ F, deck, labels, scene }) {
     ctx.save(); ctx.lineWidth = 1;
     /* TABLE AM 경계 */
     ctx.globalAlpha = 0.45 * o; ctx.strokeStyle = css.faint; ctx.setLineDash([3, 4]);
-    seg(ctx, L.x0, G.edgeY, L.x1, G.edgeY); ctx.setLineDash([]);
+    if (G.edgeY != null) seg(ctx, L.x0, G.edgeY, L.x1, G.edgeY);
+    ctx.globalAlpha = 0.3 * o; for (const y of G.divs) seg(ctx, L.x0, y, L.x1, y);
+    ctx.setLineDash([]);
     /* 헤더 띠 — 줄을 내린 이름 · 값을 칸의 가운데로 잇고, 비트 이름은 그 비트로 */
     if (HDRA) {
       ctx.globalAlpha = 0.4 * o; ctx.strokeStyle = css.faint;
