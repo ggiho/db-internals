@@ -749,7 +749,7 @@ const SCENES = [
 {
   num:'06', tab:'No Index', title:'Access Path Decides Locks: Index Lookup vs. Full Scan',
   sub:'무엇을 잠글지는 WHERE 조건이 아니라 access path 가 정한다',
-  cast:['stmt','idx','rl','row'],
+  cast:['stmt','idx','tl','rl','row'],
   vsLabel:'A  ·  인덱스가 있다  (idx_c)', pair:'06v',
   knobs:[
     ['innodb_lock_wait_timeout','50','전부 잠긴 뒤에는 다른 세션이 이 시간을 다 쓴다']],
@@ -758,9 +758,11 @@ const SCENES = [
     ['EXPLAIN','type=range (idx_c) 인가 type=index (PRIMARY) 인가가 그대로 락 범위다']],
   links:[['05','secondary 경유'],['04','X 는 무엇도 허용하지 않는다'],['12','P_S 로 확인하는 법']],
   init:{
-    stmt:{ kv:{ 'SQL':'UPDATE t SET v=9 WHERE c=200', '접근 경로':'range  (idx_c)', '방문한 레코드':'0', 'trx_rows_locked':'0' } },
+    /* 축의 눈금은 c 값 — B(06v)는 id 값이라, 둘 다 숫자만 적었더니 같은 인덱스로 읽혔다 */
+    stmt:{ kv:{ 'SQL':'UPDATE t SET v=9 WHERE c=200', '접근 경로':'range  (idx_c)', '훑을 레코드':'—', '방문한 레코드':'0', 'trx_rows_locked':'0', '격리 수준':'REPEATABLE READ', 'RC 라면':'—' } },
     idx:{ axis:{ min:0, max:400 }, items:[
-      { id:'100', v:100 }, { id:'200', v:200 }, { id:'300', v:300 }], spans:[] },
+      { id:'c=100', v:100 }, { id:'c=200', v:200 }, { id:'c=300', v:300 }], spans:[] },
+    tl:{ items:[{ id:'(비었다)', tag:'free', sub:'아직' }] },
     rl:{ items:[{ id:'(비었다)', tag:'free', sub:'아직' }] },
     row:{ items:[
       { id:'id=10', tag:'clean', sub:'c=100' },
@@ -788,7 +790,8 @@ const SCENES = [
           'err = sel_set_rec_lock(',
           'use_semi_consistent ? SELECT_SKIP_LOCKED : prebuilt->select_mode,',
           'prebuilt->select_lock_type, LOCK_GAP, thr, &mtr);',
-          'err = lock_clust_rec_read_check_and_lock('] },
+          'err = lock_clust_rec_read_check_and_lock('],
+    ops:{ stmt:{ set:{ '훑을 레코드':'idx_c 200 · 300  →  PRIMARY 20' } } } },
 
   { act:{ f:'idx', t:'rl', lb:'방문한 곳에만' },
     note:'항목 둘 · 행 하나 — trx_rows_locked 3',
@@ -801,8 +804,8 @@ const SCENES = [
     ops:{ idx:{ span:{ add:[
             { id:'nk200', from:100, to:200, kind:'next', lb:'X  next-key  (100,200]', row:0 },
             { id:'gap300', from:200, to:300, kind:'gap', lb:'X,GAP  (200,300)', row:1 }] } },
+          tl:{ del:['(비었다)'], add:[{ id:'t', tag:'hold', sub:'IX' }] },
           rl:{ del:['(비었다)'], add:[
-            { id:'TABLE  t', tag:'hold', sub:'IX' },
             { id:'idx_c  (200,20)', tag:'x', sub:'X  ·  next-key' },
             { id:'PRIMARY  20', tag:'x', sub:'X,REC_NOT_GAP' },
             { id:'idx_c  (300,30)', tag:'hold', sub:'X,GAP' }] },
@@ -828,7 +831,8 @@ const SCENES = [
           'case READ_COMMITTED:',
           'case REPEATABLE_READ:',
           ['storage/innobase/row/row0sel.cc','if (!set_also_gap_locks || trx->skip_gap_locks() ||'],
-          ['sql/sys_vars.cc','tx_isolation_names, DEFAULT(ISO_REPEATABLE_READ), NO_MUTEX_GUARD,']] },
+          ['sql/sys_vars.cc','tx_isolation_names, DEFAULT(ISO_REPEATABLE_READ), NO_MUTEX_GUARD,']],
+    ops:{ stmt:{ set:{ '격리 수준':'REPEATABLE READ  →  releases_non_matching_rows = false', 'RC 라면':'gap 두 줄이 빠진다|green' } } } },
 
   { look:{ row:true, rl:true },
     note:'나머지 두 row 는 free — 타 세션이 지금 수정 가능',
@@ -844,7 +848,7 @@ const SCENES = [
 {
   num:'06v', tab:'—', hidden:true, vsLabel:'B  ·  인덱스가 없다  (전체 스캔)',
   title:'Full Scan: Every Row Visited Gets Locked', sub:'조건이 index 를 못 타면 scan 이 지나간 모든 row 와 빈자리가 잠긴다',
-  cast:['stmt','idx','rl','row'],
+  cast:['stmt','idx','tl','rl','row'],
   knobs:[
     ['innodb_lock_wait_timeout','50','전부 잠긴 뒤에는 다른 세션이 이 시간을 다 쓴다']],
   watch:[
@@ -852,9 +856,10 @@ const SCENES = [
     ['EXPLAIN','type=index · key=PRIMARY 면 이 그림이 된다']],
   links:[['05','secondary 경유'],['04','X 는 무엇도 허용하지 않는다'],['12','P_S 로 확인하는 법']],
   init:{
-    stmt:{ kv:{ 'SQL':'UPDATE t SET v=9 WHERE c=200', '접근 경로':'index  (PRIMARY 전체)|red', '방문한 레코드':'0', 'trx_rows_locked':'0' } },
+    stmt:{ kv:{ 'SQL':'UPDATE t SET v=9 WHERE c=200', '접근 경로':'index  (PRIMARY 전체)|red', '훑을 레코드':'—', '방문한 레코드':'0', 'trx_rows_locked':'0', '격리 수준':'REPEATABLE READ', 'RC 라면':'—' } },
     idx:{ axis:{ min:0, max:60 }, items:[
-      { id:'10', v:10 }, { id:'20', v:20 }, { id:'30', v:30 }, { id:'supremum', v:45 }], spans:[] },
+      { id:'id=10', v:10 }, { id:'id=20', v:20 }, { id:'id=30', v:30 }, { id:'supremum', v:45 }], spans:[] },
+    tl:{ items:[{ id:'(비었다)', tag:'free', sub:'아직' }] },
     rl:{ items:[{ id:'(비었다)', tag:'free', sub:'아직' }] },
     row:{ items:[
       { id:'id=10', tag:'clean', sub:'c=100' },
@@ -881,7 +886,8 @@ const SCENES = [
     fact:['sel_set_rec_lock',
           'err = sel_set_rec_lock(',
           'prebuilt->select_lock_type, LOCK_ORDINARY, thr,',
-          '/* A page supremum record cannot be in the result set: skip'] },
+          '/* A page supremum record cannot be in the result set: skip'],
+    ops:{ stmt:{ set:{ '훑을 레코드':'PRIMARY 10 · 20 · 30 · supremum|red' } } } },
 
   { act:{ f:'idx', t:'rl', lb:'지나가는 모든 행에' },
     note:'3 행 + supremum 에 next-key X — 맞는 것은 하나뿐',
@@ -893,12 +899,12 @@ const SCENES = [
           ['storage/innobase/trx/trx0i_s.cc','*lock_data = "supremum pseudo-record";'],
           ['storage/innobase/row/row0sel.cc','err = lock_clust_rec_read_check_and_lock(']],
     ops:{ idx:{ span:{ add:[
-            { id:'nk10', from:0, to:10, kind:'next', lb:'X  (−∞,10]', row:0 },
-            { id:'nk20', from:10, to:20, kind:'next', lb:'X  (10,20]', row:1 },
-            { id:'nk30', from:20, to:30, kind:'next', lb:'X  (20,30]', row:0 },
-            { id:'nksup', from:30, to:45, kind:'next', lb:'X  (30,supremum]', row:1 }] } },
+            { id:'nk10', from:0, to:10, kind:'next', lb:'X  next-key  (−∞,10]', row:0 },
+            { id:'nk20', from:10, to:20, kind:'next', lb:'X  next-key  (10,20]', row:1 },
+            { id:'nk30', from:20, to:30, kind:'next', lb:'X  next-key  (20,30]', row:0 },
+            { id:'nksup', from:30, to:45, kind:'next', lb:'X  next-key  (30,supremum]', row:1 }] } },
+          tl:{ del:['(비었다)'], add:[{ id:'t', tag:'hold', sub:'IX' }] },
           rl:{ del:['(비었다)'], add:[
-            { id:'TABLE  t', tag:'hold', sub:'IX' },
             { id:'PRIMARY  10', tag:'x', sub:'X  ·  조건 불일치' },
             { id:'PRIMARY  20', tag:'x', sub:'X  ·  조건 일치' },
             { id:'PRIMARY  30', tag:'x', sub:'X  ·  조건 불일치' },
@@ -927,7 +933,8 @@ const SCENES = [
           'case READ_COMMITTED:',
           'case REPEATABLE_READ:',
           'bool allow_semi_consistent() const { return (skip_gap_locks()); }',
-          ['sql/sys_vars.cc','tx_isolation_names, DEFAULT(ISO_REPEATABLE_READ), NO_MUTEX_GUARD,']] },
+          ['sql/sys_vars.cc','tx_isolation_names, DEFAULT(ISO_REPEATABLE_READ), NO_MUTEX_GUARD,']],
+    ops:{ stmt:{ set:{ '격리 수준':'REPEATABLE READ  →  releases_non_matching_rows = false', 'RC 라면':'PRIMARY 20 한 줄만|green' } } } },
 
   { look:{ row:true, rl:true },
     note:'RR 에서는 맞지 않은 row 의 lock 도 commit 까지 유지',
