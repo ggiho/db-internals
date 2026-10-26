@@ -894,7 +894,7 @@ const SCENES = [
       { id:'튜플 A', tag:'clean', sub:'xmin 100', lp:1, xmin:100, xmax:0 },
       { id:'튜플 B', tag:'clean', sub:'xmin 100', lp:2, xmin:100, xmax:0 },
       { id:'튜플 C', tag:'clean', sub:'xmin 100', lp:3, xmin:100, xmax:0 }] },
-    vac:{ kv:{ 'OldestXmin':'—', '결과':'—' } },
+    vac:{ kv:{ 'OldestXmin':'—', '결과':'—', '로그':'—' } },
   },
   steps:[
   { act:{ f:'op', t:'sn', lb:'BEGIN RR · SELECT' },
@@ -932,7 +932,7 @@ const SCENES = [
           ['src/backend/access/heap/pruneheap.c','case HEAPTUPLE_RECENTLY_DEAD:'],
           ['src/backend/access/heap/vacuumlazy.c','" remain, %" PRId64 " are dead but not yet removable']],
     beat:1,
-    ops:{ vac:{ set:{ 'OldestXmin':'500', '결과':'죽은 튜플 2 개 — dead but not yet removable' } },
+    ops:{ vac:{ set:{ 'OldestXmin':'500', '결과':'죽은 튜플 2 개 — dead but not yet removable', '로그':'removable cutoff: 500, which was 101 XIDs old' } },
           tup:{ set:{ '튜플 A':{ tag:'hold', sub:'xmax 600 ≥ 500 — RECENTLY_DEAD, 남긴다' },
                       '튜플 B':{ tag:'hold', sub:'xmax 600 ≥ 500 — RECENTLY_DEAD, 남긴다' } } } } },
 
@@ -943,7 +943,9 @@ const SCENES = [
     ref:'src/backend/storage/ipc/procarray.c', sym:'ComputeXidHorizons',
     fact:['Normally sessions in other databases are ignored for anything but',
           '/* shared tables need to take backends in all databases into account */',
-          'if (statusFlags & (PROC_IN_VACUUM | PROC_IN_LOGICAL_DECODING))'] },
+          'if (statusFlags & (PROC_IN_VACUUM | PROC_IN_LOGICAL_DECODING))'],
+    ops:{ pa:{ add:[{ id:'VACUUM 백엔드', tag:'free', sub:'PROC_IN_VACUUM — 건너뛴다' }],
+               set:{ 'S1':{ sub:'REPEATABLE READ · t 를 안 읽었어도 묶는다' } } } } },
 
   { look:{ pa:true, sn:true },
     note:'idle in transaction 의 값 — RR 은 xmin 으로, 무엇이든 쓴 트랜잭션은 xid 로 묶는다',
@@ -953,6 +955,8 @@ const SCENES = [
     fact:["Consider both the transaction's Xmin, and its Xid.",
           ['src/backend/utils/time/snapmgr.c','If there are no more snapshots, we can reset our PGPROC->xmin to'],
           ['src/include/access/xact.h','#define IsolationUsesXactSnapshot() (XactIsoLevel >= XACT_REPEATABLE_READ)']],
+    ops:{ pa:{ del:['VACUUM 백엔드'], add:[{ id:'S3', tag:'free', sub:'READ COMMITTED · 읽기만 — xmin 비었다' }],
+               set:{ 'S1':{ sub:'REPEATABLE READ · 첫 snapshot 의 xmin 500 을 쥔다' } } } },
     beat:1 },
 
   { act:{ f:'op', t:'pa', lb:'COMMIT (S1)' },
@@ -966,8 +970,9 @@ const SCENES = [
           ['src/backend/replication/slot.c','Compute the oldest xmin across all slots and store it in the ProcArray.']],
     ops:{ op:{ set:{ 'SQL':'COMMIT', '세션':'S1 끝 — standby 에서 긴 조회가 돈다' } },
           sn:{ set:{ 'xmin':'—', 'xmax':'—', 'xip':'—' } },
-          pa:{ del:['S1'], add:[{ id:'walsender', tag:'hold', sub:'hot_standby_feedback — standby 쿼리의 xmin', xmin:590 }] },
-          vac:{ set:{ 'OldestXmin':'590', '결과':'여전히 2 개 — 600 ≥ 590' } } } },
+          pa:{ del:['S1', 'S3'], add:[{ id:'walsender', tag:'hold', sub:'hot_standby_feedback — standby 쿼리의 xmin', xmin:590 }] },
+          vac:{ set:{ 'OldestXmin':'590', '결과':'여전히 2 개 — 600 ≥ 590', '로그':'removable cutoff: 590, which was 11 XIDs old' } },
+          tup:{ set:{ '튜플 A':{ sub:'xmax 600 ≥ 590 — RECENTLY_DEAD, 남긴다' }, '튜플 B':{ sub:'xmax 600 ≥ 590 — RECENTLY_DEAD, 남긴다' } } } } },
 
   { act:{ f:'vac', t:'tup', lb:'VACUUM' },
     note:'붙잡던 쪽이 사라지면 — 선이 601 로 올라가 두 튜플이 치워진다',
@@ -978,7 +983,8 @@ const SCENES = [
           ['src/backend/utils/misc/guc_tables.c','{"idle_in_transaction_session_timeout", PGC_USERSET, CLIENT_CONN_STATEMENT,'],
           ['src/backend/storage/lmgr/proc.c','int IdleInTransactionSessionTimeout = 0;']],
     ops:{ pa:{ del:['walsender'] },
-          vac:{ set:{ 'OldestXmin':'601', '결과':'2 개 제거 — lp 1 · 2 는 LP_UNUSED' } },
+          op:{ set:{ 'SQL':'— (standby 조회 끝)', '세션':'feedback 빠짐 — 붙잡는 쪽이 없다' } },
+          vac:{ set:{ 'OldestXmin':'601', '결과':'2 개 제거 — lp 1 · 2 는 LP_UNUSED', '로그':'removable cutoff: 601, which was 0 XIDs old' } },
           tup:{ set:{ '튜플 A':{ tag:'free', lps:'unused', sub:'LP_UNUSED — 자리 회수' },
                       '튜플 B':{ tag:'free', lps:'unused', sub:'LP_UNUSED — 자리 회수' } } } } },
 
