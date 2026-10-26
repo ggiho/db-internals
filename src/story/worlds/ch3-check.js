@@ -181,9 +181,10 @@ export function checkScene(deck, sc) {
     if (has('addr') && /\d/.test(kv('addr').infimum || '') && nums(kv('addr').infimum)[0] !== NEW_INF) say(`infimum ${kv('addr').infimum} 이 PAGE_DATA + 5 = ${NEW_INF} 가 아니다`);
     if (has('addr') && /\d/.test(kv('addr').supremum || '') && nums(kv('addr').supremum)[0] !== NEW_SUP) say(`supremum ${kv('addr').supremum} 이 PAGE_DATA + 2 × 5 + 8 = ${NEW_SUP} 가 아니다`);
 
-    /* 04 · 04a 의 헤더 값 — 그 page 의 dump 를 풀어 맞춘다 */
-    if (has('hdr') && kv('hdr').FIL_PAGE_OFFSET != null) {
-      const no = pageNo(sc), f = DUMP[no] && DUMP[no].f, h = kv('hdr');
+    /* 04 · 04a 의 FIL 헤더 값(filv) — 그 page 의 dump 를 풀어 맞춘다 */
+    const fv = has('filv') ? 'filv' : 'hdr';
+    if (has(fv) && kv(fv).FIL_PAGE_OFFSET != null) {
+      const no = pageNo(sc), f = DUMP[no] && DUMP[no].f, h = kv(fv);
       if (f) {
         const off = lead(h.FIL_PAGE_OFFSET), lsn = lead(h.FIL_PAGE_LSN), ty = nums(h.FIL_PAGE_TYPE).find((x) => x >= 10000);
         if (off != null && off !== f.FIL_PAGE_OFFSET) say(`FIL_PAGE_OFFSET ${off} 이 p:${no} dump 의 ${f.FIL_PAGE_OFFSET} 와 다르다`);
@@ -390,6 +391,9 @@ export function checkScene(deck, sc) {
         const sum = its.reduce((a, x) => a + (bytesIn(x.sub) ?? bytesIn(x.id) ?? 0), 0);
         if (sum !== PAGE) say(`page 칸의 바이트 합 ${sum} 이 16,384 가 아니다`);
       }
+      /* 04 의 trailer 8 B — crc32 면 머리 checksum(0–3) + LSN 하위(20–23) */
+      const tr = sc.num === '04' && items('pg').find((x) => /^8\s*B$/.test(x.id)), tb = tr && (bare(tr.sub).match(/\b[0-9a-f]{2}\b/gi) || []).join('');
+      if (tb && tb.length === 16 && tb !== DUMP[5].hex.slice(0, 8) + DUMP[5].hex.slice(40, 48)) say(`trailer '${bare(tr.sub)}' 가 p:5 의 머리 checksum + LSN 하위 와 다르다`);
       if (sc.num === '11') {
         const cov = COVER.reduce((a, [p, q]) => a + q - p, 0), want = lead(kv('op')['검사 범위']);
         if (want != null && /^\d/.test(kv('op')['검사 범위']) && want !== cov) say(`검사 범위 ${want} 가 crc32 가 덮는 ${cov} B 와 다르다`);

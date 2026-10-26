@@ -17,6 +17,8 @@ const ACTORS = {
   /* ── 파일 : 헤더 · 페이지 · trailer ── */
   fil:  { nm:'FIL 헤더 (38B)',      lane:'page', kind:'bytes', w:'wide' },
   fld:  { nm:'이 필드',             lane:'page', kind:'kv', w:'w15' },
+  /* 04 · 04a — FIL 헤더에서 읽은 값. PAGE HEADER(hdr)라는 이름 아래 두었더니 06a 의 PAGE 헤더(38 – 93)와 헷갈렸다 */
+  filv: { nm:'FIL 헤더  ·  읽은 값',  lane:'page', kind:'kv', w:'w15' },
   phd:  { nm:'PAGE 헤더 (36B)',     lane:'page', kind:'bytes', w:'wide' },
   addr: { nm:'주소 산술',            lane:'page', kind:'kv', w:'w15' },
   /* 아홉 개를 한 장에 담으면 무대가 좁아진다(verify 가 8개 초과를 경고한다).

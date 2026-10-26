@@ -120,7 +120,7 @@ function specsOf(M) {
   }
   if (n === '10') P.push(flagsSpec(M, null));
   if (has('pg')) {
-    if (n === '04') { P.push(hexSpec(M, 'hdr')); P.push(mapSpec(M, n)); }
+    if (n === '04') { P.push(hexSpec(M, has('filv') ? 'filv' : 'hdr')); P.push(mapSpec(M, n)); }
     else if (n === '11') { P.push(coverSpec(M, 'head')); P.push(mapSpec(M, n)); P.push(coverSpec(M, 'tail')); }
     else if (n === '06') { P.push(pstripSpec(M)); P.push(chain06Spec(M)); use('dir', 'cells'); }
     else { P.push(pstripSpec(M)); use('dir', 'cells'); if (has('freeL')) { P.push(fchainSpec(M)); use('freeL'); } }
@@ -1204,8 +1204,9 @@ PANEL.hex = (W, M, sp) => {
   const pageOf = (s) => (/p:0/.test(String(s.op && s.op['페이지'])) || M.sc.num === '04bv' ? 0 : 5);
   const range = a === 'phd' ? [38, 94] : [0, 38];
   const hexOf = (no) => (no === 0 ? W.MEAS.SPACE.files.small.p0.hex : W.MEAS.DUMP[no].hex);
-  /* 04 — PAGE HEADER kv 의 칸이 앞 38 B 의 어디인가(fil0types.h 의 오프셋) */
+  /* 04 — FIL 헤더 kv(filv)의 칸이 앞 38 B 의 어디인가(fil0types.h 의 오프셋) */
   const HDR = { FIL_PAGE_OFFSET: [4, 8], FIL_PAGE_LSN: [16, 24], FIL_PAGE_TYPE: [24, 26] };
+  const KV = a === 'hdr' || a === 'filv';
   /* 금빛 바이트 = 그 스텝이 짚는 칸 — 금빛 칸, look 이 이름으로 고른 칸, act 이름이 대는 칸. 바뀐 칸 전부를 세었더니
      금빛을 끄는 칸(앞 스텝의 '← 지금' 을 hdr 로 되돌리는 set)까지 금빛으로 남았다(04a 3 – 7 스텝) */
   const pointed = (s, b, it) => {
@@ -1216,14 +1217,14 @@ PANEL.hex = (W, M, sp) => {
   /* 06a — PAGE header 의 2 B 칸(fsp · fins)도 제 두 바이트를 짚는다('+4  N_HEAP' → 42 – 43) */
   const SUBS = a === 'phd' ? ['fsp', 'fins'] : [];
   const hotItems = (s) => {
-    if (a === 'hdr') return [];
+    if (KV) return [];
     const out = [], base = a === 'phd' ? 38 : 0;
     for (const it of s[a] || []) { const o = C.lead(it.sub); if (o != null && pointed(s, a, it)) out.push({ it, r: [base + o, base + o + (it.sz || 0)] }); }
     for (const b of SUBS) for (const it of s[b] || []) { const o = C.lead(it.id); if (o != null && pointed(s, b, it)) out.push({ it, r: [base + o, base + o + 2] }); }
     return out;
   };
   const hotRanges = (s) => {
-    if (a === 'hdr') return Object.entries(HDR).filter(([k2]) => s.hdr && s.hdr[k2] && bare(s.hdr[k2]) !== '—').map(([, r]) => r);
+    if (KV) return Object.entries(HDR).filter(([k2]) => s[a] && s[a][k2] && bare(s[a][k2]) !== '—').map(([, r]) => r);
     return hotItems(s).map((x) => x.r);
   };
   /* 검사 — 이 스텝에서 금빛을 잃은 칸(앞 상태 gold → 지금 아님)의 바이트가 금빛이면 칸 줄과 hexdump 가 서로 다른 것을 짚는다 */
@@ -1238,11 +1239,13 @@ PANEL.hex = (W, M, sp) => {
     }
   };
   const html = (s) => {
-    const no = pageOf(s), h = hexOf(no), hot = hotRanges(s), isH = (o) => hot.some(([p, q]) => o >= p && o < q);
+    /* filv · hdr(04) 는 값이 적힌 칸 전부가 후보 — 그 배우를 짚는 스텝에서만 금빛(4 스텝의 trailer 이야기에 헤더가 금빛이었다) */
+    const no = pageOf(s), h = hexOf(no), hot = KV && !touchOf(s, a) ? [] : hotRanges(s), isH = (o) => hot.some(([p, q]) => o >= p && o < q);
     const r0 = Math.floor(range[0] / 16), r1 = Math.ceil(range[1] / 16);
     let out = `<div class="hx-hd"><b>${no === 0 ? 'page 0' : 'p:' + no}</b>  ${no === 0 ? 'FSP_HDR' : 'idx_c root · leaf'}  ·  ${range[0]}–${range[1] - 1}  ·  실측 t.ibd</div>`;
     for (let r = r0; r < r1; r++) {
-      out += `<div class="hx-row"><i>${String(r * 16).padStart(4, '0')}</i>`;
+      /* 줄 머리는 10진 오프셋에 '+' — hexdump -C 처럼 0016 으로 적었더니 16진으로 읽혔다 */
+      out += `<div class="hx-row"><i>+${r * 16}</i>`;
       for (let c = 0; c < 16; c++) {
         const o = r * 16 + c, inR = o >= range[0] && o < range[1];
         out += `<b class="${!inR ? 'f' : isH(o) ? 'h' : 'p'}${c === 8 ? ' gap' : ''}" style="${inR ? '' : 'opacity:.25'}">${h.slice(o * 2, o * 2 + 2)}</b>`;
@@ -1254,7 +1257,7 @@ PANEL.hex = (W, M, sp) => {
   return {
     optional: true,
     lbs: [host], acts: [a], snap: () => null, use: () => {},
-    texts(s, T) { guard(s); const vis = a !== 'hdr' || hotRanges(s).length > 0; T.set(host, [vis ? html(s) : html(s), touchOf(s, a) || a !== 'hdr', '', vis, true]); },
+    texts(s, T) { guard(s); const vis = !KV || hotRanges(s).length > 0; T.set(host, [html(s), touchOf(s, a) || !KV, '', vis, true]); },
     layout(x0, y, ww) {
       el.style.width = '';
       W.place(host, x0, y);
@@ -1420,6 +1423,8 @@ PANEL.map = (W, M, sp) => {
     const out = [];
     if (n === '09a') for (const it of s.freeL || []) { const o = C.lead(it.sub); if (o && o > 120 && o < PAGE) out.push({ at: o, c: it.tag === 'x' ? RED : GOLD, id: it.id, it }); }
     if (n === '06a') for (const it of s.dir || []) { const to = /\((\d+)\)/.exec(it.sub); if (to) out.push({ at: +to[1], c: ACCENT, id: it.id, it, from: /슬롯 0/.test(it.id) ? PAGE - 8 - 2 : PAGE - 8 - 2 * P5.PAGE_N_DIR_SLOTS }); }
+    /* 04 — 짚은 영역이 한 줄 안의 몇 바이트(trailer 8 B)면 128 × 128 격자에서 안 보인다. 그 줄 둘레에 고리 */
+    if (n === '04') for (const r of regions(s)) if (r.hot && r.hi - r.lo <= 64 && Math.floor(r.lo / COLS) === Math.floor((r.hi - 1) / COLS)) out.push({ at: r.lo, n: r.hi - r.lo, c: GOLD, id: r.it.id, it: r.it });
     return out;
   }
   let geo = null;
@@ -1482,9 +1487,9 @@ PANEL.map = (W, M, sp) => {
       /* 고리 — 가리키는 바이트 둘레 */
       const [m0, m1] = W.R.mk, per = Math.max(8, Math.floor((m1 - m0) / Math.max(1, ri.length)));
       ri.forEach((q, e) => {
-        const [x, y] = at(q.at);
+        const [x, y] = at(q.at), rx = Math.max(6, ((q.n || 1) * geo.pp) / 2 + 4), ry2 = Math.max(6, Math.min(rx, 9));
         for (let m = 0; m < per && m0 + e * per + m < m1; m++) {
-          const i = m0 + e * per + m, th = (m / per) * Math.PI * 2, [xx, yy] = P.into(i, x + geo.pp / 2 + Math.cos(th) * 6, y + geo.pp / 2 + Math.sin(th) * 6);
+          const i = m0 + e * per + m, th = (m / per) * Math.PI * 2, [xx, yy] = P.into(i, x + ((q.n || 1) * geo.pp) / 2 + Math.cos(th) * rx, y + geo.pp / 2 + Math.sin(th) * ry2);
           W.put(P.o, i, xx, yy, 0.95 * P.dim * P.form, 0.6, 0.02, 1.2, q.c);
         }
       });

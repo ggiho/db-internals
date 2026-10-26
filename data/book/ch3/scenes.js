@@ -18,6 +18,8 @@ const LEAVES = [6, 7, 8, 9, 10, 11, 12, 13, 14];
 /* 11 의 page 5 — 04 가 LSN 19,514,629 를 읽는 t.ibd 의 p:5 다. 머리 checksum 은 그 dump 의 앞 4 B, trailer 뒤 4 B 는
    헤더 LSN(16 – 23)의 하위 4 B 와 같아야 한다(11/3 의 torn write 규칙). 꼬리 앞 4 B 는 crc32 가 같은 값을 다시 쓴다 */
 const CK5 = '0x' + DUMP[5].hex.slice(0, 8).toUpperCase(), LO5 = '0x' + DUMP[5].hex.slice(40, 48).toUpperCase();
+/* 04 의 trailer 8 B — dump 는 앞 94 B 만 가졌다. crc32 면 앞 4 B 는 머리 checksum(0–3) 그대로, 뒤 4 B 는 LSN 하위(20–23) */
+const TRL5 = [DUMP[5].hex.slice(0, 8), DUMP[5].hex.slice(40, 48)].map((h) => h.match(/../g).join(' ')).join(' · ');
 /* 다음 record 를 받을지 — page_get_max_insert_size_after_reorganize 의 식을 그대로 따른다 */
 const EMPTY = 16384 - SUP_END - 8 - 2 * 2;                        /* page_get_free_space_of_empty */
 const resv = (n) => Math.floor((2 * n + 4 - 1) / 4);              /* page_dir_calc_reserved_space */
@@ -833,7 +835,7 @@ const SCENES = [
 {
   num:'04', tab:'File Layout', title:'File Layout: Header, Pages & Per-Page Trailers',
   sub:'InnoDB 는 trailer 를 page 마다 둔다',
-  cast:['op','file','pg','hdr'],
+  cast:['op','file','pg','filv'],
   knobs:[
     ['innodb_page_size','16 KB','파일을 나누는 단위'],
     ['innodb_file_per_table','ON','테이블마다 .ibd 하나 — 파일 경계가 테이블 경계와 같아진다']],
@@ -844,13 +846,14 @@ const SCENES = [
   init:{
     op:{ kv:{ '파일':'t.ibd', '페이지 크기':'16 KB', '페이지 수':'—' } },
     file:{ items:[
-      { id:'p0', sz:2, tag:'hdr', sub:'FSP_HDR' },
-      { id:'p1', sz:2, tag:'hdr', sub:'IBUF_BITMAP' },
+      /* 한 칸이 page 하나라 좁다 — 칸 아래는 줄인 이름, 온 이름은 띠 글에 */
+      { id:'p0', sz:2, tag:'hdr', sub:'FSP' },
+      { id:'p1', sz:2, tag:'hdr', sub:'IBUF' },
       { id:'p2', sz:2, tag:'hdr', sub:'INODE' },
       { id:'p3 …  INDEX', sz:9, tag:'', sub:'B-Tree 노드들' } ],
-      byl:{ l:'파일 앞쪽에 고정 역할 페이지', r:'그 뒤는 전부 같은 크기' } },
+      byl:{ l:'앞 세 page 는 역할 고정 — FSP_HDR · IBUF_BITMAP · INODE', r:'그 뒤는 전부 같은 크기' } },
     pg:{ items:[{ id:'—', sz:1, tag:'free', sub:'아직' }] },
-    hdr:{ kv:{ 'FIL_PAGE_TYPE':'—', 'FIL_PAGE_OFFSET':'—', 'FIL_PAGE_LSN':'—' } },
+    filv:{ kv:{ 'FIL_PAGE_TYPE':'—', 'FIL_PAGE_OFFSET':'—', 'FIL_PAGE_LSN':'—' } },
   },
   cite:[
     "The file usually starts with a fixed-size header and may end with a fixed-size trailer",
@@ -878,9 +881,9 @@ const SCENES = [
             { id:'FIL 헤더', sz:2, tag:'hdr', sub:'38 B' },
             { id:'데이터', sz:10, tag:'', sub:'16338 B' },
             { id:'8B', sz:1, tag:'hdr', sub:'trailer' }] },
-          op:{ set:{ '페이지 수':'파일 크기 ÷ 16 KB' } } } },
+          op:{ set:{ '페이지 수':`${M.nPages}  (${(M.nPages * 16384).toLocaleString('en-US')} B ÷ 16 KB)` } } } },
 
-  { act:{ f:'pg', t:'hdr', lb:'헤더 38바이트를 읽는다' },
+  { act:{ f:'pg', t:'filv', lb:'헤더 38바이트를 읽는다' },
     note:'FIL header — 38 byte, 고정 offset',
     why:'0 checksum, 4 페이지 번호, 8 이전 sibling, 12 다음 sibling, 16 LSN, 24 타입, 26 flush LSN, 34 space id.',
     key:'전부 <em>고정 오프셋</em>이다 — 계산이 필요 없다. 가변 길이를 헤더에 두지 않는 이유가 이것이다.',
@@ -890,22 +893,24 @@ const SCENES = [
           ['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_TYPE = 24;'],
           ['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_ARCH_LOG_NO_OR_SPACE_ID = 34;']],
     cite:['hold auxiliary information that should be accessed quickly or is required for decoding the rest of the file'],
-    ops:{ hdr:{ set:{ 'FIL_PAGE_TYPE':'FIL_PAGE_INDEX  (오프셋 24)',
+    ops:{ filv:{ set:{ 'FIL_PAGE_TYPE':'FIL_PAGE_INDEX  (오프셋 24)',
                       'FIL_PAGE_OFFSET':'5  (오프셋 4)',
                       'FIL_PAGE_LSN':'19,514,629  (오프셋 16)' } } } },
 
   { look:{ pg:['8B'] },
     note:'page 마다 8-byte trailer',
-    why:'FIL_PAGE_DATA_END = 8. 앞 4바이트가 checksum, 뒤 4바이트가 FIL_PAGE_LSN 의 하위 절반이다.',
+    why:`FIL_PAGE_DATA_END = 8. 앞 4바이트가 checksum, 뒤 4바이트가 FIL_PAGE_LSN 의 하위 절반이다. p:5 라면 헤더의 실측 0–3 과 20–23 에서 규칙으로 ${TRL5} 가 된다 — crc32 는 같은 checksum 을 두 번 쓴다.`,
     key:'책은 trailer 를 <em>파일 끝</em>의 것으로 말한다. InnoDB 는 <em>페이지 끝마다</em> 둔다 — 그 이유는 11 장면에서 나온다.',
     ref:'storage/innobase/buf/buf0flu.cc', sym:'buf_flush_init_for_writing',
     fact:[['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_DATA_END = 8;'],
           ['storage/innobase/include/fil0types.h','the low 4 bytes of this are used to store the page checksum, the last 4 bytes should be identical to the last 4 bytes of FIL_PAGE_LSN'],
-          'Write the newest modification lsn to the page header and trailer'],
+          'Write the newest modification lsn to the page header and trailer',
+          ['storage/innobase/buf/buf0flu.cc','In other cases we write the same value to both fields.']],
     cite:['the file usually starts with a fixed-size header and may end with a fixed-size trailer'],
+    ops:{ pg:{ set:{ '8B':{ sub:TRL5 } } } },
     beat:1 },
 
-  { look:{ hdr:true, file:true },
+  { look:{ filv:true, file:true },
     note:'정리 — 파일은 동일 크기 page 의 array, page 마다 head 와 tail',
     why:'파일 수준 헤더는 page 0 이 맡고, 페이지 수준 헤더는 각 페이지의 앞 38바이트다.',
     key:'계층이 <em>파일 → 페이지 → 셀</em> 로 내려간다. 책이 말한 "필드로 셀을, 셀로 페이지를, 페이지로 구역을" 이 그대로다.',
@@ -918,7 +923,7 @@ const SCENES = [
 {
   num:'04a', tab:'FIL Header', title:'FIL Header: 38 Bytes, Field by Field',
   sub:'모든 page 가 같은 offset 에 같은 field — 그래서 계산이 필요 없다',
-  cast:['op','fil','fld','hdr'],
+  cast:['op','fil','fld','filv'],
   knobs:[
     ['innodb_page_size','16 KB','헤더 38B + trailer 8B 를 뺀 나머지가 데이터다'],
     ['innodb_checksum_algorithm','crc32','오프셋 0 의 4바이트를 무엇으로 채우는지']],
@@ -930,7 +935,7 @@ const SCENES = [
   init:{
     op:{ kv:{ '페이지':'p:5  INDEX', '헤더':'38 B  고정', '데이터 시작':'—' } },
     fil:{ items:[
-      { id:'CHKSUM',   sz:4, tag:'gold', sub:'0 · 4B' },
+      { id:'CHKSUM',   sz:4, tag:'hdr',  sub:'0 · 4B' },
       { id:'OFFSET',   sz:4, tag:'hdr',  sub:'4 · 4B' },
       { id:'PREV',     sz:4, tag:'hdr',  sub:'8 · 4B' },
       { id:'NEXT',     sz:4, tag:'hdr',  sub:'12 · 4B' },
@@ -940,7 +945,7 @@ const SCENES = [
       { id:'SPACE_ID', sz:4, tag:'hdr',  sub:'34 · 4B' } ],
       byl:{ l:'폭이 곧 바이트 수다', r:'합 38 B  →  FIL_PAGE_DATA' } },
     fld:{ kv:{ '이름':'—', '오프셋':'—', '크기':'—', '없으면':'—' } },
-    hdr:{ kv:{ 'FIL_PAGE_TYPE':'—', 'FIL_PAGE_OFFSET':'—', 'FIL_PAGE_LSN':'—' } },
+    filv:{ kv:{ 'FIL_PAGE_TYPE':'—', 'FIL_PAGE_OFFSET':'—', 'FIL_PAGE_LSN':'—' } },
   },
   cite:[
     "The file usually starts with a fixed-size header and may end with a fixed-size trailer",
@@ -954,7 +959,9 @@ const SCENES = [
     fact:[['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_DATA = 38;'],
           ['storage/innobase/include/fil0types.h','start of the data on the page']],
     cite:['hold auxiliary information that should be accessed quickly or is required for decoding the rest of the file'],
-    ops:{ op:{ set:{ '데이터 시작':'오프셋 38|green' } } } },
+    /* 1 스텝이 짚는 것은 key 의 무게 — 8 B 둘(LSN · FLUSH_LSN) */
+    ops:{ op:{ set:{ '데이터 시작':'오프셋 38|green' } },
+          fil:{ set:{ 'LSN':{ tag:'gold' }, 'FLUSH_LSN':{ tag:'gold' } } } } },
 
   { act:{ f:'fil', t:'fld', lb:'오프셋 0' },
     note:'0 — checksum, SPACE_OR_CHKSUM 이라는 이름은 옛 format 의 흔적',
@@ -964,7 +971,8 @@ const SCENES = [
     fact:[['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_SPACE_OR_CHKSUM = 0;'],
           ['storage/innobase/include/fil0types.h',"MySQL-4.0.14 space id the page belongs to (== 0) but in later versions the 'new' checksum of the page"]],
     cite:['page checksums are usually computed on pages and placed in the page header'],
-    ops:{ fil:{ set:{ 'CHKSUM':{ id:'CHKSUM', sz:4, tag:'gold', sub:'0 · 4B  ← 지금' } } },
+    ops:{ fil:{ set:{ 'CHKSUM':{ id:'CHKSUM', sz:4, tag:'gold', sub:'0 · 4B  ← 지금' },
+                      'LSN':{ tag:'hdr' }, 'FLUSH_LSN':{ tag:'free' } } },
           fld:{ set:{ '이름':'FIL_PAGE_SPACE_OR_CHKSUM', '오프셋':'0', '크기':'4 B', '없으면':'손상 판정 불가|red' } } } },
 
   { act:{ f:'fil', t:'fld', lb:'오프셋 4' },
@@ -980,7 +988,7 @@ const SCENES = [
     ops:{ fil:{ set:{ 'CHKSUM':{ id:'CHKSUM', sz:4, tag:'hdr', sub:'0 · 4B' },
                       'OFFSET':{ id:'OFFSET', sz:4, tag:'gold', sub:'4 · 4B  ← 지금' } } },
           fld:{ set:{ '이름':'FIL_PAGE_OFFSET', '오프셋':'4', '크기':'4 B  (번호 하나)', '없으면':'오배치를 못 잡는다|red' } },
-          hdr:{ set:{ 'FIL_PAGE_OFFSET':'5' } } } },
+          filv:{ set:{ 'FIL_PAGE_OFFSET':'5' } } } },
 
   { act:{ f:'fil', t:'fld', lb:'오프셋 8 · 12' },
     note:'8 · 12 — sibling pointer, 없으면 FIL_NULL',
@@ -991,8 +999,9 @@ const SCENES = [
           ['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_NEXT = 12;'],
           ['storage/innobase/include/fil0types.h','Otherwise FIL_NULL. This field is not set on BLOB pages, which are stored as a']],
     ops:{ fil:{ set:{ 'OFFSET':{ id:'OFFSET', sz:4, tag:'hdr', sub:'4 · 4B' },
-                      'PREV':{ id:'PREV', sz:4, tag:'gold', sub:'8 · 4B  ← 지금' },
-                      'NEXT':{ id:'NEXT', sz:4, tag:'gold', sub:'12 · 4B  ← 지금' } } },
+                      /* p:5 는 root 이자 leaf 라 형제가 없다 — 실측 ff ff ff ff = FIL_NULL */
+                      'PREV':{ id:'PREV', sz:4, tag:'gold', sub:'8 · FIL_NULL  ← 지금' },
+                      'NEXT':{ id:'NEXT', sz:4, tag:'gold', sub:'12 · FIL_NULL  ← 지금' } } },
           fld:{ set:{ '이름':'FIL_PAGE_PREV · FIL_PAGE_NEXT', '오프셋':'8 · 12', '크기':'4 B 씩', '없으면':'범위 스캔이 부모로 올라가야 한다' } } } },
 
   { act:{ f:'fil', t:'fld', lb:'오프셋 16' },
@@ -1007,7 +1016,7 @@ const SCENES = [
                       'NEXT':{ id:'NEXT', sz:4, tag:'hdr', sub:'12 · 4B' },
                       'LSN':{ id:'LSN', sz:8, tag:'gold', sub:'16 · 8B  ← 지금' } } },
           fld:{ set:{ '이름':'FIL_PAGE_LSN', '오프셋':'16', '크기':'8 B', '없으면':'복구가 멱등하지 않다|red' } },
-          hdr:{ set:{ 'FIL_PAGE_LSN':'19,514,629' } } } },
+          filv:{ set:{ 'FIL_PAGE_LSN':'19,514,629' } } } },
 
   { act:{ f:'fil', t:'fld', lb:'오프셋 24' },
     note:'24 — page type, 2 byte 로 page 의 정체를 전부 결정',
@@ -1020,7 +1029,7 @@ const SCENES = [
     ops:{ fil:{ set:{ 'LSN':{ id:'LSN', sz:8, tag:'hdr', sub:'16 · 8B' },
                       'TYPE':{ id:'TYPE', sz:2, tag:'gold', sub:'24 · 2B  ← 지금' } } },
           fld:{ set:{ '이름':'FIL_PAGE_TYPE', '오프셋':'24', '크기':'2 B', '없으면':'페이지를 해석할 수 없다|red' } },
-          hdr:{ set:{ 'FIL_PAGE_TYPE':'INDEX  (17855)' } } } },
+          filv:{ set:{ 'FIL_PAGE_TYPE':'INDEX  (17855)' } } } },
 
   { act:{ f:'fil', t:'fld', lb:'오프셋 26 · 34' },
     note:'26 — 대부분 page 에선 미사용, 34 — space id',
@@ -1043,7 +1052,11 @@ const SCENES = [
     beat:1,
     fact:['const uint32_t c2 = crc32_func(page + FIL_PAGE_DATA, UNIV_PAGE_SIZE - FIL_PAGE_DATA - FIL_PAGE_END_LSN_OLD_CHKSUM);',
           'Stored log sequence numbers at the start and the end'],
-    ops:{ op:{ set:{ '헤더':'38 B  ·  자기 서술|green' } } } },
+    /* 정리 — 자기 서술 다섯(번호 · 파일 · 종류 · 시각 · 무결성)이 함께 금빛, 26 은 빈 칸 */
+    ops:{ op:{ set:{ '헤더':'38 B  ·  자기 서술|green' } },
+          fil:{ set:{ 'CHKSUM':{ tag:'gold' }, 'OFFSET':{ tag:'gold' }, 'LSN':{ tag:'gold' }, 'TYPE':{ tag:'gold' },
+                      'FLUSH_LSN':{ sub:'26 · 8B' }, 'SPACE_ID':{ tag:'gold', sub:'34 · 4B' } } },
+          fld:{ set:{ '이름':'자기 서술 다섯', '오프셋':'0 · 4 · 16 · 24 · 34', '크기':'4 · 4 · 8 · 2 · 4 B', '없으면':'읽은 page 가 무엇인지 모른다' } } } },
   ],
 },
 {
