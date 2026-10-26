@@ -589,14 +589,14 @@ const SCENES = [
   init:{
     ses:{ kv:{ '서버 상태':'죽어 있음|red', 'PREPARED trx':'—', '롤백 대상':'—' } },
     bin:{ kv:{ 'last XID':'—', '판정':'—' } },
-    bp:{ items:[{ id:'free', tag:'free', sub:'Free buffers — 전부 비었다' }] },
+    bp:{ items:[{ id:'free', tag:'free', sub:'— 전부 비었다' }] },
     undo:{ items:[{ id:'undo 7', tag:'hold', sub:'trx 77 · 커밋 안 됨' }] },
     dw:{ items:[{ id:'p:5', tag:'ok', sub:'온전한 사본' }] },
     ibd:{ items:[
       { id:'p:5',  tag:'x',     sub:'앞 8KB 만 기록 · checksum 불일치' },
       { id:'p:9',  tag:'clean', sub:'LSN 4,610' },
       { id:'p:12', tag:'clean', sub:'LSN 5,400  ·  이미 최신' } ] },
-    redo:{ kv:{ 'Last checkpoint at':'5,000', '파일 끝':'5,900', 'replay 구간':'—' } },
+    redo:{ kv:{ 'Last checkpoint at':'4,800', '파일 끝':'5,900', 'replay 구간':'—' } },
   },
   knobs:[
     ['innodb_force_recovery','0','값이 클수록 더 많이 건너뛴다(누적) — redo 적용을 건너뛰는 것은 6 뿐이다. 최후의 수단'],
@@ -623,6 +623,8 @@ const SCENES = [
      전에는 "몇 번 다시 읽고 abort" 라 적었다 — 둘 다 그렇게 하지 않았다. */
   vary:{ knob:'innodb_doublewrite', base:'ON', order:['DETECT_ONLY','OFF'], alt:{
     'DETECT_ONLY':{
+      /* 줄인 항목은 처음부터 그렇다 — 4 스텝에서 사본이 항목으로 바뀌면 복구 도중 사본이 낡는 것처럼 보였다 */
+      1:{ ops:{ dw:{ set:{ 'p:5':{ tag:'wait', sub:'항목만 있음 · 16바이트' } } } } },
       4:{ act:{ f:'dw', t:'ses', lb:'p:5 가 찢어졌음을 알아낸다' },
           note:'doublewrite 파일엔 page 내용이 없다 — page id 만',
           why:'이 모드에서는 페이지 전체를 쓰지 않고 Reduced_entry 만 남긴다 — space_id · page_no · lsn 세 개, 16 바이트다. 그래서 "p:5 가 기록 중이었다" 는 알 수 있다.',
@@ -633,9 +635,8 @@ const SCENES = [
                 ['storage/innobase/include/buf0dblwr.h','constexpr const uint32_t REDUCED_ENTRY_SIZE ='],
                 ['storage/innobase/include/buf0dblwr.h','sizeof(space_id_t) + sizeof(page_no_t) + sizeof(lsn_t);'],
                 'if (find(page_id) == nullptr || !is_recovered(page_id)) {'],
-          beat:1,
-          ops:{ dw:{ set:{ 'p:5':{ tag:'wait', sub:'항목만 있음 · 16바이트' } } },
-                ses:{ set:{ '서버 상태':'p:5 손상 확인|red' } } } },
+          beat:1, look:{ dw:true, ibd:['p:5'] },
+          ops:{ ses:{ set:{ '서버 상태':'p:5 손상 확인|red' } } } },
 
       6:{ act:{ f:'dw', t:'ses', lb:'사본 없음 → FATAL' },
           note:'redo 적용 시작 — p:5 가 기록 중이었음을 알고 곧바로 FATAL',
@@ -664,17 +665,20 @@ const SCENES = [
                 ['share/messages_to_error_log.txt','Starting XA crash recovery...']],
           look:{ undo:true, bin:true },
           ops:{ bin:{ set:{ '판정':'실행되지 않음|red' } },
-                ses:{ set:{ 'PREPARED trx':'77  (판정 못 함)|red' } } } },
+                ses:{ set:{ 'PREPARED trx':'77 · undo 에만 있다 (못 읽음)|red' } } } },
 
       9:{ note:'남은 수단 — innodb_force_recovery = 6, redo 없이 연다', act:null,
-          why:'6 은 redo 적용을 건너뛰고 연다. p:5 는 깨진 채이고, 다른 페이지에도 checkpoint 뒤의 변경이 빠져 있다. 깨진 페이지를 읽는 순간 서버가 죽었다(실측, debug 빌드의 Assertion failure). force_recovery 가 1 이상이면 PREPARED 트랜잭션도 binlog 에 묻지 않고 롤백한다.',
+          why:'6 은 redo 적용을 건너뛰고 연다. p:5 는 깨진 채이고, 다른 페이지에도 checkpoint 뒤의 변경이 빠져 있다. 깨진 페이지를 읽는 순간 서버가 죽었다(실측, debug 빌드의 Assertion failure). 5 이상은 undo 를 아예 읽지 않아 미완료 트랜잭션도 커밋된 것으로 다룬다 — trx 77 은 판정도 롤백도 없이 디스크에 쓰인 만큼만 남는다.',
           key:'그래서 이것은 <em>복구가 아니라 탈출</em>이다. 열린 뒤 할 일은 깨지지 않은 테이블을 덤프해 새 인스턴스로 옮기는 것뿐이다.',
           ref:'storage/innobase/srv/srv0start.cc', sym:'srv_start',
           fact:[['storage/innobase/include/srv0srv.h','SRV_FORCE_NO_LOG_REDO = 6 /*!< do not do the log roll-forward'],
                 ['storage/innobase/log/log0recv.cc','if (srv_force_recovery >= SRV_FORCE_NO_LOG_REDO) {'],
-                ['storage/innobase/log/log0recv.cc','/* We leave redo log not started and this is read-only mode. */']],
+                ['storage/innobase/log/log0recv.cc','/* We leave redo log not started and this is read-only mode. */'],
+                ['storage/innobase/include/srv0srv.h','SRV_FORCE_NO_UNDO_LOG_SCAN = 5, /*!< do not look at undo logs when'],
+                ['storage/innobase/trx/trx0sys.cc','if (srv_force_recovery < SRV_FORCE_NO_UNDO_LOG_SCAN) {']],
           beat:1,
-          ops:{ ses:{ set:{ '서버 상태':'force_recovery 6 으로 기동|gold' } },
+          ops:{ ses:{ set:{ '서버 상태':'force_recovery 6 으로 기동|gold', 'PREPARED trx':'77 · 커밋으로 취급|red' } },
+                redo:{ set:{ 'replay 구간':'적용 안 함|red' } },
                 ibd:{ set:{ 'p:5':{ tag:'x', sub:'깨진 채로 열림' } } } } },
 
       10:{ note:'DETECT_ONLY 의 값 — "기록 중에 찢어졌다" 는 사실',
@@ -685,9 +689,11 @@ const SCENES = [
                  'number of bytes written to the dblwr file is reduced in this mode. */'],
            look:{ ibd:true, dw:true },
            beat:1,
-           ops:{ ses:{ set:{ '롤백 대상':'수동 이전 필요|red' } } } },
+           ops:{ ses:{ set:{ '서버 상태':'덤프해 새 인스턴스로 옮길 것|red' } } } },
     },
     'OFF':{
+      /* 사본이 없는 것은 처음부터다 */
+      1:{ ops:{ dw:{ del:['p:5'] } } },
       4:{ act:{ f:'ibd', t:'ses', lb:'되살릴 근거가 없다' },
           note:'doublewrite 파일 비어 있음',
           why:'이 모드에서는 페이지를 이중으로 쓰지 않는다. 그래서 찢어진 p:5 에 대응하는 사본도, 그것이 기록 중이었다는 기록조차 없다.',
@@ -696,9 +702,8 @@ const SCENES = [
           fact:['/** Equal to FALSEE. In this mode, dblwr is disabled. */',
                 ['storage/innobase/buf/buf0dblwr.cc','!dblwr::is_enabled() || Double_write::s_instances == nullptr ||'],
                 ['storage/innobase/buf/buf0dblwr.cc','if (!dblwr::is_enabled() || recv_sys->is_cloned_db) {']],
-          beat:1,
-          ops:{ dw:{ del:['p:5'] },
-                ses:{ set:{ '서버 상태':'단서 없음|red' } } } },
+          beat:1, look:{ dw:true, ibd:['p:5'] },
+          ops:{ ses:{ set:{ '서버 상태':'단서 없음|red' } } } },
 
       6:{ act:{ f:'ibd', t:'bp', lb:'p:5 읽기 — checksum 불일치' },
           note:'redo 적용 중 page read — checksum 불일치, 한 번 읽고 오류',
@@ -727,7 +732,7 @@ const SCENES = [
                 ['share/messages_to_error_log.txt','Starting XA crash recovery...']],
           look:{ undo:true, bin:true },
           ops:{ bin:{ set:{ '판정':'실행되지 않음|red' } },
-                ses:{ set:{ 'PREPARED trx':'77  (판정 못 함)|red' } } } },
+                ses:{ set:{ 'PREPARED trx':'77 · undo 에만 있다 (못 읽음)|red' } } } },
 
       9:{ note:'남은 수단 — innodb_force_recovery 로 연다, 깨진 페이지는 그대로', act:null,
           why:'force_recovery 를 1 로 올리면 "ready for connections" 까지 간다. 그러나 깨진 테이블을 읽는 순간 서버가 죽었다(실측, debug 빌드의 Assertion failure). 1 이상이면 PREPARED 트랜잭션도 binlog 에 묻지 않고 롤백한다.',
@@ -737,7 +742,8 @@ const SCENES = [
                 ['storage/innobase/buf/buf0buf.cc','if (srv_force_recovery < SRV_FORCE_IGNORE_CORRUPT) {'],
                 ['storage/innobase/trx/trx0trx.cc','<< "Since innodb_force_recovery"']],
           beat:1,
-          ops:{ ses:{ set:{ '서버 상태':'force_recovery 1 로 기동|gold' } },
+          ops:{ ses:{ set:{ '서버 상태':'force_recovery 1 로 기동|gold', 'PREPARED trx':'—', '롤백 대상':'trx 77 · binlog 없이 강제 롤백|red' } },
+                undo:{ set:{ 'undo 7':{ tag:'x', sub:'trx 77 · binlog 판정 없이 롤백 대상' } } },
                 ibd:{ set:{ 'p:5':{ tag:'x', sub:'깨진 채로 열림' } } } } },
 
       10:{ note:'doublewrite 의 존재 이유 — 이 장면 전체',
@@ -748,7 +754,7 @@ const SCENES = [
                  '<< "Recovered page " << page_id << " from the doublewrite buffer.";'],
            look:{ ibd:true, redo:true },
            beat:1,
-           ops:{ ses:{ set:{ '롤백 대상':'수동 이전 필요|red' } } } },
+           ops:{ ses:{ set:{ '서버 상태':'덤프해 새 인스턴스로 옮길 것|red' } } } },
     },
   } },
 
@@ -764,7 +770,7 @@ const SCENES = [
     look:{ ibd:true, dw:true, redo:true, undo:true, bin:true },   /* 살아남은 단서 다섯 */
     beat:1 },
 
-  { act:{ f:'redo', t:'ses', lb:'checkpoint 5,000 읽기' },
+  { act:{ f:'redo', t:'ses', lb:'checkpoint 4,800 읽기' },
     note:'redo 의 checkpoint LSN — replay 시작점',
     why:'checkpoint 는 "이 LSN 까지의 모든 변경이 데이터 파일에 있다"는 약속이다. 그 앞은 볼 필요가 없다.',
     key:'checkpoint 가 밀려 있으면 replay 구간이 길어져 <em>재시작이 느려진다</em>. 복구 시간은 checkpoint 나이에 비례한다.',
@@ -773,7 +779,7 @@ const SCENES = [
           'for (auto checkpoint_header_no : {Log_checkpoint_header_no::HEADER_1,',
           ['storage/innobase/include/log0constants.h','constexpr const char *const LOG_FILE_BASE_NAME = "#ib_redo";'],
           ['storage/innobase/include/log0sys.h','Up to this lsn value, all dirty pages have been added to flush']],
-    ops:{ redo:{ set:{ 'replay 구간':'5,000 → 5,900|gold' } } } },
+    ops:{ redo:{ set:{ 'replay 구간':'4,800 → 5,900|gold' } } } },
 
   { act:{ f:'redo', t:'bp', lb:'redo 스캔 · 페이지별로 모은다' },
     note:'redo scan — page 별 변경을 hash 로 수집',
@@ -786,7 +792,7 @@ const SCENES = [
           ['storage/innobase/log/log0recv.cc','static const size_t RECV_READ_AHEAD_AREA = 32;']],
     ops:{ bp:{ del:['free'], add:[
             { id:'p:5',  tag:'pin', sub:'redo 3건 대기' },
-            { id:'p:12', tag:'pin', sub:'redo 1건 대기' } ] } } },
+            { id:'p:12', tag:'pin', sub:'redo 1건 대기 · 5,210' } ] } } },
 
   { act:{ f:'dw', t:'ibd', lb:'p:5 사본으로 복원', hot:'io' },
     note:'적용 직전 — checksum 불일치 p:5 를 doublewrite 사본으로',
@@ -810,7 +816,7 @@ const SCENES = [
           'if (recv->start_lsn >= page_lsn',
           '/* page lsn must be less than the lsn of a log record here. Otherwise,'],
     beat:1,
-    ops:{ bp:{ set:{ 'p:12':{ tag:'clean', sub:'LSN 5,400 > redo · 건너뜀' } } } } },
+    ops:{ bp:{ set:{ 'p:12':{ tag:'clean', sub:'LSN 5,400 > 5,210 · 건너뜀' } } } } },
 
   { act:{ f:'redo', t:'bp', lb:'p:5 에 3건 적용' },
     note:'p:5 redo apply — uncommitted 변경까지 함께',
@@ -856,6 +862,7 @@ const SCENES = [
           '/* Persist the XA ROLLBACK, so that crash',
           ['sql/xa/recovery.cc','exec_status = ht.rollback_by_xid(&ht, const_cast<XID *>(&xa_trx.id));']],
     ops:{ bp:{ set:{ 'p:5':{ tag:'dirty', sub:'trx 77 되돌림 · LSN 5,940' } } },
+          redo:{ set:{ '파일 끝':'5,940|gold' } },
           undo:{ del:['undo 7'] },
           ses:{ set:{ '롤백 대상':'trx 77 완료|green', 'PREPARED trx':'—' } } } },
 
@@ -885,7 +892,7 @@ const SCENES = [
      전에는 "sync 한계를 넘으면 곧바로 멈춘다" 로 그렸다 — 둘은 다른 장치다. */
   init:{
     ses:{ kv:{ '쓰기 부하':'가벼움', '사용자 스레드':'대기 없음|green' } },
-    stmt:{ kv:{ '쓰기 부하':'INSERT INTO t (…) VALUES (…)   ×  수만 건', '동시':'UPDATE t SET … WHERE id = ?' } },
+    stmt:{ kv:{ '쓰기':'INSERT INTO t …  ×  수만 건', '동시':'UPDATE t SET … WHERE id = ?' } },
     bp:{ items:[
       { id:'p:20', tag:'clean', sub:'LSN 6,000' },
       { id:'p:21', tag:'clean', sub:'LSN 6,010' },
@@ -925,7 +932,8 @@ const SCENES = [
           fl:{ add:[{ id:'p:20', tag:'dirty', sub:'oldest_modification 6,400' },
                     { id:'p:21', tag:'dirty', sub:'oldest_modification 6,700' }] },
           redo:{ set:{ 'Log sequence number':'6,700', 'checkpoint age':'700' },
-                 gg:{ v:.18, l:'checkpoint age', r:'18%' } } } },
+                 gg:{ v:.18, l:'checkpoint age', r:'18%' } },
+          ses:{ set:{ '쓰기 부하':'높음|gold' } } } },
 
   { note:'checkpoint 는 flush list 꼬리의 oldest_modification 을 넘지 못한다',
     why:'새 페이지는 머리에 붙으므로 가장 오래된 dirty page 는 꼬리에 있다 — p:20, 6,400. 그 페이지가 디스크에 가기 전에는 checkpoint 를 6,400 이상으로 올릴 수 없다. 목록 순서가 조금 느슨하므로 실제로는 그 느슨함(flush order lag)만큼 더 뒤에서 멈춘다.',
@@ -936,7 +944,7 @@ const SCENES = [
           ['storage/innobase/buf/buf0buf.cc','return (std::max(checkpoint_lsn, lsn - lag));'],
           'lsn_t lwm_lsn = buf_pool_get_oldest_modification_lwm();'],
     beat:1,
-    ops:{ fl:{ set:{ 'p:20':{ tag:'hold', sub:'oldest_modification 6,400 · 붙잡는다' } } } } },
+    ops:{ fl:{ set:{ 'p:20':{ tag:'hold', sub:'oldest_modification 6,400' } } } } },
 
   { note:'age 가 async 지점(7/8) — cleaner 의 속도는 10% 부터 오르고 있었다',
     why:'page coordinator 가 라운드마다 쓸 페이지 수를 checkpoint age 로 정한다. innodb_adaptive_flushing_lwm(10%)을 넘으면서부터 age 의 1.5 제곱에 비례해 늘어나고, 쓸 수 있는 redo 용량의 7/8 이 그 곡선의 기준점이다 — 100 MiB 에서 실측 81,281,024 바이트(77.5%). adaptive flushing 을 꺼 둔 서버도 여기서부터는 나이에 따라 flush 한다.',
@@ -984,7 +992,7 @@ const SCENES = [
           ['storage/innobase/log/log0chkp.cc','return current_lsn <= log.free_check_limit_lsn.load();']],
     beat:1,
     ops:{ ses:{ set:{ '사용자 스레드':'강제 대기|red' } },
-          redo:{ set:{ 'Log sequence number':'9,115', 'checkpoint age':'3,115|red' },
+          redo:{ set:{ 'Log sequence number':'9,117', 'checkpoint age':'3,117|red' },
                  gg:{ v:.833, l:'checkpoint age · 쓰기 멈춤', r:'83.3%' } },
           ibd:{ set:{ '…':{ tag:'clean', sub:'p:20 · p:21 반영' } } },
           bp:{ set:{ 'p:20':{ tag:'clean', sub:'LSN 6,400 · 디스크 반영' },
@@ -1000,7 +1008,7 @@ const SCENES = [
           'checkpoint_age >= log.m_capacity.aggressive_checkpoint_min_age()) {',
           'a) periodical checkpoints are enabled and either more than 1s'],
     beat:1,
-    ops:{ redo:{ set:{ 'Last checkpoint at':'7,890|green', 'checkpoint age':'1,225|green' },
+    ops:{ redo:{ set:{ 'Last checkpoint at':'7,890|green', 'checkpoint age':'1,227|green' },
                  gg:{ v:.328, l:'checkpoint age', r:'33%' } },
           ses:{ set:{ '사용자 스레드':'대기 해제|green' } } } },
 
@@ -1012,7 +1020,11 @@ const SCENES = [
           ['storage/innobase/handler/ha_innodb.cc','"Allow IO bursts at the checkpoints ignoring io_capacity setting.", nullptr,']],
     beat:1,
     ops:{ ses:{ set:{ '쓰기 부하':'가벼움|green' } },
-          bp:{ set:{ 'p:22':{ tag:'dirty', sub:'LSN 7,900 · 아직 dirty' } } } } },
+          redo:{ set:{ 'Log sequence number':'9,400', 'checkpoint age':'1,510' },
+                 gg:{ v:.404, l:'checkpoint age', r:'40%' } },
+          bp:{ set:{ 'p:22':{ tag:'dirty', sub:'LSN 7,900 · 아직 dirty' },
+                     'p:20':{ tag:'dirty', sub:'LSN 9,300' } } },
+          fl:{ add:[{ id:'p:20', tag:'dirty', sub:'oldest_modification 9,300' }] } } },
   ],
 },
 {

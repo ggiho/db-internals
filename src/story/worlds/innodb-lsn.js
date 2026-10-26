@@ -15,7 +15,7 @@ import { bake, stepsOf, valuesOf } from '../../bake.js';
 import { stagger } from './stagger.js';
 
 const HANGUL = /[가-힣]/;
-const SL = 44, TOK = 150, AXN = 220;
+const SL = 44, TOK = 150, TKN = 7, AGEN = 60;
 const bare = (v) => String(v ?? '').replace(/\|(gold|red|green)$/, '');
 const tone = (v) => (/\|(gold|red|green)$/.exec(String(v ?? '')) || [])[1] || '';
 const span = { gold: 'q-g', red: 'q-r', green: 'q-gr' };
@@ -66,8 +66,10 @@ function make({ F, deck, labels, scene }) {
   const ckptOf = (s) => (RV ? posOf(s[RV]['Last checkpoint at']) : null);
   const lsnOf = (s) => (RV ? posOf(s[RV]['Log sequence number']) : null);
   const ggOf = (s) => (RV ? s[RV + '#gg'] : null);
-  /* 눈금 — 같은 id · 같은 값은 하나로. 처음 나온 배우의 것 */
-  const ticksOf = (s) => { const out = [], seen = new Set(); for (const a of TROWS) for (const it of s[a]) { const v = tickOf(it.sub); if (v == null) continue; const key = it.id + '@' + v; if (seen.has(key)) continue; seen.add(key); out.push({ a, it, v, key: a + ':' + it.id }); } return out; };
+  /* 눈금 — 같은 id · 같은 값은 하나로, 열쇠도 id@값. 배우:id 를 열쇠로 했더니 03 의 5 스텝에서 buffer 의 p:12 가
+     .ibd 의 p:12 와 합쳐지며 열쇠가 바뀌어 이름표가 갈리고 알갱이가 자리를 옮겼다. 그 값을 가진 배우는 모두 as 에 —
+     어느 쪽을 건드려도 눈금이 밝아진다(04 의 2 스텝 : flush list 의 p:20) */
+  const ticksOf = (s) => { const out = [], by = new Map(); for (const a of TROWS) for (const it of s[a]) { const v = tickOf(it.sub); if (v == null) continue; const key = it.id + '@' + v, q = by.get(key); if (q) { q.as.push(a); q.its.push(it); continue; } const n = { a, it, v, key, as: [a], its: [it] }; by.set(key, n); out.push(n); } return out; };
   const TKEYS = [...new Set(all.flatMap((s) => ticksOf(s).map((q) => q.key)))];
 
   /* 자의 범위 — 나온 위치 · 구간 · 눈금 전부, 그리고 redo 창의 끝 */
@@ -101,7 +103,9 @@ function make({ F, deck, labels, scene }) {
   let at = 0;
   const take = (k, n) => { R[k] = [at, at + n]; at += n; };
   for (const a of ROWS) RIDS[a].forEach((id) => take(a + ':' + id, SL));
-  if (AX) take('ax', AXN);
+  /* 자의 알갱이 — 바늘 · 눈금마다 고정된 TKN 개, 그리고 나이 띠. 순서대로 나눠 주었더니 눈금 하나가 생기면 뒤의 눈금이
+     모두 옆 눈금의 알갱이를 받아 자를 가로질러 미끄러졌다(03 의 4 · 6 스텝) */
+  if (AX) take('ax', (KM.length + TKEYS.length) * TKN + AGEN);
   take('tok', TOK);
   R.DST = [at, N];
   if (at > N) throw new Error('innodb lsn 세계 : 알갱이가 모자란다');
@@ -119,6 +123,9 @@ function make({ F, deck, labels, scene }) {
   const rowCap = Object.fromEntries(ROWS.map((a) => [a, label('aq ml aq-b')]));
   const kLb = Object.fromEntries(KM.map((k) => [k, label('aq')]));
   const tLb = Object.fromEntries(TKEYS.map((k) => [k, label('aq')]));
+  /* 한 id 가 두 배우의 눈금을 함께 가지면(03 : .ibd 의 p:5 4,900 과 buffer 의 p:5 5,900) 이름표 앞에 배우를 — 'BP' · '.ibd' */
+  const short = (a) => { const w = A[a].nm.trim().split(/\s+/); return w.length === 1 || w[0].startsWith('.') ? w[0] : w.map((x) => x[0]).join(''); };
+  const tagCls = (tg) => (tg === 'x' || tg === 'dirty' ? 'red' : tg === 'hold' || tg === 'pin' || tg === 'gold' ? 'gold' : '');
   const MK = (() => { for (const s of all) { const g = ggOf(s); if (g && g.marks) return g.marks; } return []; })();
   const mLb = MK.map(() => label('aq')), axHd = label('aq');
   const edgeLb = EDG.map(() => label('aq')), tok = label('stn-tok');
@@ -126,12 +133,18 @@ function make({ F, deck, labels, scene }) {
   const focusOf = (s, a) => (Array.isArray(s.look[a]) ? new Set(s.look[a].map(String)) : null);
   const modOf = (s, a) => { const c = s.chg[a]; return new Set(c ? [...(c.mod || []), ...(c.add || []), ...(c.keys || [])].map(String) : []); };
   const hotIt = (s, a, id) => { const f = focusOf(s, a); if (f) return f.has(id); const m = modOf(s, a); return m.size ? m.has(id) : true; };
+  /* 눈금을 밝히는 배우 — 그 값을 가진 배우 중 이번 스텝에 건드려 그 항목이 뜨거운 것. { a, it } 또는 null */
+  const hotOf = (s, q) => { const j = q.as.findIndex((a) => s.touch.has(a) && hotIt(s, a, q.it.id)); return j < 0 ? null : { a: q.as[j], it: q.its[j] }; };
   const kvHtml = (kv) => Object.entries(kv).map(([k, v]) => `${esc(k)}  <span class="q-v">${val(v)}</span>`).join('\n');
   const capOf = (its) => its.filter((x) => x.sub).map((x) => `<span class="q-i">${esc(x.id)}</span> ${esc(x.sub)}`).join('\n');
   const DISK = new Set(ROWS.filter((a) => A[a].lane === 'disk'));
   const MEMR = ROWS.filter((a) => !DISK.has(a)), DSKR = ROWS.filter((a) => DISK.has(a));
-  /* 붙은 문턱(sync 15/16 과 쓰기 멈춤)은 이름표 하나로 — 1% 안 */
-  const MGROUP = MK.map((m, i) => (i && m[0] - MK[i - 1][0] < 0.01 ? null : MK.filter((q) => q[0] >= m[0] && q[0] - m[0] < 0.01).map((q) => q[1]).join(' · ')));
+  /* 붙은 문턱(sync 15/16 과 쓰기 멈춤)은 이름표 하나로 — 1% 안. 이름마다 제 문턱을 넘었을 때만 색을 입힌다 — 묶음 전체를 첫 문턱으로
+     칠했더니 sync(83.1%)를 넘은 05 에서 '쓰기 멈춤'(83.3%) 까지 빨갛게 보였다. 넘은 이름은 금빛, 마지막 문턱(멈춤)만 빨강.
+     나이 띠와 문턱 눈금은 async 부터 금빛, 멈춤부터 빨강 */
+  const MGROUP = MK.map((m, i) => (i && m[0] - MK[i - 1][0] < 0.01 ? null : MK.filter((q) => q[0] >= m[0] && q[0] - m[0] < 0.01)));
+  const GCUT = 0.775, RCUT = MK.length ? MK[MK.length - 1][0] : 0.83;
+  const cutCol = (f) => (f >= RCUT ? 'red' : f >= GCUT ? 'gold' : '');
   const texts = (S) => S.map((s) => {
     const t = new Map(), on = (a) => s.touch.has(a);
     for (const a of cast) t.set(hd[a], [A[a].nm, on(a)]);
@@ -152,9 +165,16 @@ function make({ F, deck, labels, scene }) {
         t.set(kLb[k], [txt, rvOn && (mod.size ? grp ? grp.some((q) => mod.has(q)) : mod.has(k) : true), cls, !!txt]);
       }
       const T = ticksOf(s);
-      for (const key of TKEYS) { const q = T.find((x) => x.key === key); t.set(tLb[key], [q ? `${q.it.id} ${fmt(q.v)}` : '', !!q && on(q.a) && hotIt(s, q.a, q.it.id), q && q.it.tag === 'dirty' ? 'red' : '', !!q]); }
-      const g = ggOf(s), c = ckptOf(s), l = lsnOf(s), has = !!(g && g.cap && c != null);
-      MK.forEach((m, i) => { const over = has && l != null && (l - c) / g.cap >= m[0]; t.set(mLb[i], [has && MGROUP[i] ? MGROUP[i] : '', rvOn, over ? (m[0] >= 0.83 ? 'red' : 'gold') : '', has && !!MGROUP[i]]); });
+      for (const key of TKEYS) {
+        const q = T.find((x) => x.key === key), two = q && T.some((x) => x !== q && x.it.id === q.it.id && x.a !== q.a);
+        const h = q ? hotOf(s, q) : null;
+        t.set(tLb[key], [q ? `${two ? short(q.a) + ' ' : ''}${q.it.id} ${fmt(q.v)}` : '', !!h, q ? tagCls((h || q).it.tag) : '', !!q]);
+      }
+      const g = ggOf(s), c = ckptOf(s), l = lsnOf(s), has = !!(g && g.cap && c != null), f = has && l != null ? (l - c) / g.cap : -1;
+      MK.forEach((m, i) => {
+        const grp = MGROUP[i], html = grp ? grp.map((q) => (f >= q[0] ? `<span class="${span[q[0] >= RCUT ? 'red' : 'gold']}">${esc(q[1])}</span>` : esc(q[1]))).join(' · ') : '';
+        t.set(mLb[i], [has && grp ? html : '', rvOn, '', has && !!grp, true]);
+      });
       t.set(axHd, [has ? `LSN  ·  redo 창 = checkpoint + ${fmt(g.cap)}` : 'LSN', rvOn, '']);
     }
     EDG.forEach((e, i) => t.set(edgeLb[i], [e.lb, false, (s.step.hot || (s.step.act && s.step.act.hot)) === e.hot ? 'gold' : '', i === 0 ? TEXTS.length > 0 : MEMR.length > 0 && DSKR.length > 0]));
@@ -293,36 +313,28 @@ function make({ F, deck, labels, scene }) {
     /* 자 — 바늘(위로), 페이지 눈금(아래로), 나이 띠(문턱을 넘은 만큼 금빛 · 빨강). 값이 바뀐 바늘은 옛 자리에서 미끄러진다 */
     if (AX && RV) {
       const [a0, a1] = R.ax, rvOn = s.touch.has(RV) && !end, marks = [];
-      for (const k of KM) {
+      for (let i = a0; i < a1; i++) put(o, i, dust[i * 2], dust[i * 2 + 1], 0, 0, 2, 1, FAINT);
+      KM.forEach((k, j) => {
         const pp = posOf(s[RV][k]), p0 = posOf(prev[RV][k]);
-        if (pp == null) continue;
+        if (pp == null) return;
         const x = p0 != null && p0 !== pp && !end ? U.lerp(axX(p0), axX(pp), mv) : axX(pp), hot = rvOn && modOf(s, RV).has(k);
-        marks.push(['up', x, hot ? GOLD : k === 'Last checkpoint at' ? GREEN : INK, hot || rvOn]);
+        marks.push([a0 + j * TKN, 'up', x, hot ? GOLD : k === 'Last checkpoint at' ? GREEN : INK, hot || rvOn]);
+      });
+      for (const q of ticksOf(s)) { const h = end ? null : hotOf(s, q); marks.push([a0 + (KM.length + TKEYS.indexOf(q.key)) * TKN, 'dn', axX(q.v), TAGC[(h || q).it.tag] ?? INK, !!h]); }
+      for (const [i0, kd, x, col, hot] of marks) for (let m = 0; m < TKN; m++) {
+        const i = i0 + m, y = kd === 'up' ? G.ax.y - 3 - m * 2 : G.ax.y + 3 + m * 1.6;
+        const [xx, yy] = into(i, x, y);
+        put(o, i, xx, yy, (hot ? 0.95 : 0.55) * dim * form, hot ? 0.4 : 0, 0.02, 1.15, col);
       }
-      for (const q of ticksOf(s)) marks.push(['dn', axX(q.v), TAGC[q.it.tag] ?? INK, s.touch.has(q.a) && !end && hotIt(s, q.a, q.it.id)]);
       const g = ggOf(s), c = ckptOf(s), l = lsnOf(s);
       if (g && g.cap && c != null && l != null) {
         const c0 = ckptOf(prev) ?? c, l0 = lsnOf(prev) ?? l, cc = end ? c : U.lerp(c0, c, mv), ll = end ? l : U.lerp(l0, l, mv);
-        marks.push(['age', cc, ll, g]);
-      }
-      let i = a0;
-      for (const mk of marks) {
-        if (mk[0] === 'age') {
-          const [, cc, ll, gg] = mk, n = 60;
-          for (let m = 0; m < n && i < a1; m++, i++) {
-            const v = cc + (m / (n - 1)) * (ll - cc), f = (v - cc) / gg.cap, col = f >= 0.83 ? RED : f >= 0.775 ? GOLD : ACCENT;
-            const [xx, yy] = into(i, axX(v), G.gy - 1 + (m % 2) * 2);
-            put(o, i, xx, yy, (rvOn ? 0.85 : 0.5) * dim * form, f >= 0.775 && rvOn ? 0.4 : 0, 0.02, 1.4, col);
-          }
-          continue;
-        }
-        for (let m = 0; m < 7 && i < a1; m++, i++) {
-          const [kd, x, col, hot] = mk, y = kd === 'up' ? G.ax.y - 3 - m * 2 : G.ax.y + 3 + m * 1.6;
-          const [xx, yy] = into(i, x, y);
-          put(o, i, xx, yy, (hot ? 0.95 : 0.55) * dim * form, hot ? 0.4 : 0, 0.02, 1.15, col);
+        for (let m = 0, i = a0 + (KM.length + TKEYS.length) * TKN; m < AGEN; m++, i++) {
+          const v = cc + (m / (AGEN - 1)) * (ll - cc), f = (v - cc) / g.cap, cl = cutCol(f), col = cl === 'red' ? RED : cl ? GOLD : ACCENT;
+          const [xx, yy] = into(i, axX(v), G.gy - 1 + (m % 2) * 2);
+          put(o, i, xx, yy, (rvOn ? 0.85 : 0.5) * dim * form, cl && rvOn ? 0.4 : 0, 0.02, 1.4, col);
         }
       }
-      for (; i < a1; i++) put(o, i, dust[i * 2], dust[i * 2 + 1], 0, 0, 2, 1, FAINT);
     }
     const [t0, t1] = R.tok, tn = t1 - t0;
     if (act) {
@@ -335,8 +347,23 @@ function make({ F, deck, labels, scene }) {
     } else hide('tok');
   }
 
+  /* 칸 ↔ 눈금 — 이번 스텝에 건드린 항목만. 전부 이었더니 03 에서 곡선이 설명 글 위로 엇갈렸다.
+     곡선은 눈금 이름표의 아래 끝에서 멈춘다 — 눈금까지 그었더니 자기 이름표를 뚫고 지나갔다 */
+  function curvesOf(s, kk) {
+    const al = cur.AXL[kk], out = [];
+    for (const q0 of ticksOf(s)) {
+      const j = q0.as.findIndex((a) => s.touch.has(a) && modOf(s, a).has(q0.it.id)); if (j < 0) continue;
+      const q = { ...q0, a: q0.as[j], it: q0.its[j] }, P = rowSlot(s, q.a, q.it.id); if (!P) continue;
+      const dq = al.dn.find((x) => x.lb === tLb[q.key]), tx2 = dq ? dq.cx : axX(q.v), ty = dq ? G.ax.y + 14 + (dq.row + 1) * RH + 1 : G.ax.y + 12;
+      const c = [[P.x, P.y - 12], [P.x, P.y - 40], [tx2, ty + 40], [tx2, ty]];
+      const pts = Array.from({ length: 25 }, (_, i) => { const t = i / 24, u = 1 - t, w = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t]; return [0, 1].map((d) => w.reduce((v, wi, j) => v + wi * c[j][d], 0)); });
+      out.push({ ...q, c, pts });
+    }
+    return out;
+  }
+
   /* ── 글 ── */
-  let shown = -2, tokO = -1, tokW = 0;
+  let shown = -2, tokO = -1, tokW = 0, clear = new Set();
   const setO = (lb, o) => { if (Math.abs(o - lb.o) > 0.004) { lb.el.style.opacity = o.toFixed(3); lb.o = o; } };
   function paint(k, p, b, t, next = k + 1) {
     if (!G) return;
@@ -353,6 +380,18 @@ function make({ F, deck, labels, scene }) {
         for (const q of al.up) place(q.lb, q.l, G.ax.y - 14 - q.row * RH, 'l', 'b');
         for (const q of al.dn) place(q.lb, q.l, G.ax.y + 14 + q.row * RH, 'l', 't');
         for (const q of al.mk) place(q.lb, q.l, G.gy - 6 - q.row * RH, 'l', 'b');
+      }
+      /* 칸 ↔ 눈금 곡선은 글을 지나지 않을 때만 — 첫 칸은 줄 제목 바로 아래라, 늘 그었더니 03 · 04 의 곡선이
+         'BUFFER POOL' · 'UNDO LOG' · '.ibd 데이터 파일' 제목과 칸 설명 글을 가로질렀다(1512, 03 의 4 · 5 · 6 스텝).
+         눈금 이름표가 칸의 id 를 같은 색으로 적으므로 곡선이 없어도 짝은 읽힌다 */
+      clear = new Set();
+      if (AX && cur.AXL) {
+        const boxes = made.filter((lb) => lb.t && T.get(lb) && T.get(lb)[3] !== false).map((lb) => [lb, lb.el.getBoundingClientRect()]);
+        for (const q of curvesOf(s, kk)) {
+          const own = [tLb[q.key], rowLb[q.a][q.it.id]];
+          const hit = q.pts.some(([x, y]) => boxes.some(([lb, r]) => !own.includes(lb) && x > r.left - 2 && x < r.right + 2 && y > r.top - 2 && y < r.bottom + 2));
+          if (!hit) clear.add(q.key);
+        }
       }
     }
     const form = k === 0 ? show(p, 0.18, 0.36) : 1, dimO = (end ? 0.18 : 1) * form, fade = Math.abs(1 - 2 * b);
@@ -394,7 +433,7 @@ function make({ F, deck, labels, scene }) {
         /* redo 창 띠 — checkpoint ~ checkpoint + cap 의 테두리, 문턱 눈금과 그 이름의 지시선은 이 띠 안에서만 */
         const x0 = axX(c), x1 = axX(c + g.cap), gy = G.gy;
         ctx.globalAlpha = 0.45 * o; ctx.strokeStyle = css.faint; ctx.strokeRect(x0, gy - 4, x1 - x0, 8);
-        for (const m of MK) { const x = axX(c + m[0] * g.cap); ctx.globalAlpha = 0.65 * o; ctx.strokeStyle = m[0] >= 0.83 ? css.red : m[0] >= 0.775 ? css.gold : css.faint; seg(ctx, x, gy - 6, x, gy + 5); }
+        for (const m of MK) { const x = axX(c + m[0] * g.cap); ctx.globalAlpha = 0.65 * o; ctx.strokeStyle = ({ red: css.red, gold: css.gold })[cutCol(m[0])] || css.faint; seg(ctx, x, gy - 6, x, gy + 5); }
         ctx.globalAlpha = 0.3 * o; ctx.strokeStyle = css.faint;
         for (const q of cur.AXL[kk].mk) if (q.row > 0 || q.cx < q.l || q.cx > q.r) seg(ctx, q.cx, gy - 6 - q.row * RH + 1, q.cx, gy - 7);
         /* 띠의 양 끝을 자의 같은 자리로 — 점선 둘 */
@@ -405,13 +444,11 @@ function make({ F, deck, labels, scene }) {
       ctx.globalAlpha = 0.35 * o; ctx.strokeStyle = css.faint;
       for (const q of al.up) if (q.row > 0 || q.cx < q.l || q.cx > q.r) seg(ctx, q.cx, G.ax.y - 14 - q.row * RH + 1, q.cx, G.ax.y - 9);
       for (const q of al.dn) if (q.row > 0 || q.cx < q.l || q.cx > q.r) seg(ctx, q.cx, G.ax.y + 13, q.cx, G.ax.y + 14 + q.row * RH - 1);
-      /* 칸 ↔ 눈금 — 이번 스텝에 건드린 항목만. 전부 이었더니 03 에서 곡선이 설명 글 위로 엇갈렸다 */
-      for (const q of ticksOf(s)) {
-        const P = rowSlot(s, q.a, q.it.id); if (!P || end || !s.touch.has(q.a) || !modOf(s, q.a).has(q.it.id)) continue;
+      if (!end && shown === kk) for (const q of curvesOf(s, kk)) {
+        if (!clear.has(q.key)) continue;
+        const [c0, c1, c2, c3] = q.c;
         ctx.globalAlpha = 0.4 * o; ctx.strokeStyle = css.ink;
-        /* 곡선은 눈금 이름표의 아래 끝에서 멈춘다 — 눈금까지 그었더니 자기 이름표를 뚫고 지나갔다 */
-        const dq = al.dn.find((x) => x.lb === tLb[q.key]), tx2 = dq ? dq.cx : axX(q.v), ty = dq ? G.ax.y + 14 + (dq.row + 1) * RH + 1 : G.ax.y + 12;
-        ctx.beginPath(); ctx.moveTo(P.x, P.y - 12); ctx.bezierCurveTo(P.x, P.y - 40, tx2, ty + 40, tx2, ty); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(...c0); ctx.bezierCurveTo(...c1, ...c2, ...c3); ctx.stroke();
       }
     }
     ctx.restore();
