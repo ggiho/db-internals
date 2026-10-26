@@ -1546,7 +1546,7 @@ const SCENES = [
   cast:['op','bt','node','cost'],
   knobs:[
     ['innodb_page_size','16 KB','병합 판정의 기준 용량'],
-    ['innodb_online_alter_log_max_size','128 MB','재구축으로 트리를 조밀하게 되돌릴 때의 한계']],
+    ['innodb_online_alter_log_max_size','128 MB','online 재구축 동안 들어온 DML 을 적는 로그의 상한 — 넘으면 재구축이 실패한다']],
   watch:[
     ['I_S.INNODB_INDEXES','MERGE_THRESHOLD 와 루트 PAGE_NO'],
     ['I_S.INNODB_TABLESTATS','CLUST_INDEX_SIZE — 병합이 실제로 페이지를 줄였는가'],
