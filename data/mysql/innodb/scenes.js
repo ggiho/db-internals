@@ -1886,7 +1886,7 @@ const SCENES = [
                 'case MDL_wait::TIMEOUT:',
                 ['sql/sys_vars.cc','VALID_RANGE(1, LONG_TIMEOUT), DEFAULT(LONG_TIMEOUT), BLOCK_SIZE(1));']],
           beat:1,
-          ops:{ mdl:{ set:{ '2  ALTER TABLE':{ tag:'free', q:'gone', sub:'1205 · 5초 후 포기' } } },
+          ops:{ mdl:{ set:{ '2  ALTER TABLE':{ tag:'free', q:'gone', mode:'—', sub:'1205 · 5초 후 포기' } } },
                 ses:{ set:{ 'ALTER 상태':'실패 (1205)|red', '막힌 세션':'0|green' } } } },
 
       4:{ note:'long SELECT 는 무방해 — EXCLUSIVE 요청이 queue 에서 빠졌다',
@@ -1903,7 +1903,7 @@ const SCENES = [
 
       5:{ act:{ f:'mdl', t:'ses', lb:'1번 정리 → ALTER 재실행' },
           note:'할 일은 같다 — 원인 세션 정리 후 재실행',
-          why:'실패한 것은 ALTER 이고 원인은 1번이다. 1번을 끝낸 뒤 재실행하면 이번에는 5초 안에 EXCLUSIVE 를 얻는다.',
+          why:'실패한 것은 ALTER 이고 원인은 1번이다. 1번을 끝내고 3번의 짧은 문장들도 끝난 뒤 재실행하면 이번에는 5초 안에 EXCLUSIVE 를 얻는다.',
           key:'짧은 타임아웃이 준 것은 <em>장애 없이 원인을 찾을 시간</em>이다. 기본값에서는 그 시간 동안 서비스가 멈춰 있었다.',
           ref:'sql/mdl.cc', sym:'MDL_context::acquire_lock',
           fact:[['sql/sql_base.cc','if (thd->mdl_context.upgrade_shared_lock(table->mdl_ticket, MDL_EXCLUSIVE,'],
@@ -1921,7 +1921,7 @@ const SCENES = [
            key:'짧은 타임아웃은 장애를 막지만 <em>마지막 1%에서 작업을 잃을 수도</em> 있다. 끝나기 직전에 다시 원인 세션을 확인해야 하는 이유다.',
            ref:'sql/mdl.cc', sym:'MDL_context::upgrade_shared_lock',
            beat:1,
-           ops:{ mdl:{ set:{ '2  ALTER TABLE':{ tag:'x', q:'pending', mode:'SU → X', sub:'EXCLUSIVE 다시 · 5초 안에 못 받으면 1205' } } },
+           ops:{ mdl:{ set:{ '2  ALTER TABLE':{ tag:'wait', q:'pending', mode:'SU → X', sub:'EXCLUSIVE 다시 · 5초 안에 못 받으면 1205' } } },
                  ses:{ set:{ 'ALTER 상태':'마무리 EXCLUSIVE · 5초 한계|red' } } } },
     },
   } },
@@ -1993,8 +1993,10 @@ const SCENES = [
     fact:['Downgrade the lock if storage engine has told us that exclusive lock was',
           'table->mdl_ticket->downgrade_lock(MDL_SHARED_UPGRADABLE);',
           ['sql/mdl.h','An upgradable shared metadata lock which allows concurrent updates and']],
-    ops:{ mdl:{ set:{ '2  ALTER TABLE':{ tag:'hold', q:'granted', mode:'SU', sub:'SHARED_UPGRADABLE · 통과 허용' } },
-                del:['3  SELECT','4…  SELECT · INSERT …'] },
+    /* 막혀 있던 3 · 4… 가 SU 와 호환되어 받는다 — 지우기만 했더니 'online' 인데 동시 DML 이 무대에 없었다 */
+    ops:{ mdl:{ set:{ '2  ALTER TABLE':{ tag:'hold', q:'granted', mode:'SU', sub:'SHARED_UPGRADABLE · 통과 허용' },
+                      '3  SELECT':{ tag:'hold', q:'granted', by:null, sub:'통과 · SU 와 호환' },
+                      '4…  SELECT · INSERT …':{ tag:'hold', q:'granted', by:null, sub:'통과 · SU 와 호환' } } },
           ses:{ set:{ 'ALTER 상태':'인덱스 구축 중|gold', '막힌 세션':'0|green' } } } },
 
   { act:{ f:'ibd', t:'bp', lb:'원본을 훑어 새 인덱스를 만든다' },
@@ -2042,7 +2044,9 @@ const SCENES = [
           ['sql/sql_base.cc','if (thd->mdl_context.upgrade_shared_lock(table->mdl_ticket, MDL_EXCLUSIVE,'],
           ['sql/sql_base.cc','thd->variables.lock_wait_timeout))']],
     beat:1,
-    ops:{ mdl:{ set:{ '2  ALTER TABLE':{ tag:'x', q:'pending', mode:'SU → X', sub:'EXCLUSIVE 다시 · 짧게' } } },
+    /* 이번에는 막는 쪽이 없다 — 대기(wait)이지 막힘(x)이 아니다. 구축 중의 짧은 문장들은 끝났다 */
+    ops:{ mdl:{ set:{ '2  ALTER TABLE':{ tag:'wait', q:'pending', mode:'SU → X', sub:'EXCLUSIVE 다시 · 짧게' } },
+                del:['3  SELECT','4…  SELECT · INSERT …'] },
           ses:{ set:{ 'ALTER 상태':'마무리 EXCLUSIVE 구간|red' } } } },
 
   { note:'완료 — dictionary 와 엔진이 한 트랜잭션으로 전환',
