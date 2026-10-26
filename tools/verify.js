@@ -444,7 +444,8 @@ for (const sc of SCENES) {
       } else if (op.set && kind !== 'kv') {
         for (const [id, patch] of Object.entries(op.set)) {
           const it = a.items.find(x => x.id === id);
-          if (!it) err(S + ' ' + who + ' : 없는 항목을 set 한다 — ' + id);
+          /* 없는 항목이면 알리고 넘어간다 — 그대로 Object.assign 으로 가서 TypeError 로 검증 전체가 멈췄다(ch3 리뷰) */
+          if (!it) { err(S + ' ' + who + ' : 없는 항목을 set 한다 — ' + id); continue; }
           /* add 만 태그를 봤다 — set 으로 바꾼 태그는 검사 밖이라 'chg' 같은 없는 태그가
              글자 그대로 화면에 나갔다 */
           if (patch && patch.tag !== undefined && !(kind === 'bytes' ? BYTAGS : TAGS).includes(patch.tag))
