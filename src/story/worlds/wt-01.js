@@ -4,7 +4,7 @@
      · 커밋 전(wait)은 금빛, 커밋됨(ok)은 먹색. 이미지 = DISK IMAGE 의 항목
      · head 는 사슬의 첫 항목을 가리키고, 사슬의 끝에서 이미지로 점선 — 더 옛 값은 이미지에 있다
      · act 는 그 update 의 알갱이가 f(OPERATION)에서 t(사슬의 머리)로 날아가 덩어리가 된다
-     · 사슬은 그대로인데 OPERATION 의 명령이 바뀐 스텝(4 : 다른 세션의 갱신)은 그 명령이 머리에 다가갔다가 튕겨 흩어진다 —
+     · 사슬은 그대로인데 OPERATION 의 명령이 바뀐 스텝(4 : 다른 세션의 갱신)은 그 명령이 머리에 다가갔다가 튕겨 머리 앞에 흐린 빨간 덩어리로 남는다 —
        사슬에 못 들어갔다는 것은 데이터(bake 의 변경에 chain 이 없다)이고, 움직임은 그것을 보일 뿐이다
      · 사슬을 보기만 하는 스텝(3 : CAS)은 head 가 한 번 밝아진다
      · 그 스텝이 건드린 배우(touch)는 또렷하게, 나머지는 흐리게
@@ -217,15 +217,16 @@ function make({ F, deck, labels, scene }) {
     /* head 칸 */
     const [h0] = R.head;
     for (let m = 0; m < HEAD; m++) { const i = h0 + m, [gx, gy, ing] = grid(G.head.x, G.head.y, 14, 14, HEAD, m), [x, y] = into(i, gx, gy); put(o, i, x, y, (chainOn ? 0.95 : 0.5) * dim * form * ing, s.looked && !end ? 0.7 : 0, 0.03, 1.2, s.looked && !end ? GOLD : INK); }
-    /* 튕겨 나간 명령 — OPERATION 에서 머리 앞까지 가서 흔들리고 흩어진다(0.5 까지) */
+    /* 튕겨 나간 명령 — OPERATION 에서 머리 앞까지 가서 흔들리고(0.36 까지), 머리 앞에 흐린 빨간 덩어리로 남는다(0.5 까지).
+       흩어져 사라지게 했더니 서 있는 화면이 3 스텝과 같았다 — 사슬에 못 들어간 update 가 화면에 없었다 */
     const [q0] = R.ghost;
     if (!end && s.bounced) {
-      const tx = G.head.x, ty = G.head.y - 40, e = U.smooth(show(p, 0.08, 0.26)), sh = show(p, 0.26, 0.36), gone = show(p, 0.36, 0.5);
+      const tx = G.head.x, ty = G.head.y - 40, e = U.smooth(show(p, 0.08, 0.26)), sh = show(p, 0.26, 0.36), rest = show(p, 0.36, 0.5);
       for (let m = 0; m < GHOST; m++) {
-        const i = q0 + m, r = Math.sqrt((m + 0.5) / GHOST) * 12, th = m * 2.399;
+        const i = q0 + m, r = Math.sqrt((m + 0.5) / GHOST) * 12 * (1 + rest * 0.3), th = m * 2.399;
         const wob = Math.sin(sh * Math.PI * 6) * 6 * (1 - sh);
-        const x = U.lerp(G.opA.x, tx, e) + Math.cos(th) * r * (1 + gone * 4) + wob, y = U.lerp(G.opA.y, ty, e) + Math.sin(th) * r * (1 + gone * 4) + gone * 26;
-        put(o, i, x, y, (p > 0.08 ? 0.92 : 0) * (1 - gone), 0.6, 0.15, 1.2, RED);
+        const x = U.lerp(G.opA.x, tx, e) + Math.cos(th) * r + wob, y = U.lerp(G.opA.y, ty, e) + Math.sin(th) * r;
+        put(o, i, x, y, (p > 0.08 ? 0.92 : 0) * (1 - 0.55 * rest), 0.6 * (1 - rest), 0.15, 1.2, RED);
       }
     } else for (let m = 0; m < GHOST; m++) put(o, q0 + m, dust[(q0 + m) * 2], dust[(q0 + m) * 2 + 1], 0, 0, 2, 1, FAINT);
   }

@@ -92,17 +92,17 @@ export const CORE = {
     a: 'InnoDB 는 락을 기다려 쓰고, WiredTiger 는 뒤에 온 쪽을 물린다',
     x: ['둘 다 락이 풀릴 때까지 기다린 뒤 최신 값에 쓴다', '둘 다 뒤에 온 쪽을 곧바로 롤백시킨다', 'InnoDB 가 뒤에 온 쪽을 물리고 WiredTiger 가 기다린다'],
   },
-  '08/5': {
+  '08/6': {
     q: '재시작 때 연 checkpoint(stable 90)에 ts 93 의 값이 들어 있을 수 있는 이유는?',
     a: 'reconciliation 이 timestamp 를 보지 않고 커밋된 최신 값을 써서',
     x: ['checkpoint 가 커밋 전 값도 함께 써서', 'journal replay 가 ts 93 을 데이터 파일에 다시 써서', '있을 수 없다 — checkpoint 는 stable 까지만 담는다'],
   },
-  '08/8': {
+  '08/9': {
     q: 'journal 에 fsync 된 oplog 항목 ts 100 이 재시작 뒤 사라지는 경우는?',
     a: '그 앞의 구멍 때문에 truncate-after point 뒤로 잘릴 때',
     x: ['없다 — fsync 된 기록은 모두 남는다', 'rollback to stable 이 stable 보다 새 oplog 를 지울 때', 'checkpoint 가 아직 그 항목을 담지 않았을 때'],
   },
-  '08/10': {
+  '08/11': {
     q: 'replica set 멤버의 크래시 복구는 어떤 순서인가?',
     a: 'log replay 뒤 stable 로 rollback 하고 oplog 를 다시 적용한다',
     x: ['redo 를 replay 한 뒤 커밋 전 것을 undo 로 되돌린다', 'journal 에서 컬렉션 변경을 replay 하고 끝낸다', 'secondary 에서 데이터 파일을 통째로 받아 온다'],
