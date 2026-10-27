@@ -7,7 +7,7 @@
      · buffer mapping 의 줄은 칸들의 페이지 → 버퍼 그대로다 — 매핑 표의 내용이 곧 그것이다
      · act 는 덩어리가 f 의 자리에서 t 의 자리로 — pool · heap 은 act 이름이 짚는 칸 · 페이지(없으면 그 스텝에서 바뀐 것)
      · 그 스텝이 건드린 배우(touch)는 또렷하게, 나머지는 흐리게 — 한 화면에 다 담지 않고 지금 일어나는 것을 앞에 둔다
-     · PG_BUFFERCACHE(pbc, 있으면) = 진짜 서버에서 잰 값. 왼쪽 열의 BACKEND 와 매핑 표 사이에 kv 글과 usage 0 – 5 의 막대 여섯.
+     · MEASURED(pbc, 있으면) = 진짜 서버에서 잰 값(pg_buffercache · pg_stat_io). 왼쪽 열의 BACKEND 와 매핑 표 사이에 kv 글과 usage 0 – 5 의 막대 여섯.
        막대는 kv '분포'("0:n 1:n … 5:n", pg_buffercache_usage_counts 의 줄)에서 읽고, 그 스텝에서 바뀌면 앞 분포에서 뒤 분포로 자란다 · 준다.
        '—' 이면 막대를 숨긴다(그 실험에서 분포를 재지 않았다) — 다른 키도 값이 '—' 면 줄을 뺀다. 셈 맞추기 — 여섯 칸이 0 ‥ 5 차례가 아니거나 합이 '칸'(전체 버퍼 수)과
        다르면 console.error
