@@ -25,6 +25,10 @@ const ACTORS = {
   /* 12 — purge. SHOW ENGINE INNODB STATUS 의 세 줄과 purge view, undo 테이블스페이스 파일 */
   pur:  { nm:'PURGE',            lane:'mem',  kind:'kv'     },
   uts:  { nm:'UNDO 테이블스페이스',   lane:'disk', kind:'frames' },
+  /* 13 — redo 파일. 쓰는 파일은 innodb-lsn 세계가 LSN 자 아래 띠로, 예비(_tmp)는 칸으로 그린다 */
+  rcap: { nm:'REDO 용량 · Innodb_redo_log_*', lane:'mem',  kind:'kv'     },
+  rf:   { nm:'#innodb_redo  쓰는 파일', lane:'disk', kind:'frames' },
+  rsp:  { nm:'#innodb_redo  예비 _tmp', lane:'disk', kind:'frames' },
   dw:   { nm:'DOUBLEWRITE',      lane:'disk', kind:'list'   },
   ibd:  { nm:'.ibd  데이터 파일',      lane:'disk', kind:'frames' },
   redo: { nm:'#ib_redo*  WAL',   lane:'disk', kind:'kv'     },   /* 실측 최대 필요 196px */

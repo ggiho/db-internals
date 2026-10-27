@@ -2448,7 +2448,8 @@ const SCENES = [
   links:[
     ['02','read view 와 undo 사슬 — 이 장면은 그 사슬이 길어질 때'],
     ['09','오래 열린 트랜잭션은 ALTER 도 막는다'],
-    ['04','undo 를 쓰는 것도 redo 를 남긴다'] ],
+    ['04','undo 를 쓰는 것도 redo 를 남긴다'],
+    ['13','그 redo 가 쌓이는 파일 — #innodb_redo 와 용량'] ],
   steps:[
   { look:{ pur:true, uts:true },
     note:'쉬는 서버 — 지울 것이 없다',
@@ -2562,6 +2563,174 @@ const SCENES = [
     beat:1,
     ops:{ pur:{ set:{ 'Trx id counter':'27,551', "Purge done for trx's n:o <":'27,551|green' } },
           uts:{ set:{ 'innodb_undo_001':{ tag:'ok', sub:'16,777,216 B — 처음 크기' }, 'innodb_undo_002':{ tag:'ok', sub:'16,777,216 B — 잘랐다' } } } } },
+  ],
+},
+{
+  num:'13', tab:'Redo Files', title:'Redo Log Capacity: 32 Files, Consumed Late, Resized Online',
+  sub:'8.0.30 부터 redo 는 #innodb_redo 의 파일 32 개 — checkpoint 뒤의 파일은 예비가 바닥날 때 _tmp 로 돌아가고, 용량을 바꾸면 새 파일부터 크기가 바뀐다',
+  cast:['ses','rcap','redo','rf','rsp'],
+  /* 잰 값(8.4.8-debug, 이 빌드) — ~/.cache/dbi/measure/inno/13.txt(measure13.sh). 스냅숏마다 ls -l #innodb_redo · P_S.innodb_redo_log_files ·
+     Innodb_redo_log_* 상태 변수를 함께 떴다. 파일 하나의 LSN 폭은 크기 − 2,048(LOG_FILE_HDR_SIZE) — P_S 의 END_LSN − START_LSN 으로 확인.
+       0 쉬는 서버 (100 MiB)       쓰는 파일 #ib_redo58 ‥ 82 (25 개, 24 개 IS_FULL 1) · _tmp 83 ‥ 89 (7 개) · 모두 3,276,800 B
+                                   checkpoint = LSN = 268,705,851 · physical 81,920,000 · logical 512
+       1 INSERT 100,000 행 16.915 s  쓰는 파일 86 ‥ 90 (5) · _tmp 91 ‥ 117 (27) · checkpoint 282,113,362 · LSN 295,140,655 · physical 16,384,000
+       2 UPDATE 100,000 행 16.154 s  쓰는 파일 86 ‥ 105 (20) · _tmp 106 ‥ 117 (12) · checkpoint 321,649,588 · LSN 344,431,905 · logical 22,782,976
+       3 innodb_log_checkpoint_now  checkpoint = LSN = 344,431,915 · 파일은 그대로 20 + 12
+       4–5 SET GLOBAL innodb_redo_log_capacity = 200 MiB  0.210 s → 0.2 초 뒤 쓰는 파일 #ib_redo105 하나(3,276,800) · _tmp 106 ‥ 136 (31) × 6,553,600
+                                   Innodb_redo_log_capacity_resized 209,715,200 · physical 3,276,800
+       6–7 SET GLOBAL … = 8 MiB      0.016 s · 'Resizing down' 1.3 초 → 쓰는 파일 #ib_redo106 [344,444,928, 344,705,024) 262,144 B · _tmp 107 ‥ 137 (31) × 262,144
+                                   checkpoint = LSN = 344,448,831 (105 는 344,431,915 근처에서 닫혔다 — END 347,131,904 까지 쓰지 않았다)
+       8 8 MiB 에서 UPDATE 20,000 행 3.298 s  쓰는 파일 116 ‥ 143 (28) × 262,144 · _tmp 144 ‥ 147 (4) · checkpoint 350,059,089 · LSN 354,265,478
+                                   logical 4,206,592 · physical 7,340,032 · 오류 로그 MY-014084(log_checkpointer 가 LSN 347,131,184 에서 뒤처졌다)
+       9 100 MiB 로 되돌림 0.057 s  쓰는 파일 127 ‥ 143 (17) × 262,144 · _tmp 144 ‥ 158 (15) × 3,276,800 · physical 4,456,448 */
+  init:{
+    ses:{ kv:{ '문장':'—', '걸린 시간':'—' } },
+    rcap:{ kv:{ 'innodb_redo_log_capacity':'104,857,600 (100 MiB)', 'capacity_resized':'104,857,600', 'physical_size':'81,920,000', 'logical_size':'512' } },
+    redo:{ kv:{ 'Last checkpoint at':'268,705,851', 'Log sequence number':'268,705,851' } },
+    /* 쓰는 파일 — lsn 은 P_S 의 START_LSN · END_LSN, n 은 같은 크기로 이어진 파일 수, size 는 파일 하나의 바이트, hdr 은 LOG_FILE_HDR_SIZE, full 은 IS_FULL */
+    rf:{ items:[
+      { id:'가득 찬 파일', nm:'#ib_redo58 ‥ 81', lsn:[189943808, 268537856], n:24, size:3276800, hdr:2048, full:1, tag:'clean', sub:'24 개 · IS_FULL 1 · 3,276,800 B 씩 — 모두 checkpoint 뒤' },
+      { id:'지금 쓰는 파일', nm:'#ib_redo82', lsn:[268537856, 271812608], n:1, size:3276800, hdr:2048, full:0, tag:'ok', sub:'IS_FULL 0 · checkpoint 와 LSN 이 여기' } ] },
+    rsp:{ items:[{ id:'_tmp', tag:'free', sub:'7 개 — #ib_redo83_tmp ‥ 89_tmp · 3,276,800 B 씩' }] },
+  },
+  knobs:[
+    ['innodb_redo_log_capacity','100 MB','redo 파일 32 개의 합. 서버를 세우지 않고 SET GLOBAL 로 바꾼다'],
+    ['innodb_log_checkpoint_now','OFF','디버그 빌드에만 있다 — 이 장면이 checkpoint 를 끝까지 당길 때 쓴 것'] ],
+  watch:[
+    ['performance_schema.innodb_redo_log_files','쓰는 파일마다 START_LSN · END_LSN · SIZE_IN_BYTES · IS_FULL — _tmp 예비 파일은 나오지 않는다'],
+    ['Innodb_redo_log_physical_size','쓰는 파일 크기의 합 — 용량을 바꾼 뒤 옛 크기 파일이 남아 있는 동안은 섞여 있다'],
+    ['Innodb_redo_log_resize_status',"'Resizing down' 이면 줄이는 중 — 옛 큰 파일이 다 지워질 때까지"],
+    ['ls #innodb_redo','#ib_redoN 과 #ib_redoN_tmp 의 수와 크기'] ],
+  links:[
+    ['04','파일 안에서 checkpoint 나이가 문턱을 넘으면 — 같은 redo, 다른 질문'],
+    ['03','복구는 checkpoint 부터 이 파일들을 읽는다'],
+    ['12','undo 도 redo 를 남긴다 — 큰 UPDATE 한 번이 파일 20 개'] ],
+  steps:[
+  { look:{ rf:true, rsp:true },
+    note:'#innodb_redo — 파일 32 개, 쓰는 것 25 개와 _tmp 예비 7 개',
+    why:'8.0.30 부터 redo 는 ib_logfile0 · 1 이 아니라 #innodb_redo 디렉터리의 #ib_redoN 파일들이다. 번호는 계속 오르고, 지금 쓰지 않는 예비 파일은 이름 끝에 _tmp 가 붙는다. 수는 32 개를 목표로 하고 크기는 innodb_redo_log_capacity / 32 다. 파일마다 머리 2,048 바이트(LOG_FILE_HDR_SIZE)를 뺀 만큼이 LSN 폭이다.',
+    key:'잰 값: ls 에 #ib_redo58 ‥ 82 와 #ib_redo83_tmp ‥ 89_tmp, 모두 3,276,800 B(100 MiB / 32). P_S 의 #ib_redo58 은 START_LSN 189,943,808 · END_LSN 193,218,560 — 폭 3,274,752 = 3,276,800 − 2,048.',
+    ref:'storage/innobase/include/log0constants.h', sym:'LOG_N_FILES',
+    fact:['constexpr const char *const LOG_DIRECTORY_NAME = "#innodb_redo";',
+          'constexpr const char *const LOG_FILE_BASE_NAME = "#ib_redo";',
+          'constexpr size_t LOG_N_FILES = 32;',
+          'constexpr os_offset_t LOG_FILE_HDR_SIZE = 4 * OS_FILE_LOG_BLOCK_SIZE;',
+          ['storage/innobase/log/log0files_io.cc','return log_file_path(ctx, file_id) + "_tmp";']] },
+
+  { look:{ rf:['가득 찬 파일'], redo:true },
+    note:'checkpoint 뒤의 24 개가 지워지지 않고 남아 있다',
+    why:'checkpoint 와 LSN 이 같은 자리(#ib_redo82 안)에 있으므로 #ib_redo58 ‥ 81 의 redo 는 복구에 필요 없다. 그래도 governor 는 지우지 않는다 — 파일 수(32)와 크기의 합을 용량에 맞춰 두고, 예비(_tmp)가 바닥나거나 용량을 줄이거나 누가 요청할 때만 오래된 파일을 소비한다.',
+    key:'잰 값: 쉬는 서버에서 Innodb_redo_log_logical_size 512 인데 physical_size 81,920,000 = 25 × 3,276,800. 쓰는 파일 25 개 가운데 24 개가 IS_FULL 1 이고 모두 checkpoint 268,705,851 보다 앞에서 끝난다.',
+    ref:'storage/innobase/log/log0files_governor.cc', sym:'is_consumption_needed',
+    fact:['return /* case 1. */ log.m_requested_files_consumption ||',
+          '/* case 2. */ log.m_unused_files_count == 0 ||',
+          '/* case 3. */ target_capacity < current_capacity ||',
+          'The strategy is to keep the total number of log files equal to LOG_N_FILES'],
+    beat:1 },
+
+  { act:{ f:'ses', t:'rf', lb:'INSERT 100,000 행' },
+    note:'쓰기 — 예비가 바닥나면 checkpoint 뒤의 파일을 _tmp 로 돌려 번호를 새로 단다',
+    why:'redo 가 지금 파일을 다 채우면 다음 예비 파일을 쓴다. 예비가 남지 않으면 governor 가 END_LSN 이 checkpoint 이하인 파일을 소비된 것으로 표시하고 재활용한다 — #ib_redo58 을 #ib_redo58_tmp 로 바꾸고, 다음 예비 번호로 다시 이름 짓고, 용량 / 32 로 크기를 맞춘다.',
+    key:'잰 값: 16.915 초 뒤 쓰는 파일은 #ib_redo86 ‥ 90 다섯, 예비는 #ib_redo91_tmp ‥ 117_tmp 스물일곱 — 58 ‥ 85 가 사라졌다. checkpoint 282,113,362 는 가장 오래 남은 #ib_redo86 [281,636,864, 284,911,616) 안이다.',
+    ref:'storage/innobase/log/log0files_governor.cc', sym:'log_files_recycle_file',
+    fact:['/* For example: #ib_redo10 -> #ib_redo10_tmp */',
+          '/* For example: #ib_redo10_tmp -> #ib_redo15_tmp */',
+          '/* For example: resize #ib_redo15_tmp to innodb_redo_log_capacity / 32 */',
+          'if (!file.m_consumed && file.m_end_lsn <= oldest_lsn) {'],
+    beat:1,
+    ops:{ ses:{ set:{ '문장':"INSERT INTO t … 100,000 행 (id, pad CHAR(200))", '걸린 시간':'16.915 sec' } },
+          redo:{ set:{ 'Last checkpoint at':'282,113,362', 'Log sequence number':'295,140,655' } },
+          rcap:{ set:{ 'physical_size':'16,384,000', 'logical_size':'13,027,840' } },
+          rf:{ set:{
+            '가득 찬 파일':{ nm:'#ib_redo86 ‥ 89', lsn:[281636864, 294735872], n:4, sub:'4 개 · IS_FULL 1 · 86 에 checkpoint' },
+            '지금 쓰는 파일':{ nm:'#ib_redo90', lsn:[294735872, 298010624], sub:'IS_FULL 0 · LSN 이 여기' } } },
+          rsp:{ set:{ '_tmp':{ sub:'27 개 — #ib_redo91_tmp ‥ 117_tmp · 3,276,800 B 씩' } } } } },
+
+  { act:{ f:'ses', t:'rf', lb:'UPDATE 100,000 행' },
+    note:'더 쓰면 파일이 쌓인다 — 이번엔 예비가 남아 아무것도 지우지 않는다',
+    why:'UPDATE 는 행마다 redo 와 undo 를 남기므로 INSERT 보다 redo 가 많다. 쓰는 파일이 다섯에서 스물로 늘었고 예비는 그만큼 줄었다 — 합은 여전히 32 다. 예비가 남아 있으므로 checkpoint 가 #ib_redo86 을 지나 한참 앞으로 갔어도 86 은 그대로 있다.',
+    key:'잰 값: 16.154 초. 쓰는 파일 #ib_redo86 ‥ 105(20 개), 예비 106_tmp ‥ 117_tmp(12 개). checkpoint 321,649,588 · LSN 344,431,905 — logical_size 22,782,976.',
+    ref:'storage/innobase/log/log0files_governor.cc', sym:'log_files_mark_consumed_files',
+    fact:['const lsn_t oldest_lsn = log_files_oldest_needed_lsn(log);',
+          '-# deciding if consumption is really needed or might be postponed,'],
+    ops:{ ses:{ set:{ '문장':"UPDATE t SET pad = 'b'  (100,000 행)", '걸린 시간':'16.154 sec' } },
+          redo:{ set:{ 'Last checkpoint at':'321,649,588', 'Log sequence number':'344,431,905' } },
+          rcap:{ set:{ 'physical_size':'65,536,000', 'logical_size':'22,782,976' } },
+          rf:{ set:{
+            '가득 찬 파일':{ nm:'#ib_redo86 ‥ 104', lsn:[281636864, 343857152], n:19, sub:'19 개 · IS_FULL 1 · 86 ‥ 97 은 checkpoint 뒤' },
+            '지금 쓰는 파일':{ nm:'#ib_redo105', lsn:[343857152, 347131904], sub:'IS_FULL 0 · LSN 이 여기' } } },
+          rsp:{ set:{ '_tmp':{ sub:'12 개 — #ib_redo106_tmp ‥ 117_tmp · 3,276,800 B 씩' } } } } },
+
+  { act:{ f:'ses', t:'redo', lb:'checkpoint 를 끝까지' },
+    note:'checkpoint 를 LSN 까지 당겨도 파일 수는 그대로',
+    why:'innodb_log_checkpoint_now 는 dirty page 를 모두 쓰고 checkpoint 를 지금의 LSN 으로 옮긴다. 복구에 필요한 redo 는 512 바이트로 줄었다. 그러나 파일을 지울지는 checkpoint 가 아니라 예비 · 용량 · 요청이 정한다 — 쓰는 파일 스물이 그대로다.',
+    key:'잰 값: 0.020 초 뒤 checkpoint = LSN = <em>344,431,915</em>, logical_size 512. ls 와 P_S 는 앞 스텝과 같다 — 쓰는 파일 20 · 예비 12.',
+    ref:'storage/innobase/handler/ha_innodb.cc', sym:'checkpoint_now_set',
+    fact:['while (log_make_latest_checkpoint(*log_sys)) {',
+          'PLUGIN_VAR_OPCMDARG, "Force sharp checkpoint now",'],
+    ops:{ ses:{ set:{ '문장':'SET GLOBAL innodb_log_checkpoint_now = ON', '걸린 시간':'0.020 sec' } },
+          redo:{ set:{ 'Last checkpoint at':'344,431,915', 'Log sequence number':'344,431,915' } },
+          rcap:{ set:{ 'logical_size':'512' } },
+          rf:{ set:{ '가득 찬 파일':{ sub:'19 개 · IS_FULL 1 · 모두 checkpoint 뒤 — 그래도 남는다' } } } } },
+
+  { act:{ f:'rcap', t:'rsp', lb:'200 MiB — 새 파일부터' },
+    note:'SET GLOBAL innodb_redo_log_capacity = 200 MiB — 예비를 새 크기로 다시 만든다',
+    why:'용량이 바뀌면 governor 가 예비 파일을 지우고 용량 / 32 크기로 다시 만든다. 지금 쓰는 파일은 그 크기 그대로 끝까지 쓴다. 용량을 다시 맞추느라 checkpoint 뒤의 파일들도 이때 소비됐다.',
+    key:'잰 값: SET 이 0.210 초, 0.2 초 뒤 예비가 #ib_redo106_tmp ‥ 136_tmp 서른하나 × <em>6,553,600 B</em>(200 MiB / 32). 쓰는 파일은 #ib_redo105 하나(3,276,800 B). Innodb_redo_log_capacity_resized 209,715,200 · physical_size 3,276,800.',
+    ref:'storage/innobase/log/log0files_governor.cc', sym:'log_files_adjust_unused_files_sizes',
+    fact:['const os_offset_t next_file_size = log.m_capacity.next_file_size();',
+          'if (log.m_unused_file_size != next_file_size) {',
+          'const auto ret = log_remove_unused_files(log.m_files_ctx);',
+          '-# resizing them if needed,'],
+    beat:1,
+    ops:{ ses:{ set:{ '문장':'SET GLOBAL innodb_redo_log_capacity = 209715200', '걸린 시간':'0.210 sec' } },
+          rcap:{ set:{ 'innodb_redo_log_capacity':'209,715,200 (200 MiB)|gold', 'capacity_resized':'209,715,200|gold', 'physical_size':'3,276,800' } },
+          rf:{ del:['가득 찬 파일'], set:{ '지금 쓰는 파일':{ sub:'IS_FULL 0 · 옛 크기 3,276,800 B 그대로' } } },
+          rsp:{ set:{ '_tmp':{ tag:'ok', sub:'31 개 — #ib_redo106_tmp ‥ 136_tmp · 6,553,600 B 씩' } } } } },
+
+  { act:{ f:'rcap', t:'rf', lb:'8 MiB — 큰 파일을 닫는다' },
+    note:'8 MiB 로 줄인다 — Resizing down 동안 큰 파일을 일찍 닫고 작은 파일로 넘어간다',
+    why:'줄일 때는 지금 쓰는 큰 파일이 문제다 — 그 파일이 차기를 기다리면 오래 걸린다. governor 는 그 파일의 끝을 잘라 내고, 쓰기가 느리면 dummy redo 레코드로 채워 다음 파일로 넘긴다. 그동안 Innodb_redo_log_resize_status 가 Resizing down 이다.',
+    key:'잰 값: SET 0.016 초, Resizing down 1.3 초. 그 뒤 쓰는 파일은 <em>#ib_redo106</em> [344,444,928, 344,705,024) 262,144 B, 예비 107_tmp ‥ 137_tmp 서른하나 × 262,144 B(8 MiB / 32). #ib_redo105 는 END_LSN 347,131,904 까지 쓰지 않고 닫혔고 LSN 은 344,431,915 → 344,448,831.',
+    ref:'storage/innobase/log/log0files_governor.cc', sym:'log_files_governor_iteration',
+    fact:['-# truncating the newest redo log file if its end is too far away,',
+          '-# writing dummy redo records to complete the file if intake is too slow,',
+          ['storage/innobase/log/log0files_capacity.cc','status = "Resizing down";'],
+          ['storage/innobase/include/log0constants.h','constexpr os_offset_t LOG_CAPACITY_MIN = 8 * 1024 * 1024; /* 8M */']],
+    beat:1,
+    ops:{ ses:{ set:{ '문장':'SET GLOBAL innodb_redo_log_capacity = 8388608', '걸린 시간':'0.016 sec · Resizing down 1.3 초' } },
+          rcap:{ set:{ 'innodb_redo_log_capacity':'8,388,608 (8 MiB)|gold', 'capacity_resized':'8,388,608|gold', 'physical_size':'262,144' } },
+          redo:{ set:{ 'Last checkpoint at':'344,448,831', 'Log sequence number':'344,448,831' } },
+          rf:{ set:{ '지금 쓰는 파일':{ nm:'#ib_redo106', lsn:[344444928, 344705024], size:262144, sub:'IS_FULL 0 · 262,144 B — 105 는 일찍 닫혔다' } } },
+          rsp:{ set:{ '_tmp':{ sub:'31 개 — #ib_redo107_tmp ‥ 137_tmp · 262,144 B 씩' } } } } },
+
+  { act:{ f:'ses', t:'rf', lb:'UPDATE 20,000 행' },
+    note:'8 MiB 에서 쓰기 — 작은 파일 스물여덟, 쓰기가 checkpoint 를 기다린다',
+    why:'용량이 작으면 같은 쓰기에 파일이 금방 찬다. 예비가 늘 바닥이라 governor 가 checkpoint 뒤의 파일을 바로바로 재활용하고, 그래도 모자라면 쓰는 스레드가 redo 공간을 받지 못하고 기다린다 — 오류 로그가 그 까닭(가장 뒤처진 소비자)을 적는다.',
+    key:'잰 값: 3.298 초. 쓰는 파일 #ib_redo116 ‥ 143 스물여덟 × 262,144 B, 예비 넷. checkpoint 350,059,089 · LSN 354,265,478 — logical_size 4,206,592. 오류 로그 MY-014084 : "Threads are unable to reserve space in redo log which can\'t be reclaimed due to the \'log_checkpointer\' consumer still lagging behind at LSN = 347131184."',
+    ref:'storage/innobase/log/log0files_governor.cc', sym:'log_files_mark_consumed_files',
+    fact:['if (!file.m_consumed && file.m_end_lsn <= oldest_lsn) {',
+          ['share/messages_to_error_log.txt',"Threads are unable to reserve space in redo log which can't be reclaimed due to the '%s' consumer still lagging behind at LSN = %llu. Consider increasing innodb_redo_log_capacity."]],
+    beat:1,
+    ops:{ ses:{ set:{ '문장':"UPDATE t SET pad = 'c' WHERE id <= 20000", '걸린 시간':'3.298 sec · MY-014084 경고|red' } },
+          redo:{ set:{ 'Last checkpoint at':'350,059,089', 'Log sequence number':'354,265,478' } },
+          rcap:{ set:{ 'physical_size':'7,340,032', 'logical_size':'4,206,592|red' } },
+          rf:{ add:[{ id:'가득 찬 파일', nm:'#ib_redo116 ‥ 142', lsn:[347045888, 354068480], n:27, size:262144, hdr:2048, full:1, tag:'clean', sub:'27 개 · IS_FULL 1 · 262,144 B 씩 — 116 ‥ 126 은 checkpoint 뒤' }],
+               set:{ '지금 쓰는 파일':{ nm:'#ib_redo143', lsn:[354068480, 354328576], sub:'IS_FULL 0 · LSN 이 여기' } } },
+          rsp:{ set:{ '_tmp':{ tag:'hold', sub:'4 개 — #ib_redo144_tmp ‥ 147_tmp · 262,144 B 씩' } } } } },
+
+  { act:{ f:'rcap', t:'rsp', lb:'100 MiB 로' },
+    note:'100 MiB 로 되돌린다 — 작은 파일은 그대로, 예비만 3 MiB 로',
+    why:'키울 때도 줄일 때와 같다 — 이미 쓴 파일의 크기는 바꾸지 않는다. 예비가 새 크기로 다시 만들어지고, 작은 파일들은 checkpoint 가 지나가며 하나씩 소비된다. 그래서 바꾼 직후 physical_size 는 용량과 한참 다르다.',
+    key:'잰 값: SET 0.057 초 뒤 예비가 #ib_redo144_tmp ‥ 158_tmp 열다섯 × <em>3,276,800 B</em>, 쓰는 파일 #ib_redo127 ‥ 143 열일곱은 262,144 B 그대로 — physical_size 4,456,448 = 17 × 262,144. checkpoint 가 든 #ib_redo127 앞의 116 ‥ 126 은 이때 소비됐다.',
+    ref:'storage/innobase/log/log0files_governor.cc', sym:'log_files_adjust_unused_files_sizes',
+    fact:['log.m_unused_file_size = next_file_size;',
+          ['storage/innobase/handler/ha_innodb.cc','"Limitation for total size of redo log files on disk (expressed in bytes).",']],
+    beat:1,
+    ops:{ ses:{ set:{ '문장':'SET GLOBAL innodb_redo_log_capacity = 104857600', '걸린 시간':'0.057 sec' } },
+          rcap:{ set:{ 'innodb_redo_log_capacity':'104,857,600 (100 MiB)', 'capacity_resized':'104,857,600', 'physical_size':'4,456,448', 'logical_size':'4,206,592' } },
+          rf:{ set:{ '가득 찬 파일':{ nm:'#ib_redo127 ‥ 142', lsn:[349906944, 354068480], n:16, sub:'16 개 · 262,144 B 씩 — 127 에 checkpoint' } } },
+          rsp:{ set:{ '_tmp':{ tag:'ok', sub:'15 개 — #ib_redo144_tmp ‥ 158_tmp · 3,276,800 B 씩' } } } } },
   ],
 },
 {
