@@ -7,18 +7,27 @@
      · buffer mapping 의 줄은 칸들의 페이지 → 버퍼 그대로다 — 매핑 표의 내용이 곧 그것이다
      · act 는 덩어리가 f 의 자리에서 t 의 자리로 — pool · heap 은 act 이름이 짚는 칸 · 페이지(없으면 그 스텝에서 바뀐 것)
      · 그 스텝이 건드린 배우(touch)는 또렷하게, 나머지는 흐리게 — 한 화면에 다 담지 않고 지금 일어나는 것을 앞에 둔다
+     · PG_BUFFERCACHE(pbc, 있으면) = 진짜 서버에서 잰 값. 왼쪽 열의 BACKEND 와 매핑 표 사이에 kv 글과 usage 0 – 5 의 막대 여섯.
+       막대는 kv '분포'("0:n 1:n … 5:n", pg_buffercache_usage_counts 의 줄)에서 읽고, 그 스텝에서 바뀌면 앞 분포에서 뒤 분포로 자란다 · 준다.
+       '—' 이면 막대를 숨긴다(그 실험에서 분포를 재지 않았다) — 다른 키도 값이 '—' 면 줄을 뺀다. 셈 맞추기 — 여섯 칸이 0 ‥ 5 차례가 아니거나 합이 '칸'(전체 버퍼 수)과
+       다르면 console.error
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, ACCENT, RED, FAINT, U } from '../field.js';
 import { dockAt } from './dock.js';
+import { kvLine } from './kvline.js';
 import { bake, stepsOf } from '../../bake.js';
 
 const HANGUL = /[가-힣]/;
 const MAXU = 5;                      /* BM_MAX_USAGE_COUNT */
-const SLOT = 120, PIP = 16, HAND = 150, HUB = 36, BGH = 90, PAGE = 100, TOK = 200;
+const SLOT = 120, PIP = 16, HAND = 150, HUB = 36, BGH = 90, PAGE = 100, TOK = 200, HB = 60;
 const bare = (v) => String(v ?? '').replace(/\|(gold|red|green)$/, '');
 const gold = (v) => /\|gold$/.test(String(v ?? ''));
 const has = (a, x) => (a || []).includes(x);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const tval = (v) => { const m = /\|(gold|red)$/.exec(String(v ?? '')); return m ? `<span class="pb-${m[1] === 'gold' ? 'g' : 'r'}">${esc(bare(v))}</span>` : esc(bare(v)); };
+const fmt = (n) => Math.round(n).toLocaleString('en-US');
+/* '0:1909 1:29 …' → [1909, 29, …] (없으면 null) */
+const distOf = (v) => { const t = bare(v).trim(); return !t || t === '—' ? null : t.split(/\s+/).map((x) => x.split(':')); };
 
 export default {
   count: (narrow) => (narrow ? 3800 : 5600),
@@ -48,8 +57,23 @@ function make({ F, deck, labels, scene }) {
       poolMod: new Set([...((c.pool && c.pool.mod) || []), ...((c.pool && c.pool.add) || [])]),
       heap: st.heap.items || [], heapMod: new Set((c.heap && c.heap.mod) || []),
       be: st.be.kv || {}, beKeys: (c.be && c.be.keys) || [], map: st.map.kv || {}, bgw: st.bgw.kv || {}, cmp: st.cmp.kv || {},
+      pbc: st.pbc ? st.pbc.kv || {} : null, pbcKeys: (c.pbc && c.pbc.keys) || [],
     };
   });
+  /* 잰 분포 — 셈 맞추기 */
+  const PBC = !!(A.pbc && sc.cast.includes('pbc'));
+  const PBINIT = PBC ? (sc.init.pbc && sc.init.pbc.kv) || {} : null;
+  const histOf = (kv, at) => {
+    const d = distOf(kv['분포']);
+    if (!d) return null;
+    const total = parseInt(bare(kv['칸']).replace(/,/g, ''), 10);
+    if (d.length !== MAXU + 1 || d.some(([u], i) => +u !== i)) console.error(`pg-buffer 세계 : ${at} 의 '분포' 는 0 ‥ ${MAXU} 차례의 여섯 칸이어야 한다 — "${kv['분포']}"`);
+    const n = d.map(([, c]) => +c), sum = n.reduce((a, b) => a + b, 0);
+    if (!(sum === total)) console.error(`pg-buffer 세계 : ${at} 의 '분포' 합 ${sum} 이 '칸' ${kv['칸']} 과 다르다`);
+    return n;
+  };
+  if (PBC) S.forEach((s, k) => { s.hist = histOf(s.pbc, (k + 1) + ' 스텝'); });
+  const HIST0 = PBC ? histOf(PBINIT, 'init') : null;
   const ids = S[0].pool.map((b) => b.id), NB = ids.length, idx = (id) => ids.indexOf(id);
   const init = { pool: (sc.init.pool.items || []).map(bufOf), hand: handOf(sc.init.be.kv || {}) };
   const HEAPS = [...new Set(S.flatMap((s) => s.heap.map((h) => h.id)))];
@@ -64,6 +88,7 @@ function make({ F, deck, labels, scene }) {
   take('hand', HAND); take('hub', HUB); take('bgh', BGH);
   HEAPS.forEach((id) => take('heap:' + id, PAGE));
   take('tok', TOK);
+  if (PBC) for (let u = 0; u <= MAXU; u++) take('hist:' + u, HB);
   R.DST = [at, N];
   if (at > N) throw new Error('pg-buffer 세계 : 알갱이가 모자란다 (' + at + ' > ' + N + ')');
 
@@ -96,6 +121,7 @@ function make({ F, deck, labels, scene }) {
   const slotLb = ids.map(() => label('pb ml pb-slot'));
   const hdHeap = label('pb'), heapLb = HEAPS.map(() => label('pb ml pb-heap'));
   const edgeLb = label('pb'), tok = label('stn-tok');
+  const hdPb = PBC ? label('pb') : null, txPb = PBC ? label('pb ml') : null, histLb = PBC ? Array.from({ length: MAXU + 1 }, () => label('pb')) : [];
   const EDGE = (deck.EDGES || []).find((e) => e.after === A.pool.lane) || null;
 
   /* 스텝마다의 글과 강조 — 바뀌지 않으므로 한 번 만든다. emph : 그 배우를 그 스텝이 건드렸는가 */
@@ -124,6 +150,14 @@ function make({ F, deck, labels, scene }) {
     t.set(hdHeap, [A.heap.nm, on('heap')]);
     s.heap.forEach((h, j) => t.set(heapLb[HEAPS.indexOf(h.id)], [`<span class="pb-i">${esc(h.id)}</span>\n${esc(h.sub || '')}`, on('heap') || s.heapMod.has(h.id), s.heapMod.has(h.id) ? 'gold' : '', true, true]));
     if (EDGE) t.set(edgeLb, [EDGE.lb, true, (s.step.hot || (s.step.act && s.step.act.hot)) === EDGE.hot ? 'gold' : '']);
+    if (PBC) {
+      /* look 이 키를 짚으면 그 줄만 밝힌다(kvline). 막대의 수는 그 스텝에서 바뀌었으면 금빛 */
+      const hot = Array.isArray(s.step.look && s.step.look.pbc) ? new Set(s.step.look.pbc.map(String)) : new Set(s.pbcKeys.filter((x) => x !== '분포'));
+      t.set(hdPb, [A.pbc.nm, on('pbc')]);
+      t.set(txPb, [Object.entries(s.pbc).filter(([kk, v]) => kk !== '분포' && bare(v) !== '—').map(kvLine(esc, tval, on('pbc') ? hot : null)).join('\n'), on('pbc'), '', true, true]);
+      const hc = has(s.pbcKeys, '분포');
+      histLb.forEach((lb, u) => t.set(lb, [s.hist ? `${u}\u00a0\u00a0${fmt(s.hist[u]).padStart(5, '\u00a0')}` : '', on('pbc'), hc && s.hist ? 'gold' : '', !!s.hist]));
+    }
     return t;
   });
 
@@ -152,13 +186,28 @@ function make({ F, deck, labels, scene }) {
     G = { L, y0, C, Rr, sw, sh, ang, slots, pips, pipS, pipG, heaps, pw, ph, edgeY };
     /* 이름표 자리 */
     place(hdBe, L.x0, y0); place(txBe, L.x0, y0 + 16); wrap(txBe, C.x - 70 - L.x0);
+    /* 재는 동안 넣은 글은 되돌린다 — 모든 스텝의 글로 높이를 잰다 */
+    const tallest = (lb, html = false) => { const keep = lb.el.innerHTML, h = Math.max(...TX.map((t) => { const x = t.get(lb)[0]; if (html) lb.el.innerHTML = x; else lb.el.textContent = x; return lb.el.getBoundingClientRect().height; })); lb.el.innerHTML = keep; return h; };
     place(hdBgw, L.x1, y0, 'r'); place(txBgw, L.x1, y0 + 16, 'r');
     wrap(txBgw, Math.min(180, L.x1 - (C.x + 70)));
     /* 매핑 표(또는 끝의 vs InnoDB)는 왼쪽, 왼쪽 두 칸 사이의 띠에 — 왼쪽 칸 이름의 가장 넓은 폭(모든 스텝의 글로 잰다) 앞에서 멈춘다 */
     /* 재는 동안 넣은 글은 되돌린다(다시 짤 때 다음 paint 전까지 다른 스텝의 글이 남지 않게) */
     const slotW = slotLb.map((lb) => { const keep = lb.el.innerHTML, w = Math.max(...TX.map((t) => { lb.el.innerHTML = t.get(lb)[0]; return lb.el.getBoundingClientRect().width; })); lb.el.innerHTML = keep; return w; });
     const left = Math.min(...slots.map((s, i) => (Math.cos(ang(i)) < -0.1 ? s.x - Math.max(sw, slotW[i]) / 2 : Infinity)));
-    const mx = L.x0, mw = left - 14 - mx, my = C.y - 64;
+    const mx = L.x0, mw = left - 14 - mx;
+    /* 잰 값 — BACKEND 의 글 아래. 매핑 표는 그 아래로 밀린다 */
+    let my = C.y - 64;
+    if (PBC) {
+      const py = y0 + 16 + tallest(txBe) + 14;
+      place(hdPb, mx, py); place(txPb, mx, py + 16); wrap(txPb, mw);
+      const kvH = tallest(txPb, true), hy = py + 16 + kvH + 6;
+      const rh = Math.ceil(histLb[0].el.getBoundingClientRect().height || 14) + 1;
+      const keep = histLb[0].el.textContent; histLb[0].el.textContent = `${MAXU}\u00a0\u00a0${'0'.padStart(5, '\u00a0')}`;
+      const lw = Math.ceil(histLb[0].el.getBoundingClientRect().width); histLb[0].el.textContent = keep;
+      histLb.forEach((lb, u) => place(lb, mx, hy + u * rh));
+      G.hist = { x: mx + lw + 10, w: Math.max(30, mw - lw - 10), y: hy, rh, bh: 6 };
+      my = Math.max(my, hy + (MAXU + 1) * rh + 16);
+    }
     place(hdMap, mx, my);
     rowMap.forEach((lb, i) => place(lb, mx, my + 18 + i * 15));
     place(qMap, mx, my + 18 + NB * 15 + 6); wrap(qMap, mw);
@@ -264,6 +313,22 @@ function make({ F, deck, labels, scene }) {
         put(o, i, x, y, (lk ? 0.95 : s.touch.has('heap') ? 0.7 : 0.45) * dim * form * ing, lk ? 0.7 : 0, 0.05, 1.05, lk ? GOLD : INK);
       }
     });
+    /* 잰 분포 — usage 0 ‥ 5 의 막대. 그 스텝에서 바뀌었으면 앞 분포에서 뒤 분포로(0.24 – 0.4) */
+    if (PBC && G.hist) {
+      const { x: hx, w: hw, y: hy, rh, bh } = G.hist, cur = s.hist, was = kk > 0 ? S[kk - 1].hist : HIST0;
+      const ch = !end && has(s.pbcKeys, '분포'), q = ch ? show(p, 0.24, 0.4) : 1, total = parseInt(bare(s.pbc['칸']).replace(/,/g, ''), 10) || 1;
+      const emph = s.touch.has('pbc') ? 0.92 : 0.45;
+      for (let u = 0; u <= MAXU; u++) {
+        const [b0] = R['hist:' + u], n1 = cur ? cur[u] : 0, n0 = ch && was ? was[u] : n1;
+        const n = U.lerp(n0, n1, q), len = n > 0 ? Math.max(2, hw * n / total) : 0, cy = hy + u * rh + rh / 2;
+        const vis = cur ? (ch && !was ? q : 1) : 0;
+        for (let m = 0; m < HB; m++) {
+          const i = b0 + m, col = Math.floor(m / 2), cols = HB / 2;
+          const [x, y] = into(i, hx + (col + 0.5) / cols * len, cy + ((m % 2) - 0.5) * (bh / 2));
+          put(o, i, x, y, len > 0 ? 0.9 * emph * dim * form * vis : 0, ch ? 0.5 : 0, 0.02, 1.05, ch ? GOLD : INK);
+        }
+      }
+    }
     /* act — 덩어리가 f 에서 t 로. 도착(0.42) 뒤 0.52 까지 흩어진다 */
     const [t0, t1] = R.tok, tn = t1 - t0;
     if (act) {

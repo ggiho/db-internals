@@ -24,6 +24,8 @@ const ACTORS = {
   ring: { nm:'RING (BULKREAD)',  lane:'mem',  kind:'list' },
   heap: { nm:'HEAP FILE',        lane:'disk', kind:'list' },
   cmp:  { nm:'vs INNODB',        lane:'disk', kind:'kv' },
+  /* 진짜 서버(PG 18.6 · shared_buffers 16MB)에서 잰 값 — 그림의 여섯 칸과 따로, 2,048 칸 전체를 본다 */
+  pbc:  { nm:'PG_BUFFERCACHE  ·  잰 값', lane:'mem', kind:'kv' },
 };
 const EDGES = [
   /* 버퍼를 비우려면 먼저 써야 한다 — 쓰는 쪽이 누구냐가 01 장면의 요점이다 */

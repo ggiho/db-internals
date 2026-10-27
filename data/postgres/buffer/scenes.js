@@ -3,12 +3,23 @@
    그림의 버퍼는 여섯 칸, 링은 네 칸으로 줄였다. 칸 수 말고는 소스의 규칙 그대로다.
    list 항목의 u(usage_count) · pin(참조 수)은 세계가 읽는다 — sub 의 글과 같아야 한다(세계가 맞춰 본다). */
 const SCENES = [
+/* 잰 값(PG 18.6, 이 빌드, --data-checksums) — shared_buffers 16MB = 2,048 칸, autovacuum off. t (id int, pad text) 340 행 = 10 블록(블록마다 34 행),
+   f (id int, pad text) fillfactor 10 · 600 B 행 8,000 개 = 8,000 블록(블록마다 1 행). 블록 하나를 읽는 데는 TID 조회 · TID range scan 을 썼다 —
+   TID range scan 은 SO_ALLOW_STRAT 이 없어 큰 테이블에서도 링 없이 보통 할당이다. 분포는 pg_buffercache_usage_counts() 의 줄.
+   재시작 직후 : used 116 · unused 1,932, 분포 0:1911 1:47 2:14 3:6 4:5 5:65.
+   (3,1) 을 여섯 번 : buf 150 의 usagecount 1 · 2 · 3 · 4 · 5 · 5. (4,1) 한 번 : buf 170 usage 1. 그 뒤 unused 1,878, 분포 0:1878 1:49 2:23 3:9 4:10 5:79.
+   f 를 블록 0 부터 하나씩 : 블록 1856 에서 unused 1 → 0. 그때 분포 0:0 1:1909 2:28 3:12 4:13 5:86 — usage 0 인 칸이 없다.
+   블록 1857 하나에 usage ≥ 1 인 칸 2,048 → 139, 분포 0:1909 1:29 2:11 3:51 4:48 5:0 · blk 3 은 4, blk 4 는 0.
+   blk 3 : 1894 에 3 · 3781 에 2 · 3839 에 1 · 5738 에 0 · 5882 에 나감. blk 4 : 1897 에 나감. 끝 분포 0:1903 1:145 2:0 3:0 4:0 5:0.
+   bgwriter_lru_maxpages 0 + reload, f 블록 0 ‥ 299 를 UPDATE(dirty 302), pg_stat_reset_shared('io' · 'bgwriter') 뒤 f 11,400 블록을 읽자
+   pg_stat_io client backend · normal 의 writes 302 · evictions 11,368, background writer 0, pg_stat_bgwriter buffers_clean 0 · buffers_alloc 11,348, dirty 0.
+   로그 : ~/.cache/dbi/measure/buf/buffer-01.txt (본 측정 = sql/buffer-01-run.sql) */
 {
   num:'01', tab:'Clock Sweep', title:'Buffer Replacement: The Clock-Sweep Algorithm',
   sub:'LRU 리스트 없음 — 버퍼마다 usage_count 하나, clock hand 가 그것을 decrement 하며 돈다',
-  cast:['be','bgw','map','pool','heap','cmp'],
+  cast:['be','bgw','map','pool','heap','cmp','pbc'],
   knobs:[
-    ['shared_buffers','128MB','버퍼 칸 수 — 기본 16384 칸 × 8KB'],
+    ['shared_buffers','128MB','버퍼 칸 수 — 기본 16384 칸 × 8KB (잰 서버는 16MB = 2,048 칸)'],
     ['bgwriter_delay','200ms','bgwriter 가 깨어나는 주기'],
     ['bgwriter_lru_maxpages','100','한 주기에 쓰는 최대 버퍼 수 — 0 이면 bgwriter 가 쓰지 않는다'] ],
   watch:[
@@ -32,11 +43,12 @@ const SCENES = [
       { id:'p:26', tag:'clean', sub:'옛 내용' },
       { id:'p:42', tag:'clean', sub:'아직 안 읽음' } ] },
     cmp:{ kv:{ 'InnoDB':'—', 'PG':'—' } },
+    pbc:{ kv:{ '칸':'2,048  (16MB)', '한 일':'재시작', '본 것':'used 116  ·  unused 1,932', 'blk 4':'—', 'blk 3':'—', '분포':'0:1911 1:47 2:14 3:6 4:5 5:65' } },
   },
   steps:[
   { act:{ f:'be', t:'map', lb:'(t, 3) 찾기' },
     note:'buffer hit — pin 을 걸고 usage_count +1',
-    why:'매핑 표(공유 해시)가 (릴레이션, 블록) 을 버퍼 번호로 바꾼다. 찾으면 PinBuffer 가 참조 수와 함께 usage_count 를 올린다 — 주석 : 기본의 경우, 이미 최대가 아니면 usagecount 를 올린다. 최대는 5 다.',
+    why:'매핑 표(공유 해시)가 (릴레이션, 블록) 을 버퍼 번호로 바꾼다. 찾으면 PinBuffer 가 참조 수와 함께 usage_count 를 올린다 — 주석 : 기본의 경우, 이미 최대가 아니면 usagecount 를 올린다. 최대는 5 다. 잰 값: t 의 (3,1) 을 여섯 번 읽자 그 버퍼(buf 150)의 usagecount 가 1 → 2 → 3 → 4 → 5 → 5 — 다섯에서 멈췄다.',
     key:'버퍼 하나에 <em>숫자 하나</em>가 인기의 전부다. InnoDB 처럼 목록 안의 자리를 옮기지 않으므로, 읽을 때 목록 락이 없다.',
     ref:'src/backend/storage/buffer/bufmgr.c', sym:'PinBuffer',
     fact:['/* Default case: increase usagecount unless already max. */',
@@ -44,11 +56,12 @@ const SCENES = [
           ['src/include/storage/buf_internals.h','#define BM_MAX_USAGE_COUNT	5']],
     ops:{ be:{ set:{ '요청':'p:3' } },
           map:{ set:{ '찾는 것':'(t, 3)', '결과':'buf 0 — 있다' } },
-          pool:{ set:{ 'buf 0':{ tag:'pin', sub:'p:3  ·  usage 3 → 4  ·  핀 1' } } } } },
+          pool:{ set:{ 'buf 0':{ tag:'pin', sub:'p:3  ·  usage 3 → 4  ·  핀 1' } } },
+          pbc:{ set:{ '한 일':'(3,1) × 6  ·  (4,1) × 1', '본 것':'blk 3 (buf 150)  usage 1 → 2 → 3 → 4 → 5 → 5|gold', '분포':'0:1878 1:49 2:23 3:9 4:10 5:79' } } } },
 
   { act:{ f:'be', t:'map', lb:'(t, 42) 찾기' },
     note:'p:42 miss — victim 이 필요한데 freelist 는 비어 있다',
-    why:'매핑에 없으면 버퍼 하나를 비워 담아야 한다. StrategyGetBuffer 는 먼저 freelist 를 보는데, 이 목록은 서버를 띄울 때 모든 버퍼로 차고, 그 뒤로는 릴레이션을 지우거나 비워 버퍼가 무효가 될 때와, 같은 블록을 두 백엔드가 동시에 올리다 진 쪽이 victim 을 돌려놓을 때(04 장면)만 다시 찬다. 여기는 비어 있으므로 시계 알고리즘(clock sweep)으로 간다.',
+    why:'매핑에 없으면 버퍼 하나를 비워 담아야 한다. StrategyGetBuffer 는 먼저 freelist 를 보는데, 이 목록은 서버를 띄울 때 모든 버퍼로 차고, 그 뒤로는 릴레이션을 지우거나 비워 버퍼가 무효가 될 때와, 같은 블록을 두 백엔드가 동시에 올리다 진 쪽이 victim 을 돌려놓을 때(04 장면)만 다시 찬다. 여기는 비어 있으므로 시계 알고리즘(clock sweep)으로 간다. 잰 값: 재시작 직후 2,048 칸 중 1,932 칸이 unused 였고, f 를 한 블록씩 읽자 1,857 블록째에 0 이 되었다 — 그때 usage 0 인 칸은 하나도 없었다.',
     key:'평소의 PG 는 <em>늘 시계로 고른다</em>. InnoDB 의 free list 는 LRU 꼬리를 미리 비워 채워 두는 목록이지만(mysql/innodb 06), PG 의 freelist 는 거의 늘 비어 있다.',
     ref:'src/backend/storage/buffer/freelist.c', sym:'StrategyGetBuffer',
     fact:['/* Nothing on the freelist, so run the "clock sweep" algorithm */',
@@ -57,17 +70,19 @@ const SCENES = [
     ops:{ be:{ set:{ '요청':'p:42', '단계':'빈 버퍼 찾기' } },
           /* 1 스텝의 p:3 은 다 읽었으니 핀을 놓는다 — usage 는 4 로 남는다 */
           pool:{ set:{ 'buf 0':{ tag:'clean', sub:'p:3  ·  usage 4' } } },
-          map:{ set:{ '찾는 것':'(t, 42)', '결과':'없다' } } } },
+          map:{ set:{ '찾는 것':'(t, 42)', '결과':'없다' } },
+          pbc:{ set:{ '한 일':'f 를 한 블록씩 1,857 개', '본 것':'unused 1,878 → 0  ·  usage 0 인 칸 0|gold', '분포':'0:0 1:1909 2:28 3:12 4:13 5:86' } } } },
 
   { act:{ f:'be', t:'pool', lb:'바늘 → buf 1' },
     note:'clock hand → buf 1 — usage_count 2, decrement 후 통과',
-    why:'ClockSweepTick 이 공유 바늘을 한 칸 옮긴다. 핀이 없고 usage_count 가 0 이 아니면 하나 깎고 다음으로 간다 — 주석 : 핀이 걸렸거나 usage_count 가 0 이 아니면 쓸 수 없다.',
+    why:'ClockSweepTick 이 공유 바늘을 한 칸 옮긴다. 핀이 없고 usage_count 가 0 이 아니면 하나 깎고 다음으로 간다 — 주석 : 핀이 걸렸거나 usage_count 가 0 이 아니면 쓸 수 없다. 잰 값: freelist 가 빈 뒤 f 블록 하나를 더 읽자 usage ≥ 1 인 칸이 2,048 → 139 — 0 인 칸이 없어 바늘이 한 바퀴를 다 돌며 모두를 깎았다. 분포가 통째로 한 칸 왼쪽으로 밀린다(1 의 1,909 칸이 0 으로).',
     key:'<em>깎는 것</em>이 늙어 가는 방식이다. 자주 쓰는 페이지는 바늘이 돌아오기 전에 다시 올라가므로 살아남는다 — 최대 5 바퀴를 버틴다.',
     ref:'src/backend/storage/buffer/freelist.c', sym:'StrategyGetBuffer',
     fact:['local_buf_state -= BUF_USAGECOUNT_ONE;',
           'If the buffer is pinned or has a nonzero usage_count, we cannot use'],
     ops:{ pool:{ set:{ 'buf 1':{ sub:'p:8  ·  usage 2 → 1' } } },
-          be:{ set:{ '바늘':'buf 1 → buf 2' } } } },
+          be:{ set:{ '바늘':'buf 1 → buf 2' } },
+          pbc:{ set:{ '한 일':'f 블록 하나 더 (1857)', '본 것':'usage ≥ 1 인 칸 2,048 → 139|gold', '분포':'0:1909 1:29 2:11 3:51 4:48 5:0' } } } },
 
   { look:{ pool:true, be:true },
     note:'buf 2 는 pinned — decrement 없이 skip',
@@ -80,7 +95,7 @@ const SCENES = [
 
   { act:{ f:'pool', t:'heap', lb:'buf 3 (p:17) 쓰기', hot:'io' },
     note:'buf 3 = usage 0, victim 선정 — 그러나 dirty, backend 가 직접 flush 해야 한다',
-    why:'GetVictimBuffer : 고른 버퍼가 dirty 면 먼저 쓴다. FlushBuffer 는 그 페이지 LSN 까지 WAL 을 먼저 flush 한 뒤 파일에 쓴다(wal 04 의 기본 규칙). 이 쓰기는 질의를 돌리던 백엔드가 한다.',
+    why:'GetVictimBuffer : 고른 버퍼가 dirty 면 먼저 쓴다. FlushBuffer 는 그 페이지 LSN 까지 WAL 을 먼저 flush 한 뒤 파일에 쓴다(wal 04 의 기본 규칙). 이 쓰기는 질의를 돌리던 백엔드가 한다. 잰 값: bgwriter_lru_maxpages 0 으로 bgwriter 를 멈추고 f 의 300 블록을 고쳐(dirty 302 칸) 11,400 블록을 읽자, pg_stat_io 의 client backend 가 writes 302 · evictions 11,368 이었고 bgwriter 는 0 — dirty 칸은 모두 읽던 백엔드가 썼다.',
     key:'빈 자리를 찾던 <em>질의가 쓰기를 떠안는다</em>. InnoDB 에서 사용자 스레드가 LRU 꼬리의 dirty page 를 직접 flush 하는 것과 같은 모양이다(mysql/innodb 06).',
     ref:'src/backend/storage/buffer/bufmgr.c', sym:'GetVictimBuffer',
     fact:['If the buffer was dirty, try to write it out.  There is a race',
@@ -89,7 +104,8 @@ const SCENES = [
     ops:{ pool:{ set:{ 'buf 3':{ tag:'clean', sub:'p:17  ·  방금 씀  ·  usage 0' } } },
           heap:{ set:{ 'p:17':{ sub:'백엔드가 방금 씀' } } },
           /* ClockSweepTick 은 fetch_add — buf 3 을 돌려줄 때 바늘은 이미 buf 4 다 */
-          be:{ set:{ '단계':'p:17 을 쓰는 동안 대기|gold', '바늘':'buf 3 → buf 4' } } } },
+          be:{ set:{ '단계':'p:17 을 쓰는 동안 대기|gold', '바늘':'buf 3 → buf 4' } },
+          pbc:{ set:{ '한 일':'bgwriter 멈춤 (lru_maxpages 0)  ·  11,400 블록 읽기', '본 것':'dirty 302 → 0  ·  client backend writes 302  ·  bgwriter 0|gold', '분포':'—' } } } },
 
   { act:{ f:'heap', t:'pool', lb:'p:42 읽기' },
     note:'buffer mapping 교체(p:17 → p:42) — p:42 를 읽어 buf 3 에',
@@ -102,6 +118,17 @@ const SCENES = [
           /* 읽었으니 '아직 안 읽음' 이 아니다 — 그대로 두었더니 9 스텝 끝까지 그렇게 남았다 */
           heap:{ set:{ 'p:42':{ sub:'buf 3 으로 읽힘' } } },
           be:{ set:{ '단계':'p:42 읽음' } } } },
+
+  { look:{ pbc:['blk 4','blk 3'] },
+    note:'잰 값 — usage 1 은 바늘 두 번째에, usage 5 는 여섯 번째에 나간다',
+    why:'t 의 블록 3 을 여섯 번(usage 5), 블록 4 를 한 번(usage 1) 읽은 뒤 f 를 한 블록씩 읽으며 둘을 지켜봤다. 잰 값: 바늘이 처음 지난 f 블록 1857 에서 blk 3 은 5 → 4, blk 4 는 1 → 0 이 되었고, 다음에 바늘이 닿은 1897 에서 blk 4 가 victim 으로 나갔다. blk 3 은 1894 · 3781 · 3839 · 5738 에 하나씩 깎여 0 이 된 뒤 5882 에서 나갔다. 다시 읽히지 않는 한, 한 번 지날 때 하나씩이다.',
+    key:'usage_count N 은 <em>바늘을 N 번 버틴다</em>는 뜻이다 — N 번 깎이고 N + 1 번째에 나간다. 상한이 5 라, 아무리 자주 쓴 페이지도 쓰이지 않으면 바늘 여섯 번 안에 나간다.',
+    ref:'src/backend/storage/buffer/freelist.c', sym:'StrategyGetBuffer',
+    fact:['local_buf_state -= BUF_USAGECOUNT_ONE;',
+          ['src/include/storage/buf_internals.h','#define BM_MAX_USAGE_COUNT	5']],
+    beat:1,
+    ops:{ pbc:{ set:{ '한 일':'f 를 계속 한 블록씩 (f 블록 번호)', '본 것':'—',
+                      'blk 4':'1 → 0 (1857) → 나감 (1897)', 'blk 3':'5 → 4 → 3 → 2 → 1 → 0 → 나감 (5882)|gold', '분포':'0:1903 1:145 2:0 3:0 4:0 5:0' } } } },
 
   { act:{ f:'bgw', t:'heap', lb:'바늘 앞 dirty 쓰기', hot:'io' },
     note:'bgwriter — clock hand 앞에서 dirty buffer 를 미리 write',
