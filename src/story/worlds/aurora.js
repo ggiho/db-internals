@@ -10,7 +10,8 @@
      · 항목 id 에 'commit LSN N' 이 있는 list = 커밋 대기열
      · compute 의 나머지 list = 네트워크 쓰기. 항목마다 record 줄기가 경계를 건넌다. 설명의 'A → B → …' 는 목적지 —
        끝 마디가 수사로 시작하면(여섯 storage 노드) PG 의 노드가 그만큼, 아니면 이름 붙은 사슬(EBS → 미러 → standby → 미러)
-     · storage 의 list 중 id 가 단계 번호로 시작하는 것(1 받기 · 2 쓰고 ack · 5 ~ 8 배경) = storage 노드의 단계 칸, 번호 없는 항목은 page
+     · storage 의 list 중 id 가 단계 번호로 시작하는 것(1 받기 · 2 쓰고 ack · 5 ~ 8 배경) = storage 노드의 단계 칸(칸 위에 번호 1 ‥ N), 번호 없는 항목은 page.
+       act 가 그 list 로 오면 PG 노드가 있는 장면(06)은 노드로, 없는 장면(02)은 1 단계 칸으로 내린다
      · 나머지 storage list = 클러스터 볼륨 : id 가 AZ-x 면 AZ 칸과 복사본(05 와 같은 모양), LSN 자가 있는 장면이면 자에 맞춘 log 띠
        (설명의 '‥ N 빠짐없이' · '‥ M durable'), 아니면 볼륨 판 하나(설명에 'N 중 M' 이 있으면 세그먼트 N 개 중 M 개를 밝힌다).
        tag x 인 항목은 잘라낸 구간 — 'A ‥ B' 의 두 끝 이름을 눈금에 적는다
@@ -562,6 +563,8 @@ function makeLanes(F, deck, labels, sc, st, R) {
   const ioHd = R.IO ? label('') : null, ioLb = Object.fromEntries(idsOf(R.IO).map((id) => [id, label('ml aq-b')]));
   const destLb = Array.from({ length: DESTMAX }, () => label('aq-c')), pgCap = R.IO ? label('') : null;
   const snHd = R.SN ? label('') : null, snLb = Object.fromEntries(SNIDS.map((id) => [id, label('ml aq-b')]));
+  /* 단계 칸의 번호 — 칸 위에 1 ‥ N. 아직 아무 항목도 맡지 않은 칸도 번호가 있어 단계가 몇인지 처음부터 보인다 */
+  const snNum = R.SN ? Array.from({ length: NCELLS }, () => label('aq-c')) : [];
   const cqHd = R.CQ ? label('') : null, cqN = Object.fromEntries(CQIDS.map((id) => [id, label('ml aq-c')])), cqS = Object.fromEntries(CQIDS.map((id) => [id, label('ml aq-b')]));
   const cplLb = Array.from({ length: CPLMAX }, () => label('aq-c')), mkLb = R.LSNK ? { vcl: label('aq-c'), vdl: label('aq-c'), cmt: label('aq-c') } : null, lalLb = R.LSNK ? label('') : null;
   const barT = Array.from({ length: BMAX }, () => label('')), barL = Array.from({ length: BMAX * 2 }, () => label(''));
@@ -605,6 +608,7 @@ function makeLanes(F, deck, labels, sc, st, R) {
     }
     if (R.SN) {
       t.set(snHd, [A[R.SN].nm, on(s, R.SN)]);
+      snNum.forEach((lb, j) => t.set(lb, [String(j + 1), on(s, R.SN) && s[R.SN].some((x) => stagesOf(x.id).includes(j + 1))]));
       for (const id of SNIDS) { const it = s[R.SN].find((x) => x.id === id); t.set(snLb[id], [it ? ioHtml(it) : '', on(s, R.SN) && !!it && hotIt(s, R.SN, id), '', !!it, true]); }
     }
     if (R.CQ) {
@@ -732,7 +736,7 @@ function makeLanes(F, deck, labels, sc, st, R) {
       if (VOLMODE === 'slab') { out.slabY = y; out.slabH = Math.max(20, g(34)); y += out.slabH + 8; out.volY = y; y += volH; if (RANGE) { y += g(14); out.rgY = y; y += LH + 9; out.stripY = y; y += 12 + 6; out.rgLbY = y; y += rgH; } }
       if (VOLMODE === 'log') { out.slogY = y; y += 16 + 8; out.volY = y; y += volH; }
       if (R.IO && DESTMAX) { out.nodeY = y; out.nodeH = Math.max(16, g(24)); y += out.nodeH + 4; out.destLbY = y; y += LH + g(10); }
-      if (R.SN) { out.snHdY = y; y += LH + 2; out.pipeY = y; out.pipeH = Math.max(12, g(18)); y += out.pipeH + 6; out.snY = y; y += snRows * snRowH; }
+      if (R.SN) { if (!(R.IO && DESTMAX)) y += g(14); out.snHdY = y; y += LH + 2; out.numY = y; y += LH; out.pipeY = y; out.pipeH = Math.max(12, g(18)); y += out.pipeH + 6; out.snY = y; y += snRows * snRowH; }
       if (nTx) { y += g(18); out.txY = y; y += txRows * (HD + Math.max(txH, BARS ? BMAX * (LH + 2 * (LH + 4)) : 0)); }
       out.h = y;
       return out;
@@ -843,6 +847,7 @@ function makeLanes(F, deck, labels, sc, st, R) {
     /* storage 단계 */
     if (R.SN) {
       PA(snHd, L.x0, Y(Ly.snHdY));
+      snNum.forEach((lb, j) => PA(lb, L.x0 + (j + 0.5) * pcw, Y(Ly.numY), 'c', 't'));
       G.pipe = { y: Y(Ly.pipeY), h: Ly.pipeH };
       G.snSpan = snSpan;
       S.forEach((s, kk) => { for (const q of snLay[kk].out) PK(kk, snLb[q.id], q.l, Y(Ly.snY) + q.row * snRowH); });
@@ -885,6 +890,8 @@ function makeLanes(F, deck, labels, sc, st, R) {
     }
     if (a === R.IO && G.io) { const xs = Object.values(G.ioX(s)); return [[xs.length ? xs[0] : G.L.x0 + G.ww / 2, (G.io.y0 + G.edgeY) / 2]]; }
     if (a === R.SN && G.node) return [[G.L.x0 + G.ww / 2, G.node.y + G.node.h / 2]];
+    /* PG 노드가 없는 장면(02) — record 는 1 단계 칸(받기)에 내린다 */
+    if (a === R.SN && G.pipe) return [[G.L.x0 + G.pcw / 2, G.pipe.y + G.pipe.h / 2]];
     if (a === R.CQ && G.cq) return [[G.cq.x + 40, G.cq.y + G.cq.h / 2]];
     return [[G.L.x0 + G.ww / 2, G.L.y0 + 20]];
   }

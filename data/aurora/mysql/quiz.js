@@ -1,6 +1,21 @@
 /* 핵심 문항 — beat 스텝의 요점. 형식과 원칙은 postgres/mvcc/quiz.js 머리말. */
 export const CORE = {
   '02/3': {
+    q: '논문이 Aurora 인스턴스에서 storage 서비스로 내려 보냈다고 적는 기능은?',
+    a: 'redo 쓰기 · durable 저장 · crash recovery · 백업',
+    x: ['query processor · 트랜잭션 · 락 · buffer cache', 'undo 관리 · MVCC 읽기 뷰 · 락 대기', 'SQL 파싱 · 옵티마이저 · access method'],
+  },
+  '02/4': {
+    q: 'Aurora 프라이머리가 storage 서비스로 보내는 쓰기는?',
+    a: 'redo log 레코드만 — storage 노드가 큐에 받고 디스크에 남긴 뒤 ack',
+    x: ['고친 data page 와 그 doublewrite 사본', 'redo 와 함께 checkpoint 때 고친 page 를 묶어서', 'binlog 이벤트 — storage 가 replay 해 page 를 만든다'],
+  },
+  '02/6': {
+    q: 'InnoDB 가 크래시 뒤 시작할 때 몰아서 하던 redo 적용을 Aurora 에서는 누가 언제 하나?',
+    a: 'storage 노드가 평소에 계속 — log 를 새 data page 로 합친다',
+    x: ['인스턴스가 재시작할 때 — 볼륨에서 redo 를 읽어 적용한다', '리더 인스턴스가 페일오버 직전에', 'S3 백업에서 복원할 때에만'],
+  },
+  '02/8': {
     q: 'Aurora 클러스터에 리더 인스턴스를 하나 더 붙이면 데이터는?',
     a: '복사하지 않는다 — 공유 볼륨에 연결만 한다',
     x: ['snapshot 에서 새 볼륨으로 복사한다', 'binlog 로 처음부터 따라잡는다', '프라이머리의 buffer pool 을 복제해 받는다'],
