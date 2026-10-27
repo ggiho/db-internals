@@ -15,7 +15,17 @@ export const CORE = {
     a: 'row is too big — 정렬한 8,168 B 가 상한 8,160 B 를 넘는다',
     x: ['들어간다 — 남는 바이트는 다음 페이지로 이어 쓴다', 'TOAST 가 값을 밖으로 옮기고 들어간다', '들어간다 — 8,161 B 는 페이지 8,192 B 보다 작다'],
   },
-  '02/4': {
+  '02/2': {
+    q: '60 B 튜플 하나가 든 페이지(lower 28 · upper 8128)에 100 B 튜플을 넣으면?',
+    a: 'lower 32 · upper 8024 — line pointer 4 와 MAXALIGN(100) = 104',
+    x: ['lower 32 · upper 8028 — 튜플 길이 100 그대로', 'lower 28 · upper 8024 — line pointer 는 헤더 안에 있다', 'lower 132 · upper 8128 — 튜플이 앞쪽부터 쌓인다'],
+  },
+  '02/6': {
+    q: 'DELETE 뒤 VACUUM 을 마친 heap 페이지의 pd_flags 4 는 무엇인가?',
+    a: 'PD_ALL_VISIBLE — 남은 튜플이 모두에게 보인다는 힌트',
+    x: ['PD_PAGE_FULL — 더 넣을 자리가 없다는 힌트', 'PD_HAS_FREE_LINES — 다시 쓸 line pointer 가 있다는 힌트', '체크섬이 맞았다는 표시'],
+  },
+  '02/8': {
     q: '페이지 헤더 크기 24 는 코드에 어떻게 정해져 있나?',
     a: 'offsetof(PageHeaderData, pd_linp) 로 계산된다',
     x: ['#define SizeOfPageHeaderData 24 로 적은 리터럴', 'configure 가 빌드 때 적어 넣는다', 'pg_control 에 저장해 두고 읽는다'],

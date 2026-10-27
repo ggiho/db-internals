@@ -7,8 +7,9 @@
      · FSM(fsm, 항목의 sub 가 숫자일 때) = 잎의 범주 위에 최댓값 트리(부모 = 두 자식의 최댓값, 세계가 셈한다).
        kv 의 '찾는 범주' 가 있으면 루트에서 그 값 이상인 자식으로 내려가는 길
      · 나머지 kv 는 글 블록, 나머지 list 는 칸 줄
-     · 셈 맞추기 — 영역이 겹치거나 0 ‥ 8192 밖이거나, 헤더가 [0, 24) 가 아니거나, kv 의 pd_lower · pd_upper 가
-       영역과 다르거나, 트리의 잎이 숫자가 아니면 console.error 로 알린다(storysweep 의 errors 가 잡는다)
+     · 셈 맞추기 — 영역이 겹치거나 0 ‥ 8192 밖이거나, 헤더가 [0, 24) 가 아니거나, kv 의 pd_lower · pd_upper 나
+       헤더 띠 칸(pd_lower · pd_upper · pd_special)의 sub '오프셋 · 값' 이 영역과 다르거나, 트리의 잎이 숫자가 아니면
+       console.error 로 알린다(storysweep 의 errors 가 잡는다)
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
 import { kvLine } from './kvline.js';
@@ -112,6 +113,11 @@ function make({ F, deck, labels, scene }) {
       for (const a of TEXTS) for (const [key, want] of [['pd_lower', bd.lower], ['pd_upper', bd.upper]]) {
         const v = nums(s[a][key])[0];
         if (v != null && s[a][key] !== '—' && v !== want) console.error(`${at} 의 ${a}.${key} ${v} 가 영역으로 셈한 ${want} 와 다르다`);
+      }
+      /* 헤더 띠(02)의 sub 은 '오프셋 · 값' — 값이 적혀 있으면 영역으로 셈한 경계와 같아야 한다 */
+      for (const a of STRIPS) for (const [id, want] of [['pd_lower', bd.lower], ['pd_upper', bd.upper], ['pd_special', bd.special]]) {
+        const it = s[a].find((x) => x.id === id), v = it ? nums(it.sub) : [];
+        if (v.length > 1 && v[1] !== want) console.error(`${at} 의 ${a}.${id} ${v[1]} 가 영역으로 셈한 ${want} 와 다르다`);
       }
       if (bd.lower > bd.upper) console.error(`${at} 의 pd_lower ${bd.lower} 가 pd_upper ${bd.upper} 를 넘었다`);
     }
