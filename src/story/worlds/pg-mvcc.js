@@ -18,6 +18,8 @@
    손잡이가 있는 장면(08 transaction_isolation)은 값마다 따로 bake 해 두고 setVary 로 바꾼다.
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
+import { kvLine } from './kvline.js';
+import { dockAt } from './dock.js';
 import { bake, stepsOf, valuesOf } from '../../bake.js';
 import { stagger } from './stagger.js';
 
@@ -232,7 +234,7 @@ function make({ F, deck, labels, scene }) {
   const focusOf = (s, a) => (Array.isArray(s.look[a]) ? new Set(s.look[a].map(String)) : null);
   const modOf = (s, a) => { const c = s.chg[a]; return new Set(c ? [...(c.mod || []), ...(c.add || []), ...(c.keys || [])].map(String) : []); };
   const hotIt = (s, a, id) => { const f = focusOf(s, a); if (f) return f.has(id); const m = modOf(s, a); return m.size ? m.has(id) : true; };
-  const kvHtml = (kv, skip = []) => Object.entries(kv).filter(([k]) => !skip.includes(k)).map(([k, v]) => `${esc(k)}  <span class="q-v">${val(v)}</span>`).join('\n');
+  const kvHtml = (kv, skip = [], hot) => Object.entries(kv).filter(([k]) => !skip.includes(k)).map(kvLine(esc, val, hot)).join('\n');
   /* 튜플 칸 안의 글 — 이름, 헤더의 xmin · xmax, 헤더 비트(hb) */
   const tupText = (t) => {
     const ln = [`<span class="q-i">${esc(t.id)}</span>`];
@@ -245,7 +247,7 @@ function make({ F, deck, labels, scene }) {
     const t = new Map(), on = (a) => s.touch.has(a), pv = i ? S[i - 1] : S0;
     /* 헤더 띠의 이름에 누구의 헤더인지('튜플' 키)를 붙인다 */
     for (const a of cast) t.set(hd[a], [A[a].nm + (a === HDRA ? (s[a]['튜플'] ? `  ·  튜플 ${bare(s[a]['튜플'])}` : '') + '  ·  23 B' : a === VM ? '  ·  V = ALL_VISIBLE  ·  F = ALL_FROZEN' : ''), on(a)]);
-    for (const a of TEXTS) t.set(tx[a], [kvHtml(s[a]), on(a), '', true, true]);
+    for (const a of TEXTS) t.set(tx[a], [kvHtml(s[a], [], focusOf(s, a)), on(a), '', true, true]);
     if (HDRA) {
       const mod = modOf(s, HDRA), hot = (k) => on(HDRA) && (mod.has(k) || !mod.size);
       for (const [k] of HDR) {
@@ -356,6 +358,8 @@ function make({ F, deck, labels, scene }) {
   const rnd = U.rng(17);
   const dust = new Float32Array(N * 2), jit = new Float32Array(N * 2).map(() => rnd() - 0.5);
   const RH = 15;
+  /* build 가 짠 높이 — Story 가 남는 높이만큼 세계를 더 키운다(Story.jsx rebuild) */
+  let HT = 0;
   function build(L) {
     const ww = L.x1 - L.x0, wh = L.y1 - L.y0, gap = 18, HD = 18;
     G = { L, anc: {}, slot: {} };
@@ -551,6 +555,7 @@ function make({ F, deck, labels, scene }) {
       srH = most(snapLb.rest).h; total = lay(L.y0, k, rr);
     }
     if (total > wh + 1) console.error(`pg mvcc ${sc.num} 세계 : 높이 ${Math.round(total)} 가 무대 ${Math.round(wh)} 를 넘는다 (${L.W}×${L.H})`);
+    HT = total;
     const dy = L.narrow ? 0 : Math.max(0, (wh - total) / 2);
     if (dy) lay(L.y0 + dy, k, rr);
     for (let i = 0; i < N; i++) { dust[i * 2] = L.x0 + rnd() * ww; dust[i * 2 + 1] = L.y0 + rnd() * wh; }
@@ -810,7 +815,7 @@ function make({ F, deck, labels, scene }) {
     }
     if (HDRA) { const on = S[kk].touch.has(HDRA) && !end; for (const [kf] of HDR) setO(hdrLb[kf].name, dimO * (on ? 0.8 : 0.42)); }
     const s = S[Math.min(k, NK - 1)], act = k < NK && s.step.act ? s.step.act : null;
-    const o = act ? show(p, 0.06, 0.12) * (1 - show(p, 0.44, 0.52)) * (1 - b) : 0;
+    let o = act ? show(p, 0.06, 0.12) * (1 - b) : 0;
     if (act) {
       const [fx, fy] = anchor(act.f, s, act.lb), [tx2, ty2] = anchor(act.t, s, act.lb), e = U.smooth(show(p, 0.08, 0.42));
       const arc = act.f === act.t ? 0 : Math.sin(e * Math.PI) * Math.min(50, Math.hypot(tx2 - fx, ty2 - fy) * 0.25);
@@ -818,7 +823,8 @@ function make({ F, deck, labels, scene }) {
       tok.el.className = 'wl stn-tok' + (act.gold ? ' gold' : '');
       if (!tokW) tokW = tok.el.offsetWidth;
       const x = Math.max(G.L.x0, Math.min(G.L.x1 - tokW, U.lerp(fx, tx2, e) + 14)), y = Math.max(G.L.y0, U.lerp(fy, ty2, e) - arc - (act.f === act.t ? 30 : 14));
-      tok.el.style.transform = `translate(${x}px, ${y}px)`;
+      const [qx, qy, keep] = dockAt(F, tok.el, s, p, x, y, G.L, tx2, ty2); o *= keep;
+      tok.el.style.transform = `translate(${qx}px, ${qy}px)`;
     }
     if (Math.abs(o - tokO) > 0.004) { tok.el.style.opacity = o.toFixed(3); tokO = o; }
   }
@@ -965,7 +971,7 @@ function make({ F, deck, labels, scene }) {
   }
 
   return {
-    build(L) { this.theme(); build(L); },
+    build(L) { this.theme(); build(L); return HT; },
     theme() {
       const cs = getComputedStyle(document.documentElement), v = (n) => cs.getPropertyValue(n).trim();
       css = { faint: v('--faint'), gold: v('--gold'), ink: v('--ink'), red: v('--red'), accent: v('--accent') };

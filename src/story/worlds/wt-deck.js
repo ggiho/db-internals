@@ -21,6 +21,8 @@
    다 안 들어가면 두 열로, 그래도 모자라면 촘촘하게(줄 간격 · 판 사이 · 칸 높이) 다시 짠다.
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
+import { kvLine } from './kvline.js';
+import { dockAt } from './dock.js';
 import { bake, stepsOf, valuesOf } from '../../bake.js';
 import { stagger } from './stagger.js';
 
@@ -484,7 +486,7 @@ function make({ F, deck, labels, scene }) {
   const focusOf = (s, a) => (Array.isArray(s.look[a]) ? new Set(s.look[a].map(String)) : null);
   const modOf = (s, a) => { const c = s.chg[a]; return new Set(c ? [...(c.mod || []), ...(c.add || []), ...(c.keys || [])].map(String) : []); };
   const hotIt = (s, a, id) => { const f = focusOf(s, a); if (f) return f.has(id); const m = modOf(s, a); return m.size ? m.has(id) : true; };
-  const kvHtml = (kv) => Object.entries(kv).map(([k, v]) => `${esc(k)}  <span class="q-v">${val(v)}</span>`).join('\n');
+  const kvHtml = (kv, hot) => Object.entries(kv).map(kvLine(esc, val, hot)).join('\n');
   const itHtml = (it) => `<span class="q-i">${esc(it.id)}</span>${it.sub ? '\n' + esc(it.sub) : ''}`;
   const capHtml = (its) => its.map((x) => `<span class="q-i">${esc(x.id)}</span>  ${esc(x.sub || '')}`).join('\n');
   const idsOf = (a) => [...new Set(all.flatMap((s) => (s[a] || []).map((x) => x.id)))];
@@ -530,7 +532,7 @@ function make({ F, deck, labels, scene }) {
     const hd = Object.fromEntries(TEXTS.map((a) => [a, label('aq')])), bd = Object.fromEntries(TEXTS.map((a) => [a, label('aq ml aq-b')]));
     panels.text = {
       id: 'text', rank: 1, actors: TEXTS,
-      tx(s, t) { for (const a of TEXTS) { t.set(hd[a], [cmpName(a, s), on(s, a)]); t.set(bd[a], [kvHtml(s[a]), on(s, a), '', true, true]); } },
+      tx(s, t) { for (const a of TEXTS) { t.set(hd[a], [cmpName(a, s), on(s, a)]); t.set(bd[a], [kvHtml(s[a], focusOf(s, a)), on(s, a), '', true, true]); } },
       geo(w) {
         let tn = Math.min(3, TEXTS.length);
         while (tn > 1 && (w - (tn - 1) * 18) / tn < 150) tn--;
@@ -1114,7 +1116,8 @@ function make({ F, deck, labels, scene }) {
         for (const id of ids) for (const l of LEVELS) { const r = reqs.get(id) && reqs.get(id).get(l); t.set(tok[id + '|' + l], [r ? tokTxt(id, r) : '', o && hotIt(s, a, id), r ? (r.st === 'pending' ? 'gold' : 'green') : '', !!r, true]); }
         t.set(cap, [capHtml(s[a]), o, '', true, true]);
         if (tk) {
-          const kv = s[tk], ot = on(s, tk), m = modOf(s, tk);
+          /* look 이 키를 배열로 가리키면 그 줄들 — 아니면 이 스텝에 바뀐 줄(12/2 는 ticket 이 요점인데 algorithm 만 밝았다) */
+          const kv = s[tk], ot = on(s, tk), m = focusOf(s, tk) || modOf(s, tk);
           t.set(tkHd, [A[tk].nm, ot]);
           t.set(tkAl, [`algorithm  <span class="q-v">${val(kv.algorithm)}</span>`, ot && m.has('algorithm'), '', true, true]);
           t.set(tkW, [`write  out ${bare(kv['write out'])} / total ${bare(kv['write total'])}`, ot && (m.has('write out') || m.has('write total')), tone(kv['write out']) || '', true]);
@@ -1516,6 +1519,8 @@ function make({ F, deck, labels, scene }) {
   const dust = new Float32Array(N * 2), jit = new Float32Array(N * 2).map(() => rnd() - 0.5);
   const EDGE = (deck.EDGES || []).find((e) => e.after === 'mem' && e.before === 'disk') || null;
   const edgeLb = label('aq'), tok = label('stn-tok');
+  /* build 가 짠 높이 — Story 가 남는 높이만큼 세계를 더 키운다(Story.jsx rebuild) */
+  let HT = 0;
   function build(L) {
     const W = L.x1 - L.x0, H = L.y1 - L.y0;
     const cache = new Map();
@@ -1559,6 +1564,7 @@ function make({ F, deck, labels, scene }) {
     for (const col of plan.cols) { const ps = P.slice(i0, i0 + col.n); i0 += col.n; cache.clear(); Object.assign(col, stack(ps, col.w, plan.gap)); }
     plan.h = Math.max(...plan.cols.map((c) => (c.y0 || 0) + c.h));
     if (plan.h > H + 1) console.error(`wiredtiger ${sc.num} 세계 : 높이 ${Math.round(plan.h)} 가 무대 ${Math.round(H)} 를 넘는다 (${L.W}×${L.H})`);
+    HT = plan.h;
     const dy = L.narrow ? 0 : Math.max(0, (H - plan.h) / 2);
     G = { L, edges: [] };
     for (const lb of made) place(lb, L.x0, L.y0);
@@ -1631,7 +1637,7 @@ function make({ F, deck, labels, scene }) {
     setO(edgeLb, EDGE && G.edges.length ? dimO * 0.42 : 0);
     if (EDGE && edgeLb.t !== edgeName(EDGE.lb)) setText(edgeLb, edgeName(EDGE.lb));
     const s = S[Math.min(k, NK - 1)], act = k < NK && s.step.act ? s.step.act : null;
-    const o = act ? show(p, 0.06, 0.12) * (1 - show(p, 0.44, 0.52)) * (1 - b) : 0;
+    let o = act ? show(p, 0.06, 0.12) * (1 - b) : 0;
     if (act) {
       const [fx, fy] = anchor(act.f, s, act.lb), [tx2, ty2] = anchor(act.t, s, act.lb), e = U.smooth(show(p, 0.08, 0.42));
       const arcH = act.f === act.t ? 0 : Math.sin(e * Math.PI) * Math.min(50, Math.hypot(tx2 - fx, ty2 - fy) * 0.25);
@@ -1639,7 +1645,8 @@ function make({ F, deck, labels, scene }) {
       tok.el.className = 'wl stn-tok' + (act.gold ? ' gold' : '');
       if (!tokW) tokW = tok.el.offsetWidth;
       const x = Math.max(G.L.x0, Math.min(G.L.x1 - tokW, U.lerp(fx, tx2, e) + 14)), y = Math.max(G.L.y0, U.lerp(fy, ty2, e) - arcH - (act.f === act.t ? 30 : 14));
-      tok.el.style.transform = `translate(${x}px, ${y}px)`;
+      const [qx, qy, keep] = dockAt(F, tok.el, s, p, x, y, G.L, tx2, ty2); o *= keep;
+      tok.el.style.transform = `translate(${qx}px, ${qy}px)`;
     }
     if (Math.abs(o - tokO) > 0.004) { tok.el.style.opacity = o.toFixed(3); tokO = o; }
   }
@@ -1658,7 +1665,7 @@ function make({ F, deck, labels, scene }) {
   }
 
   return {
-    build(L) { this.theme(); build(L); },
+    build(L) { this.theme(); build(L); return HT; },
     theme() {
       const cs = getComputedStyle(document.documentElement), v = (n) => cs.getPropertyValue(n).trim();
       css = { faint: v('--faint'), gold: v('--gold'), ink: v('--ink'), red: v('--red'), accent: v('--accent'), green: v('--green') };

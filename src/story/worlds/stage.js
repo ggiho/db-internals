@@ -14,6 +14,7 @@
    다 들어가지 않으면(글이 8px 아래로 줄면) 스텝마다 그 스텝이 무대에 올릴 배우만 펼치고(Lab 의 onStage 규칙),
    나머지는 이름만 남긴 꼬리표로 접는다 — 줄이기만 했더니 폰에서 innodb 01 의 글이 2.5px 이었다(storysweep text-small). */
 import { INK, GOLD, ACCENT, GREEN, RED, FAINT, U } from '../field.js';
+import { dockAt } from './dock.js';
 import { bake, stepsOf, onStage } from '../../bake.js';
 
 const KINDS = new Set(['kv', 'list', 'frames', 'bytes', 'tree', 'axis', 'graph', 'matrix']);
@@ -585,7 +586,7 @@ function make({ F, deck, labels, scene }) {
     /* act 이름표 — 덩어리를 따라간다 */
     const step = steps[Math.min(k, nk - 1)], act = k < nk && step.act ? step.act : null;
     /* 이름표도 0.52 까지 — 0.5 – 0.6 이었을 때 서는 자리에 불투명도 0.11 의 잔상이 남았다(storysweep hold-still) */
-    const o = act ? show(p, 0.06, 0.12) * (1 - show(p, 0.44, 0.52)) * (1 - b) : 0;
+    let o = act ? show(p, 0.06, 0.12) * (1 - b) : 0;
     if (act && A.box[act.f] && A.box[act.t]) {
       const [fx, fy] = center(A, act.f), [tx, ty] = center(A, act.t), e = U.smooth(show(p, 0.08, 0.42));
       const arc = act.f === act.t ? 40 : Math.sin(e * Math.PI) * Math.min(80, Math.hypot(tx - fx, ty - fy) * 0.25);
@@ -595,7 +596,8 @@ function make({ F, deck, labels, scene }) {
       /* 이름표는 세계 안에 — 덩어리 오른쪽 16px 에 붙였더니 오른쪽 상자로 갈 때 폰에서는 화면 밖으로, 데스크톱에서는
          레일 위로 나갔다(storysweep flight) */
       const x = Math.max(G.L.x0, Math.min(G.L.x1 - tokW, U.lerp(fx, tx, e) + 16)), y = Math.max(G.L.y0, U.lerp(fy, ty, e) - arc - 14);
-      tokEl.style.transform = `translate(${x}px, ${y}px)`;
+      const [qx, qy, keep] = dockAt(F, tokEl, step, p, x, y, G.L, tx, ty); o *= keep;
+      tokEl.style.transform = `translate(${qx}px, ${qy}px)`;
     }
     if (Math.abs(o - tokO) > 0.004) { tokEl.style.opacity = o.toFixed(3); tokO = o; }
   }

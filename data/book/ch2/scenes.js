@@ -1470,7 +1470,7 @@ const SCENES = [
           bt:{ set:{ 'leaf':{ keys:'1,852 page · 43.2행씩', fill:.74 } } },
           node:{ set:{ 'merge':{ tag:'ok', sub:'40% 삭제 1회 · 60% 삭제 1,854회' } } } } },
 
-  { look:{ op:true },
+  { look:{ op:['Data_free'] },
     note:'page 가 줄어도 Data_free 는 그대로',
     why:'Data_free 는 통째로 빈 extent 와 파일 끝의 미사용 extent 만 센다. 흩어진 삭제로 풀린 page 는 여러 extent 에 듬성듬성 남아 이 셈에 들어가지 않는다.',
     key:'실측 — 흩어진 40% · 80% 삭제 뒤에도 <em>6,291,456 그대로</em>였다(80% 뒤 빈 extent 68 중 3). 위쪽 50% 를 <em>연속으로</em> 지우면 35,651,584, 빈 extent 31 이었다.',

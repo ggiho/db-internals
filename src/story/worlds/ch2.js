@@ -15,6 +15,8 @@
    짝 장면(03 · 03v, 05 · 05v)은 같은 세계 — 장면마다 모형을 따로 짜되 알갱이 번호를 같은 차례로 나눠, 짝을 바꾸면 알갱이가 날아간다.
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
+import { kvLine } from './kvline.js';
+import { dockAt } from './dock.js';
 import { bake, stepsOf } from '../../bake.js';
 import { stagger } from './stagger.js';
 import { bare, tone, nums, fmt, parseNode, treeState, chipIdentity, checks } from './ch2-model.js';
@@ -142,7 +144,7 @@ function make({ F, deck, labels, scene }) {
     css = { faint: v('--faint'), gold: v('--gold'), ink: v('--ink'), red: v('--red'), accent: v('--accent'), green: v('--green') };
   };
   return {
-    build(L) { theme(); LL = L; for (const m of models.values()) m.build(L); },
+    build(L) { theme(); LL = L; let h = 0; for (const m of models.values()) h = Math.max(h, m.build(L) || 0); return h; },
     theme,
     pose: (...a) => cur.pose(...a),
     paint: (...a) => cur.paint(...a),
@@ -230,13 +232,13 @@ function model(F, deck, labels, sc, cssOf) {
   const focusOf = (s, a) => (Array.isArray(s.look[a]) ? new Set(s.look[a].map(String)) : null);
   const modOf = (s, a) => { const c = s.chg[a]; return new Set(c ? [...(c.mod || []), ...(c.add || []), ...(c.keys || [])].map(String) : []); };
   const hotIt = (s, a, id) => { const f = focusOf(s, a); if (f) return f.has(id); const m = modOf(s, a); return m.size ? m.has(id) : true; };
-  const kvHtml = (kv) => Object.entries(kv).map(([k, v]) => `${esc(k)}  <span class="q-v">${val(v)}</span>`).join('\n');
+  const kvHtml = (kv, hot) => Object.entries(kv).map(kvLine(esc, val, hot)).join('\n');
   const capOf = (its) => its.filter((x) => x.sub).map((x) => `<span class="q-i">${esc(x.id)}</span> ${esc(x.sub)}`).join('\n');
   const nodeText = (n) => (n.P.chips && n.P.chips.length ? '' : n.P.text);
   const texts = () => S.map((s, k) => {
     const t = new Map(), on = (a) => s.touch.has(a);
     for (const a of DRAWN) t.set(hd[a], [nmOf(a), on(a)]);
-    for (const a of [...TL, ...TP]) t.set(tx[a], [kvHtml(s[a]), on(a), '', true, true]);
+    for (const a of [...TL, ...TP]) t.set(tx[a], [kvHtml(s[a], focusOf(s, a)), on(a), '', true, true]);
     for (const a of TREES) {
       const T = TS[a], st = TI(a, k), lb = TLB[a];
       t.set(lb.ph, [T.real ? '' : '— ' + T.label, false, '', !T.real]);
@@ -341,6 +343,8 @@ function model(F, deck, labels, sc, cssOf) {
   let G = null, built = false;
   const rnd = U.rng(29);
   const dust = new Float32Array(N * 2), jit = new Float32Array(N * 2).map(() => rnd() - 0.5);
+  /* build 가 짠 높이 — Story 가 남는 높이만큼 세계를 더 키운다(Story.jsx rebuild) */
+  let HT = 0;
   function build(L) {
     const ww = L.x1 - L.x0, wh = L.y1 - L.y0, HD = 18, gap = 18;
     G = { L, ww, anc: {}, tree: {}, blk: {} };
@@ -516,6 +520,7 @@ function model(F, deck, labels, sc, cssOf) {
     if (total > wh) { k = 0; textZones(true); total = lay(L.y0, k); }
     if (total > wh && HDD) { G.hdd.R = Math.max(40, G.hdd.R - (total - wh) / 2); G.hdd.h = 2 * G.hdd.R + 16; total = lay(L.y0, k); }
     if (total > wh + 1) console.error(`book/ch2 ${sc.num} 세계 : 높이 ${Math.round(total)} 가 무대 ${Math.round(wh)} 를 넘는다 (${L.W}×${L.H})`);
+    HT = total;
     const dy = L.narrow ? 0 : Math.max(0, (wh - total) / 2);
     if (dy) lay(L.y0 + dy, k);
     NC = new Map(); CC = new Map();
@@ -1118,7 +1123,7 @@ function model(F, deck, labels, sc, cssOf) {
       void txt;
     }
     const s = S[Math.min(k, NK - 1)], act = k < NK && s.step.act ? s.step.act : null;
-    const o = act ? show(p, 0.06, 0.12) * (1 - show(p, 0.44, 0.52)) * (1 - b) : 0;
+    let o = act ? show(p, 0.06, 0.12) * (1 - b) : 0;
     if (act) {
       const [fx, fy] = anchor(act.f, s, Math.min(k, NK - 1), act.lb), [tx2, ty2] = anchor(act.t, s, Math.min(k, NK - 1), act.lb), e = U.smooth(show(p, 0.08, 0.42));
       const arc = act.f === act.t ? 0 : Math.sin(e * Math.PI) * Math.min(50, Math.hypot(tx2 - fx, ty2 - fy) * 0.25);
@@ -1126,7 +1131,8 @@ function model(F, deck, labels, sc, cssOf) {
       tok.el.className = 'wl stn-tok' + (act.gold ? ' gold' : '');
       if (!tokW) tokW = tok.el.offsetWidth;
       const x = Math.max(G.L.x0, Math.min(G.L.x1 - tokW, U.lerp(fx, tx2, e) + 14)), y = Math.max(G.L.y0, U.lerp(fy, ty2, e) - arc - (act.f === act.t ? 30 : 14));
-      tok.el.style.transform = `translate(${x}px, ${y}px)`;
+      const [qx, qy, keep] = dockAt(F, tok.el, s, p, x, y, G.L, tx2, ty2); o *= keep;
+      tok.el.style.transform = `translate(${qx}px, ${qy}px)`;
     }
     if (Math.abs(o - tokO) > 0.004) { tok.el.style.opacity = o.toFixed(3); tokO = o; }
   }
@@ -1287,7 +1293,7 @@ function model(F, deck, labels, sc, cssOf) {
 
   return {
     num: sc.num,
-    build,
+    build: (L) => (build(L), HT),
     built: () => built,
     pose, paint, overlay,
     reset() { shown = -2; tokO = -1; },

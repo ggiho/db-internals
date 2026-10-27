@@ -31,6 +31,11 @@ export function zoomOf(w, h, narrow) {
   return Math.max(1, Math.min(1.8, w / 700, h / 600));
 }
 
+/* 세계 높이에 맞춰 더 키울 때의 한도(Story.jsx rebuild) — 가상 상자의 폭이 검증된 가장 좁은 폭 아래로 가지 않게.
+   그 폭은 1024×768 의 영역 폭(배율 1, 2026-10-27 측정 583)이다 — 모든 세계가 8 크기 스윕에서 이 폭을 지나간다. 1.8 상한은 위와 같다 */
+export const MIN_W = 590;
+export const zoomMax = (w) => Math.max(1, Math.min(1.8, w / MIN_W));
+
 /* 그릇에 변환을 건다 — 영역의 왼쪽 위(ox, oy)를 중심으로 키운다 */
 export function applyView(labels, F, s, ox, oy) {
   VIEW.s = s; VIEW.ox = ox; VIEW.oy = oy; VIEW.root = labels;

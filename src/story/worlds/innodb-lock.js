@@ -8,6 +8,8 @@
    손잡이가 있는 장면(07 격리 수준 · 08 innodb_deadlock_detect)은 값마다 따로 bake 해 두고 setVary 로 바꾼다.
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
+import { kvLine } from './kvline.js';
+import { dockAt } from './dock.js';
 import { bake, stepsOf, valuesOf } from '../../bake.js';
 import { stagger } from './stagger.js';
 
@@ -36,7 +38,7 @@ function make({ F, deck, labels, scene }) {
   if (mate) W.set(mate.num, one({ F, deck, labels, sc: mate }));
   let cur = W.get(sc.num);
   return {
-    build(L) { const ws = [...W.values()], T = Math.max(...ws.map((w) => w.build(L))); ws.forEach((w) => w.fin(T)); },
+    build(L) { const ws = [...W.values()], T = Math.max(...ws.map((w) => w.build(L))); ws.forEach((w) => w.fin(T)); return T; },
     theme() { W.forEach((w) => w.theme()); },
     setScene(n2) { const w = W.get(n2); if (w && w !== cur) { cur.hide(); cur = w; cur.reset(); } },
     setVary(v) { W.forEach((w) => w.setVary(v)); },
@@ -144,12 +146,12 @@ function one({ F, deck, labels, sc }) {
   const focusOf = (s, a) => (Array.isArray(s.look[a]) ? new Set(s.look[a].map(String)) : null);
   const modOf = (s, a) => { const c = s.chg[a]; return new Set(c ? [...(c.mod || []), ...(c.add || []), ...(c.keys || []), ...((c.span && [...c.span.add, ...c.span.mod]) || []), ...((c.edge && [...c.edge.add, ...c.edge.mod]) || [])].map(String) : []); };
   const hotIt = (s, a, id) => { const f = focusOf(s, a); if (f) return f.has(id); const m = modOf(s, a); return m.size ? m.has(id) : true; };
-  const kvHtml = (kv) => Object.entries(kv).map(([k, v]) => `${esc(k)}  <span class="q-v">${val(v)}</span>`).join('\n');
+  const kvHtml = (kv, hot) => Object.entries(kv).map(kvLine(esc, val, hot)).join('\n');
   const capOf = (its) => its.filter((x) => x.sub).map((x) => `<span class="q-i">${esc(x.id)}</span> ${esc(x.sub)}`).join('\n');
   const texts = (S) => S.map((s) => {
     const t = new Map(), on = (a) => s.touch.has(a);
     for (const a of cast) t.set(hd[a], [A[a].nm, on(a)]);
-    for (const a of TEXTS) t.set(tx[a], [kvHtml(s[a]), on(a), '', true, true]);
+    for (const a of TEXTS) t.set(tx[a], [kvHtml(s[a], focusOf(s, a)), on(a), '', true, true]);
     if (IDX) {
       for (const id of RECS) { const it = s[IDX].find((x) => x.id === id); t.set(recLb[id], [it ? id : '', on(IDX), '', !!it]); }
       for (const id of SPIDS) { const q = s[IDX + '#sp'].find((x) => x.id === id); t.set(spLb[id], [q ? q.lb || '' : '', !!q && on(IDX) && hotIt(s, IDX, id), q ? (q.kind === 'blk' ? 'red' : q.kind === 'next' ? 'gold' : q.kind === 'rec' || q.kind === 'ii' ? 'green' : '') : '', !!q && !!q.lb]); }
@@ -431,7 +433,7 @@ function one({ F, deck, labels, sc }) {
       setO(lb, vis ? dimO * (emph ? 1 : 0.42) * (same ? 1 : fade) : 0);
     }
     const s = S[Math.min(k, NK - 1)], act = k < NK && s.step.act ? s.step.act : null;
-    const o = act ? show(p, 0.06, 0.12) * (1 - show(p, 0.44, 0.52)) * (1 - b) : 0;
+    let o = act ? show(p, 0.06, 0.12) * (1 - b) : 0;
     if (act) {
       const [fx, fy] = anchor(act.f, s, act.lb), [tx2, ty2] = anchor(act.t, s, act.lb), e = U.smooth(show(p, 0.08, 0.42));
       const arc = act.f === act.t ? 0 : Math.sin(e * Math.PI) * Math.min(50, Math.hypot(tx2 - fx, ty2 - fy) * 0.25);
@@ -439,7 +441,8 @@ function one({ F, deck, labels, sc }) {
       tok.el.className = 'wl stn-tok' + (act.gold ? ' gold' : '');
       if (!tokW) tokW = tok.el.offsetWidth;
       const x = Math.max(G.L.x0, Math.min(G.L.x1 - tokW, U.lerp(fx, tx2, e) + 14)), y = Math.max(G.L.y0, U.lerp(fy, ty2, e) - arc - (act.f === act.t ? 30 : 14));
-      tok.el.style.transform = `translate(${x}px, ${y}px)`;
+      const [qx, qy, keep] = dockAt(F, tok.el, s, p, x, y, G.L, tx2, ty2); o *= keep;
+      tok.el.style.transform = `translate(${qx}px, ${qy}px)`;
     }
     if (Math.abs(o - tokO) > 0.004) { tok.el.style.opacity = o.toFixed(3); tokO = o; }
   }

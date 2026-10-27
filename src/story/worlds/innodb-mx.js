@@ -13,6 +13,8 @@
    셈 맞추기는 audit() — make 가 console.error 로 낸다(storysweep 의 errors 가 잡는다). 무엇을 보는지는 audit 의 주석에.
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
+import { kvLine } from './kvline.js';
+import { dockAt } from './dock.js';
 import { bake, stepsOf } from '../../bake.js';
 
 const MC = 25, TOK = 150, SW = 20;
@@ -148,7 +150,7 @@ function make({ F, deck, labels, scene }) {
     rt: label(''), ct: label('aq-c'), yes: label(''), no: label(''), cap: label('ml aq-b'),
   }]));
   const tok = label(''); tok.el.className = 'wl stn-tok';
-  const kvHtml = (kv) => Object.entries(kv).map(([k, v]) => `${esc(k)}  <span class="q-v">${val(v)}</span>`).join('\n');
+  const kvHtml = (kv, hot) => Object.entries(kv).map(kvLine(esc, val, hot)).join('\n');
   /* 그 스텝이 짚는 배우 — ops 나 look 이 적은 것. act 의 출발점일 뿐인 행렬(04 의 5 : 호환 → 강도)은 앞 스텝의 on 이 남아 있어도 밝히지 않는다 */
   const live = (s, a) => !!((s.step.ops || {})[a] || (s.step.look || {})[a]);
   const TAGS = S.map((s) => Object.fromEntries(MATS.map((a) => [a, axisTags(st, s, a)])));
@@ -180,6 +182,8 @@ function make({ F, deck, labels, scene }) {
   let G = null;
   const rnd = U.rng(17), dust = new Float32Array(N * 2), jit = new Float32Array(N * 2).map(() => rnd() - 0.5);
   const LH = 16, HD = 18;
+  /* build 가 짠 높이 — Story 가 남는 높이만큼 세계를 더 키운다(Story.jsx rebuild) */
+  let HT = 0;
   function build(L) {
     const ww = L.x1 - L.x0, wh = L.y1 - L.y0, gap = ww < 560 ? 16 : 26;
     for (const a of TEXTS) wrap(tx[a], ww);
@@ -202,6 +206,7 @@ function make({ F, deck, labels, scene }) {
     const lay = lays.reduce((p, q) => (q.cs > p.cs + 2 ? q : p));
     if (lay.cs < 14 || lay.h > wh + 1) console.error(`locks ${sc.num} 행렬 세계 : 칸 ${lay.cs}px · 높이 ${Math.round(lay.h)} / 무대 ${Math.round(wh)} (${L.W}×${L.H})`);
     for (const a of MATS) wrap(ML[a].cap, lay.bw);
+    HT = lay.h;
     const y0 = L.y0 + (L.narrow ? 0 : Math.max(0, (wh - lay.h) / 2));
     G = { L, cs: lay.cs, mat: {}, pos: S.map(() => new Map()), text: {} };
     const PA = (lb, x, y, al = 'l', va = 't') => G.pos.forEach((m) => m.set(lb, [x, y, al, va]));
@@ -311,7 +316,7 @@ function make({ F, deck, labels, scene }) {
       setO(lb, vis && txt && G.pos[kk].get(lb) ? dimO * (emph ? 1 : 0.5) * (same ? 1 : fade) : 0);
     }
     const s = S[ka], act = k < NK && s.step.act ? s.step.act : null;
-    const o = act ? show(p, 0.06, 0.12) * (1 - show(p, 0.44, 0.52)) * (1 - b) : 0;
+    let o = act ? show(p, 0.06, 0.12) * (1 - b) : 0;
     if (act) {
       const [fx, fy] = anchor(act.f, s, true) || [0, 0], [tx2, ty2] = anchor(act.t, s, false) || [0, 0], e = U.smooth(show(p, 0.08, 0.42));
       const arc = Math.sin(e * Math.PI) * Math.min(50, Math.hypot(tx2 - fx, ty2 - fy) * 0.25);
@@ -319,7 +324,8 @@ function make({ F, deck, labels, scene }) {
       tok.el.className = 'wl stn-tok' + (act.gold ? ' gold' : '');
       if (!tokW) tokW = tok.el.offsetWidth;
       const x = Math.max(G.L.x0, Math.min(G.L.x1 - tokW, U.lerp(fx, tx2, e) + 14)), y = Math.max(G.L.y0, U.lerp(fy, ty2, e) - arc - 14);
-      tok.el.style.transform = `translate(${x}px, ${y}px)`;
+      const [qx, qy, keep] = dockAt(F, tok.el, s, p, x, y, G.L, tx2, ty2); o *= keep;
+      tok.el.style.transform = `translate(${qx}px, ${qy}px)`;
     }
     if (Math.abs(o - tokO) > 0.004) { tok.el.style.opacity = o.toFixed(3); tokO = o; }
   }
@@ -352,7 +358,7 @@ function make({ F, deck, labels, scene }) {
   }
 
   return {
-    build(L) { this.theme(); build(L); },
+    build(L) { this.theme(); build(L); return HT; },
     theme() { const cs = getComputedStyle(document.documentElement), v = (n) => cs.getPropertyValue(n).trim(); css = { faint: v('--faint'), gold: v('--gold'), red: v('--red') }; },
     pose, paint, overlay,
     dispose() { made.forEach((lb) => lb.el.remove()); },

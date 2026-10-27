@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DECKS } from '../decks.js';
 import { parse, env } from '../route.js';
-import { stepsOf, valuesOf } from '../bake.js';
+import { bake, stepsOf, valuesOf } from '../bake.js';
+import { delta } from '../delta.js';
 import { DEFAULT_DECK, STORY, toLab } from './has.js';
 import { SourceModal, SourceInline, CiteInline, srcKeyOf } from '../Source.jsx';
 import { createField, U } from './field.js';
 import { worldOf } from './worlds/index.js';
-import { zoomOf, applyView, toScreen, VIEW } from './view.js';
+import { zoomOf, zoomMax, applyView, toScreen, VIEW } from './view.js';
 import './story.css';
 
 /* ══════════ Story — 한 장면을 scroll 로 넘기는 화면 ══════════
@@ -118,7 +119,7 @@ export default function Story() {
   const [menu, setMenu] = useState(false);
   const [dark, setDark] = useState(isDark);
 
-  const root = useRef(null), cv = useRef(null), lbl = useRef(null);
+  const root = useRef(null), cv = useRef(null), lbl = useRef(null), lastL = useRef(null);
   const api = useRef({});                          /* 엔진이 내주는 조작(goStep · setScene · theme) */
 
   const [fontsOk, setFontsOk] = useState(false);
@@ -159,6 +160,17 @@ export default function Story() {
     && vals.includes(String(route.v)) ? String(route.v) : null;
   const steps = scene ? stepsOf(scene, vNow) : [];
   const n = steps.length;
+  /* 스텝이 지운 것 — 바뀐 것 · 더한 것은 무대에 남지만 지운 것은 정지 화면에 흔적이 없다(2026-10-27 사용자 결정).
+     Lab 의 '바뀐 것'(delta.js)에서 '−' 줄만, 같은 스텝에서 다시 넣은 것은 빼고 글 칸에 한 줄로 */
+  const gone = useMemo(() => {
+    if (!scene) return [];
+    /* 배우 이름을 앞에 — 'free' · 'p:9' 만으로는 어디서 지웠는지 몰랐다. '—' 는 빈 칸 표시라 뺀다 */
+    const fr = bake(scene, vNow), idOf = (t) => t.split('  ·  ')[0];
+    return fr.map((_, i) => delta(scene, fr, i, deck.ACTORS || {}).map((r) => {
+      const back = new Set(r.lines.filter((l) => l.s === '+').map((l) => idOf(l.t)));
+      return { nm: r.nm, ids: [...new Set(r.lines.filter((l) => l.s === '−' && !back.has(idOf(l.t))).map((l) => idOf(l.t)))].filter((t) => t && t !== '—') };
+    }).filter((g) => g.ids.length));
+  }, [scene, vNow, deck]);
   /* 구간 = 원래 스텝 번호의 목록. 요점만 켜면 beat 스텝만 남는다 — 주소의 스텝 번호는 언제나 원래 번호다 */
   const beats = steps.map((x, i) => (x.beat ? i : -1)).filter((i) => i >= 0);
   const canSkim = n >= SKIM_MIN && beats.length >= 2;
@@ -276,11 +288,30 @@ export default function Story() {
       const top = root.current.querySelector('.st-top');
       if (top) root.current.style.setProperty('--top-h', Math.ceil(top.getBoundingClientRect().bottom) + 'px');
       F.resize(); measure();
-      world.build(fit(layout()));
+      const R = layout();
+      let L = fit(R), built = L;
+      const H = world.build(L);
+      /* 세계가 짠 높이(H)가 무대보다 낮으면 그만큼 더 키운다 — 폭으로 정한 배율에서는 넓고 낮은 세계의 위아래가
+         120px 씩 비었다(1512 의 wiredtiger 09 · book/ch3 08). 키우면 가상 상자가 좁아져 세계가 다시 짜이므로 다시 재고,
+         간격을 줄이지 않고 들어가야(97% 이내) 쓴다. 안 되면 반만 키워 보고, 그래도 안 되면 원래 배율.
+         시험 build 의 console.error 는 모아 두었다가 그 배율을 쓸 때만 낸다 — 버린 배율의 '높이가 무대를 넘는다' 가
+         그대로 남아 storysweep errors 에 걸렸다(1280×720 wiredtiger 11) */
+      if (!R.narrow && H > 0) {
+        let s1 = Math.min(zoomMax(R.x1 - R.x0), (L.s * (L.y1 - L.y0) * 0.94) / H);
+        for (let i = 0; i < 3 && s1 > L.s * 1.03; i++) {
+          const L1 = fit(R, s1), said = [], ce = console.error; built = L1;
+          console.error = (...a) => said.push(a);
+          let H1 = 0;
+          try { H1 = world.build(L1); } finally { console.error = ce; }
+          if (H1 > 0 && H1 <= (L1.y1 - L1.y0) * 0.97) { L = L1; said.forEach((a) => console.error(...a)); break; }
+          s1 = L.s + (s1 - L.s) * 0.5;
+        }
+        if (built !== L) { fit(R, L.s); world.build(L); }
+      }
+      lastL.current = L;
     }
     /* 세계 확대 — 화면 영역을 배율 s 로 나눈 가상 상자를 세계에 준다. 이름표 그릇과 알갱이에 같은 s 를 건다(view.js) */
-    function fit(R) {
-      const s = zoomOf(R.x1 - R.x0, R.y1 - R.y0, R.narrow);
+    function fit(R, s = zoomOf(R.x1 - R.x0, R.y1 - R.y0, R.narrow)) {
       applyView(lbl.current, F, s, R.x0, R.y0);
       return { ...R, s, screen: { x0: R.x0, x1: R.x1, y0: R.y0, y1: R.y1 },
         x1: R.x0 + (R.x1 - R.x0) / s, y1: R.y0 + (R.y1 - R.y0) / s };
@@ -329,7 +360,7 @@ export default function Story() {
     /* 검사 도구(tools/storysweep.js)가 알갱이 · 세계 상태를 직접 잰다 — 개발 서버이거나 주소에 ?probe 가 있을 때만.
        스윕은 배포본(build)을 재야 하므로 build 에서도 열 수 있어야 한다 */
     if (import.meta.env.DEV || new URLSearchParams(location.search).has('probe')) {
-      window.__story = { F, world, state, layout: () => fit(layout()), view: VIEW, toScreen, tops: () => tops, lens: () => lens, hold, goStep, secOf, idx: () => idxRef.current };
+      window.__story = { F, world, state, layout: () => lastL.current, view: VIEW, toScreen, tops: () => tops, lens: () => lens, hold, goStep, secOf, idx: () => idxRef.current };
     }
     api.current = {
       goStep, goSec, secOf, relayout: rebuild,
@@ -549,6 +580,11 @@ export default function Story() {
                 <p className="st-k"><b>{k + 1}</b> / {n}{skim && <span className="sk">  ·  요점 {j + 1} / {ns}</span>}{!skim && s.beat && <span className="sk">  ·  요점</span>}</p>
                 <h2 className="st-note">{rich(s.note)}</h2>
                 {s.key && <p className="st-key" dangerouslySetInnerHTML={{ __html: s.key }} />}
+                {gone[k] && gone[k].length > 0 && (
+                  <p className="st-gone"><span>지움</span>{gone[k].slice(0, 2).map((g) => (
+                    <em key={g.nm}>{g.nm}{g.ids.slice(0, 3).map((t) => <i key={t}>{t}</i>)}{g.ids.length > 3 && <b>외 {g.ids.length - 3}</b>}</em>
+                  ))}{gone[k].length > 2 && <b>외 {gone[k].length - 2} 곳</b>}</p>
+                )}
                 <div className="st-act">
                   {hasDetail(s) && (
                     <button type="button" className={'st-dbtn' + (dtOpen ? ' on' : '')} disabled={k !== active}

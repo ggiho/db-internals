@@ -10,6 +10,8 @@
        ok 로 칠한 undo(여기서 멈춘다)가 그 view 가 실제로 읽는 버전과 다르면 console.error 로 알린다
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
+import { kvLine } from './kvline.js';
+import { dockAt } from './dock.js';
 import { bake, stepsOf, valuesOf } from '../../bake.js';
 import { stagger } from './stagger.js';
 
@@ -131,7 +133,7 @@ function make({ F, deck, labels, scene }) {
   const focusOf = (s, a) => (Array.isArray(s.look[a]) ? new Set(s.look[a].map(String)) : null);
   const modOf = (s, a) => { const c = s.chg[a]; return new Set(c ? [...(c.mod || []), ...(c.add || []), ...(c.keys || [])].map(String) : []); };
   const hotIt = (s, a, id) => { const f = focusOf(s, a); if (f) return f.has(id); const m = modOf(s, a); return m.size ? m.has(id) : true; };
-  const kvHtml = (kv) => Object.entries(kv).map(([k, v]) => `${esc(k)}  <span class="q-v">${val(v)}</span>`).join('\n');
+  const kvHtml = (kv, hot) => Object.entries(kv).map(kvLine(esc, val, hot)).join('\n');
   const capOf = (its) => its.filter((x) => x.sub).map((x) => `<span class="q-i">${esc(x.id)}</span> ${esc(x.sub)}`).join('\n');
   const visOf = (s, it) => { const v = viewOf(s); return v ? (sees(v, it.trx) ? 'see' : 'no') : ''; };
   const texts = (S) => S.map((s) => {
@@ -139,7 +141,7 @@ function make({ F, deck, labels, scene }) {
     const chOn = CH.some(on);
     /* 사슬 배우와 read view 는 자기 제목(사슬 · 축)이 따로 있다 — 배우 이름표는 숨긴다 */
     for (const a of cast) t.set(hd[a], [A[a].nm, on(a), '', !CH.includes(a) && a !== RV]);
-    for (const a of TEXTS) t.set(tx[a], [kvHtml(s[a]), on(a), '', true, true]);
+    for (const a of TEXTS) t.set(tx[a], [kvHtml(s[a], focusOf(s, a)), on(a), '', true, true]);
     /* 숨은 열 */
     t.set(stHd, [head ? `${head.it.id} 의 레코드  ·  숨은 열` : '', chOn, '', !!head]);
     /* roll pointer 가 가리키던 undo 가 회수됐으면 그렇다고 — 12 스텝에서 지워진 undo 0 을 계속 가리키는 것처럼 보였다 */
@@ -185,6 +187,8 @@ function make({ F, deck, labels, scene }) {
   const dust = new Float32Array(N * 2), jit = new Float32Array(N * 2).map(() => rnd() - 0.5);
   const RH = 15;
   const axX = (t) => G.ax.x0 + ((t - AX.lo) / (AX.hi - AX.lo)) * (G.ax.x1 - G.ax.x0);
+  /* build 가 짠 높이 — Story 가 남는 높이만큼 세계를 더 키운다(Story.jsx rebuild) */
+  let HT = 0;
   function build(L) {
     const ww = L.x1 - L.x0, wh = L.y1 - L.y0, gap = 18, HD = 18;
     G = { L, slot: {}, anc: {} };
@@ -261,6 +265,7 @@ function make({ F, deck, labels, scene }) {
     let k = 1, total = lay(L.y0, 1);
     if (total > wh) { k = 0.2; total = lay(L.y0, k); }
     if (total > wh + 1) console.error(`innodb 02 세계 : 높이 ${Math.round(total)} 가 무대 ${Math.round(wh)} 를 넘는다 (${L.W}×${L.H})`);
+    HT = total;
     const dy = L.narrow ? 0 : Math.max(0, (wh - total) / 2);
     if (dy) lay(L.y0 + dy, k);
     for (let i = 0; i < N; i++) { dust[i * 2] = L.x0 + rnd() * ww; dust[i * 2 + 1] = L.y0 + rnd() * wh; }
@@ -388,7 +393,7 @@ function make({ F, deck, labels, scene }) {
       setO(lb, vis ? dimO * (emph ? 1 : 0.42) * (same ? 1 : fade) : 0);
     }
     const s = S[Math.min(k, NK - 1)], act = k < NK && s.step.act ? s.step.act : null;
-    const o = act ? show(p, 0.06, 0.12) * (1 - show(p, 0.44, 0.52)) * (1 - b) : 0;
+    let o = act ? show(p, 0.06, 0.12) * (1 - b) : 0;
     if (act) {
       const [fx, fy] = anchor(act.f, s, act.lb), [tx2, ty2] = anchor(act.t, s, act.lb), e = U.smooth(show(p, 0.08, 0.42));
       const arc = act.f === act.t ? 0 : Math.sin(e * Math.PI) * Math.min(50, Math.hypot(tx2 - fx, ty2 - fy) * 0.25);
@@ -396,7 +401,8 @@ function make({ F, deck, labels, scene }) {
       tok.el.className = 'wl stn-tok' + (act.gold ? ' gold' : '');
       if (!tokW) tokW = tok.el.offsetWidth;
       const x = Math.max(G.L.x0, Math.min(G.L.x1 - tokW, U.lerp(fx, tx2, e) + 14)), y = Math.max(G.L.y0, U.lerp(fy, ty2, e) - arc - (act.f === act.t ? 30 : 14));
-      tok.el.style.transform = `translate(${x}px, ${y}px)`;
+      const [qx, qy, keep] = dockAt(F, tok.el, s, p, x, y, G.L, tx2, ty2); o *= keep;
+      tok.el.style.transform = `translate(${qx}px, ${qy}px)`;
     }
     if (Math.abs(o - tokO) > 0.004) { tok.el.style.opacity = o.toFixed(3); tokO = o; }
   }
@@ -442,7 +448,7 @@ function make({ F, deck, labels, scene }) {
   }
 
   return {
-    build(L) { this.theme(); build(L); },
+    build(L) { this.theme(); build(L); return HT; },
     theme() { const cs = getComputedStyle(document.documentElement), v = (n) => cs.getPropertyValue(n).trim(); css = { faint: v('--faint'), gold: v('--gold'), ink: v('--ink'), red: v('--red'), accent: v('--accent'), green: v('--green') }; },
     setVary(v) { const b = BAKES.get(keyOf(v)); if (b && b !== cur) { cur = b; shown = -2; } },
     pose, paint, overlay,

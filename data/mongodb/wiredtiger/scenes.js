@@ -1552,7 +1552,7 @@ const SCENES = [
           lk:{ del:['(비었다)'], add:[{ id:'A', tag:'hold', sub:'Global IX  ·  barrier → RSTL → ticket → Global' }] },
           tk:{ set:{ 'write out':'1' } } } },
 
-  { look:{ tk:true },
+  { look:{ tk:['algorithm', 'write total', 'read total'] },
     note:'ticket 은 lock 이 아니라 입장권 — 8.0 기본은 throughputProbing',
     why:'IS · S 는 read pool 에서, IX 는 write pool 에서 ticket 을 받는다 — Global X 는 ticket 이 필요 없다. 기본 알고리즘 throughputProbing 은 100ms 마다 처리량을 보며 수를 조정하고, 시작값은 pool 하나에 논리 코어 수(최소 4, 최대 128)다. ticket 은 WiredTiger 안에 동시에 들어가는 작업 수를 묶는다 — snapshot 을 만들 때 모든 세션의 트랜잭션 상태를 걷기 때문이다.',
     key:'잰 값: 논리 코어 10 개인 컨테이너에서 write · read 의 totalTickets 가 10 이었고, wiredTiger.concurrentTransactions 는 없었다 — 8.0 은 queues.execution 에 둔다. InnoDB 의 innodb_thread_concurrency 가 같은 자리지만 기본은 0(제한 없음)이다.',

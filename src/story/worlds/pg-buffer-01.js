@@ -9,6 +9,7 @@
      · 그 스텝이 건드린 배우(touch)는 또렷하게, 나머지는 흐리게 — 한 화면에 다 담지 않고 지금 일어나는 것을 앞에 둔다
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, ACCENT, RED, FAINT, U } from '../field.js';
+import { dockAt } from './dock.js';
 import { bake, stepsOf } from '../../bake.js';
 
 const HANGUL = /[가-힣]/;
@@ -130,12 +131,15 @@ function make({ F, deck, labels, scene }) {
   let G = null;
   const rnd = U.rng(11);
   const dust = new Float32Array(N * 2), jit = new Float32Array(N * 2).map(() => rnd() - 0.5);
+  /* build 가 짠 높이 — Story 가 남는 높이만큼 세계를 더 키운다(Story.jsx rebuild) */
+  let HT = 0;
   function build(L) {
     const ww = L.x1 - L.x0, wh = L.y1 - L.y0;
     /* 높이 예산 : 위(맨 위 칸의 이름) 70 · 칸 · 지름 · 아래 칸의 이름 62 · 경계 34 · 페이지 40 · 페이지 이름 34 */
     const Rr = Math.max(90, Math.min(ww * 0.26, (wh - 240) / 2.24));
     const sw = Math.round(Rr * 0.36), sh = Math.round(Rr * 0.24);
     const contentH = 240 + 2.24 * Rr, dy = L.narrow ? 0 : Math.max(0, (wh - contentH) / 2), y0 = L.y0 + dy;
+    HT = contentH;
     const C = { x: L.x0 + ww * 0.6, y: y0 + 70 + sh / 2 + Rr };
     const ang = (i) => -Math.PI / 2 + (i * 2 * Math.PI) / NB;
     const slots = ids.map((id, i) => ({ x: C.x + Rr * Math.cos(ang(i)), y: C.y + Rr * Math.sin(ang(i)), top: Math.sin(ang(i)) < -0.9 }));
@@ -293,7 +297,7 @@ function make({ F, deck, labels, scene }) {
     }
     /* act 이름표 — 덩어리를 따라가고 0.52 까지 사라진다. 세계 밖으로 나가지 않게 묶는다 */
     const s = S[Math.min(k, NK - 1)], act = k < NK && s.step.act ? s.step.act : null;
-    const o = act ? show(p, 0.06, 0.12) * (1 - show(p, 0.44, 0.52)) * (1 - b) : 0;
+    let o = act ? show(p, 0.06, 0.12) * (1 - b) : 0;
     if (act) {
       const [fx, fy] = anchor(act.f, s, act.lb), [tx, ty] = anchor(act.t, s, act.lb), e = U.smooth(show(p, 0.08, 0.42));
       const arc = Math.sin(e * Math.PI) * Math.min(70, Math.hypot(tx - fx, ty - fy) * 0.25);
@@ -301,7 +305,8 @@ function make({ F, deck, labels, scene }) {
       tok.el.className = 'wl stn-tok' + (act.gold ? ' gold' : '');
       if (!tokW) tokW = tok.el.offsetWidth;
       const x = Math.max(G.L.x0, Math.min(G.L.x1 - tokW, U.lerp(fx, tx, e) + 14)), y = Math.max(G.L.y0, U.lerp(fy, ty, e) - arc - 14);
-      tok.el.style.transform = `translate(${x}px, ${y}px)`;
+      const [qx, qy, keep] = dockAt(F, tok.el, s, p, x, y, G.L, tx, ty); o *= keep;
+      tok.el.style.transform = `translate(${qx}px, ${qy}px)`;
     }
     if (Math.abs(o - tokO) > 0.004) { tok.el.style.opacity = o.toFixed(3); tokO = o; }
   }
@@ -325,7 +330,7 @@ function make({ F, deck, labels, scene }) {
   }
 
   return {
-    build(L) { this.theme(); build(L); },
+    build(L) { this.theme(); build(L); return HT; },
     theme() {
       const cs = getComputedStyle(document.documentElement);
       css = { faint: cs.getPropertyValue('--faint').trim(), gold: cs.getPropertyValue('--gold').trim() };

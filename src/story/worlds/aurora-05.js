@@ -156,6 +156,8 @@ function make({ F, deck, labels, scene }) {
   let G = null;
   const rnd = U.rng(5);
   const dust = new Float32Array(N * 2), jit = new Float32Array(N * 2).map(() => rnd() - 0.5);
+  /* build 가 짠 높이 — Story 가 남는 높이만큼 세계를 더 키운다(Story.jsx rebuild) */
+  let HT = 0;
   function build(L) {
     const ww = L.x1 - L.x0, wh = L.y1 - L.y0;
     const zg = Math.max(14, ww * 0.03), zw = (ww - (ZN - 1) * zg) / ZN;
@@ -177,6 +179,7 @@ function make({ F, deck, labels, scene }) {
     const edgeY = 26, zoneY = edgeY + 34, boxY = zoneY + 18, boxH = 14 + chh + 10 + copyH + 12;
     const meterY = boxY + boxH + 56, meterB = meterY + ss + 30 + (stRight ? 0 : 10 + stH);
     const botY = meterB + 34, botH = 18 + Math.max(mdlH.reduce((a, b) => a + b + 8, 0), grH);
+    HT = botY + botH;
     const dy = L.narrow ? 0 : Math.max(0, (wh - (botY + botH)) / 2), Y = (v) => L.y0 + dy + v;
     const zones = ZONES.map((z, i) => ({ x: L.x0 + i * (zw + zg), y: Y(boxY), w: zw, h: boxH }));
     G = { L, cw, chh, zones, edgeY: Y(edgeY), ss, sg, sx, meterY: Y(meterY), mm: {} };
@@ -374,7 +377,7 @@ function make({ F, deck, labels, scene }) {
   }
 
   return {
-    build(L) { this.theme(); build(L); },
+    build(L) { this.theme(); build(L); return HT; },
     theme() {
       const cs = getComputedStyle(document.documentElement), v = (n) => cs.getPropertyValue(n).trim();
       css = { faint: v('--faint'), red: v('--red'), green: v('--green') };

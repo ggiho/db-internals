@@ -548,10 +548,13 @@ for (const sc of SCENES) {
       /* axis 는 레코드와 잠금 구간, graph 는 노드와 간선 — 컬렉션이 둘 이상이다.
          items 만 보면 구간을 가리키는 look 이 전부 오탐이 된다 */
       if (Array.isArray(v)) {
+        /* kv 는 키 — 세계는 그 줄만 밝힌다(src/story/worlds/kvline.js). 전에는 kv 를 배열로 가리킬 수 없어
+           한 줄을 짚으려고 값을 바꾸거나 '|gold' 를 덧칠했다 */
         const pool = [
           ...((st[who].items  || []).map(x => x.id)),
           ...((st[who].spans  || []).map(x => x.id)),
           ...((st[who].edges  || []).map(x => x.id)),
+          ...Object.keys(st[who].kv || {}),
         ];
         v.forEach(id => {
           if (!pool.includes(id)) err(S + ' look.' + who + ' 가 없는 것을 가리킨다 — ' + id);

@@ -14,6 +14,8 @@
    짝 장면(04b · 04bv, 05 · 05v)은 한 세계가 둘을 다 들고 있다가 setScene 으로 바꾼다 — 같은 배우 · 같은 칸의 알갱이가 날아간다.
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, ACCENT, GREEN, RED, FAINT, U } from '../field.js';
+import { kvLine } from './kvline.js';
+import { dockAt } from './dock.js';
 import { bake, stepsOf, valuesOf } from '../../bake.js';
 import { stagger } from './stagger.js';
 import * as C from './ch3-check.js';
@@ -302,7 +304,10 @@ function make({ F, deck, labels, scene }) {
      틈(k)과 늘일 수 있는 것(z : page 격자 · 칸 높이)은 모든 배치에 같은 값을 쓴다 — 스텝마다 크기가 흔들리지 않게 */
   let G = null;
   const LAYS = {}, MASK = {};
+  /* build 가 짠 높이 — Story 가 남는 높이만큼 세계를 더 키운다(Story.jsx rebuild) */
+  let HT = 0;
   function build(L) {
+    HT = 0;
     const ww = L.x1 - L.x0, wh = L.y1 - L.y0;
     G = { L, ww, wh };
     W.L = L;
@@ -354,6 +359,7 @@ function make({ F, deck, labels, scene }) {
       for (const v of masks) {
         const key2 = [...v].sort((p, q) => p - q).join(','), h = lay(v, L.y0, plan.k, plan.z).h;
         if (h > wh + 1) console.error(`ch3 ${s.num} 세계 : 높이 ${Math.round(h)} 가 무대 ${Math.round(wh)} 를 넘는다 (${L.W}×${L.H})`);
+        HT = Math.max(HT, h);
         const dy = L.narrow ? 0 : Math.max(0, (wh - h) / 2);
         L2.set(key2, { vis: v, ...lay(v, L.y0 + dy, plan.k, plan.z) });
       }
@@ -450,7 +456,7 @@ function make({ F, deck, labels, scene }) {
       setO(lb, vis && txt !== '' ? dimO * (emph ? 1 : 0.42) * (same ? 1 : fade) * sw * (lb.hide || lb.off ? 0 : 1) : 0);
     }
     const s = S[Math.min(k, NK - 1)], act = k < NK && s.step.act ? s.step.act : null;
-    const o = act ? show(p, 0.06, 0.12) * (1 - show(p, 0.44, 0.52)) * (1 - b) : 0;
+    let o = act ? show(p, 0.06, 0.12) * (1 - b) : 0;
     if (act) {
       const [fx, fy] = anchor(act.f, s, act.lb), [tx2, ty2] = anchor(act.t, s, act.lb), e = U.smooth(show(p, 0.08, 0.42));
       const arc = act.f === act.t ? 0 : Math.sin(e * Math.PI) * Math.min(50, Math.hypot(tx2 - fx, ty2 - fy) * 0.25);
@@ -458,7 +464,8 @@ function make({ F, deck, labels, scene }) {
       tok.el.className = 'wl stn-tok' + (act.gold ? ' gold' : '');
       if (!tokW) tokW = tok.el.offsetWidth;
       const x = Math.max(G.L.x0, Math.min(G.L.x1 - tokW, U.lerp(fx, tx2, e) + 14)), y = Math.max(G.L.y0, U.lerp(fy, ty2, e) - arc - (act.f === act.t ? 30 : 14));
-      tok.el.style.transform = `translate(${x}px, ${y}px)`;
+      const [qx, qy, keep] = dockAt(F, tok.el, s, p, x, y, G.L, tx2, ty2); o *= keep;
+      tok.el.style.transform = `translate(${qx}px, ${qy}px)`;
     }
     if (Math.abs(o - tokO) > 0.004) { tok.el.style.opacity = o.toFixed(3); tokO = o; }
   }
@@ -480,7 +487,7 @@ function make({ F, deck, labels, scene }) {
   }
 
   return {
-    build(L) { this.theme(); build(L); },
+    build(L) { this.theme(); build(L); return HT; },
     theme() {
       const cs = getComputedStyle(document.documentElement), v = (n2) => cs.getPropertyValue(n2).trim();
       W.css = { faint: v('--faint'), gold: v('--gold'), ink: v('--ink'), red: v('--red'), accent: v('--accent'), green: v('--green'), body: v('--body'), line: v('--line') };
@@ -506,7 +513,7 @@ const nmOf = (M, s, a) => {
   if (n == null || (a !== 'rhd' && a !== 'bit5')) return nm;
   return a === 'rhd' ? nm.replace(/extra\s*\d+\s*B/, `extra ${n}B`) : `${n}바이트 안의 값`;
 };
-const kvHtml = (kv) => Object.entries(kv).map(([k, v]) => `${esc(k)}  <span class="q-v">${val(v)}</span>`).join('\n');
+const kvHtml = (kv, hot) => Object.entries(kv).map(kvLine(esc, val, hot)).join('\n');
 const capOf = (its) => its.filter((x) => x.sub).map((x) => `<span class="q-i">${esc(x.id)}</span> ${val(x.sub)}`).join('\n');
 function rim(cx, cy, w, h, n, m) {
   const per = 2 * (w + h), d = (m / n) * per;
@@ -557,7 +564,7 @@ PANEL.text = (W, M, sp) => {
   let geo = {};
   return {
     lbs, acts: as, snap: () => geo, use: (g) => { geo = g; },
-    texts(s, T) { for (const a of as) { T.set(hd[a], [M.A[a].nm, touchOf(s, a)]); T.set(tx[a], [kvHtml(s[a]), touchOf(s, a), '', true, true]); } },
+    texts(s, T) { for (const a of as) { T.set(hd[a], [M.A[a].nm, touchOf(s, a)]); T.set(tx[a], [kvHtml(s[a], focusOf(s, a)), touchOf(s, a), '', true, true]); } },
     layout(x0, y, ww, k) {
       /* 열 수 — 블록 높이의 합이 가장 작은 것(열이 좁아 줄이 접히면 오히려 높아진다). 열 폭은 120px 이상 */
       const tryN = (n) => {

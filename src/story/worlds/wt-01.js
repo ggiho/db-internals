@@ -10,6 +10,7 @@
      · 그 스텝이 건드린 배우(touch)는 또렷하게, 나머지는 흐리게
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, FAINT, U } from '../field.js';
+import { dockAt } from './dock.js';
 import { bake, stepsOf } from '../../bake.js';
 
 const HANGUL = /[가-힣]/;
@@ -129,6 +130,8 @@ function make({ F, deck, labels, scene }) {
   let G = null;
   const rnd = U.rng(3);
   const dust = new Float32Array(N * 2), jit = new Float32Array(N * 2).map(() => rnd() - 0.5);
+  /* build 가 짠 높이 — Story 가 남는 높이만큼 세계를 더 키운다(Story.jsx rebuild) */
+  let HT = 0;
   function build(L) {
     const ww = L.x1 - L.x0, wh = L.y1 - L.y0;
     /* 사슬 — head 칸 다음에 마디가 왼쪽부터(새것이 앞). head · 마디 · 이미지를 세계의 가운데 세로줄에 */
@@ -143,6 +146,7 @@ function make({ F, deck, labels, scene }) {
     /* 세로 — 위에서부터 쌓아 높이를 재고, 넓은 화면은 가운데로 */
     const memY = 18 + topH + 34, chainY = memY + 44 + ch / 2;
     const edgeY = chainY + ch / 2 + 10 + nodeH + 30, diskY = edgeY + 10, imgY = diskY + 40 + ih / 2, total = imgY + ih / 2 + 10 + imgH;
+    HT = total;
     const dy = L.narrow ? 0 : Math.max(0, (wh - total) / 2), Y = (v) => L.y0 + dy + v;
     const nodes = Array.from({ length: MAXN }, (_, j) => ({ x: nx0 + cw / 2 + j * (cw + gap), y: Y(chainY) }));
     G = { L, cw, ch, iw, ih, hx, nodes, head: { x: hx + 12, y: Y(chainY) }, img: { x: nodes[0].x, y: Y(imgY) }, edgeY: Y(edgeY), opA: { x: L.x0 + 40, y: Y(18 + opH + 12) } };   /* act 의 출발점 — OPERATION 글 바로 아래(글 위에서 출발하면 덮는다) */
@@ -254,14 +258,15 @@ function make({ F, deck, labels, scene }) {
     }
     /* act 이름표 — 새 마디의 알갱이를 따라가고 0.52 까지 사라진다. 세계 밖으로 나가지 않게 묶는다 */
     const s = S[Math.min(k, NK - 1)], act = k < NK && s.step.act ? s.step.act : null;
-    const o = act ? show(p, 0.06, 0.12) * (1 - show(p, 0.44, 0.52)) * (1 - b) : 0;
+    let o = act ? show(p, 0.06, 0.12) * (1 - b) : 0;
     if (act) {
       const T0 = s.chain[0] ? nodeAt(s, s.chain[0].id) : G.nodes[0], e = show(p, 0.08, 0.42);
       if (tok.el.textContent !== act.lb) { tok.el.textContent = act.lb; tokW = 0; }
       tok.el.className = 'wl stn-tok' + (act.gold ? ' gold' : '');
       if (!tokW) tokW = tok.el.offsetWidth;
       const x = Math.max(G.L.x0, Math.min(G.L.x1 - tokW, U.lerp(G.opA.x, T0.x, e) + 14)), y = Math.max(G.L.y0, U.lerp(G.opA.y, T0.y - G.ch / 2, e) - Math.sin(e * Math.PI) * 30 - 18);
-      tok.el.style.transform = `translate(${x}px, ${y}px)`;
+      const [qx, qy, keep] = dockAt(F, tok.el, s, p, x, y, G.L, T0.x, T0.y - G.ch / 2); o *= keep;
+      tok.el.style.transform = `translate(${qx}px, ${qy}px)`;
     }
     if (Math.abs(o - tokO) > 0.004) { tok.el.style.opacity = o.toFixed(3); tokO = o; }
   }
@@ -308,6 +313,7 @@ function make({ F, deck, labels, scene }) {
       this.theme(); build(L);
       /* 마디 이름표의 높이 — 끝 마디에서 이미지로 가는 점선이 그 아래에서 시작한다 */
       G.nodeLbH = Math.max(...NIDS.map((id) => most(nodeLb[id]).h));
+      return HT;
     },
     theme() {
       const cs = getComputedStyle(document.documentElement), v = (n) => cs.getPropertyValue(n).trim();

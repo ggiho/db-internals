@@ -104,6 +104,12 @@
 .st-key em{font-style:normal;color:var(--gold)}
 /* '근거' 는 줄지 않는다 — 소스 자리가 길면 flex 가 이것을 줄여 '근 / 거' 로 접었다(storysweep word-split). 넘치는 쪽이 다음 줄로 */
 /* 요약 아래 한 줄 — '자세히' 가 먼저, 근거(소스 자리)는 그 옆에 작게 */
+/* 이 스텝이 지운 것(Story.jsx gone) — 정지 화면에는 흔적이 없어 글 칸에 한 줄로 */
+.st-gone{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin:10px 0 0;font:400 12px var(--mono2);color:var(--body)}
+.st-gone span{color:var(--red)}
+.st-gone em{font-style:normal;color:var(--faint);display:inline-flex;flex-wrap:wrap;gap:4px 8px}
+.st-gone i{font-style:normal;color:var(--body);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--red) 55%,transparent)}
+.st-gone b{font-weight:400;color:var(--faint)}
 .st-act{margin-top:18px;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 16px}
 .st-dbtn{flex:none;background:none;border:1px solid var(--line);border-radius:999px;padding:4px 12px 5px;cursor:pointer;
   font:400 12.5px var(--serif);color:var(--ink)}
@@ -228,6 +234,9 @@
 .st-labels .wl.aq-c{text-align:center}
 .st-labels .wl.aq-b{overflow-wrap:anywhere}   /* 좁은 열 — 줄보다 넓은 낱말('oldest_modification')만 끊는다 */
 .st-labels .wl .q-i,.st-labels .wl .q-v{color:var(--body)}
+/* look 이 kv 의 키를 배열로 가리킨 줄(worlds/kvline.js) — 키는 진하게, 값은 금색 */
+.st-labels .wl .q-hot{color:var(--ink)}
+.st-labels .wl .q-hot .q-v{color:var(--gold)}
 .st-labels .wl .q-r{color:var(--red)}
 .st-labels .wl .q-g{color:var(--gold)}
 .st-labels .wl .q-gr{color:var(--green)}

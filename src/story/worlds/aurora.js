@@ -18,6 +18,8 @@
    셈 맞추기는 audit() 가 한다 — make 가 console.error 로 낸다(storysweep 의 errors 가 잡는다). 무엇을 보는지는 audit 의 주석에.
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
+import { kvLine } from './kvline.js';
+import { dockAt } from './dock.js';
 import { bake, stepsOf } from '../../bake.js';
 import { stagger } from './stagger.js';
 import quorum from './aurora-05.js';
@@ -287,7 +289,7 @@ function kit(labels) {
   const widthOf = (lb, html) => { if (!html) return 0; const keep = lb.el.innerHTML; lb.el.innerHTML = html; const w = lb.el.getBoundingClientRect().width; lb.el.innerHTML = keep; return w; };
   return { made, label, setText, place, wrap, most, widthOf };
 }
-const kvHtml = (kv) => Object.entries(kv).map(([k, v]) => `${esc(k)}  <span class="q-v">${val(v)}</span>`).join('\n');
+const kvHtml = (kv, hot) => Object.entries(kv).map(kvLine(esc, val, hot)).join('\n');
 const put = (o, i, x, y, a, h, j, s, c) => { o.x[i] = x; o.y[i] = y; o.a[i] = a; o.h[i] = h; o.j[i] = j; o.s[i] = s; o.c[i] = c; };
 const show = (p, a, b) => U.smooth(U.range(p, a, b));
 function rim(x, y, w, h, n, m) {
@@ -350,6 +352,8 @@ function makeEvid(F, deck, labels, sc, st, R) {
 
   let G = null;
   const rnd = U.rng(11), dust = new Float32Array(N * 2), jit = new Float32Array(N * 2).map(() => rnd() - 0.5);
+  /* build 가 짠 높이 — Story 가 남는 높이만큼 세계를 더 키운다(Story.jsx rebuild) */
+  let HT = 0;
   function build(L) {
     const ww = L.x1 - L.x0, wh = L.y1 - L.y0, gap = ww < 560 ? 14 : 22, n = PILES.length, cw = (ww - (n - 1) * gap) / n;
     PILES.forEach((p, j) => { wrap(pV[j], cw); });
@@ -367,6 +371,7 @@ function makeEvid(F, deck, labels, sc, st, R) {
     let z = 1, Ls = lay(z);
     while (Ls.h > wh && z > 0.45) { z -= 0.08; Ls = lay(z); }
     if (Ls.h > wh + 1) console.error(`aurora ${sc.num} 세계 : 높이 ${Math.round(Ls.h)} 가 무대 ${Math.round(wh)} 를 넘는다 (${L.W}×${L.H})`);
+    HT = Ls.h;
     const y0 = L.y0 + (L.narrow ? 0 : Math.max(0, (wh - Ls.h) / 2));
     G = { L, cw, gap, piles: [], claims: [], pos: new Map() };
     const P = (lb, x, y, al, va) => G.pos.set(lb, [x, y, al, va]);
@@ -460,7 +465,7 @@ function makeEvid(F, deck, labels, sc, st, R) {
     ctx.restore();
   }
   return {
-    build(L) { this.theme(); build(L); },
+    build(L) { this.theme(); build(L); return HT; },
     theme() { const cs = getComputedStyle(document.documentElement); css = { faint: cs.getPropertyValue('--faint').trim() }; },
     pose, paint, overlay,
     dispose() { made.forEach((lb) => lb.el.remove()); },
@@ -568,7 +573,7 @@ function makeLanes(F, deck, labels, sc, st, R) {
     const dch = destOf(s, R.IO);
     if (stor) t.set(storLb, [`${stor.lb}  ·  ${dch && dch.kind === 'chain' ? dch.names[0] : stor.note}`, on(s, R.VOL) || on(s, R.SN)]);
     if (EDGE) t.set(edgeLb, [EDGE.lb, hotE, hotE ? 'gold' : '']);
-    for (const a of [...TXA, ...R.TEXTS]) { t.set(hd[a], [A[a].nm, on(s, a)]); t.set(tx[a], [kvHtml(s[a]), on(s, a), '', true, true]); }
+    for (const a of [...TXA, ...R.TEXTS]) { t.set(hd[a], [A[a].nm, on(s, a)]); t.set(tx[a], [kvHtml(s[a], focusOf(s, a)), on(s, a), '', true, true]); }
     for (const b of INST) {
       if (b.item) {
         const it = s[R.READERS].find((x) => x.id === b.item), lit = on(s, R.READERS) && hotIt(s, R.READERS, b.item);
@@ -576,7 +581,7 @@ function makeLanes(F, deck, labels, sc, st, R) {
         t.set(bd[b.key], [it && it.sub ? esc(it.sub) : '', lit, '', !!(it && it.sub), true]);
       } else if (b.kv) {
         t.set(nm[b.key], [b.name, on(s, b.kv) || on(s, R.IO), failed(s, b) ? 'red' : '']);
-        t.set(bd[b.key], [(b.key === 'db' && cacheIn(s) ? `<span class="q-i">${esc(A[b.kv].nm)}</span>\n` : '') + kvHtml(s[b.kv]), on(s, b.kv), '', true, true]);
+        t.set(bd[b.key], [(b.key === 'db' && cacheIn(s) ? `<span class="q-i">${esc(A[b.kv].nm)}</span>\n` : '') + kvHtml(s[b.kv], focusOf(s, b.kv)), on(s, b.kv), '', true, true]);
       } else t.set(nm[b.key], [b.name, on(s, R.IO)]);
     }
     if (SEP) t.set(cbHd, [A[R.CACHE].nm, on(s, R.CACHE), '', !cacheIn(s)]);
@@ -633,6 +638,8 @@ function makeLanes(F, deck, labels, sc, st, R) {
   let G = null;
   const rnd = U.rng(7), dust = new Float32Array(N * 2), jit = new Float32Array(N * 2).map(() => rnd() - 0.5);
   const LH = 16, HD = 18;
+  /* build 가 짠 높이 — Story 가 남는 높이만큼 세계를 더 키운다(Story.jsx rebuild) */
+  let HT = 0;
   function build(L) {
     const ww = L.x1 - L.x0, wh = L.y1 - L.y0, gap = ww < 560 ? 12 : 18;
     /* 열 — 글 · 대기열은 좁게, 인스턴스는 남는 폭을 나눈다 */
@@ -733,6 +740,7 @@ function makeLanes(F, deck, labels, sc, st, R) {
     let z = 1, Ly = lay(z);
     while (Ly.h > wh && z > 0.3) { z = Math.round((z - 0.1) * 100) / 100; Ly = lay(z); }
     if (Ly.h > wh + 1) console.error(`aurora ${sc.num} 세계 : 높이 ${Math.round(Ly.h)} 가 무대 ${Math.round(wh)} 를 넘는다 (${L.W}×${L.H})`);
+    HT = Ly.h;
     const y0 = L.y0 + (L.narrow ? 0 : Math.max(0, (wh - Ly.h) / 2)), Y = (v) => y0 + v;
     G = { L, ww, gap, z, pos: S.map(() => new Map()), box: {}, cols: COLS, X, axL, axR, pcw, pw, zw, zg };
     const PA = (lb, x, y, al = 'l', va = 't') => G.pos.forEach((m) => m.set(lb, [x, y, al, va]));
@@ -1152,7 +1160,7 @@ function makeLanes(F, deck, labels, sc, st, R) {
       setO(lb, vis && txt && G.pos[kk].get(lb) ? dimO * (emph ? 1 : 0.42) * (same ? 1 : fade) : 0);
     }
     const s = S[ka], act = k < NK && s.step.act ? s.step.act : null;
-    const o = act ? show(p, 0.06, 0.12) * (1 - show(p, 0.44, 0.52)) * (1 - b) : 0;
+    let o = act ? show(p, 0.06, 0.12) * (1 - b) : 0;
     if (act) {
       const [fx, fy] = anchors(act.f, s)[0], [tx2, ty2] = anchors(act.t, s)[0], e = U.smooth(show(p, 0.08, 0.42));
       const arc = Math.sin(e * Math.PI) * Math.min(46, Math.hypot(tx2 - fx, ty2 - fy) * 0.25);
@@ -1160,7 +1168,8 @@ function makeLanes(F, deck, labels, sc, st, R) {
       tok.el.className = 'wl stn-tok' + (act.gold ? ' gold' : '');
       if (!tokW) tokW = tok.el.offsetWidth;
       const x = Math.max(G.L.x0, Math.min(G.L.x1 - tokW, U.lerp(fx, tx2, e) + 14)), y = Math.max(G.L.y0, U.lerp(fy, ty2, e) - arc - 14);
-      tok.el.style.transform = `translate(${x}px, ${y}px)`;
+      const [qx, qy, keep] = dockAt(F, tok.el, s, p, x, y, G.L, tx2, ty2); o *= keep;
+      tok.el.style.transform = `translate(${qx}px, ${qy}px)`;
     }
     if (Math.abs(o - tokO) > 0.004) { tok.el.style.opacity = o.toFixed(3); tokO = o; }
   }
@@ -1225,7 +1234,7 @@ function makeLanes(F, deck, labels, sc, st, R) {
   }
 
   return {
-    build(L) { this.theme(); build(L); },
+    build(L) { this.theme(); build(L); return HT; },
     theme() { const cs = getComputedStyle(document.documentElement), v = (n) => cs.getPropertyValue(n).trim(); css = { faint: v('--faint'), red: v('--red'), green: v('--green'), gold: v('--gold') }; },
     pose, paint, overlay,
     dispose() { made.forEach((lb) => lb.el.remove()); },
