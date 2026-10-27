@@ -2095,7 +2095,8 @@ const SCENES = [
     ['SHOW TABLE STATUS','Data_length · Index_length · Data_free'] ],
   links:[
     ['09','ALTER 로 인덱스를 재구축하면 밀도가 회복된다'],
-    ['05','페이지가 늘면 buffer pool 적중률도 떨어진다'] ],
+    ['05','페이지가 늘면 buffer pool 적중률도 떨어진다'],
+    ['11','ALTER 가 재구축 없이 끝나는 경우 — instant ADD · DROP'] ],
   steps:[
   { look:{ tree:['p:5'] },
     note:'AUTO_INCREMENT PK — leaf 를 15/16 까지 채운다',
@@ -2226,6 +2227,180 @@ const SCENES = [
           '(time-low)-(time-mid)-(time-high) => (time-high)-(time-mid)-(time-low)',
           'if (arg_count == 2 && args[1]->val_bool()) {'],
     beat:1 },
+  ],
+},
+{
+  num:'11', tab:'Instant DDL', title:'Instant ADD/DROP COLUMN: Row Versions in the Record Header',
+  sub:'ALTER 는 사전만 고친다 — 옛 레코드는 그대로 두고, 레코드 머리의 version 1 바이트로 어느 열이 있는지 가린다. 한도는 64 번',
+  cast:['stmt','tbl','dd','pg','ibd'],
+  /* 잰 값(8.4.8-debug, 이 빌드, 16KB 페이지, ROW_FORMAT=DYNAMIC) — ~/.cache/dbi/measure/inno/11.txt, measure11.sh 한 번으로 처음부터 끝까지.
+       CREATE TABLE t (id INT PRIMARY KEY, a INT NOT NULL, pad CHAR(20) NOT NULL) + 3 행
+         TABLE_ID 1068 · SPACE 6 · FILE_SIZE 114,688 · inode 186580022 · TOTAL_ROW_VERSIONS 0
+       ADD COLUMN b INT NOT NULL DEFAULT 7, ALGORITHM=INSTANT   0.059 s → 1 · b : default=80000007;physical_pos=5;version_added=1
+       DROP COLUMN a, ALGORITHM=INSTANT                         0.046 s → 2 · a : !hidden!_dropped_v2_p3_a  physical_pos=3;version_dropped=2
+       page 4 — FLUSH TABLES t FOR EXPORT 을 쥔 동안 복사한 .ibd 를 tools/ibdpage.js --recs=4 로
+         id 1–3  info 0x00 · VERSION 없음    origin 126 · 173 · 220
+         id 4    info 0x40 · origin−6 = 01   머리 20 14 01 40 00 28 00 34
+         id 5    info 0x40 · origin−6 = 02   머리 2c 14 02 40 00 30 ff 30
+         레코드 크기 47 · 52 · 48 B 는 origin 간격에서 머리 크기를 빼 셈했다 — PAGE_HEAP_TOP 361 = 120 + 3 × 47 + 52 + 48 로 잰 값과 맞는다
+       UPDATE t SET b = 8 WHERE id = 1   → heap 7 · origin 368 · version 2, PAGE_GARBAGE 0 → 47 · PAGE_FREE 126 · PAGE_HEAP_TOP 361 → 409
+       UPDATE t SET pad = 'q' WHERE id = 2 → origin 173 그대로, info 0x00
+       ADD · DROP 을 번갈아 62 번 더 → 64. 65 번째 ADD COLUMN c32 와 DROP COLUMN b, ALGORITHM=INSTANT 가 둘 다 ERROR 4092.
+         SE 숨은 열 34 (DB_TRX_ID · DB_ROLL_PTR + 지운 열 32). 64 번 내내 SPACE 6 · 114,688 · inode 186580022
+       ALGORITHM 없이 ADD COLUMN c INT NOT NULL DEFAULT 0 → 0.124 s, Records: 0 · TABLE_ID 1069 · SPACE 7 · inode 186580528 · TOTAL_ROW_VERSIONS 0
+         다섯 레코드 모두 info 0x00 · origin 간격 51 · 숨은 열은 DB_TRX_ID · DB_ROLL_PTR 둘
+       따로(11-run1.txt, 같은 서버) 500,000 행 : INSTANT 0.057 s · INPLACE 18.458 s(SPACE 4 → 5, FILE_SIZE 79,691,776 → 92,274,688) */
+  init:{
+    stmt:{ kv:{ '문장':'CREATE TABLE t (id INT PRIMARY KEY, a INT NOT NULL, pad CHAR(20) NOT NULL)', '결과':'INSERT 3 행 — id 1 · 2 · 3' } },
+    /* gg.slots 는 세계가 그리는 칸 수 — MAX_ROW_VERSION. v × slots 가 TOTAL_ROW_VERSIONS 와 같아야 한다(세계가 맞춘다) */
+    tbl:{ kv:{ 'TABLE_ID':'1068', 'SPACE':'6', 'TOTAL_ROW_VERSIONS':'0', 'SE 숨은 열':'2 — DB_TRX_ID · DB_ROLL_PTR' },
+          gg:{ v:0, l:'row version', r:'0 / 64', slots:64, key:'TOTAL_ROW_VERSIONS' } },
+    /* 열 사전 — pos 는 레코드 안의 자리(physical_pos), by 는 바이트, var 는 가변 길이(길이 바이트 하나), va · vd 는 version_added · version_dropped,
+       sub 는 그 열의 se_private_data 가운데 instant 가 남긴 것(없으면 비운다) */
+    dd:{ items:[
+      { id:'id', pos:0, by:4 },
+      { id:'DB_TRX_ID', pos:1, by:6 },
+      { id:'DB_ROLL_PTR', pos:2, by:7 },
+      { id:'a', pos:3, by:4 },
+      { id:'pad', pos:4, by:20, var:1 } ] },
+    /* page 4 의 레코드 — ver 는 origin−6 의 바이트(VERSION 비트가 없으면 null), has 는 레코드에 바이트가 있는 열, len 은 머리를 넣은 크기 */
+    pg:{ items:[
+      { id:'id 1', ver:null, has:['id','DB_TRX_ID','DB_ROLL_PTR','a','pad'], len:47, val:{ id:'1', a:'10', pad:'x' }, sub:'info 0x00' },
+      { id:'id 2', ver:null, has:['id','DB_TRX_ID','DB_ROLL_PTR','a','pad'], len:47, val:{ id:'2', a:'20', pad:'y' }, sub:'info 0x00' },
+      { id:'id 3', ver:null, has:['id','DB_TRX_ID','DB_ROLL_PTR','a','pad'], len:47, val:{ id:'3', a:'30', pad:'z' }, sub:'info 0x00' } ] },
+    ibd:{ items:[{ id:'t.ibd', tag:'clean', sub:'SPACE 6 · 114,688 B · inode 186580022' }] },
+  },
+  knobs:[
+    ['—','—','instant 는 설정이 아니다 — ALTER 의 ALGORITHM=INSTANT 절과 MAX_ROW_VERSION(64) 상수가 정한다'] ],
+  watch:[
+    ['I_S.INNODB_TABLES','TOTAL_ROW_VERSIONS — instant ADD · DROP 한 번에 1 씩. 64 면 다음 instant 는 4092'],
+    ['I_S.INNODB_TABLESPACES','SPACE · FILE_SIZE — ALTER 뒤에도 같으면 재구축하지 않은 것'],
+    ['I_S.INNODB_COLUMNS','HAS_DEFAULT · DEFAULT_VALUE — instant 로 붙인 열의 기본값, 옛 레코드가 읽는 값'] ],
+  links:[
+    ['09','instant 가 아니면 재구축 — 그때는 MDL 대기열이 문제다'],
+    ['02','레코드의 숨은 열 DB_TRX_ID · DB_ROLL_PTR'],
+    ['10','재구축은 페이지를 처음부터 다시 채운다'] ],
+  steps:[
+  { look:{ pg:true, dd:true },
+    note:'옛 레코드 — 머리의 info bits 가 0x00, version 이 없다',
+    why:'COMPACT · DYNAMIC 레코드는 원점(origin) 앞에 머리 5 바이트를 둔다 — info bits · n_owned · heap 번호 · status · 다음 레코드까지의 거리. 그 앞에 가변 길이 열의 길이 바이트가 붙는다(여기서는 pad 하나). info bits 의 0x40 이 VERSION 비트다. instant ADD · DROP 을 한 번도 하지 않은 표의 레코드는 이 비트가 꺼져 있다.',
+    key:'잰 값: page 4 의 세 레코드가 모두 info <em>0x00</em>. 머리 6 바이트(5 + pad 의 길이 1)와 열 41 바이트, 47 B 다. TOTAL_ROW_VERSIONS 0.',
+    ref:'storage/innobase/rem/rec.h', sym:'REC_INFO_VERSION_FLAG',
+    fact:['constexpr uint32_t REC_INFO_VERSION_FLAG = 0x40UL;',
+          'constexpr uint32_t REC_NEW_INFO_BITS = 5;',
+          '| INSERTED before INSTANT ADD/DROP | N | NONE | N/A |'] },
+
+  { act:{ f:'stmt', t:'dd', lb:'사전만 고친다' },
+    note:'ADD COLUMN … ALGORITHM=INSTANT — 사전에 열 하나, 레코드는 그대로',
+    why:'instant ADD 는 새 열을 사전에 적는다 — se_private_data 에 version_added 와 InnoDB 형식으로 바꾼 기본값. 그리고 표의 current_row_version 을 1 올린다. 레코드는 읽지도 쓰지도 않는다. I_S.INNODB_TABLES 의 TOTAL_ROW_VERSIONS 가 그 current_row_version 이다.',
+    key:'잰 값: 0.059 초, TOTAL_ROW_VERSIONS 0 → <em>1</em>. b 는 default=80000007;physical_pos=5;version_added=1 — 80000007 은 부호 비트를 뒤집어 적은 INT 7 이다. SPACE 6 · 114,688 B · inode 그대로.',
+    ref:'storage/innobase/dict/dict0inst.cc', sym:'Instant_ddl_impl<Table>::commit_instant_ddl',
+    fact:['m_dict_table->current_row_version++;',
+          ['storage/innobase/handler/i_s.cc','table->current_row_version));'],
+          ['storage/innobase/dict/dict0dd.cc','se_private.set(dd_column_key_strings[DD_INSTANT_COLUMN_DEFAULT],'],
+          ['storage/innobase/dict/dict0dd.cc','row_mysql_store_col_in_innobase_format(']],
+    beat:1,
+    ops:{ stmt:{ set:{ '문장':'ALTER TABLE t ADD COLUMN b INT NOT NULL DEFAULT 7, ALGORITHM=INSTANT', '결과':'0.059 sec · Records: 0' } },
+          tbl:{ set:{ 'TOTAL_ROW_VERSIONS':'1|gold' }, gg:{ v:1 / 64, r:'1 / 64' } },
+          dd:{ add:[{ id:'b', pos:5, by:4, va:1, def:'7', sub:'version_added=1 · default=80000007' }] } } },
+
+  { act:{ f:'stmt', t:'pg', lb:'version 1 로 쓴다' },
+    note:'새 레코드 — VERSION 비트를 세우고 version 을 1 바이트로',
+    why:'instant 뒤에 들어오는 레코드는 info bits 에 0x40 을 세우고, 머리 바로 앞(origin − 6)에 표의 current_row_version 을 1 바이트로 적는다. 읽는 쪽은 그 바이트를 보고 이 레코드에 어떤 열의 바이트가 있는지 안다.',
+    key:'잰 값: id 4 의 머리 20 14 <em>01 40</em> 00 28 00 34 — 01 이 version, 40 이 info bits. 머리 7 바이트와 열 45 바이트, 52 B.',
+    ref:'storage/innobase/rem/rem0rec.cc', sym:'rec_convert_dtuple_to_rec_comp',
+    fact:['rec_set_instant_row_version_new(rec,',
+          '/* We need only 1 byte now to store the version. */',
+          ['storage/innobase/rem/rec.h','/* Position just before info-bits where version will be there if any */']],
+    beat:1,
+    ops:{ stmt:{ set:{ '문장':"INSERT INTO t (id, a, pad, b) VALUES (4, 40, 'w', 44)", '결과':'1 행' } },
+          pg:{ add:[{ id:'id 4', ver:1, has:['id','DB_TRX_ID','DB_ROLL_PTR','a','pad','b'], len:52, val:{ id:'4', a:'40', pad:'w', b:'44' }, sub:'info 0x40 · version 1' }] } } },
+
+  { act:{ f:'stmt', t:'dd', lb:'숨은 열로 남긴다' },
+    note:'DROP COLUMN a … INSTANT — 열은 사전에서 숨을 뿐, 레코드의 a 는 그대로',
+    why:'instant DROP 은 a 를 지우지 않고 SE 숨은 열로 이름을 바꾼다 — !hidden!_dropped_v2_p3_a. version_dropped 에 새 version(2)을, physical_pos 에 레코드 안의 자리(3)를 남긴다. 옛 레코드는 a 의 4 바이트를 계속 갖고 있으므로, 그 자리를 알아야 건너뛸 수 있다.',
+    key:'잰 값: 0.046 초, TOTAL_ROW_VERSIONS <em>2</em>. mysql.columns 에 a 가 hidden SE, physical_pos=3;version_dropped=2 로 남았다.',
+    ref:'storage/innobase/dict/dict0dd.cc', sym:'dd_drop_instant_columns',
+    fact:['new_name << INSTANT_DROP_PREFIX_8_0_32 << "v" << version << "_p" << phy_pos',
+          'private_data.set(dd_column_key_strings[DD_INSTANT_VERSION_DROPPED],',
+          'private_data.set(dd_column_key_strings[DD_INSTANT_PHYSICAL_POS], phy_pos);',
+          ['storage/innobase/include/dict0mem.h','constexpr char INSTANT_DROP_PREFIX_8_0_32[] = "!hidden!_dropped_";']],
+    ops:{ stmt:{ set:{ '문장':'ALTER TABLE t DROP COLUMN a, ALGORITHM=INSTANT', '결과':'0.046 sec · Records: 0' } },
+          tbl:{ set:{ 'TOTAL_ROW_VERSIONS':'2|gold', 'SE 숨은 열':'3 — DB_TRX_ID · DB_ROLL_PTR · !hidden!_dropped_v2_p3_a' }, gg:{ v:2 / 64, r:'2 / 64' } },
+          dd:{ set:{ 'a':{ vd:2, sub:'version_dropped=2 · physical_pos=3' } } } } },
+
+  { act:{ f:'stmt', t:'pg', lb:'version 2 — a 없이' },
+    note:'id 5 — version 2 레코드에는 a 의 바이트가 없다',
+    why:'version 2 에서 a 는 지워졌으므로 새 레코드는 a 를 쓰지 않는다. 열이 레코드에 있는가는 version 하나로 갈린다 — 그 version 뒤에 붙은 열도 아니고 그 version 까지 지워진 열도 아니면 있다. 그래서 한 페이지에 a 를 가진 레코드(version 0 · 1)와 갖지 않은 레코드(version 2)가 나란히 있다.',
+    key:'잰 값: id 5 의 머리 2c 14 <em>02 40</em> 00 30 ff 30, 48 B — id 4 보다 a 의 4 바이트만큼 짧다. PAGE_HEAP_TOP 361 이 120 + 3 × 47 + 52 + 48 과 맞는다.',
+    ref:'storage/innobase/include/dict0mem.h', sym:'is_visible_in_version',
+    fact:['return (!is_added_after(version) && !is_dropped_in_or_before(version));',
+          'return (get_version_dropped() <= version);',
+          'return (get_version_added() > version);'],
+    ops:{ stmt:{ set:{ '문장':"INSERT INTO t (id, pad, b) VALUES (5, 'v', 55)", '결과':'1 행' } },
+          pg:{ add:[{ id:'id 5', ver:2, has:['id','DB_TRX_ID','DB_ROLL_PTR','pad','b'], len:48, val:{ id:'5', pad:'v', b:'55' }, sub:'info 0x40 · version 2' }] } } },
+
+  { look:{ pg:['id 1', 'id 2', 'id 3'], dd:['a', 'b'] },
+    act:{ f:'dd', t:'pg', lb:'b = 7 — 사전의 기본값' },
+    note:'옛 레코드를 읽는다 — 없는 b 는 사전의 기본값, 남은 a 는 건너뛴다',
+    why:'VERSION 비트가 없는 레코드는 version 0 으로 읽는다. 열마다 두 가지를 묻는다. 그 version 까지 지워진 열이면 바이트가 없다. 그 version 뒤에 붙은 열이면 역시 바이트가 없으므로, 오프셋에 DEFAULT 표시를 하고 값은 사전의 기본값에서 꺼낸다. a 는 version 2 에 지워졌으므로 version 0 레코드에는 바이트가 있다 — 길이를 세어 넘어가고, 표에 없는 열이라 결과에 넣지 않는다.',
+    key:'잰 값: SELECT 가 id 1 · 2 · 3 에 b = <em>7</em> 을 돌려줬다. 레코드에는 없는 값이다 — 세 레코드는 ALTER 두 번 동안 한 바이트도 바뀌지 않았다.',
+    ref:'storage/innobase/rem/rec.h', sym:'rec_init_offsets_comp_ordinary',
+    fact:['if (col->is_dropped_in_or_before(row_version)) {',
+          '} else if (col->is_added_after(row_version)) {',
+          'len = rec_get_instant_offset(index, i, offs);',
+          'return (offs | REC_OFFS_DEFAULT);',
+          ['storage/innobase/include/rem0rec.ic','field = index->get_nth_default(n, len);']],
+    beat:1,
+    ops:{ stmt:{ set:{ '문장':'SELECT * FROM t', '결과':'id 1 · 2 · 3 의 b = 7 · id 4 = 44 · id 5 = 55' } } } },
+
+  { act:{ f:'stmt', t:'pg', lb:'b 를 쓰면 레코드가 길어진다' },
+    note:'UPDATE — 기본값이던 열을 고치면 레코드를 현재 version 으로 다시 쓴다',
+    why:'기본값은 레코드 안에 없으므로 그 열을 고치면 레코드가 길어진다. 제자리 갱신이 안 되므로 pessimistic update 로 옛 레코드를 지우고 새로 넣는다 — 새로 쓰는 레코드는 현재 version 이다. 길이가 같은 갱신(pad 를 같은 길이로)은 제자리에서 끝나고 version 도 그대로다.',
+    key:'잰 값: SET b = 8 의 id 1 은 heap 7(origin 368)로 옮겨 <em>version 2</em> · 48 B, 옛 자리 47 B 는 PAGE_GARBAGE 로 갔다. SET pad = \'q\' 의 id 2 는 origin 173 그대로, info 0x00 그대로.',
+    ref:'storage/innobase/row/row0upd.cc', sym:'row_upd_changes_field_size_or_external',
+    fact:['/* This will force to do pessimistic update,',
+          'since the default value is not inlined,',
+          'so any update to it will extend the record. */',
+          ['storage/innobase/btr/btr0cur.cc','if (!row_upd_changes_field_size_or_external(index, *offsets, update)) {']],
+    beat:1,
+    ops:{ stmt:{ set:{ '문장':"UPDATE t SET b = 8 WHERE id = 1  ·  UPDATE t SET pad = 'q' WHERE id = 2", '결과':'id 1 은 옮겼고 id 2 는 제자리' } },
+          pg:{ set:{ 'id 1':{ ver:2, has:['id','DB_TRX_ID','DB_ROLL_PTR','pad','b'], len:48, val:{ id:'1', pad:'x', b:'8' }, sub:'info 0x40 · version 2 · 옮겼다' },
+                     'id 2':{ val:{ id:'2', a:'20', pad:'q' }, sub:'info 0x00 · 제자리' } } } } },
+
+  { act:{ f:'stmt', t:'tbl', lb:'65 번째 — ERROR 4092' },
+    note:'64 번째 version 이 끝 — 65 번째 instant 는 오류',
+    why:'version 은 레코드에 1 바이트로 들어가지만 한도는 MAX_ROW_VERSION = 64 다. ALTER 는 current_row_version + 1 이 유효한지 먼저 보고, 아니면 ALGORITHM=INSTANT 를 요구한 문장에 ER_INNODB_MAX_ROW_VERSION 을 낸다. ADD 든 DROP 이든 한 번에 하나씩 오르고, 지운 열은 숨은 열로 쌓인다.',
+    key:'잰 값: ADD · DROP 을 번갈아 62 번 더 해 64. 65 번째 ADD COLUMN c32 와 DROP COLUMN b 가 둘 다 <em>ERROR 4092</em> — "Maximum row versions reached for table d11/t. No more columns can be added or dropped instantly. Please use COPY/INPLACE." 숨은 열은 34 개(지운 열 32 + DB_TRX_ID · DB_ROLL_PTR). 그동안 SPACE 6 · inode 186580022 그대로.',
+    ref:'storage/innobase/handler/handler0alter.cc', sym:'ha_innobase::check_if_supported_inplace_alter',
+    fact:['m_prebuilt->table->current_row_version + 1)) {',
+          'my_error(ER_INNODB_MAX_ROW_VERSION, MYF(0),',
+          ['storage/innobase/include/dict0mem.h','const uint8_t MAX_ROW_VERSION = 64;'],
+          ['share/messages_to_clients.txt','Maximum row versions reached for table %s. No more columns can be added or dropped instantly. Please use COPY/INPLACE.']],
+    beat:1,
+    ops:{ stmt:{ set:{ '문장':'ALTER TABLE t ADD COLUMN c32 INT, ALGORITHM=INSTANT', '결과':'ERROR 4092 — Maximum row versions reached|red' } },
+          tbl:{ set:{ 'TOTAL_ROW_VERSIONS':'64|red', 'SE 숨은 열':'34 — 지운 열 32 + DB_TRX_ID · DB_ROLL_PTR' }, gg:{ v:1, r:'64 / 64' } } } },
+
+  { act:{ f:'stmt', t:'ibd', lb:'새 파일로 재구축' },
+    note:'ALGORITHM 을 빼면 INPLACE 재구축 — 새 공간, 새 표 id, version 0 부터',
+    why:'instant 를 못 하면 ALTER 는 조용히 INPLACE 로 내려간다 — 주석 : INSTANT can\'t be done any more. Fall back to INPLACE. 레코드를 모두 새 정의로 다시 써서 새 .ibd 를 만들고 바꿔 낀다. 다시 쓴 레코드에는 VERSION 비트가 없고 지운 열의 흔적도 사라진다. 한도가 다시 64 로 열린다.',
+    key:'잰 값: 0.124 초, Records: 0(COPY 가 아니다). TABLE_ID 1068 → <em>1069</em> · SPACE 6 → <em>7</em> · inode 186580528 · TOTAL_ROW_VERSIONS 0. 다섯 레코드 모두 info 0x00 · 51 B. 같은 ADD 를 500,000 행에 하면 INSTANT 0.057 초, INPLACE 18.458 초였다.',
+    ref:'storage/innobase/handler/handler0alter.cc', sym:'ha_innobase::check_if_supported_inplace_alter',
+    fact:["/* INSTANT can't be done any more. Fall back to INPLACE. */",
+          ['storage/innobase/dict/dict0dd.cc','/* Write physical post only for tables having row versions */']],
+    beat:1,
+    ops:{ stmt:{ set:{ '문장':'ALTER TABLE t ADD COLUMN c INT NOT NULL DEFAULT 0', '결과':'0.124 sec · Records: 0 — INPLACE 로 재구축' } },
+          tbl:{ set:{ 'TABLE_ID':'1069|gold', 'SPACE':'7|gold', 'TOTAL_ROW_VERSIONS':'0|green', 'SE 숨은 열':'2 — DB_TRX_ID · DB_ROLL_PTR' }, gg:{ v:0, r:'0 / 64' } },
+          dd:{ del:['a'],
+               set:{ 'b':{ va:null, def:null, sub:'' } },
+               add:[{ id:'c', pos:6, by:4 }] },
+          pg:{ set:{
+            'id 1':{ ver:null, has:['id','DB_TRX_ID','DB_ROLL_PTR','pad','b','c'], len:51, val:{ id:'1', pad:'x', b:'8', c:'0' }, sub:'info 0x00 · 다시 썼다' },
+            'id 2':{ has:['id','DB_TRX_ID','DB_ROLL_PTR','pad','b','c'], len:51, val:{ id:'2', pad:'q', b:'7', c:'0' }, sub:'info 0x00 · 다시 썼다' },
+            'id 3':{ has:['id','DB_TRX_ID','DB_ROLL_PTR','pad','b','c'], len:51, val:{ id:'3', pad:'z', b:'7', c:'0' }, sub:'info 0x00 · 다시 썼다' },
+            'id 4':{ ver:null, has:['id','DB_TRX_ID','DB_ROLL_PTR','pad','b','c'], len:51, val:{ id:'4', pad:'w', b:'44', c:'0' }, sub:'info 0x00 · 다시 썼다' },
+            'id 5':{ ver:null, has:['id','DB_TRX_ID','DB_ROLL_PTR','pad','b','c'], len:51, val:{ id:'5', pad:'v', b:'55', c:'0' }, sub:'info 0x00 · 다시 썼다' } } },
+          ibd:{ set:{ 't.ibd':{ tag:'ok', sub:'SPACE 7 · 114,688 B · inode 186580528 — 새 파일' } } } } },
   ],
 },
 {

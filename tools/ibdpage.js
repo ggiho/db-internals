@@ -7,7 +7,12 @@
      node tools/ibdpage.js <t.ibd>                       페이지 목록 + INDEX 헤더 표
      node tools/ibdpage.js <t.ibd> --js --meta=<file>    덱이 읽는 모듈을 stdout 으로 (meta 는 측정 기록 JSON)
      node tools/ibdpage.js --check <pagedump.js>         저장된 바이트를 다시 풀어 저장된 값과 맞춘다
-                                                         (.ibd 없이 돈다 — check.sh 가 부른다) */
+                                                         (.ibd 없이 돈다 — check.sh 가 부른다)
+     node tools/ibdpage.js <t.ibd> --recs=<page>         그 페이지의 레코드를 infimum 부터 next 를 따라 — 레코드 머리
+                                                         5 바이트와 info bits, VERSION 비트가 서면 그 앞 1 바이트의 row version
+                                                         (COMPACT · DYNAMIC 만. mysql/innodb 11 이 이것으로 쟀다).
+                                                         잎(PAGE_LEVEL 0)이면 INT 키 뒤의 DB_TRX_ID 6 바이트와 DB_ROLL_PTR 7 바이트
+                                                         (INSERT 비트 · undo 공간 번호 · 페이지 · 위치)도 — 클러스터 인덱스라고 본다(12) */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -28,6 +33,10 @@ const PAGE = [
   ['PAGE_N_DIRECTION', 14, 2], ['PAGE_N_RECS', 16, 2], ['PAGE_MAX_TRX_ID', 18, 8],
   ['PAGE_LEVEL', 26, 2], ['PAGE_INDEX_ID', 28, 8]];
 const FSEG = [['PAGE_BTR_SEG_LEAF', 36], ['PAGE_BTR_SEG_TOP', 46]];
+/* 새 형식 레코드의 머리 — 레코드 원점(origin)에서 거꾸로 센다. info bits 는 그 바이트의 위 4 비트 */
+const REC = [['REC_NEW_INFO_BITS', 5], ['REC_NEW_HEAP_NO', 4], ['REC_HEAP_NO_SHIFT', 3], ['REC_NEW_STATUS', 3], ['REC_NEXT', 2]];
+const INFO = { REC_INFO_INSTANT_FLAG: 0x80, REC_INFO_VERSION_FLAG: 0x40, REC_INFO_DELETED_FLAG: 0x20, REC_INFO_MIN_REC_FLAG: 0x10 };
+const STATUS = ['ORDINARY', 'NODE_PTR', 'INFIMUM', 'SUPREMUM'];
 const DIRS = { 1: 'PAGE_LEFT', 2: 'PAGE_RIGHT', 3: 'PAGE_SAME_REC', 4: 'PAGE_SAME_PAGE', 5: 'PAGE_NO_DIRECTION' };
 /* B-tree 페이지는 둘이다 — SDI(사전 정보)도 같은 헤더를 쓰는 B-tree 다 */
 const TYPES = { 17855: 'FIL_PAGE_INDEX', 17853: 'FIL_PAGE_SDI', 3: 'FIL_PAGE_INODE', 5: 'FIL_PAGE_IBUF_BITMAP', 8: 'FIL_PAGE_TYPE_FSP_HDR', 0: 'FIL_PAGE_TYPE_ALLOCATED' };
@@ -39,6 +48,7 @@ function checkSource() {
   const read = (f) => fs.readFileSync(path.join(repo, 'storage/innobase/include', f), 'utf8');
   const fil = read('fil0types.h'), pg = read('page0types.h'), fsp = read('fsp0types.h'), fl = read('fil0fil.h');
   const rec = fs.readFileSync(path.join(repo, 'storage/innobase/rem/rec.h'), 'utf8');
+  const dt = read('data0type.h'), un = read('trx0undo.ic');
   const need = [
     [fil, 'constexpr uint32_t FIL_PAGE_DATA = 38;'],
     [fsp, 'constexpr uint32_t FSEG_PAGE_DATA = FIL_PAGE_DATA;'],
@@ -56,6 +66,12 @@ function checkSource() {
     [pg, '#define PAGE_NEW_SUPREMUM (PAGE_DATA + 2 * REC_N_NEW_EXTRA_BYTES + 8)'],
     [pg, '#define PAGE_NEW_SUPREMUM_END (PAGE_NEW_SUPREMUM + 8)'],
     [rec, 'constexpr int32_t REC_N_NEW_EXTRA_BYTES = 5;'],
+    ...REC.map(([n, v]) => [rec, `constexpr uint32_t ${n} = ${v};`]),
+    ...Object.entries(INFO).map(([n, v]) => [rec, `constexpr uint32_t ${n} = 0x${v.toString(16)}UL;`]),
+    [pg, '#define PAGE_NEW_INFIMUM (PAGE_DATA + REC_N_NEW_EXTRA_BYTES)'],
+    [rec, '((temp ? REC_N_TMP_EXTRA_BYTES : REC_N_NEW_EXTRA_BYTES) + 1);'],
+    [dt, 'constexpr size_t DATA_TRX_ID_LEN = 6;'], [dt, 'constexpr size_t DATA_ROLL_PTR_LEN = 7;'],
+    [un, 'roll_ptr = (roll_ptr_t)is_insert << 55 | (roll_ptr_t)id << 48 |'], [un, '(roll_ptr_t)page_no << 16 | offset;'],
     ...Object.entries(DIRS).map(([v, n]) => [pg, `${n} = ${v}`]),
   ];
   const miss = need.filter(([t, s]) => !t.includes(s)).map(([, s]) => s);
@@ -117,6 +133,28 @@ for (let no = 0; no < buf.length / PS; no++) {
   /* 표에 없는 종류(LOB · UNDO · RTREE · 큰 파일의 XDES …)는 번호로 적는다 — 숫자에 replace 를 부르면 죽는다 */
   kinds.push(no + ':' + String(TYPES[f.FIL_PAGE_TYPE] ?? f.FIL_PAGE_TYPE).replace(/^FIL_PAGE_(TYPE_)?/, ''));
   if (BTREE.has(f.FIL_PAGE_TYPE)) pages[no] = { hex: hex(b), f };
+}
+
+/* 레코드 목록 — infimum(99)에서 next 의 상대 오프셋을 따라 supremum(112)까지. 키는 첫 열이 INT 라고 보고 부호 비트를 되돌려 적는다 */
+if (opt('recs')) {
+  const no = +opt('recs'), p = buf.subarray(no * PS, (no + 1) * PS), f = decode(p.subarray(0, HEAD));
+  if (f.FIL_PAGE_TYPE !== 17855) { console.error('page ' + no + ' 는 INDEX 페이지가 아니다'); process.exit(1); }
+  const INF = HEAD + 5, SUP = INF + 5 + 8, out = [];
+  console.log(`page ${no}  PAGE_N_RECS ${f.PAGE_N_RECS}  PAGE_LEVEL ${f.PAGE_LEVEL}  PAGE_INDEX_ID ${f.PAGE_INDEX_ID}`);
+  const leaf = f.PAGE_LEVEL === 0;
+  console.log(['origin', 'head (origin−8 … −1)', 'info', 'flags', 'version', 'heap', 'status', 'next', 'key', ...(leaf ? ['DB_TRX_ID', 'DB_ROLL_PTR (I · 공간:페이지:위치)'] : [])].join('\t'));
+  const sys = (o) => { const t = num(be(p, o + 4, 6)), r = be(p, o + 10, 7); return [t, `${hex(p.subarray(o + 10, o + 17))} (${(r >> 55n) & 1n ? 'I' : 'U'} · ${(r >> 48n) & 0x7fn}:${(r >> 16n) & 0xffffffffn}:${r & 0xffffn})`]; };
+  for (let o = INF, n = 0; n <= f.PAGE_N_RECS + 1; n++) {
+    const ib = p[o - 5] & 0xf0, ver = ib & INFO.REC_INFO_VERSION_FLAG ? p[o - 6] : '—';
+    const flags = Object.entries(INFO).filter(([, v]) => ib & v).map(([k]) => k.replace(/^REC_INFO_|_FLAG$/g, '')).join('|') || '—';
+    const st = p[o - 3] & 7, nx = (p[o - 2] << 8) | p[o - 1], key = st === 0 ? (((p[o] << 24) | (p[o + 1] << 16) | (p[o + 2] << 8) | p[o + 3]) ^ 0x80000000) : '';
+    console.log([o, hex(p.subarray(o - 8, o)), '0x' + ib.toString(16).padStart(2, '0'), flags, ver, ((p[o - 4] << 8) | p[o - 3]) >> 3, STATUS[st], nx > 0x7fff ? nx - 0x10000 : nx, key, ...(leaf && st === 0 ? sys(o) : [])].join('\t'));
+    out.push(o);
+    if (o === SUP) break;
+    o = (o + nx) & (PS - 1);
+  }
+  if (out[out.length - 1] !== SUP || out.length !== f.PAGE_N_RECS + 2) { console.error('next 사슬이 supremum 에 PAGE_N_RECS + 2 개로 닿지 않는다'); process.exit(1); }
+  process.exit(0);
 }
 
 if (opt('js')) {

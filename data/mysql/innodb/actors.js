@@ -18,6 +18,10 @@ const ACTORS = {
   tree: { nm:'B+TREE',           lane:'mem',  kind:'tree', w:'w2' },
   mdl:  { nm:'MDL QUEUE',        lane:'sql',  kind:'list', w:'w15' },
   rlog: { nm:'ROW LOG',          lane:'mem',  kind:'list'   },
+  /* 11 — instant ADD · DROP. 열 사전(se_private_data)과 한 페이지의 레코드 — innodb-mvcc 세계가 둘을 격자로 그린다 */
+  tbl:  { nm:'INNODB_TABLES',    lane:'mem',  kind:'kv'     },
+  dd:   { nm:'DD 열 · se_private_data', lane:'sql', kind:'list', w:'w2' },
+  pg:   { nm:'PAGE 4  레코드',     lane:'mem',  kind:'frames', w:'w2' },
   dw:   { nm:'DOUBLEWRITE',      lane:'disk', kind:'list'   },
   ibd:  { nm:'.ibd  데이터 파일',      lane:'disk', kind:'frames' },
   redo: { nm:'#ib_redo*  WAL',   lane:'disk', kind:'kv'     },   /* 실측 최대 필요 196px */

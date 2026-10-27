@@ -260,6 +260,36 @@ export const CORE = {
     a: '삽입 순서가 증가하는 형태(UUIDv7 · UUID_TO_BIN 스왑)로 넣는다',
     x: ['UUID 를 문자열 CHAR(36) 로 저장해 비교를 빠르게 한다', 'innodb_fill_factor 를 50 으로 낮춰 분할을 줄인다', 'UUID 를 해시해 앞 4바이트만 PK 로 쓴다'],
   },
+  '11/2': {
+    q: 'ALTER TABLE … ADD COLUMN … ALGORITHM=INSTANT 가 레코드에 하는 일은?',
+    a: '없다 — 사전만 고치고 row version 을 올린다',
+    x: ['모든 레코드 끝에 기본값 4 바이트를 덧붙여 쓴다', '레코드를 새 .ibd 로 옮겨 쓰고 옛 파일을 지운다', '레코드마다 VERSION 비트를 세우고 version 을 적는다'],
+  },
+  '11/3': {
+    q: 'instant ADD 뒤에 INSERT 한 레코드는 자기 version 을 어디에 적나?',
+    a: '레코드 머리 바로 앞 1 바이트 — info bits 의 VERSION 비트와 함께',
+    x: ['페이지 헤더의 PAGE_MAX_TRX_ID 옆', '레코드 끝에 붙는 숨은 열 DB_ROW_VERSION', '적지 않는다 — DB_TRX_ID 로 version 을 셈한다'],
+  },
+  '11/6': {
+    q: 'VERSION 비트가 없는 옛 레코드를 읽을 때, 나중에 instant 로 붙인 열 b 의 값은?',
+    a: '사전(se_private_data)의 기본값 — 레코드에는 바이트가 없다',
+    x: ['NULL — 레코드에 없으므로', '첫 SELECT 가 레코드에 기본값을 써 넣은 뒤 그 값', '오류 — 표를 재구축해야 읽힌다'],
+  },
+  '11/7': {
+    q: '기본값으로 읽히던 열 b 를 옛 레코드에서 UPDATE 하면?',
+    a: '레코드가 길어지므로 지우고 현재 version 으로 새로 넣는다',
+    x: ['제자리에서 b 의 4 바이트만 고친다', '옛 version 그대로 두고 b 를 undo 에 적는다', '표 전체를 재구축한다'],
+  },
+  '11/8': {
+    q: 'TOTAL_ROW_VERSIONS 가 64 인 표에 ADD COLUMN … ALGORITHM=INSTANT 를 하면?',
+    a: 'ERROR 4092 — 더는 instant 로 열을 붙이거나 뺄 수 없다',
+    x: ['version 이 255 까지 오른다 — 1 바이트이므로', '가장 오래된 version 을 지우고 다시 쓴다', '경고만 내고 INPLACE 로 재구축한다'],
+  },
+  '11/9': {
+    q: 'version 이 꽉 찬 표에 ALGORITHM 없이 ADD COLUMN 을 하면?',
+    a: 'INPLACE 재구축 — 새 SPACE 와 TABLE_ID, version 0',
+    x: ['ERROR 4092 가 그대로 난다 — ALGORITHM 과 무관하다', 'instant 로 끝나고 TOTAL_ROW_VERSIONS 가 65 가 된다', 'COPY 로 행을 하나씩 옮기지만 SPACE 는 그대로다'],
+  },
 };
 /* 문항을 만들지 않는 beat — 이유를 적어 둔다 */
 export const SKIP = {

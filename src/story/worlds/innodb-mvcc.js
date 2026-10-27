@@ -1,12 +1,21 @@
-/* mysql innodb 02 — 일관 읽기. 그리는 것은 모두 bake 상태에서 읽는다 —
+/* mysql innodb 02 · 11 — 일관 읽기, 그리고 instant ADD · DROP 의 row version. 그리는 것은 모두 bake 상태에서 읽는다 —
      · 행의 숨은 열 = 사슬 머리(trx · rp 를 가진 frames 항목)의 띠 : PK · DB_TRX_ID 6 바이트 · DB_ROLL_PTR 7 바이트 · 열.
        DB_ROLL_PTR 아래에는 그 7 바이트의 배치 — INSERT 1 비트 · undo 테이블스페이스 7 비트 · 페이지 4 바이트 · 위치 2 바이트
      · 버전 사슬 = 머리에서 rp 를 따라간 칸들(행 → undo 0 → undo 1 …). ins 가 있는 칸에서 끝난다.
        read view 가 있으면 칸마다 보이나 · 안 보이나를 칠하고, 처음 보이는 칸(그 view 가 읽는 값)을 금빛으로
      · trx id 축 = read view 의 m_up_limit_id(이 아래는 보인다) · m_low_limit_id(이 위는 안 보인다) · m_ids 의 점,
        그리고 사슬의 각 버전이 가진 DB_TRX_ID
+     · 레코드 격자(11) = 열 사전(pos 를 가진 list 항목 — pos 는 physical_pos, by 는 바이트, var 는 가변 길이, va · vd 는
+       version_added · version_dropped, def 는 기본값)과 레코드(has 를 가진 frames 항목 — ver 는 머리 앞 1 바이트의 version,
+       VERSION 비트가 없으면 null, has 는 바이트가 있는 열, len 은 머리를 넣은 크기, val 은 열의 값). 행 = 레코드, 열 = 사전의 열.
+       칸은 바이트가 있으면 먹색, 있지만 지운 열이면 빨강(건너뛴다), 없고 그 version 뒤에 붙은 열이면 금빛 점선(사전의 기본값),
+       없고 그 version 까지 지운 열이면 비운다
+     · row version 계기 = gg.slots 를 가진 kv 의 gg — slots 칸 가운데 v × slots 칸을 채운다. 다 차면 빨강
      · 나머지 kv 는 글 블록, 나머지 list · frames 는 칸 줄
-     · 셈 맞추기 — m_up_limit_id 가 명단의 최솟값(명단이 비면 m_low_limit_id)이 아니거나, m_low_limit_id 가 명단의 id 이하이거나,
+     · 셈 맞추기(11) — 레코드의 has 가 rec_init_offsets 의 규칙(그 version 뒤에 붙은 열도, 그 version 까지 지운 열도 아니면 바이트가 있다)과
+       다르거나, len 이 머리(5 + version 1 + 가변 길이 열마다 1)와 열 바이트의 합과 다르거나, 레코드의 version 이 표의 version 보다 크거나,
+       사전에 없는 열을 레코드가 갖거나, 계기의 v × slots 가 gg.key 가 가리키는 kv 값과 다르면 console.error
+     · 셈 맞추기(02) — m_up_limit_id 가 명단의 최솟값(명단이 비면 m_low_limit_id)이 아니거나, m_low_limit_id 가 명단의 id 이하이거나,
        ok 로 칠한 undo(여기서 멈춘다)가 그 view 가 실제로 읽는 버전과 다르면 console.error 로 알린다
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
@@ -44,7 +53,7 @@ function make({ F, deck, labels, scene }) {
   const read = (st, step, chg, touch) => {
     const s = { step: step || {}, touch: touch || new Set(), chg: chg || {}, look: (step && step.look) || {} };
     for (const a of cast) {
-      if (A[a].kind === 'kv') s[a] = (st[a] && st[a].kv) || {};
+      if (A[a].kind === 'kv') { s[a] = (st[a] && st[a].kv) || {}; s[a + '#gg'] = (st[a] && st[a].gg) || null; }
       else s[a] = ((st[a] && st[a].items) || []).map((it) => ({ ...it, id: String(it.id), tag: it.tag || 'clean', sub: it.sub || '' }));
     }
     return s;
@@ -62,7 +71,13 @@ function make({ F, deck, labels, scene }) {
   const ITEMS = cast.filter((a) => A[a].kind !== 'kv');
   /* 사슬에 드는 배우 — trx 를 가진 항목이 한 번이라도 있는 배우 */
   const CH = ITEMS.filter((a) => all.some((s) => s[a].some((x) => x.trx != null)));
-  const ROWS = ITEMS.filter((a) => !CH.includes(a));
+  /* 레코드 격자 — 열 사전(pos) × 레코드(has). 둘 다 있어야 그린다 */
+  const DD = ITEMS.find((a) => all.some((s) => s[a].some((x) => x.pos != null))) || null;
+  const PG = ITEMS.find((a) => a !== DD && all.some((s) => s[a].some((x) => Array.isArray(x.has)))) || null;
+  const GRID = !!(DD && PG);
+  const MT = KV.find((a) => all.some((s) => s[a + '#gg'] && s[a + '#gg'].slots)) || null;
+  const ROWS = ITEMS.filter((a) => !CH.includes(a) && !(GRID && (a === DD || a === PG)));
+  const HASCH = all.some((s) => CH.some((a) => s[a].some((x) => x.trx != null && A[a].kind === 'frames')));
   const ids = (a) => [...new Set(all.flatMap((s) => s[a].map((x) => x.id)))];
   const RIDS = Object.fromEntries(ROWS.map((a) => [a, ids(a)]));
 
@@ -97,6 +112,40 @@ function make({ F, deck, labels, scene }) {
     if (ok && v) { const first = ch.find((q) => sees(v, q.it.trx)); if (!first || first.it.id !== ok.it.id) console.error(`${at} : '여기서 멈춘다' 는 ${ok.it.id} 인데 view 가 읽는 버전은 ${first ? first.it.id : '없음'}`); }
     for (let j = 1; j < ch.length; j++) if (ch[j].it.trx > ch[j - 1].it.trx) console.error(`${at} : 사슬이 거꾸로다 — ${ch[j - 1].it.id}(${ch[j - 1].it.trx}) 뒤의 ${ch[j].it.id}(${ch[j].it.trx})`);
   });
+  const GP = new Map();
+  if (GRID) for (const s of all) for (const x of s[DD]) if (!GP.has(x.id)) GP.set(x.id, x.pos);
+  const GC = [...GP.keys()].sort((a, b) => GP.get(a) - GP.get(b));
+  const GR = GRID ? [...new Set(all.flatMap((s) => s[PG].map((x) => x.id)))] : [];
+  /* 칸 하나 — 레코드 r 의 열 c. 사전에 그 열이 없거나 레코드가 없으면 null */
+  const cellOf = (s, r, c) => {
+    const it = s[PG].find((x) => x.id === r), d = s[DD].find((x) => x.id === c);
+    if (!it || !d) return null;
+    const v = it.ver ?? 0, has = it.has.includes(c), val = it.val && it.val[c] != null ? String(it.val[c]) : '';
+    if (has) return d.vd != null ? { st: 'skip', txt: (val ? val + ' · ' : '') + '건너뜀' } : { st: 'ok', txt: val };
+    if (d.va != null && d.va > v) return { st: 'def', txt: (d.def != null ? d.def + ' · ' : '') + '기본값' };
+    return { st: 'none', txt: '—' };
+  };
+  const curVer = (s) => { if (!MT) return null; const g = s[MT + '#gg']; return g && g.key ? nums(s[MT][g.key])[0] ?? null : null; };
+  if (GRID || MT) for (const [kk, b] of BAKES) [b.S0, ...b.S].forEach((s, i) => {
+    const at = `innodb ${sc.num} 세계${kk ? ' (' + sc.vary.knob + '=' + kk + ')' : ''} : ${i ? i + ' 스텝' : 'init'}`;
+    const cv = curVer(s);
+    if (MT) {
+      const g = s[MT + '#gg'];
+      if (g && g.slots && g.key && Math.round(g.v * g.slots) !== cv) console.error(`${at} : 계기 ${g.v} × ${g.slots} 가 ${g.key} ${cv} 와 다르다`);
+      if (g && g.slots && g.r && nums(g.r)[0] !== cv) console.error(`${at} : 계기 글 '${g.r}' 이 ${g.key} ${cv} 와 다르다`);
+    }
+    if (GRID) for (const it of s[PG]) {
+      const v = it.ver ?? 0, dd = (c) => s[DD].find((x) => x.id === c);
+      for (const c of it.has) if (!dd(c)) console.error(`${at} : ${it.id} 가 사전에 없는 열 ${c} 의 바이트를 갖는다`);
+      for (const d of s[DD]) {
+        const want = !(d.va != null && d.va > v) && !(d.vd != null && d.vd <= v);
+        if (want !== it.has.includes(d.id)) console.error(`${at} : ${it.id}(version ${v}) 에 ${d.id} 의 바이트가 ${want ? '있어야' : '없어야'} 한다 — va ${d.va ?? '—'} · vd ${d.vd ?? '—'}`);
+      }
+      const ex = 5 + (it.ver != null ? 1 : 0) + it.has.filter((c) => dd(c) && dd(c).var).length, sum = it.has.reduce((t, c) => t + ((dd(c) && dd(c).by) || 0), 0);
+      if (it.len != null && it.len !== ex + sum) console.error(`${at} : ${it.id} 의 len ${it.len} 이 머리 ${ex} + 열 ${sum} = ${ex + sum} 와 다르다`);
+      if (cv != null && it.ver != null && it.ver > cv) console.error(`${at} : ${it.id} 의 version ${it.ver} 가 표의 ${cv} 보다 크다`);
+    }
+  });
   let cur = BAKES.get(null) || [...BAKES.values()][0];
   const CIDS = [...new Set(all.flatMap((s) => CH.flatMap((a) => s[a].filter((x) => x.trx != null).map((x) => a + ':' + x.id))))];
   /* 축의 범위 — 나온 trx id 와 view 의 경계 전부 */
@@ -109,11 +158,15 @@ function make({ F, deck, labels, scene }) {
   const take = (k, n) => { R[k] = [at, at + n]; at += n; };
   take('strip', SB);
   CIDS.forEach((k) => take('c:' + k, SL));
+  const GSL = 32, MTN = 4;
+  for (const r of GR) for (const c of GC) take('g:' + r + ':' + c, GSL);
+  const MSL = MT ? Math.max(...all.map((s) => (s[MT + '#gg'] && s[MT + '#gg'].slots) || 0)) : 0;
+  if (MT) take('meter', MSL * MTN);
   for (const a of ROWS) RIDS[a].forEach((id) => take(a + ':' + id, SL));
   if (AX) take('ax', AXN);
   take('tok', TOK);
   R.DST = [at, N];
-  if (at > N) throw new Error('innodb 02 세계 : 알갱이가 모자란다');
+  if (at > N) throw new Error(`innodb ${sc.num} 세계 : 알갱이가 모자란다`);
 
   /* ── 이름표 ── */
   const made = [];
@@ -128,6 +181,10 @@ function make({ F, deck, labels, scene }) {
   const axHd = label('aq'), axT = Object.fromEntries(CIDS.map((k) => [k, label('aq')])), axUp = label('aq'), axLow = label('aq'), axIds = label('aq'), axKey = label('aq');
   const rowLb = Object.fromEntries(ROWS.map((a) => [a, Object.fromEntries(RIDS[a].map((id) => [id, label('aq aq-c')]))]));
   const rowCap = Object.fromEntries(ROWS.map((a) => [a, label('aq ml aq-b')]));
+  const mHd = label('aq'), gT = label('aq'), gCap = label('aq ml aq-b');
+  const gcn = Object.fromEntries(GC.map((c) => [c, label('aq')])), gcs = Object.fromEntries(GC.map((c) => [c, label('aq ml')]));
+  const grn = Object.fromEntries(GR.map((r) => [r, label('aq')])), grs = Object.fromEntries(GR.map((r) => [r, label('aq ml aq-b')]));
+  const gcl = Object.fromEntries(GR.map((r) => [r, Object.fromEntries(GC.map((c) => [c, label('aq aq-c')]))]));
   const tok = label('stn-tok');
 
   const focusOf = (s, a) => (Array.isArray(s.look[a]) ? new Set(s.look[a].map(String)) : null);
@@ -140,7 +197,7 @@ function make({ F, deck, labels, scene }) {
     const t = new Map(), on = (a) => s.touch.has(a), ch = chainOf(s), head = ch[0], v = viewOf(s), first = v ? ch.find((q) => sees(v, q.it.trx)) : null;
     const chOn = CH.some(on);
     /* 사슬 배우와 read view 는 자기 제목(사슬 · 축)이 따로 있다 — 배우 이름표는 숨긴다 */
-    for (const a of cast) t.set(hd[a], [A[a].nm, on(a), '', !CH.includes(a) && a !== RV]);
+    for (const a of cast) t.set(hd[a], [A[a].nm, on(a), '', !CH.includes(a) && a !== RV && !(GRID && (a === DD || a === PG))]);
     for (const a of TEXTS) t.set(tx[a], [kvHtml(s[a], focusOf(s, a)), on(a), '', true, true]);
     /* 숨은 열 */
     t.set(stHd, [head ? `${head.it.id} 의 레코드  ·  숨은 열` : '', chOn, '', !!head]);
@@ -173,6 +230,29 @@ function make({ F, deck, labels, scene }) {
     for (const a of ROWS) {
       for (const id of RIDS[a]) { const it = s[a].find((x) => x.id === id); t.set(rowLb[a][id], [it ? id : '', on(a) && !!it && hotIt(s, a, id), '', !!it]); }
       t.set(rowCap[a], [capOf(s[a]) || (s[a].length ? '' : '—'), on(a), '', true, true]);
+    }
+    if (MT) { const g = s[MT + '#gg']; t.set(mHd, [g ? `${g.l}  ${g.r}` : '', on(MT), g && g.v >= 1 ? 'red' : '', !!g]); }
+    if (GRID) {
+      const both = on(PG) && on(DD), rh = (r) => on(PG) && hotIt(s, PG, r), ch2 = (c) => on(DD) && hotIt(s, DD, c);
+      t.set(gT, [`${A[PG].nm}  ×  ${A[DD].nm}`, on(PG) || on(DD), '', true]);
+      for (const c of GC) {
+        const d = s[DD].find((x) => x.id === c);
+        t.set(gcn[c], [d ? c : '', ch2(c), d && d.vd != null ? 'red' : d && d.va != null ? 'gold' : '', !!d]);
+        t.set(gcs[c], [d && d.by != null ? d.by + ' B' : '', ch2(c), '', !!d && d.by != null]);
+      }
+      /* 사전의 글(se_private_data)은 열 머리가 아니라 제목 아래 한 줄씩 — 머리에 두었더니 1024×768 에서 격자가 폭을 70 넘었다 */
+      const capL = GC.map((c) => s[DD].find((x) => x.id === c)).filter((d) => d && d.sub);
+      t.set(gCap, [capL.map((d) => `<span class="q-i">${esc(d.id)}</span>  ${esc(d.sub)}`).join('<br>'), on(DD), '', capL.length > 0, true]);
+      for (const r of GR) {
+        const it = s[PG].find((x) => x.id === r);
+        /* 첫 줄 = 레코드와 크기, 둘째 줄 = 머리(sub) */
+        t.set(grn[r], [it ? r + (it.len != null ? '  ·  ' + it.len + ' B' : '') : '', rh(r), '', !!it]);
+        t.set(grs[r], [it ? it.sub : '', rh(r), '', !!it && !!it.sub]);
+        for (const c of GC) {
+          const q = cellOf(s, r, c), hot = both ? rh(r) && ch2(c) : rh(r) || ch2(c);
+          t.set(gcl[r][c], [q ? q.txt : '', hot, q && q.st === 'skip' ? 'red' : q && q.st === 'def' ? 'gold' : '', !!q && !!q.txt]);
+        }
+      }
     }
     return t;
   });
@@ -234,20 +314,53 @@ function make({ F, deck, labels, scene }) {
       rSide[a] = Math.max(26, hs) < 26 + 8 + hb ? used + 12 : 0; if (!rSide[a]) wrap(rowCap[a], rW);
       rcH[a] = rSide[a] ? hs : hb;
     }
+    /* 격자의 폭 — 레코드 이름 칸, 열마다 이름 · 사전 글 · 칸 글 가운데 가장 넓은 것, 끝에 크기 */
+    let GG = null;
+    if (GRID) {
+      /* 열 폭을 먼저 — 레코드 이름 칸은 남는 폭만큼(모자라면 sub 를 줄 바꾼다) */
+      const cw = Object.fromEntries(GC.map((c) => [c, Math.max(28, most(gcn[c]).w, most(gcs[c]).w, ...GR.map((r) => most(gcl[r][c]).w)) + 8]));
+      const colsW = GC.reduce((t, c) => t + cw[c] + 4, -4);
+      for (const r of GR) grs[r].el.style.maxWidth = '';
+      const nat = Math.max(...GR.map((r) => Math.max(most(grn[r]).w, most(grs[r]).w)));
+      const rsMax = Math.max(80, Math.min(nat, ww - colsW - 12));
+      for (const r of GR) wrap(grs[r], rsMax);
+      const lw = Math.max(...GR.map((r) => Math.max(most(grn[r]).w, most(grs[r]).w)));
+      const x = {}; let xx = L.x0 + lw + 12;
+      for (const c of GC) { x[c] = [xx, cw[c]]; xx += cw[c] + 4; }
+      const nh = Math.max(14, ...GC.map((c) => most(gcn[c]).h)), sh = Math.max(0, ...GC.map((c) => most(gcs[c]).h));
+      /* 줄마다 제 높이 — 한 레코드의 sub 가 세 줄이 되었다고 모든 줄을 벌리지 않는다 */
+      const ry = {}; let yy = 0;
+      for (const r of GR) { ry[r] = yy; yy += Math.max(26, most(grn[r]).h + most(grs[r]).h + 4) + 8; }
+      wrap(gCap, ww);
+      GG = { lw, x, nh, sh, ry, h: yy, cap: most(gCap).h };
+      if (xx - 4 > L.x1 + 1) console.error(`innodb ${sc.num} 세계 : 레코드 격자 ${Math.round(xx - 4 - L.x0)} 가 폭 ${Math.round(ww)} 를 넘는다 (${L.W}×${L.H})`);
+    }
     const lay = (y0, k = 1) => {
       let y = y0;
       const rowY = [y]; for (let r = 0; r < tRows; r++) rowY.push(rowY[r] + HD + tHs[r] + 12 * k);
       TEXTS.forEach((a, i) => { const xx = L.x0 + (i % tn) * (tW + gap), yy = rowY[Math.floor(i / tn)]; place(hd[a], xx, yy); place(tx[a], xx, yy + HD); G.anc[a] = { x: xx + tW - 18, y: yy + 8 }; });
       y = rowY[tRows];
-      /* 숨은 열 띠 */
-      place(stHd, L.x0, y); y += HD + 14;
-      G.strip = { y }; y += 22 + 4 + 15 + 6;
-      G.rpY = y; y += 10 + 6 + G.rpRows * RH + 10 * k;
-      /* 사슬 */
-      place(chHd, L.x0, y); y += HD + 4;
-      G.chain = { y: y + 15 }; G.anc.chain = { x: L.x0 + G.cw / 2, y: y + 15 };
-      for (const a of CH) G.anc[a] = G.anc.chain;
-      y += 30 + 6 + cvH + 12 * k;
+      /* 숨은 열 띠 · 사슬 — 사슬이 있는 장면(02)만. 없는 장면(11)은 자리를 비워 두지 않는다 */
+      if (HASCH) {
+        place(stHd, L.x0, y); y += HD + 14;
+        G.strip = { y }; y += 22 + 4 + 15 + 6;
+        G.rpY = y; y += 10 + 6 + G.rpRows * RH + 10 * k;
+        place(chHd, L.x0, y); y += HD + 4;
+        G.chain = { y: y + 15 }; G.anc.chain = { x: L.x0 + G.cw / 2, y: y + 15 };
+        for (const a of CH) G.anc[a] = G.anc.chain;
+        y += 30 + 6 + cvH + 12 * k;
+      } else { G.strip = { y }; G.rpY = y; G.chain = { y }; }
+      /* row version 계기 — 칸 slots 개, 그 위에 이름 */
+      if (MT) { place(mHd, L.x0, y); y += HD; G.mt = { y }; G.anc[MT] = G.anc[MT] || { x: L.x0 + ww / 2, y }; y += 10 + 12 * k; }
+      /* 레코드 격자 — 제목, 열 이름과 사전의 글, 그리고 레코드마다 한 줄 */
+      if (GRID) {
+        place(gT, L.x0, y); y += HD + 2;
+        if (GG.cap) { place(gCap, L.x0, y); y += GG.cap + 6; }
+        G.gh = y; y += GG.nh + GG.sh + 6;
+        G.gy = y; y += GG.h + 6 * k;
+        G.anc[PG] = { x: L.x0 + GG.lw / 2, y: G.gy + 11 };
+        G.anc[DD] = { x: GG.x[GC[0]][0] + GG.x[GC[0]][1] / 2, y: G.gh + 6 };
+      }
       /* 축 */
       if (AX) { place(axHd, L.x0, y); y += HD + axR * RH + 8; G.ax.y = y; if (RV) G.anc[RV] = { x: L.x0 + ww / 2, y }; y += 14 + axR * RH + 4; G.axKeyY = y; place(axKey, L.x0, y); y += keyH + 10 * k; }
       for (let i = 0; i < ROWS.length; i += rc) {
@@ -264,7 +377,8 @@ function make({ F, deck, labels, scene }) {
     };
     let k = 1, total = lay(L.y0, 1);
     if (total > wh) { k = 0.2; total = lay(L.y0, k); }
-    if (total > wh + 1) console.error(`innodb 02 세계 : 높이 ${Math.round(total)} 가 무대 ${Math.round(wh)} 를 넘는다 (${L.W}×${L.H})`);
+    if (total > wh + 1) console.error(`innodb ${sc.num} 세계 : 높이 ${Math.round(total)} 가 무대 ${Math.round(wh)} 를 넘는다 (${L.W}×${L.H})`);
+    G.GG = GG;
     HT = total;
     const dy = L.narrow ? 0 : Math.max(0, (wh - total) / 2);
     if (dy) lay(L.y0 + dy, k);
@@ -274,7 +388,15 @@ function make({ F, deck, labels, scene }) {
   /* 사슬 칸의 자리 — 머리부터 가로로, 칸 사이 40 */
   const chainSlot = (s, k) => { const ch = chainOf(s), j = ch.findIndex((q) => q.a + ':' + q.it.id === k); return j < 0 ? null : { x: G.L.x0 + G.cw / 2 + j * (G.cw + 40), y: G.chain.y, j }; };
   const rowSlot = (s, a, id) => { let x = G.slot[a].x0; for (const it of s[a]) { const w = G.slot[a].sw[it.id]; if (it.id === id) return { x: x + w / 2, y: G.slot[a].y + 13, w }; x += w + 6; } return null; };
+  /* 격자 칸의 자리 — 행은 GR 의 순서, 열은 GC 의 순서로 고정. 칸이 없으면 null */
+  const gridRowY = (r) => G.gy + G.GG.ry[r];
+  const gridCell = (s, r, c) => { const q = cellOf(s, r, c); if (!q) return null; const [x0, w] = G.GG.x[c]; return { x: x0 + w / 2, y: gridRowY(r) + 11, w, st: q.st }; };
   function anchor(a, s, lbText) {
+    if (GRID && (a === PG || a === DD)) {
+      const pick = (ids) => { const m = [...modOf(s, a)].filter((x) => ids.includes(x)); if (m.length) return m[0]; const f = focusOf(s, a); return f ? ids.find((x) => f.has(x)) : null; };
+      if (a === PG) { const r = pick(GR) || GR.find((x) => s[PG].some((y) => y.id === x)); if (r) return [G.L.x0 + G.GG.lw / 2, gridRowY(r) + 11]; }
+      else { const c = pick(GC) || GC[0], [x0, w] = G.GG.x[c]; return [x0 + w / 2, G.gh + 6]; }
+    }
     if (CH.includes(a)) {
       const ch = chainOf(s), q = ch.find((x) => x.a === a && (lbText || '').includes(x.it.id)) || ch.find((x) => x.a === a && modOf(s, a).has(x.it.id)) || ch.find((x) => x.a === a);
       if (q) { const P = chainSlot(s, q.a + ':' + q.it.id); if (P) return [P.x, P.y]; }
@@ -358,6 +480,40 @@ function make({ F, deck, labels, scene }) {
         put(o, i, xx, yy, lv * (1 - gone) * (tg === 'free' ? 0.5 * (m % 2) : 1), 0, 0.03, 1.1, TAGC[tg] ?? INK);
       }
     }
+    /* row version 계기 — 칸마다 세로 알갱이 셋. 찬 칸은 금빛, 다 차면 빨강 */
+    if (MT) {
+      const g = s[MT + '#gg'], [m0] = R.meter, n = g && g.slots ? Math.round(g.v * g.slots) : 0, full = g && g.v >= 1, on = s.touch.has(MT) && !end;
+      for (let j = 0; j < MSL; j++) for (let m = 0; m < MTN; m++) {
+        const i = m0 + j * MTN + m;
+        if (!g || j >= g.slots) { put(o, i, dust[i * 2], dust[i * 2 + 1], 0, 0, 2, 1, FAINT); continue; }
+        const x = G.L.x0 + ((j + 0.5) / g.slots) * (G.L.x1 - G.L.x0), y = G.mt.y + m * 3, fill = j < n;
+        const [xx, yy] = into(i, x, y);
+        put(o, i, xx, yy, (fill ? (on ? 0.95 : 0.6) : 0.28) * dim * form, fill && on ? 0.4 : 0, 0.02, 1.1, fill ? (full ? RED : GOLD) : FAINT);
+      }
+    }
+    /* 레코드 격자 — 칸마다 테두리 알갱이. 바이트가 있으면 먹색, 건너뛰면 빨강, 기본값이면 금빛 점선, 비면 그리지 않는다 */
+    if (GRID) {
+      const both = s.touch.has(PG) && s.touch.has(DD) && !end;
+      const rh = (r) => s.touch.has(PG) && !end && hotIt(s, PG, r), chh = (c) => s.touch.has(DD) && !end && hotIt(s, DD, c);
+      const src2 = act ? anchor(act.f, s, act.lb) : null;
+      for (const r of GR) for (const c of GC) {
+        const key = 'g:' + r + ':' + c, [g0] = R[key], P = gridCell(s, r, c), P0 = gridCell(prev, r, c);
+        const show2 = P && P.st !== 'none' ? P : null, was = P0 && P0.st !== 'none' ? P0 : null;
+        if (!show2 && !(was && !end)) { hide(key); continue; }
+        const at2 = show2 || was, gone = show2 ? 0 : show(p, 0.1, 0.4), st = at2.st;
+        const hot = both ? rh(r) && chh(c) : rh(r) || chh(c);
+        const col = st === 'skip' ? RED : st === 'def' ? GOLD : INK;
+        const born = show2 && !was && !end && src2 && act && (act.t === PG || act.t === DD);
+        for (let m = 0; m < GSL; m++) {
+          const i = g0 + m, f = m / GSL;
+          let [x, y] = rim(at2.x, at2.y, at2.w, 22, GSL, m);
+          if (born) { const qq = show(fly, f * 0.4, 0.6 + f * 0.4); x = U.lerp(src2[0], x, qq); y = U.lerp(src2[1], y, qq) - Math.sin(qq * Math.PI) * 14; }
+          if (gone) { x += jit[i * 2] * 24 * gone; y += jit[i * 2 + 1] * 24 * gone; }
+          const [xx, yy] = into(i, x, y);
+          put(o, i, xx, yy, (hot ? 0.95 : 0.5) * dim * form * (1 - gone) * (st === 'def' ? m % 2 : 1), 0, 0.03, 1.1, col);
+        }
+      }
+    }
     const [t0, t1] = R.tok, tn = t1 - t0;
     if (act) {
       const [fx, fy] = src, [tx2, ty2] = anchor(act.t, s, act.lb), e = U.smooth(fly), gone = show(p, 0.42, 0.52), self = act.f === act.t;
@@ -386,6 +542,15 @@ function make({ F, deck, labels, scene }) {
       for (const kq of CIDS) { const P = chainSlot(s, kq); if (P) { place(cLb[kq].n, P.x, P.y, 'c', 'c'); place(cLb[kq].v, P.x, P.y + 21, 'c', 't'); } }
       if (AX && cur.AXL) { const al = cur.AXL[kk]; for (const q of al.up) place(q.lb, q.l, G.ax.y - 14 - q.row * RH, 'l', 'b'); for (const q of al.dn) place(q.lb, q.l, G.ax.y + 14 + q.row * RH, 'l', 't'); place(axKey, G.L.x0, G.axKeyY); place(axHd, G.L.x0, G.ax.y - 14 - (al.up.length ? Math.max(...al.up.map((q) => q.row)) + 1 : 0) * RH - 18); }
       for (const a of ROWS) for (const it of s[a]) { const P = rowSlot(s, a, it.id); if (P) place(rowLb[a][it.id], P.x, P.y, 'c', 'c'); }
+      if (GRID) {
+        const GG = G.GG;
+        for (const c of GC) { const [x0] = GG.x[c]; place(gcn[c], x0 + 2, G.gh); place(gcs[c], x0 + 2, G.gh + GG.nh); }
+        for (const r of GR) {
+          const y0 = gridRowY(r);
+          place(grn[r], G.L.x0, y0 + 4); place(grs[r], G.L.x0, y0 + 4 + GG.nh);
+          for (const c of GC) { const P = gridCell(s, r, c); if (P) place(gcl[r][c], P.x, P.y, 'c', 'c'); }
+        }
+      }
     }
     const form = k === 0 ? show(p, 0.18, 0.36) : 1, dimO = (end ? 0.18 : 1) * form, fade = Math.abs(1 - 2 * b);
     for (const [lb, [txt, emph, , vis = true]] of T) {
