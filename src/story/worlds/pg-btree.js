@@ -5,7 +5,10 @@
      · 페이지의 항목 = list 배우의 항목 하나가 칸 하나. tag : clean 먹색 · x(LP_DEAD) 빨간 테두리 · dirty 금빛 ·
        sep(high key) 파란 테두리 · ok 초록 · free 흐린 테두리. 칸의 이름은 항목 id, 설명(sub)은 줄 아래에 모아 적는다
      · OPERATION 의 '경로'(페이지 id 를 → 로 이은 것)가 있으면 reader 가 그 페이지들을 따라 내려가고 옆으로 간다
+     · 페이지의 grp(08 : 인덱스 둘)가 있으면 grp 마다 옆으로 나란한 칸에 그 인덱스의 트리를 따로 세운다
      · 셈 맞추기 — high key 가 있는 페이지는 모든 키가 high key 보다 작고 오름차순이어야 한다(숫자 키일 때).
+       페이지에 잰 free(bt_page_stats 의 free_size)가 있으면 fill 이 1 − free / 8148 과 맞아야 하고,
+       list(그 페이지를 보이는 list 배우)와 live 가 있으면 그 줄의 항목 수(칸마다 n, 없으면 1)의 합이 live 와 같아야 한다.
        어긋나면 console.error 로 알린다(storysweep 의 errors 가 잡는다)
      · act 는 덩어리가 f 에서 t 로 — 트리는 act 이름이 짚는 페이지, 없으면 그 스텝에서 바뀐 페이지
      · 그 스텝이 건드린 배우(touch)는 또렷하게, 나머지는 흐리게
@@ -47,7 +50,7 @@ function make({ F, deck, labels, scene }) {
   const read = (st, step, chg, touch) => {
     const s = { step: step || {}, touch: touch || new Set(), chg: chg || {}, look: (step && step.look) || {} };
     for (const a of TEXTS) s[a] = (st[a] && st[a].kv) || {};
-    for (const a of LISTS) s[a] = ((st[a] && st[a].items) || []).map((it) => ({ id: String(it.id), tag: it.tag || 'clean', sub: it.sub || '' }));
+    for (const a of LISTS) s[a] = ((st[a] && st[a].items) || []).map((it) => ({ id: String(it.id), tag: it.tag || 'clean', sub: it.sub || '', n: it.n }));
     s.pages = TREE ? ((st[TREE] && st[TREE].items) || []).map((it) => ({ ...it, id: String(it.id) })) : [];
     const path = TEXTS.map((a) => s[a]['경로']).find((v) => v && bare(v) !== '—');
     s.path = path ? bare(path).split('→').map((x) => x.trim()).filter((x) => s.pages.some((p) => p.id === x)) : [];
@@ -72,6 +75,13 @@ function make({ F, deck, labels, scene }) {
         if (p.next && !s.pages.some((x) => x.id === p.next)) console.error(`${tag} : ${at} 의 ${p.id} 가 없는 페이지 ${p.next} 를 오른쪽으로 가리킨다`);
         /* up '—' 는 부모에서 떼어 낸 페이지(06 의 half-dead)다 */
         if (p.up && p.up !== '—' && !s.pages.some((x) => x.id === p.up)) console.error(`${tag} : ${at} 의 ${p.id} 가 없는 부모 ${p.up} 를 가리킨다`);
+        /* 빈 leaf 의 free_size = 8192 − 헤더 24 − special(BTPageOpaqueData) 16 − line pointer 4 = 8148 */
+        if (typeof p.free === 'number' && typeof p.fill === 'number' && Math.abs(p.fill - (1 - p.free / 8148)) > 0.01)
+          console.error(`${tag} : ${at} 의 ${p.id} fill ${p.fill} 가 free_size ${p.free} 로 셈한 ${(1 - p.free / 8148).toFixed(3)} 와 다르다`);
+        if (p.list && typeof p.live === 'number' && s[p.list]) {
+          const sum = s[p.list].reduce((t, x) => t + (typeof x.n === 'number' ? x.n : 1), 0);
+          if (sum !== p.live) console.error(`${tag} : ${at} 의 ${p.id} live ${p.live} 와 ${A[p.list].nm} 의 항목 합 ${sum} 이 다르다`);
+        }
       }
     });
     BAKES.set(k, { S0, S, NK: S.length });
@@ -80,7 +90,11 @@ function make({ F, deck, labels, scene }) {
   const all = [...BAKES.values()].flatMap((b) => [b.S0, ...b.S]);
   const PIDS = [...new Set(all.flatMap((s) => s.pages.map((p) => p.id)))];
   const LV = [...new Set(all.flatMap((s) => s.pages.map((p) => p.lvl || 0)))].sort((a, b) => a - b);
-  const PERLV = Math.max(1, ...all.flatMap((s) => LV.map((l) => s.pages.filter((p) => (p.lvl || 0) === l).length)));
+  /* grp — 처음 나온 순서대로 옆으로 나란한 칸. 없으면 칸 하나 */
+  const GRPS = [...new Set(all.flatMap((s) => s.pages.map((p) => p.grp || '')))];
+  const sameRow = (x, p) => (x.lvl || 0) === (p.lvl || 0) && (x.grp || '') === (p.grp || '');
+  /* grp 마다 한 줄에 가장 많이 놓이는 페이지 수 — 칸의 폭을 그 비로 나눈다(08 : bu_k 는 1 장, bu_v 는 leaf 넷) */
+  const PERG = Object.fromEntries(GRPS.map((g) => [g, Math.max(1, ...all.flatMap((s) => s.pages.filter((p) => (p.grp || '') === g).map((p) => s.pages.filter((x) => sameRow(x, p)).length)))]));
   const IIDS = Object.fromEntries(LISTS.map((a) => [a, [...new Set(all.flatMap((s) => s[a].map((x) => x.id)))]]));
   const MAXI = Object.fromEntries(LISTS.map((a) => [a, Math.max(1, ...all.map((s) => s[a].length))]));
 
@@ -178,7 +192,11 @@ function make({ F, deck, labels, scene }) {
     for (const a of TEXTS) wrap(tx[a], tW);
     const tH = Math.max(16, ...TEXTS.map((a) => most(tx[a]).h));
     /* 트리 — 층마다 페이지 상자. 폭은 한 층에 가장 많이 놓이는 수로 */
-    const pw = Math.round(U.clamp((ww - (PERLV - 1) * 22) / PERLV, 70, 138)), ph = 26;
+    /* 이름표는 상자보다 18 넓다(wrap pw + 18) — 줄이 칸을 다 채워도 양 끝 이름표가 칸 · 무대 밖으로 나가지 않게 그만큼 뺀다 */
+    const GG = 40, tot = GRPS.reduce((t, g) => t + PERG[g], 0), avail = ww - (GRPS.length - 1) * GG;
+    const colW = Object.fromEntries(GRPS.map((g) => [g, (avail * PERG[g]) / tot]));
+    const pw = Math.round(Math.min(...GRPS.map((g) => U.clamp((colW[g] - 18 - (PERG[g] - 1) * 22) / PERG[g], 70, 138)))), ph = 26;
+    const colX = {}; GRPS.reduce((x, g) => { colX[g] = x; return x + colW[g] + GG; }, L.x0);
     for (const id of PIDS) wrap(pgLb[id], pw + 18);
     const pH = Math.max(16, ...PIDS.map((id) => most(pgLb[id]).h));
     /* 항목 줄 — 칸 폭은 그 칸의 이름이 가장 길 때 */
@@ -199,7 +217,7 @@ function make({ F, deck, labels, scene }) {
     HT = total;
     const dy = L.narrow ? 0 : Math.max(0, (wh - total) / 2);
     let y = L.y0 + dy;
-    G = { L, pw, ph, pH, sh, sg, sw, slot: {}, page: {}, anc: {}, rowY: {}, edgeY: 0 };
+    G = { L, pw, ph, pH, sh, sg, sw, colW, colX, slot: {}, page: {}, anc: {}, rowY: {}, edgeY: 0 };
     TEXTS.forEach((a, i) => { const x = L.x0 + i * (tW + gap); place(hd[a], x, y); place(tx[a], x, y + HD); G.anc[a] = { x: x + tW - 18, y: y + 8 }; });
     y += HD + tH + 18;
     G.edgeY = y; if (EDGE) place(edgeLb, L.x1, y - 3, 'r', 'b');
@@ -224,8 +242,8 @@ function make({ F, deck, labels, scene }) {
   function pageAt(s, id) {
     const p = s.pages.find((x) => x.id === id);
     if (!p || !G) return null;
-    const lv = p.lvl || 0, row = s.pages.filter((x) => (x.lvl || 0) === lv), j = row.indexOf(p);
-    const span = row.length * G.pw + (row.length - 1) * 22, x0 = G.L.x0 + (G.L.x1 - G.L.x0 - span) / 2;
+    const lv = p.lvl || 0, row = s.pages.filter((x) => sameRow(x, p)), j = row.indexOf(p);
+    const g = p.grp || '', span = row.length * G.pw + (row.length - 1) * 22, x0 = G.colX[g] + (G.colW[g] - span) / 2;
     return { x: x0 + G.pw / 2 + j * (G.pw + 22), y: G.treeY + LV.indexOf(lv) * (G.ph + G.lvGap) + G.ph / 2 };
   }
   function parentOf(s, p) {
@@ -233,7 +251,7 @@ function make({ F, deck, labels, scene }) {
     if (p.up) return s.pages.find((x) => x.id === p.up) || null;
     const li = LV.indexOf(p.lvl || 0);
     if (li <= 0) return null;
-    const ups = s.pages.filter((x) => (x.lvl || 0) === LV[li - 1]);
+    const ups = s.pages.filter((x) => (x.lvl || 0) === LV[li - 1] && (x.grp || '') === (p.grp || ''));
     return ups.length === 1 ? ups[0] : null;
   }
   /* 항목 칸 자리 — 줄을 왼쪽부터, 넘치면 다음 줄 */
@@ -438,7 +456,7 @@ function make({ F, deck, labels, scene }) {
         const fresh = !end && (modOf(s, TREE).has(pg.id) || modOf(s, TREE).has(pg.next)), hot = step(pg.id, pg.next);
         ctx.globalAlpha = (hot || fresh ? 0.95 : on ? 0.6 : 0.4) * o * (fresh ? show(p, 0.3, 0.46) : 1);
         ctx.strokeStyle = hot ? css.accent : fresh ? css.gold : css.ink; ctx.lineWidth = hot || fresh ? 1.6 : 1.1; ctx.setLineDash([]);
-        const y = A0.y + G.ph / 2 - 6, row = s.pages.filter((x) => (x.lvl || 0) === (pg.lvl || 0));
+        const y = A0.y + G.ph / 2 - 6, row = s.pages.filter((x) => sameRow(x, pg));
         if (Math.abs(row.findIndex((x) => x.id === pg.next) - row.indexOf(pg)) > 1) {
           /* 이웃이 아닌 형제(06 : A → C, 떼어 낸 B 를 건너뛴다) — 상자 위로 휘어 간다 */
           const x0 = A0.x + G.pw / 4, x1 = B0.x - G.pw / 4, top = A0.y - G.ph / 2 - 14;
