@@ -115,4 +115,24 @@ export const CORE = {
     a: '그 슬롯이 무효(wal_removed)가 되고 WAL 은 지워진다',
     x: ['WAL 을 계속 남기고 경고만 낸다', '새 WAL 쓰기를 멈추고 기다린다', '슬롯의 restart_lsn 을 앞으로 당겨 준다'],
   },
+  '09/1': {
+    q: '슬롯 없이 max_wal_size 64MB 에서 WAL 을 160 MB 쓰고 CHECKPOINT 하면 pg_wal 은?',
+    a: '세 개 · 48 MB 쯤 — 지난 세그먼트는 재활용되거나 지워진다',
+    x: ['160 MB 그대로 — checkpoint 는 파일을 안 지운다', '0 개 — checkpoint 가 모두 지운다', '64 MB 를 넘으면 쓰기가 멈춘다'],
+  },
+  '09/4': {
+    q: '읽히지 않는 슬롯의 restart_lsn 이 max_wal_size 거리보다 오래되면 wal_status 는?',
+    a: 'extended — 슬롯이 max_wal_size 너머까지 남긴다',
+    x: ['lost — 그 순간 버려진다', 'unreserved — 다음 checkpoint 가 지운다', 'reserved — 슬롯이 있으면 늘 reserved'],
+  },
+  '09/7': {
+    q: 'max_slot_wal_keep_size 를 슬롯이 붙잡은 양보다 작게 reload 한 직후, checkpoint 전의 상태는?',
+    a: 'unreserved — 파일은 아직 있고 safe_wal_size 는 음수',
+    x: ['lost — 설정을 바꾸는 순간 슬롯이 버려진다', 'extended — 설정은 재시작해야 먹는다', 'reserved — safe_wal_size 가 0 으로 돌아간다'],
+  },
+  '09/8': {
+    q: 'unreserved 인 슬롯이 있는 채로 checkpoint 가 돌면?',
+    a: '슬롯을 wal_removed 로 버리고 그 세그먼트를 지운다',
+    x: ['슬롯 때문에 checkpoint 가 실패한다', '슬롯의 restart_lsn 을 앞으로 옮기고 살려 둔다', '세그먼트를 보관하고 슬롯은 그대로 둔다'],
+  },
 };

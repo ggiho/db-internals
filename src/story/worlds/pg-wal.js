@@ -6,7 +6,10 @@
      · bytes 배우 = 확대한 띠. 칸의 폭이 sz, 이름은 위 · 설명은 아래
      · 나머지 kv 는 글 블록, 나머지 list 는 칸 줄
      · 셈 맞추기 — Insert ≥ Write ≥ Flush 가 깨지거나, 데이터 파일(heap)에 새로 쓰인 페이지의 LSN 이 그 순간의 Flush 보다
-       크면(WAL-before-data), 또는 레코드 구간의 end 가 lsn 보다 작으면 console.error 로 알린다
+       크면(WAL-before-data), 또는 레코드 구간의 end 가 lsn 보다 작으면 console.error 로 알린다.
+       슬롯(09) — kv 에 restart_lsn · wal_status 와 pg_current_wal_lsn · max_wal_size · max_slot_wal_keep_size 가 있으면 잰 wal_status ·
+       safe_wal_size 를 GetWALAvailability · KeepLogSeg 의 규칙으로 다시 셈해 맞추고, 살아 있는 슬롯의 restart_lsn 이 칸 줄의
+       세그먼트(lsn ‥ end) 안에 있는지 본다
    손잡이가 있는 장면(04 synchronous_commit)은 값마다 따로 bake 해 두고 setVary 로 바꾼다.
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
@@ -100,6 +103,28 @@ function make({ F, deck, labels, scene }) {
       const o = pv.heap.find((q) => q.id === x.id), L0 = itLsn(x);
       if (L0 != null && (!o || itLsn(o) !== L0) && L0 > fl) console.error(`${at} 의 heap ${x.id} 가 LSN ${lsnTx(L0)} 로 쓰였는데 Flush 는 ${lsnTx(fl)} — WAL 이 먼저가 아니다`);
     }
+  });
+  /* 슬롯이 붙잡는 WAL(09) — xlog.c GetWALAvailability : 세그먼트 = 16 MB, max_wal_size 안(지금 세그먼트 − (max_wal_size/16 + 1) 이후)이면
+     reserved, 슬롯 때문에 그보다 오래 남기면 extended, max_slot_wal_keep_size 를 넘었지만 아직 안 지웠으면 unreserved.
+     slotfuncs.c 의 safe_wal_size = (restart 세그먼트 + keep 세그먼트 + 1) 의 시작 − 지금 LSN. 잰 값이 이 셈과 다르면 알린다 */
+  const SEG = 16 * 2 ** 20;
+  const int = (v) => { const m = /^\s*(-?[\d,]+)/.exec(bare(v)); return m ? Number(m[1].replace(/,/g, '')) : null; };
+  for (const [k, b] of BAKES) b.S.forEach((s, i) => {
+    const sl = TEXTS.map((a) => s[a]).find((x) => 'restart_lsn' in x && 'wal_status' in x);
+    const op = TEXTS.map((a) => s[a]).find((x) => 'pg_current_wal_lsn' in x && 'max_wal_size' in x && 'max_slot_wal_keep_size' in x);
+    if (!sl || !op) return;
+    const at = `pg wal ${sc.num} 세계${k ? ' (' + sc.vary.knob + '=' + k + ')' : ''} : ${i + 1} 스텝`, st = bare(sl.wal_status).split(/\s/)[0];
+    if (!['reserved', 'extended', 'unreserved'].includes(st)) return;
+    const R0 = lsnOf(sl.restart_lsn), C = lsnOf(op.pg_current_wal_lsn), mw = int(op.max_wal_size), kp = int(op.max_slot_wal_keep_size);
+    if (R0 == null || C == null || mw == null || kp == null) { console.error(`${at} : 슬롯이 ${st} 인데 restart_lsn · 지금 LSN · 설정을 읽지 못했다`); return; }
+    const cs = Math.floor(C / SEG), ts = Math.floor(R0 / SEG), keepMax = Math.floor(mw / 16) + 1, oMax = cs > keepMax ? cs - keepMax : 1;
+    const oSlot = kp >= 0 && cs - ts > Math.floor(kp / 16) ? cs - Math.floor(kp / 16) : ts;
+    const want = ts >= oSlot ? (ts >= oMax ? 'reserved' : 'extended') : 'unreserved';
+    if (want !== st) console.error(`${at} : wal_status 가 ${st} 인데 규칙으로 셈하면 ${want} (restart 세그먼트 ${ts.toString(16)} · 지금 ${cs.toString(16)})`);
+    const safe = int(sl.safe_wal_size), wantSafe = kp >= 0 ? (ts + Math.floor(kp / 16) + 1) * SEG - C : null;
+    if (safe !== wantSafe) console.error(`${at} : safe_wal_size ${safe} 인데 규칙으로 셈하면 ${wantSafe}`);
+    const segs = ROWS.flatMap((a) => s[a]).filter((x) => itLsn(x) != null && itEnd(x) != null);
+    if (segs.length && !segs.some((x) => itLsn(x) <= R0 && R0 < itEnd(x))) console.error(`${at} : 슬롯이 ${st} 인데 restart_lsn ${lsnTx(R0)} 이 든 세그먼트가 칸 줄에 없다`);
   });
   let cur = BAKES.get(null) || [...BAKES.values()][0];
 
