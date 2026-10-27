@@ -9,7 +9,8 @@
      · 나머지 kv 는 글 블록, 나머지 list 는 칸 줄
      · 셈 맞추기 — 영역이 겹치거나 0 ‥ 8192 밖이거나, 헤더가 [0, 24) 가 아니거나, kv 의 pd_lower · pd_upper 나
        헤더 띠 칸(pd_lower · pd_upper · pd_special)의 sub '오프셋 · 값' 이 영역과 다르거나, 트리의 잎이 숫자가 아니면
-       console.error 로 알린다(storysweep 의 errors 가 잡는다)
+       console.error 로 알린다(storysweep 의 errors 가 잡는다). line pointer 가 가리키는 영역이 lp_off · lp_len 과 다르거나,
+       REDIRECT 가 len 0 · NORMAL 대상이 아니거나, UNUSED 에 저장이 있어도 알린다
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
 import { kvLine } from './kvline.js';
@@ -122,6 +123,15 @@ function make({ F, deck, labels, scene }) {
       if (bd.lower > bd.upper) console.error(`${at} 의 pd_lower ${bd.lower} 가 pd_upper ${bd.upper} 를 넘었다`);
     }
     if (FSM && !s[FSM].every((x) => nums(x.sub).length)) console.error(`${at} 의 FSM 잎에 숫자가 없다`);
+    /* line pointer 와 페이지 — NORMAL 이 가리키는 영역(to)은 lp_off 에서 lp_len 이나 MAXALIGN(lp_len)(07 은 패딩을 영역에 넣는다), REDIRECT 는 len 0 에 NORMAL 인 lp 를,
+       UNUSED 는 저장 없음(off 0 · len 0). 여럿을 묶은 항목('lp 3 … 102')은 대표값이라 건너뛴다 */
+    if (LPA) for (const x of s[LPA]) {
+      if (x.id.includes('…')) continue;
+      const f = flagOf(x.fl);
+      if (GRID && f === 1 && x.to) { const g = s[GRID].find((y) => y.id === x.to); if (g && (g.off !== x.off || (g.len !== x.len && g.len !== Math.ceil(x.len / 8) * 8))) console.error(`${at} 의 ${x.id}(off ${x.off} · len ${x.len}) 가 가리키는 ${x.to} 는 [${g.off}, ${g.off + g.len}) 다`); }
+      if (f === 2) { const t = s[LPA].find((y) => y.id === 'lp ' + x.off); if (+x.len || !t || flagOf(t.fl) !== 1) console.error(`${at} 의 ${x.id} REDIRECT → lp ${x.off} 가 len 0 · NORMAL 대상이 아니다`); }
+      if (f === 0 && (+x.off || +x.len)) console.error(`${at} 의 ${x.id} 는 UNUSED 인데 off ${x.off} · len ${x.len} 이다`);
+    }
   });
   let cur = BAKES.get(null) || [...BAKES.values()][0];
 

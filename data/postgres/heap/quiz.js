@@ -30,7 +30,17 @@ export const CORE = {
     a: 'offsetof(PageHeaderData, pd_linp) 로 계산된다',
     x: ['#define SizeOfPageHeaderData 24 로 적은 리터럴', 'configure 가 빌드 때 적어 넣는다', 'pg_control 에 저장해 두고 읽는다'],
   },
-  '03/4': {
+  '03/3': {
+    q: '인덱스가 있는 테이블을 VACUUM (INDEX_CLEANUP OFF) 하면 지운 행의 line pointer 는?',
+    a: 'LP_DEAD 로 남는다 — 인덱스가 아직 그 TID 를 가리킨다',
+    x: ['LP_UNUSED 가 된다 — 곧바로 새 행이 그 번호를 쓴다', 'LP_NORMAL 그대로 — 튜플 바이트도 그 자리에 남는다', 'LP_REDIRECT 가 된다 — 지운 행의 다음 버전을 가리킨다'],
+  },
+  '03/6': {
+    q: 'VACUUM 이 가운데의 lp 2 를 LP_UNUSED 로 만든 뒤 INSERT 하면 새 행의 TID 는?',
+    a: '(0,2) — 비어 있던 번호를 앞에서부터 찾아 다시 쓴다',
+    x: ['(0,5) — 번호는 늘 배열 끝에 붙인다', '다음 페이지의 첫 번호 — 쓰던 번호는 다시 주지 않는다', '(0,2) — 단, VACUUM FULL 을 한 뒤에만'],
+  },
+  '03/7': {
     q: '라인 포인터 비용을 InnoDB 의 페이지 디렉터리 슬롯과 비교하면?',
     a: 'PG 는 튜플마다 4바이트, InnoDB 는 4~8개 레코드마다 2바이트',
     x: ['PG 는 4~8개 튜플마다 4바이트, InnoDB 는 레코드마다 2바이트', '둘 다 레코드마다 2바이트 슬롯 하나씩', 'PG 는 튜플마다 2바이트, InnoDB 는 슬롯이 없다'],
