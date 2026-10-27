@@ -1,5 +1,5 @@
-/* mysql innodb 02 · 11 — 일관 읽기, 그리고 instant ADD · DROP 의 row version. 그리는 것은 모두 bake 상태에서 읽는다 —
-     · 행의 숨은 열 = 사슬 머리(trx · rp 를 가진 frames 항목)의 띠 : PK · DB_TRX_ID 6 바이트 · DB_ROLL_PTR 7 바이트 · 열.
+/* mysql innodb 02 · 11 · 12 — 일관 읽기, instant ADD · DROP 의 row version, purge 와 history list. 그리는 것은 모두 bake 상태에서 읽는다 —
+     · 행의 숨은 열 = 사슬 머리(trx · rp 를 가진 frames 항목)의 띠 : PK(항목의 pk) · DB_TRX_ID 6 바이트 · DB_ROLL_PTR 7 바이트 · 열.
        DB_ROLL_PTR 아래에는 그 7 바이트의 배치 — INSERT 1 비트 · undo 테이블스페이스 7 비트 · 페이지 4 바이트 · 위치 2 바이트
      · 버전 사슬 = 머리에서 rp 를 따라간 칸들(행 → undo 0 → undo 1 …). ins 가 있는 칸에서 끝난다.
        read view 가 있으면 칸마다 보이나 · 안 보이나를 칠하고, 처음 보이는 칸(그 view 가 읽는 값)을 금빛으로
@@ -101,7 +101,7 @@ function make({ F, deck, labels, scene }) {
 
   /* 셈 맞추기 */
   for (const [kk, b] of BAKES) [b.S0, ...b.S].forEach((s, i) => {
-    const at = `innodb 02 세계${kk ? ' (' + sc.vary.knob + '=' + kk + ')' : ''} : ${i ? i + ' 스텝' : 'init'}`;
+    const at = `innodb ${sc.num} 세계${kk ? ' (' + sc.vary.knob + '=' + kk + ')' : ''} : ${i ? i + ' 스텝' : 'init'}`;
     const v = viewOf(s);
     if (v) {
       const lowest = v.ids.length ? Math.min(...v.ids) : v.low;
@@ -203,7 +203,7 @@ function make({ F, deck, labels, scene }) {
     t.set(stHd, [head ? `${head.it.id} 의 레코드  ·  숨은 열` : '', chOn, '', !!head]);
     /* roll pointer 가 가리키던 undo 가 회수됐으면 그렇다고 — 12 스텝에서 지워진 undo 0 을 계속 가리키는 것처럼 보였다 */
     const cv = head ? [nums(head.it.sub)[0] ?? '', head.it.trx, head.it.rp ? '→ ' + head.it.rp + (find(s, head.it.rp) ? '' : '  (회수됨)') : '—', head.it.c ?? ''] : [];
-    COLS.forEach(([n, w], i) => { t.set(colLb[i].n, [head ? `${n}${i === 1 || i === 2 ? '  ' + w + ' B' : ''}` : '', chOn, '', !!head]); t.set(colLb[i].v, [head ? String(i === 0 ? 'id 5' : cv[i]) : '', chOn && i > 0, i === 1 && head && modOf(s, head.a).has(head.it.id) ? 'gold' : '', !!head]); });
+    COLS.forEach(([n, w], i) => { t.set(colLb[i].n, [head ? `${n}${i === 1 || i === 2 ? '  ' + w + ' B' : ''}` : '', chOn, '', !!head]); t.set(colLb[i].v, [head ? String(i === 0 ? head.it.pk ?? '' : cv[i]) : '', chOn && i > 0, i === 1 && head && modOf(s, head.a).has(head.it.id) ? 'gold' : '', !!head]); });
     RPG.forEach((g, i) => t.set(rpLb[i], [head ? g.map((j) => `${RPB[j][0]} ${RPB[j][1]}b`).join('  ·  ') : '', chOn, '', !!head]));
     /* 사슬 */
     t.set(chHd, [ch.length ? 'version chain  ·  DB_ROLL_PTR 를 따라' : '', chOn, '', ch.length > 0]);

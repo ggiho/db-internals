@@ -290,6 +290,36 @@ export const CORE = {
     a: 'INPLACE 재구축 — 새 SPACE 와 TABLE_ID, version 0',
     x: ['ERROR 4092 가 그대로 난다 — ALGORITHM 과 무관하다', 'instant 로 끝나고 TOTAL_ROW_VERSIONS 가 65 가 된다', 'COPY 로 행을 하나씩 옮기지만 SPACE 는 그대로다'],
   },
+  '12/3': {
+    q: 'REPEATABLE READ 의 view 하나가 열린 채 다른 세션이 10,000 번 커밋하면 History list length 는?',
+    a: '커밋마다 하나씩 오른다 — 10,000 넘게',
+    x: ['그대로다 — 쓰는 세션은 view 와 상관없다', '한 번 오르고 멈춘다 — 같은 행이라서', '0 으로 떨어진다 — 커밋이 undo 를 지운다'],
+  },
+  '12/4': {
+    q: 'purge 는 어디까지 지울 수 있나?',
+    a: '가장 오래된 read view 를 복사한 purge view 의 low_limit_no 앞까지',
+    x: ['가장 최근에 커밋한 트랜잭션 번호까지 — 언제나 전부', 'innodb_purge_threads 가 정한 batch 수만큼 — view 와 무관하게', '체크포인트 LSN 앞의 undo 까지'],
+  },
+  '12/6': {
+    q: '오래 열린 view 의 같은 SELECT 가 B 의 10,000 번 갱신 뒤에 느려진 까닭은?',
+    a: 'undo 를 10,002 번 되돌려 보이는 version 을 다시 만든다',
+    x: ['purge 와 락을 다투느라 기다린다', 'buffer pool 에서 행이 밀려나 디스크에서 읽는다', 'view 를 새로 만들며 활성 목록을 다시 복사한다'],
+  },
+  '12/7': {
+    q: '막던 view 가 COMMIT 으로 닫히면 purge 는?',
+    a: '다음 batch 부터 쌓인 history 를 쉬지 않고 처리한다',
+    x: ['다음 체크포인트까지 기다렸다가 한 번에 지운다', '서버를 다시 시작해야 밀린 것을 지운다', '새로 커밋되는 트랜잭션의 undo 만 지운다'],
+  },
+  '12/8': {
+    q: 'purge 가 따라잡았는데도 History list length 가 2 분쯤 남아 있던 까닭은?',
+    a: 'history 를 떼어 내는 것은 batch 128 번에 한 번',
+    x: ['HLL 은 서버를 다시 켤 때에만 새로 센다', '다른 세션의 read view 가 아직 열려 있었다', 'redo 가 디스크에 쓰일 때까지 기다렸다'],
+  },
+  '12/9': {
+    q: 'innodb_max_undo_log_size 를 10 MiB 로 낮추면 처음 크기 16 MiB 의 undo 파일은?',
+    a: '16 MiB 를 넘을 때만 잘린다 — 문턱은 둘 가운데 큰 쪽',
+    x: ['10 MiB 로 잘린다', '언제나 잘린다 — 이미 10 MiB 를 넘었으므로', '잘리지 않는다 — 크기는 처음 크기로만 정한다'],
+  },
 };
 /* 문항을 만들지 않는 beat — 이유를 적어 둔다 */
 export const SKIP = {

@@ -22,6 +22,9 @@ const ACTORS = {
   tbl:  { nm:'INNODB_TABLES',    lane:'mem',  kind:'kv'     },
   dd:   { nm:'DD 열 · se_private_data', lane:'sql', kind:'list', w:'w2' },
   pg:   { nm:'PAGE 4  레코드',     lane:'mem',  kind:'frames', w:'w2' },
+  /* 12 — purge. SHOW ENGINE INNODB STATUS 의 세 줄과 purge view, undo 테이블스페이스 파일 */
+  pur:  { nm:'PURGE',            lane:'mem',  kind:'kv'     },
+  uts:  { nm:'UNDO 테이블스페이스',   lane:'disk', kind:'frames' },
   dw:   { nm:'DOUBLEWRITE',      lane:'disk', kind:'list'   },
   ibd:  { nm:'.ibd  데이터 파일',      lane:'disk', kind:'frames' },
   redo: { nm:'#ib_redo*  WAL',   lane:'disk', kind:'kv'     },   /* 실측 최대 필요 196px */

@@ -454,7 +454,7 @@ const SCENES = [
     ses:{ kv:{ 'trx 50 (쓰기)':'—', '세션 B (읽기)':'—', 'trx_sys 활성 명단':'{ }', '충돌':'없음' } },
     stmt:{ kv:{ '세션 A':'UPDATE t SET c = 200 WHERE id = 5   (커밋 안 함)', '세션 B':'SELECT c FROM t WHERE id = 5' } },
     bp:{ items:[
-      { id:'p:5', tag:'clean', trx:41, rp:'undo 1', c:100, sub:'c = 100  ·  DB_TRX_ID 41' },
+      { id:'p:5', tag:'clean', pk:'id 5', trx:41, rp:'undo 1', c:100, sub:'c = 100  ·  DB_TRX_ID 41' },
       { id:'free',tag:'free',  sub:'free buffer' } ] },
     undo:{ items:[
       { id:'undo 1', tag:'clean', trx:40, ins:1, c:80, sub:'trx 41 이 씀  ·  c = 80  ·  DB_TRX_ID 40 (INSERT) — 사슬 끝' } ] },
@@ -2279,7 +2279,8 @@ const SCENES = [
   links:[
     ['09','instant 가 아니면 재구축 — 그때는 MDL 대기열이 문제다'],
     ['02','레코드의 숨은 열 DB_TRX_ID · DB_ROLL_PTR'],
-    ['10','재구축은 페이지를 처음부터 다시 채운다'] ],
+    ['10','재구축은 페이지를 처음부터 다시 채운다'],
+    ['12','UPDATE 가 남긴 옛 version 은 누가 언제 지우나 — purge'] ],
   steps:[
   { look:{ pg:true, dd:true },
     note:'옛 레코드 — 머리의 info bits 가 0x00, version 이 없다',
@@ -2401,6 +2402,166 @@ const SCENES = [
             'id 4':{ ver:null, has:['id','DB_TRX_ID','DB_ROLL_PTR','pad','b','c'], len:51, val:{ id:'4', pad:'w', b:'44', c:'0' }, sub:'info 0x00 · 다시 썼다' },
             'id 5':{ ver:null, has:['id','DB_TRX_ID','DB_ROLL_PTR','pad','b','c'], len:51, val:{ id:'5', pad:'v', b:'55', c:'0' }, sub:'info 0x00 · 다시 썼다' } } },
           ibd:{ set:{ 't.ibd':{ tag:'ok', sub:'SPACE 7 · 114,688 B · inode 186580528 — 새 파일' } } } } },
+  ],
+},
+{
+  num:'12', tab:'Purge', title:'Purge & the History List: One Old Read View Holds Everything',
+  sub:'purge 는 가장 오래된 read view 를 복사해 그 앞까지만 지운다 — view 하나가 열려 있으면 history list 가 자라고 undo 파일이 커진다',
+  cast:['ses','rv','pur','bp','undo','uts'],
+  /* 잰 값(8.4.8-debug, 이 빌드, innodb_purge_threads 1 · purge_batch_size 300 · purge_rseg_truncate_frequency 128) —
+     ~/.cache/dbi/measure/inno/12.txt(measure12.sh) · 12-a.txt(세션 A) · 12-pages.txt(page 5 의 id 1).
+       t (id INT PRIMARY KEY, c INT, pad CHAR(200)) 100,000 행. id 1 의 DB_TRX_ID 2,530 (INSERT 한 트랜잭션, page 5 에서 읽었다)
+       쉬는 서버 : History list length 10 · Trx id counter 2,535 · Purge done for trx's n:o < 2,535 · undo_001 = undo_002 = 16,777,216
+       A : START TRANSACTION WITH CONSISTENT SNAPSHOT (REPEATABLE READ) → SELECT c = 0, 0.002 s. INNODB_TRX trx_id 281529515250560(읽기 전용)
+       B : autocommit UPDATE … SET c = c + 1 WHERE id = 1 을 2,500 번마다 표본
+             HLL 2,500 · 5,001 · 7,501 · 10,001 / Trx id counter 7,535 · 12,537 · 17,537 · 22,537 / Purge done < 2,536 그대로
+           큰 UPDATE 두 번(100,000 행의 pad) → undo_001 50,331,648 · undo_002 33,554,432, HLL 10,005
+       A : 같은 SELECT → c = 0, 0.196 s
+       A COMMIT(14:36:57.2) → Purge done 2,787(0.1 s) · 8,402(2 s) · 18,736(6 s) · 22,545(8 s, 14:37:05.1), purge_undo_log_pages 14 → 10,019
+             HLL 10,005 → 1,906(6.7 s) 에서 멈춰 1,907 로 115 초 — 그동안 purge_invoked 9,225 → 9,343
+             14:38:59.4 HLL 0 · undo_001 FILE_SIZE 0(다시 만드는 중) · undo_truncate_count 1 → 2
+           작은 UPDATE 2,500 번 더 → undo_001 = undo_002 = 16,777,216 · undo_truncate_count 3
+       뒤에 page 5 의 id 1 : DB_TRX_ID 22,541 (두 번째 큰 UPDATE) · DB_ROLL_PTR U · 2:150:11452
+     규칙으로 계산한 것 — A 의 m_low_limit_id 2,535 (prepare 가 Trx id counter 를 그대로 쓴다), B 의 첫 트랜잭션 id 2,535(표본 사이 counter 가 2,500 번에 5,000 씩 —
+     트랜잭션 하나가 id 와 커밋 번호로 둘을 쓴다). */
+  init:{
+    ses:{ kv:{ '세션 A (읽기)':'—', '세션 B (쓰기)':'—' } },
+    rv:{ kv:{ 'read view':'—', 'm_low_limit_id':'—', 'm_up_limit_id':'—', 'm_ids  (활성 trx)':'—', 'm_creator_trx_id':'—' } },
+    pur:{ kv:{ 'Trx id counter':'2,535', "Purge done for trx's n:o <":'2,535', 'History list length':'10', 'purge view':'— (열린 view 없음)' } },
+    bp:{ items:[
+      { id:'p:5', tag:'clean', pk:'id 1', trx:2530, ins:1, c:0, sub:'id 1 · c = 0 · DB_TRX_ID 2,530 (INSERT)' } ] },
+    undo:{ items:[] },
+    uts:{ items:[
+      { id:'innodb_undo_001', tag:'clean', sub:'16,777,216 B' },
+      { id:'innodb_undo_002', tag:'clean', sub:'16,777,216 B' } ] },
+  },
+  knobs:[
+    ['innodb_purge_threads','1','이 서버에서 잰 값. 늘려도 열린 read view 앞은 못 지운다'],
+    ['innodb_purge_rseg_truncate_frequency','128','purge 몇 번에 한 번 history 를 잘라내나 — HLL 이 0 으로 떨어지는 때'],
+    ['innodb_max_undo_log_size','1 GiB','넘으면 undo 테이블스페이스를 잘라낸다. 이 장면은 10 MiB 로 낮췄다'],
+    ['innodb_max_purge_lag','0','HLL 이 이것을 넘으면 DML 을 늦춘다. 0 은 끄기'] ],
+  watch:[
+    ['SHOW ENGINE INNODB STATUS',"TRANSACTIONS 절 — Trx id counter · Purge done for trx's n:o · History list length 세 줄을 함께"],
+    ['I_S.INNODB_METRICS',"trx_rseg_history_len (켜져 있다) · purge_undo_log_pages · undo_truncate_count (innodb_monitor_enable 로 켠다)"],
+    ['I_S.INNODB_TRX','trx_started 가 가장 오래된 트랜잭션 — 읽기만 해도 view 를 쥔다'],
+    ['I_S.INNODB_TABLESPACES',"SPACE_TYPE = 'Undo' 의 FILE_SIZE"] ],
+  links:[
+    ['02','read view 와 undo 사슬 — 이 장면은 그 사슬이 길어질 때'],
+    ['09','오래 열린 트랜잭션은 ALTER 도 막는다'],
+    ['04','undo 를 쓰는 것도 redo 를 남긴다'] ],
+  steps:[
+  { look:{ pur:true, uts:true },
+    note:'쉬는 서버 — 지울 것이 없다',
+    why:"SHOW ENGINE INNODB STATUS 의 세 줄을 함께 본다. Trx id counter 는 다음 트랜잭션이 받을 번호, Purge done for trx's n:o 는 purge 가 지나간 커밋 번호, History list length 는 커밋됐지만 아직 회수하지 않은 update undo log 의 수다. 앞의 둘이 같으면 purge 가 따라잡은 것이다.",
+    key:'잰 값: Trx id counter <em>2,535</em> · Purge done for trx\'s n:o < 2,535 · History list length 10. undo 테이블스페이스 둘이 16,777,216 B 씩. HLL 은 0 이 아니어도 purge 는 끝나 있다 — 이유는 8 스텝.',
+    ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_print_info_summary',
+    fact:['"Purge done for trx\'s n:o < " TRX_ID_FMT " undo n:o < " TRX_ID_FMT',
+          'fprintf(file, "Trx id counter " TRX_ID_FMT "\\n",',
+          'fprintf(file, "History list length " UINT64PF "\\n",',
+          ['storage/innobase/srv/srv0mon.cc','"Length of the TRX_RSEG_HISTORY list",']] },
+
+  { act:{ f:'ses', t:'rv', lb:'CONSISTENT SNAPSHOT' },
+    note:'세션 A — START TRANSACTION WITH CONSISTENT SNAPSHOT, 그대로 둔다',
+    why:'REPEATABLE READ 에서 이 문장은 그 자리에서 read view 를 만든다. m_low_limit_id 는 Trx id counter 그대로, 그때 쓰는 트랜잭션이 없으므로 m_ids 는 비고 m_up_limit_id 도 같은 값이다. A 는 읽기만 하므로 트랜잭션 id 가 없다(creator 0). 이 view 는 A 가 커밋할 때까지 산다.',
+    key:'잰 값: SELECT c FROM t WHERE id = 1 이 0 을 <em>0.002 초</em>에 돌려줬다. INNODB_TRX 에 REPEATABLE READ · RUNNING 하나 — trx_id 281529515250560 은 읽기 전용에 주는 큰 수다. m_low_limit_id 2,535 는 그때의 Trx id counter 다(규칙으로).',
+    ref:'storage/innobase/read/read0read.cc', sym:'ReadView::prepare',
+    fact:['m_low_limit_id = trx_sys_get_next_trx_id_or_no();',
+          'm_up_limit_id = !m_ids.empty() ? m_ids.front() : m_low_limit_id;',
+          'm_low_limit_no = trx_get_serialisation_min_trx_no();'],
+    ops:{ ses:{ set:{ '세션 A (읽기)':'REPEATABLE READ · view 를 쥐고 머문다|gold' } },
+          rv:{ set:{ 'read view':'A', 'm_low_limit_id':'2535', 'm_up_limit_id':'2535', 'm_ids  (활성 trx)':'{ }', 'm_creator_trx_id':'0' } },
+          bp:{ set:{ 'p:5':{ tag:'ok', sub:'id 1 · c = 0 · DB_TRX_ID 2,530 — A 가 읽는다' } } } } },
+
+  { act:{ f:'ses', t:'undo', lb:'UPDATE × 10,000' },
+    note:'세션 B — 같은 행을 10,000 번 바꾸고 하나씩 커밋',
+    why:'UPDATE 마다 옛 version 을 undo 에 적고 행의 DB_ROLL_PTR 이 그것을 가리킨다. 커밋하면 그 update undo log 가 rollback segment 의 history list 에 커밋 번호 순으로 붙는다 — HLL 이 하나 오른다. 트랜잭션 하나가 id 와 커밋 번호로 counter 를 둘씩 쓴다.',
+    key:'잰 값: HLL 2,500 · 5,001 · 7,501 · <em>10,001</em>, Trx id counter 7,535 · 12,537 · 17,537 · 22,537. 그런데 Purge done for trx\'s n:o 는 <em>2,536 에서 움직이지 않았다</em>.',
+    ref:'storage/innobase/trx/trx0purge.cc', sym:'trx_purge_add_update_undo_to_history',
+    fact:['flst_add_first(rseg_header + TRX_RSEG_HISTORY,',
+          'trx_sys->rseg_history_len.fetch_add(n_added_logs);'],
+    beat:1,
+    ops:{ ses:{ set:{ '세션 B (쓰기)':'autocommit UPDATE t SET c = c + 1 WHERE id = 1  × 10,000' } },
+          pur:{ set:{ 'Trx id counter':'22,537', 'History list length':'10,001|red', "Purge done for trx's n:o <":'2,536 — 그대로|gold' } },
+          bp:{ set:{ 'p:5':{ tag:'dirty', trx:22535, rp:'B 의 undo', ins:0, c:'10,000', sub:'id 1 · c = 10,000 · DB_TRX_ID 22,535' } } },
+          /* 9,999 개의 옛 version 을 칸 하나로 — trx 는 그 가운데 가장 작은 DB_TRX_ID(B 의 첫 트랜잭션 2,535) */
+          undo:{ add:[
+            { id:'B 의 undo', tag:'hold', trx:2535, rp:'첫 undo', c:'1 ‥ 9,999', sub:'옛 version 9,999 개 · DB_TRX_ID 2,535 ‥ 22,533' },
+            { id:'첫 undo', tag:'ok', trx:2530, ins:1, c:0, sub:'여기서 멈춘다 · B 의 첫 UPDATE 가 적은 c = 0' }] } } },
+
+  { act:{ f:'rv', t:'pur', lb:'가장 오래된 view 를 복사' },
+    note:'purge view = A 의 view 의 복사본 — 그 앞에서 멈춘다',
+    why:"purge coordinator 는 batch 마다 trx_sys 의 가장 오래된 read view 를 복사해 purge view 로 쓴다. history list 를 커밋 번호 순으로 꺼내다가 그 번호가 purge view 의 low_limit_no 이상이면 거기서 멈춘다 — 그 뒤의 undo 는 A 가 아직 읽을 수 있다. 멈춘 자리가 Purge done for trx's n:o 다.",
+    key:"잰 값: B 가 10,000 번 커밋하는 동안 Purge done 은 <em>2,536</em> — A 의 view 를 만들 때의 counter 2,535 바로 뒤, B 의 첫 커밋 번호에서 한 칸도 못 갔다. 상태는 'running but idle' — 할 일은 쌓였는데 할 수 있는 일이 없다.",
+    ref:'storage/innobase/trx/trx0purge.cc', sym:'trx_purge',
+    fact:['trx_sys->mvcc->clone_oldest_view(&purge_sys->view);',
+          'if (purge_sys->iter.trx_no >= purge_sys->view.low_limit_no()) {',
+          ['storage/innobase/read/read0read.cc','ReadView *oldest_view = get_oldest_view();'],
+          ['storage/innobase/read/read0read.cc','view->copy_prepare(*oldest_view);']],
+    beat:1,
+    ops:{ pur:{ set:{ 'purge view':'A 의 view 를 복사 — low_limit_no 2,535|gold' } } } },
+
+  { act:{ f:'ses', t:'uts', lb:'UPDATE 100,000 행 × 2' },
+    note:'큰 UPDATE 두 번 — 회수하지 못한 undo 가 파일을 키운다',
+    why:'undo 레코드는 undo 테이블스페이스의 페이지에 쌓인다. 페이지는 history 에서 undo log 를 떼어 내야 돌아오는데 A 의 view 가 앞을 막고 있으므로, 새 undo 는 새 페이지를 받고 파일이 늘어난다. 두 UPDATE 의 undo 는 각각 다른 undo 테이블스페이스에 쌓였다.',
+    key:'잰 값: 첫 번째 뒤 undo_001 16,777,216 → <em>50,331,648</em> B, 두 번째 뒤 undo_002 16,777,216 → <em>33,554,432</em> B. HLL 10,005. id 1 의 DB_TRX_ID 는 22,541 — page 5 에서 읽었다.',
+    ref:'storage/innobase/trx/trx0undo.cc', sym:'trx_undo_add_page',
+    fact:['new_block = fseg_alloc_free_page_general(',
+          ['storage/innobase/trx/trx0rec.cc','*roll_ptr = trx_undo_build_roll_ptr(op_type == TRX_UNDO_INSERT_OP, undo_ptr->rseg->space_id, page_no, offset);']],
+    ops:{ ses:{ set:{ '세션 B (쓰기)':"UPDATE t SET pad = 'b'  ·  UPDATE t SET pad = 'c'  — 100,000 행씩" } },
+          pur:{ set:{ 'Trx id counter':'22,545', 'History list length':'10,005|red' } },
+          bp:{ set:{ 'p:5':{ trx:22541, sub:"id 1 · c = 10,000 · pad 'c' · DB_TRX_ID 22,541" } } },
+          undo:{ set:{ 'B 의 undo':{ c:'1 ‥ 10,000', sub:'옛 version 10,001 개 · DB_TRX_ID 2,535 ‥' } } },
+          uts:{ set:{ 'innodb_undo_001':{ tag:'dirty', sub:'50,331,648 B' }, 'innodb_undo_002':{ tag:'dirty', sub:'33,554,432 B' } } } } },
+
+  { act:{ f:'rv', t:'undo', lb:'10,002 번 되돌린다' },
+    note:'A 가 다시 읽는다 — 같은 c = 0, 그러나 100 배 느리게',
+    why:'A 의 view 에는 B 의 어느 트랜잭션도 보이지 않는다. 행의 DB_TRX_ID 22,541 부터 roll pointer 를 따라 undo 레코드를 하나씩 적용해 옛 version 을 다시 만들고, 만들 때마다 그 DB_TRX_ID 가 보이는지 묻는다 — 보이는 version(DB_TRX_ID 2,530)에 닿을 때까지 10,002 번이다.',
+    key:'잰 값: 같은 SELECT 가 c = 0 을 <em>0.196 초</em>에 돌려줬다 — 처음엔 0.002 초였다. 오래된 view 는 purge 만 막는 것이 아니라 자기 읽기도 느리게 한다.',
+    ref:'storage/innobase/row/row0vers.cc', sym:'row_vers_build_for_consistent_read',
+    fact:['trx_undo_prev_version_build(rec, mtr, version, index, *offsets, heap,',
+          'if (view->changes_visible(trx_id, index->table->name)) {'],
+    beat:1,
+    ops:{ ses:{ set:{ '세션 A (읽기)':'SELECT c → 0 · 0.196 sec (처음 0.002)|gold' } } } },
+
+  { act:{ f:'ses', t:'rv', lb:'COMMIT' },
+    note:'A 가 커밋 — 막던 view 가 사라지자 purge 가 8 초 만에 따라잡는다',
+    why:'view 가 닫히면 다음 batch 의 purge view 는 그다음으로 오래된 view 다 — 여기서는 없으므로 지금의 counter 다. purge 는 history 를 커밋 번호 순으로 꺼내 undo 레코드를 처리하고 다음 batch 로 넘어간다. 할 일이 있는 동안 coordinator 는 batch 를 쉬지 않고 돌린다.',
+    key:'잰 값: Purge done 2,536 → 8,402(2 초) → 18,736(6 초) → <em>22,545(8 초)</em>. 처리한 undo 페이지 14 → 10,019. HLL 은 10,005 → <em>1,906</em> 에서 멈췄다.',
+    ref:'storage/innobase/srv/srv0srv.cc', sym:'srv_do_purge',
+    fact:['n_pages_purged =',
+          'trx_purge(n_use_threads, srv_purge_batch_size, do_truncate);',
+          '(n_pages_purged > 0 || need_explicit_truncate) &&'],
+    beat:1,
+    ops:{ ses:{ set:{ '세션 A (읽기)':'COMMIT — view 없음|green' } },
+          rv:{ set:{ 'read view':'—', 'm_low_limit_id':'—', 'm_up_limit_id':'—', 'm_ids  (활성 trx)':'—', 'm_creator_trx_id':'—' } },
+          pur:{ set:{ "Purge done for trx's n:o <":'22,545|green', 'History list length':'1,906|gold', 'purge view':'— (열린 view 없음)' } },
+          undo:{ del:['B 의 undo', '첫 undo'] },
+          bp:{ set:{ 'p:5':{ tag:'clean' } } } } },
+
+  { look:{ pur:['History list length'], uts:['innodb_undo_001'] },
+    note:'purge 는 끝났는데 HLL 이 2 분 남는다 — history 를 떼어 내는 것은 128 번에 한 번',
+    why:'undo 레코드를 처리하는 일과 history list 에서 undo log 를 떼어 내는 일은 따로다. 떼어 내기(trx_purge_truncate)는 batch 를 innodb_purge_rseg_truncate_frequency(128) 번 돌릴 때마다 한 번이고, HLL 은 그때만 준다. 할 일이 없는 coordinator 는 1 초쯤에 한 번 깨므로 128 번째까지 2 분 가까이 걸렸다. 같은 자리에서 undo 테이블스페이스도 잘라 본다.',
+    key:'잰 값: Purge done 이 22,545 에 닿은 뒤 HLL 이 <em>1,906–1,907 에서 115 초</em> 머물렀다(그동안 purge_invoked 9,225 → 9,343). 그리고 0.8 초 사이에 HLL 0, undo_001 FILE_SIZE 0(다시 만드는 중), undo_truncate_count 1 → 2.',
+    ref:'storage/innobase/srv/srv0srv.cc', sym:'srv_do_purge',
+    fact:['(++count % srv_purge_rseg_truncate_frequency) == 0;',
+          ['storage/innobase/trx/trx0purge.cc','trx_sys->rseg_history_len.fetch_sub(1);'],
+          ['storage/innobase/trx/trx0purge.cc','/* Attempt to truncate an undo tablespace. */']],
+    beat:1,
+    ops:{ pur:{ set:{ 'History list length':'0|green' } },
+          uts:{ set:{ 'innodb_undo_001':{ tag:'hold', sub:'FILE_SIZE 0 — 잘라서 다시 만드는 중' } } } } },
+
+  { act:{ f:'pur', t:'uts', lb:'처음 크기로' },
+    note:'undo 파일은 잘라 내야 준다 — 10 MiB 와 16 MiB 가운데 큰 쪽이 문턱',
+    why:'purge 가 페이지를 돌려줘도 undo 파일은 줄지 않는다. innodb_undo_log_truncate 가 켜져 있으면 크기가 innodb_max_undo_log_size 와 처음 크기(16 MiB) 가운데 큰 쪽을 넘는 공간 하나를 골라 비활성으로 표시하고, 거기 걸린 undo 가 모두 purge 된 뒤 처음 크기로 다시 만든다. 한 번에 하나, 검사는 1 초에 한 번이다.',
+    key:'잰 값: innodb_max_undo_log_size 를 10 MiB 로 낮춘 이 서버에서 작은 UPDATE 2,500 번으로 purge 를 더 돌리자 undo_002 33,554,432 → <em>16,777,216</em> B, undo_truncate_count 3. undo_001 도 16,777,216 B. 기본값 1 GiB 였다면 둘 다 남는다(규칙으로).',
+    ref:'storage/innobase/trx/trx0purge.cc', sym:'Tablespace::needs_truncation',
+    fact:['page_no_t trunc_size = std::max(',
+          'if (fil_space_get_size(m_id) > trunc_size) {',
+          '/* Skip truncate if the caller has already truncated an undo space. */',
+          '/* Wait at least one second between searches. */'],
+    beat:1,
+    ops:{ pur:{ set:{ 'Trx id counter':'27,551', "Purge done for trx's n:o <":'27,551|green' } },
+          uts:{ set:{ 'innodb_undo_001':{ tag:'ok', sub:'16,777,216 B — 처음 크기' }, 'innodb_undo_002':{ tag:'ok', sub:'16,777,216 B — 잘랐다' } } } } },
   ],
 },
 {
