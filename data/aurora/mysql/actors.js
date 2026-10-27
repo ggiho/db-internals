@@ -20,6 +20,9 @@ const ACTORS = {
   io:   { nm:'NETWORK WRITES',  lane:'comp', kind:'list' },
   sn:   { nm:'STORAGE NODE',    lane:'stor', kind:'list' },
   /* 07 일관성 지점 — 데이터베이스가 들고 있는 LSN 들과 커밋을 기다리는 목록 */
+  /* 08 세그먼트와 수리 — 볼륨을 이루는 PG 의 셈과, 고장 하나를 고치는 데 드는 시간(규칙으로 계산) */
+  seg:  { nm:'SEGMENT · PG',    lane:'stor', kind:'kv' },
+  rep:  { nm:'REPAIR TIME',     lane:'stor', kind:'kv' },
   lsn:  { nm:'LSN POINTS',      lane:'comp', kind:'kv' },
   cq:   { nm:'COMMIT QUEUE',    lane:'comp', kind:'list' },
 };

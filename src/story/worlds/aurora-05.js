@@ -9,12 +9,19 @@
      · look 이 항목을 짚는 스텝(평시 읽기)은 compute 에서 그 복사본으로 선 하나
      · 복제 모델의 값에 '4/6' 처럼 x/y 가 있으면 작은 막대로 — 앞 x 칸은 값의 색, 나머지는 기다리지 않는 칸
      · 그 스텝이 건드린 배우(touch)는 또렷하게, 나머지는 흐리게
+   08 (세그먼트 · 수리)은 같은 그림에 셋을 더한다 — 배우가 있을 때만 그린다(05 는 그대로다) :
+     · SEGMENT · PG(seg) — 'PG 수' 가 '—' 가 아니면 위에 PG 의 띠. 칸 하나가 PG 하나(작은 3 × 2 = AZ 셋 × 둘)이고,
+       첫 칸의 여섯 점은 아래 복사본의 상태를 그대로 비춘다(고장이면 빨강). 첫 칸에서 AZ 칸으로 점선 둘 — 이 PG 를 키운 것.
+       띠의 칸 수는 폭에 맞춘 그림일 뿐 PG 의 수가 아니다(수는 글이 적는다). 오른쪽에 seg 의 글
+     · REPAIR TIME(rep) — 값에 'N 초' 가 있는 키마다 막대. 그 스텝의 가장 긴 값이 폭 전체다(새 값이 길면 앞 막대가 줄어든다)
+     · 셈 맞추기 — PG 수 = 볼륨 TB × 1000 ÷ 세그먼트 GB, 'PG' 의 '× n' = 복사본 수 · 'AZ 마다 m' = AZ 마다의 복사본,
+       막대의 초 = 키의 크기 × 8 ÷ 글(cite · why)의 Gbps, note 의 'N 배' = 두 막대의 비. 어긋나면 console.error
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, FAINT, U } from '../field.js';
 import { bake, stepsOf } from '../../bake.js';
 
 const HANGUL = /[가-힣]/;
-const COPY = 200, FLOW = 110, VG = 8, VOTE = VG * VG, MG = 5, MM = MG * MG, MAXV = 6;
+const COPY = 200, FLOW = 110, VG = 8, VOTE = VG * VG, MG = 5, MM = MG * MG, MAXV = 6, STRIPK = 16, MINI = 4, BARN = 160, STRIPH = 14;
 const bare = (v) => String(v ?? '').replace(/\|(gold|red|green)$/, '');
 const tone = (v) => (/\|(gold|red|green)$/.exec(String(v ?? '')) || [])[1] || '';
 const span = { gold: 'q-g', red: 'q-r', green: 'q-gr', '': '' };
@@ -39,13 +46,18 @@ function make({ F, deck, labels, scene }) {
     if (!m) console.error(`aurora 05 세계 : ${k} 의 '${key}' 를 x/y 로 못 읽었다 — "${q[key]}"`);
     return m ? +m[1] : 0;
   };
+  /* 링크 속도 — 장면의 글(cite · why)이 적은 'NGbps'. 수리 막대의 초를 다시 세는 데 쓴다 */
+  const LINK = (() => { const m = /(\d+)\s*Gbps/.exec(steps.map((x) => [x.why, ...(x.cite || [])].join(' ')).join(' ')); return m ? +m[1] : null; })();
+  const num = (v) => { const m = /(\d[\d,]*(?:\.\d+)?)/.exec(bare(v)); return m ? +m[1].replace(/,/g, '') : null; };
+  const secOf = (v) => { const m = /(\d[\d,]*(?:\.\d+)?)\s*초/.exec(bare(v)); return m ? +m[1].replace(/,/g, '') : null; };
   const read = (st, step, chg, touch, k) => {
     const q = st.qm.kv, c = (chg && chg.vol) || { add: [], del: [], mod: [] }, look = (step && step.look) || {};
     const s = {
       items: st.vol.items.map((it) => ({ id: it.id, ok: it.tag === 'ok', sub: it.sub || '' })),
       step: step || {}, touch: touch || new Set(), mod: new Set([...c.mod, ...c.add]),
       V: +bare(q['V (표)']), Vw: ratio(q, '쓰기 quorum', k), Vr: ratio(q, '읽기 quorum', k), alive: +bare(q['살아 있는 표']),
-      w: q['쓰기'], r: q['읽기'], mdl: st.mdl.kv, grade: st.grade.kv,
+      w: q['쓰기'], r: q['읽기'], mdl: (st.mdl && st.mdl.kv) || {}, grade: (st.grade && st.grade.kv) || {},
+      seg: (st.seg && st.seg.kv) || null, rep: (st.rep && st.rep.kv) || null,
       focus: Array.isArray(look.vol) ? new Set(look.vol) : null,
     };
     /* 셈 맞추기 — 데이터의 셈을 그림이 다시 센다 */
@@ -54,6 +66,28 @@ function make({ F, deck, labels, scene }) {
     if (s.items.length !== s.V) console.error(`aurora 05 세계 : ${k} 의 V ${s.V} ≠ 복사본 ${s.items.length}`);
     if (says(s.w) !== null && says(s.w) !== s.alive >= s.Vw) console.error(`aurora 05 세계 : ${k} 의 쓰기 "${bare(s.w)}" — 표 ${s.alive} · 쓰기 quorum ${s.Vw}`);
     if (says(s.r) !== null && says(s.r) !== s.alive >= s.Vr) console.error(`aurora 05 세계 : ${k} 의 읽기 "${bare(s.r)}" — 표 ${s.alive} · 읽기 quorum ${s.Vr}`);
+    const W = `aurora ${sc.num} 세계 : ${k}`;
+    if (s.seg) {
+      const tb = /(\d+(?:\.\d+)?)\s*TB/.exec(bare(s.seg['볼륨'])), gb = /(\d+(?:\.\d+)?)\s*GB/.exec(bare(s.seg['세그먼트'])), pg = num(s.seg['PG 수']);
+      if (tb && gb && pg != null && pg !== (+tb[1] * 1000) / +gb[1]) console.error(`${W} 의 PG 수 ${pg} ≠ ${tb[1]} TB ÷ ${gb[1]}GB = ${(+tb[1] * 1000) / +gb[1]}`);
+      const x = /×\s*(\d+)/.exec(bare(s.seg.PG)), per = /AZ 마다\s*(\d+)/.exec(bare(s.seg.PG));
+      if (x && +x[1] !== s.items.length) console.error(`${W} 의 PG "${bare(s.seg.PG)}" — 복사본은 ${s.items.length}`);
+      if (per) for (const z of new Set(s.items.map((y) => zoneOf(y.id)))) { const n = s.items.filter((y) => zoneOf(y.id) === z).length; if (n !== +per[1]) console.error(`${W} 의 PG "${bare(s.seg.PG)}" — ${z} 의 복사본은 ${n}`); }
+    }
+    if (s.rep) {
+      const got = [];
+      for (const [key, v] of Object.entries(s.rep)) {
+        const sec = secOf(v);
+        if (sec == null) continue;
+        got.push(sec);
+        const sz = /(\d+(?:\.\d+)?)\s*(GB|TB)/.exec(key);
+        if (!sz || !LINK) { console.error(`${W} 의 ${key} — 크기(GB · TB)나 글의 Gbps 를 못 읽었다`); continue; }
+        const want = (+sz[1] * (sz[2] === 'TB' ? 1000 : 1) * 8) / LINK;
+        if (Math.abs(want - sec) > 0.5) console.error(`${W} 의 ${key} ${sec} 초 ≠ ${sz[1]} ${sz[2]} × 8 ÷ ${LINK}Gbps = ${want} 초`);
+      }
+      const nb = /(\d[\d,]*)\s*배/.exec((step && step.note) || '');
+      if (nb && got.length === 2) { const r = Math.max(...got) / Math.min(...got), n = +nb[1].replace(/,/g, ''); if (Math.abs(r - n) > 0.5) console.error(`${W} 의 note '${nb[0]}' ≠ 두 막대의 비 ${r}`); }
+    }
     return s;
   };
   const S0 = read(sc.init, null, null, null, 'init');
@@ -61,6 +95,8 @@ function make({ F, deck, labels, scene }) {
   const ids = [...new Set([S0, ...S].flatMap((s) => s.items.map((x) => x.id)))];
   const ZONES = [...new Set(ids.map(zoneOf))], ZN = ZONES.length;
   const MDL = [...new Set([S0, ...S].flatMap((s) => Object.keys(s.mdl)))];
+  const HASSEG = !!S0.seg, REPK = S0.rep ? Object.keys(S0.rep) : [];
+  const segOn = (s) => !!s.seg && bare(s.seg['PG 수'] ?? '—') !== '—';
   /* 그 항목이 한 AZ 에 몇과 함께 있나 — 처음 나온 스텝에서. 3-way 의 항목은 하나, 6-way 는 둘 */
   const perZone = (id) => { const s = [S0, ...S].find((x) => x.items.some((y) => y.id === id)); return s.items.filter((y) => zoneOf(y.id) === zoneOf(id)).length; };
   /* 또렷한 복사본 — look 이 짚은 것, 없으면 그 스텝에서 바뀐 것, 그것도 없으면 모두 */
@@ -74,6 +110,8 @@ function make({ F, deck, labels, scene }) {
   take('flow', FLOW);
   for (let j = 0; j < MAXV; j++) take('v:' + j, VOTE);
   MDL.forEach((key) => take('mm:' + key, MAXV * MM));
+  if (HASSEG) take('strip', STRIPK * 6 * MINI);
+  REPK.forEach((key, i) => take('bar:' + i, BARN));
   R.DST = [at, N];
   if (at > N) throw new Error('aurora 05 세계 : 알갱이가 모자란다 (' + at + ' > ' + N + ')');
 
@@ -103,7 +141,9 @@ function make({ F, deck, labels, scene }) {
   const zoneLb = ZONES.map(() => label('aq'));
   const copyLb = Object.fromEntries(ids.map((id) => [id, label('aq ml aq-c')]));
   const hdQ = label('aq'), aliveLb = label('aq ml'), wTick = label('aq'), rTick = label('aq'), stLb = label('aq ml');
-  const hdMdl = label('aq'), mdlLb = Object.fromEntries(MDL.map((key) => [key, label('aq ml')]));
+  const hdMdl = MDL.length ? label('aq') : null, mdlLb = Object.fromEntries(MDL.map((key) => [key, label('aq ml')]));
+  const hdSeg = HASSEG ? label('aq') : null, segLb = HASSEG ? label('aq ml') : null;
+  const hdRep = REPK.length ? label('aq') : null, repLb = Object.fromEntries(REPK.map((key) => [key, label('aq ml')]));
   const hdGr = label('aq'), grLb = label('aq ml');
 
   /* 스텝마다의 글과 강조 — 바뀌지 않으므로 한 번 만든다. [글, 또렷한가, 색, 보이나, html] */
@@ -129,7 +169,15 @@ function make({ F, deck, labels, scene }) {
     t.set(wTick, [`쓰기 ${s.Vw}/${s.V}`, on('qm'), tk(s.w)]);
     t.set(rTick, [`읽기 ${s.Vr}/${s.V}`, on('qm'), tk(s.r)]);
     t.set(stLb, [`<span class="q-i">쓰기</span>  ${val(s.w)}\n<span class="q-i">읽기</span>  ${val(s.r)}`, on('qm'), '', true, true]);
-    t.set(hdMdl, [A.mdl.nm, on('mdl')]);
+    if (hdMdl) t.set(hdMdl, [A.mdl.nm, on('mdl')]);
+    if (HASSEG) {
+      t.set(hdSeg, [A.seg.nm, on('seg')]);
+      t.set(segLb, [Object.entries(s.seg).map(([key, v]) => `<span class="q-i">${esc(key)}</span>  ${val(v)}`).join('\n'), on('seg'), '', true, true]);
+    }
+    if (REPK.length) {
+      t.set(hdRep, [A.rep.nm, on('rep')]);
+      for (const key of REPK) t.set(repLb[key], [`<span class="q-i">${esc(key)}</span>  ${val(s.rep[key])}`, on('rep'), '', true, true]);
+    }
     for (const key of MDL) t.set(mdlLb[key], [`<span class="q-i">${esc(key)}</span>\n${val(s.mdl[key])}`, on('mdl'), '', true, true]);
     t.set(hdGr, [A.grade.nm, on('grade')]);
     t.set(grLb, [Object.entries(s.grade).map(([k, v]) => `<span class="q-i">${esc(k)}</span>\n${val(v)}`).join('\n'), on('grade'), '', true, true]);
@@ -173,12 +221,19 @@ function make({ F, deck, labels, scene }) {
     /* 아래 — 복제 모델(왼쪽) · 근거 등급(오른쪽) */
     const mw = ww * 0.56, gx = L.x0 + ww * 0.6;
     MDL.forEach((key) => wrap(mdlLb[key], mw));
+    REPK.forEach((key) => wrap(repLb[key], mw));
     wrap(grLb, L.x1 - gx);
-    const mdlH = MDL.map((key) => most(mdlLb[key]).h), grH = most(grLb).h;
+    const mdlH = MDL.map((key) => most(mdlLb[key]).h), grH = most(grLb).h, repH = REPK.map((key) => most(repLb[key]).h);
+    /* PG 의 띠(왼쪽)와 seg 의 글(오른쪽) — 첫 칸에서 AZ 칸으로 내리는 점선이 글을 지나지 않게 나란히 둔다 */
+    const stripW = HASSEG ? Math.round(ww * 0.44) : 0, segX = L.x0 + stripW + 18;
+    if (HASSEG) wrap(segLb, L.x1 - segX);
+    const segH = HASSEG ? Math.max(18 + STRIPH, most(segLb).h) : 0;
+    /* 수리 막대 — 이름 줄, 그 아래 막대(6px), 줄 사이 10 */
+    const BARH = 6, repRows = repH.map((h) => h + 4 + BARH + 10);
     /* 세로 — 위에서부터 쌓아 높이를 재고, 넓은 화면은 가운데로 */
-    const edgeY = 26, zoneY = edgeY + 34, boxY = zoneY + 18, boxH = 14 + chh + 10 + copyH + 12;
+    const edgeY = 26, segY = edgeY + 34, zoneY = HASSEG ? segY + segH + 30 : edgeY + 34, boxY = zoneY + 18, boxH = 14 + chh + 10 + copyH + 12;
     const meterY = boxY + boxH + 56, meterB = meterY + ss + 30 + (stRight ? 0 : 10 + stH);
-    const botY = meterB + 34, botH = 18 + Math.max(mdlH.reduce((a, b) => a + b + 8, 0), grH);
+    const botY = meterB + 34, botH = 18 + Math.max(mdlH.reduce((a, b) => a + b + 8, 0), repRows.reduce((a, b) => a + b, 0), grH);
     HT = botY + botH;
     const dy = L.narrow ? 0 : Math.max(0, (wh - (botY + botH)) / 2), Y = (v) => L.y0 + dy + v;
     const zones = ZONES.map((z, i) => ({ x: L.x0 + i * (zw + zg), y: Y(boxY), w: zw, h: boxH }));
@@ -190,7 +245,17 @@ function make({ F, deck, labels, scene }) {
     place(hdQ, L.x0, Y(meterY) - 34);
     place(aliveLb, L.x0, Y(meterY) + ss / 2, 'l', 'c');
     if (stRight) place(stLb, sEnd + 22, Y(meterY) + ss / 2, 'l', 'c'); else place(stLb, L.x0, Y(meterY) + ss + 40);
-    place(hdMdl, L.x0, Y(botY));
+    if (HASSEG) {
+      const K = U.clamp(Math.floor(stripW / 32), 4, STRIPK);
+      G.strip = { x: L.x0, y: Y(segY + 18), w: stripW, K, pitch: stripW / K };
+      place(hdSeg, L.x0, Y(segY)); place(segLb, segX, Y(segY));
+    }
+    if (REPK.length) {
+      place(hdRep, L.x0, Y(botY));
+      let by = Y(botY) + 18;
+      G.bars = REPK.map((key, i) => { place(repLb[key], L.x0, by); const b = { x: L.x0, y: by + repH[i] + 4, w: mw, h: BARH }; by += repRows[i]; return b; });
+    }
+    if (hdMdl) place(hdMdl, L.x0, Y(botY));
     let ry = Y(botY) + 18;
     MDL.forEach((key, i) => {
       const lb = mdlLb[key];
@@ -321,6 +386,40 @@ function make({ F, deck, labels, scene }) {
         put(o, i, U.lerp(mm.x, x, e), y, (wait ? 0.92 : rim ? 0.45 : 0) * (mdlOn ? 1 : 0.5) * dim * form * e, wait ? 0.4 : 0, 0.02, wait ? 1.25 : 1, wait ? COL[tone(v)] : FAINT);
       }
     }
+    /* PG 의 띠 — 칸 K 개, 칸마다 3 × 2(AZ 셋 × 둘). 첫 칸의 점은 아래 복사본의 상태. 처음 나오는 스텝에서 왼쪽부터 차례로(볼륨이 자라며 할당된다) */
+    if (G.strip) {
+      const [s0] = R.strip, { x, y, K, pitch } = G.strip, vis = segOn(s), born = vis && !segOn(prev) && !end;
+      const segLit = (s.touch.has('seg') || volOn) && !end;
+      for (let j = 0; j < STRIPK; j++) for (let c = 0; c < 6; c++) for (let m = 0; m < MINI; m++) {
+        const i = s0 + (j * 6 + c) * MINI + m;
+        if (!vis || j >= K) { put(o, i, dust[i * 2], dust[i * 2 + 1], 0, 0, 2, 1, FAINT); continue; }
+        const az = c % 3, row = Math.floor(c / 3), cx = x + j * pitch + az * 8 + 3, cy = y + row * 8 + 3;
+        const [gx, gy] = into(i, cx + ((m % 2) - 0.5) * 2.6, cy + (Math.floor(m / 2) - 0.5) * 2.6);
+        const e = born ? show(p, 0.1 + j * 0.012, 0.28 + j * 0.012) : 1;
+        let col = INK, a = (segLit ? 0.85 : 0.5) * (1 - (0.6 * j) / K);
+        if (j === 0) {
+          const it = s.items.find((q) => q.id === `${ZONES[az]} · ${row + 1}`);
+          col = it && !it.ok ? RED : segLit ? GOLD : INK; a = segLit ? 0.95 : 0.6;
+        }
+        put(o, i, U.lerp(x, gx, e), gy, a * dim * form * e, j === 0 && segLit ? 0.4 : 0, 0.02, 1.15, col);
+      }
+    }
+    /* 수리 막대 — 그 스텝의 가장 긴 값이 폭 전체. 길이가 바뀌면(새 값이 와서 줄어든다) 0.14 – 0.44 에 옮겨 간다 */
+    if (G.bars) {
+      const lens = (st2) => { const v = REPK.map((key) => secOf(st2.rep[key])), mx = Math.max(0, ...v.filter((q) => q != null)); return v.map((q, i) => (q == null || !mx ? null : Math.max(3, G.bars[i].w * (q / mx)))); };
+      const now = lens(s), was = lens(prev), e = end ? 1 : show(p, 0.14, 0.44), repOn = s.touch.has('rep') && !end;
+      REPK.forEach((key, i) => {
+        const [b0] = R['bar:' + i], B = G.bars[i];
+        if (now[i] == null) { hide('bar:' + i); return; }
+        const len = was[i] == null ? now[i] * e : U.lerp(was[i], now[i], e), cols = U.clamp(Math.round(len / 3), 1, BARN / 2), col = COL[tone(s.rep[key])] ?? INK;
+        for (let m = 0; m < BARN; m++) {
+          const i2 = b0 + m, cI = m >> 1;
+          if (cI >= cols) { put(o, i2, dust[i2 * 2], dust[i2 * 2 + 1], 0, 0, 2, 1, FAINT); continue; }
+          const [gx, gy] = into(i2, B.x + ((cI + 0.5) / cols) * len, B.y + B.h / 2 + (m & 1 ? 1.6 : -1.6));
+          put(o, i2, gx, gy, (repOn ? 0.92 : 0.5) * dim * form, 0, 0.02, 1.25, col);
+        }
+      });
+    }
   }
 
   /* ── 글 ── */
@@ -373,6 +472,16 @@ function make({ F, deck, labels, scene }) {
     };
     tick(s.Vw, s.w, meterY - 8, meterY + ss / 2);
     tick(s.Vr, s.r, meterY + ss / 2, meterY + ss + 8);
+    /* 띠의 첫 칸 → AZ 칸 — 이 PG 를 키운 것 */
+    if (G.strip && segOn(s)) {
+      const { x, y } = G.strip, z0 = zones[0], z1 = zones[zones.length - 1], lit = (s.touch.has('seg') || s.touch.has('vol')) && !end;
+      ctx.globalAlpha = (lit ? 0.55 : 0.3) * o; ctx.strokeStyle = lit ? css.gold : css.faint; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+      /* 첫 칸에서 곧게 내려와 AZ 이름 줄 위의 가로 묶음선에 닿는다 — 오른쪽의 seg 글은 지나지 않는다(가로선은 글 아래 20px) */
+      const by = z0.y - 28, cx = x + 11;
+      ctx.beginPath(); ctx.moveTo(cx, y + STRIPH + 3); ctx.lineTo(cx, by); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(z0.x, by + 5); ctx.lineTo(z0.x, by); ctx.lineTo(z1.x + z1.w, by); ctx.lineTo(z1.x + z1.w, by + 5); ctx.stroke();
+      ctx.setLineDash([]);
+    }
     ctx.restore();
   }
 
@@ -380,7 +489,7 @@ function make({ F, deck, labels, scene }) {
     build(L) { this.theme(); build(L); return HT; },
     theme() {
       const cs = getComputedStyle(document.documentElement), v = (n) => cs.getPropertyValue(n).trim();
-      css = { faint: v('--faint'), red: v('--red'), green: v('--green') };
+      css = { faint: v('--faint'), red: v('--red'), green: v('--green'), gold: v('--gold') };
     },
     pose, paint, overlay,
     dispose() { made.forEach((lb) => lb.el.remove()); },

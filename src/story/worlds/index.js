@@ -9,7 +9,7 @@ const ch306b = { id: 'ch3-06b', load: () => import('./ch3-06b.js') };
 const ch3Page = { id: 'ch3-page', load: () => import('./ch3-page.js') };
 const CH3P = ['02', '02a', '03', '03a', '04', '04a', '04b', '04bv', '04c', '05', '05v', '06', '06a', '07', '07a', '08', '08a', '09', '09a', '10', '11'];
 const pgBuf01 = { id: 'pg-buffer-01', load: () => import('./pg-buffer-01.js') };
-/* aurora 는 덱 하나를 aurora.js 가 맡는다(05 quorum 은 그 안에서 aurora-05 를 부른다). 짝 장면이 없으므로 id 는 장면마다 —
+/* aurora 는 덱 하나를 aurora.js 가 맡는다(05 quorum · 08 세그먼트는 그 안에서 aurora-05 를 부른다). 짝 장면이 없으므로 id 는 장면마다 —
    같은 id 를 쓰면 스텝 수가 같은 두 장면(03 · 06, 05 · 07) 사이를 메뉴로 옮길 때 세계를 다시 만들지 않는다 */
 const auroraDeck = (n) => ({ id: 'aurora:' + n, load: () => import('./aurora.js') });
 const wt01 = { id: 'wt-01', load: () => import('./wt-01.js') };
@@ -35,7 +35,7 @@ export const BESPOKE = {
   'book/ch2': Object.fromEntries(['01', '02', '03', '03v', '04', '05', '05v', '06', '06a', '07', '08', '08a', '08b', '09', '10', '10a', '11'].map((n) => [n, bookCh2])),
   'book/ch3': { '01': ch301, '01v': ch301, '06b': ch306b, ...Object.fromEntries(CH3P.map((n) => [n, ch3Page])) },
   'postgres/buffer': { '01': pgBuf01, ...Object.fromEntries(['02', '03', '04', '05', '06'].map((n) => [n, pgBuffer])) },
-  'aurora/mysql': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07'].map((n) => [n, auroraDeck(n)])),
+  'aurora/mysql': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07', '08'].map((n) => [n, auroraDeck(n)])),
   'mongodb/wiredtiger': { '01': wt01, ...Object.fromEntries(['02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13'].map((n) => [n, wtDeck])) },
   'mysql/innodb': { '01': innodb01, '02': innodbMvcc, '03': innodbLsn, '04': innodbLsn, '05': innodbLru, '05v': innodbLru, '06': innodbLru, '07': innodbLock, '08': innodbLock, '09': innodbMdl, '10': innodbTree },
   'mysql/locks': { ...Object.fromEntries(['01', '02', '02v', '03', '05', '06', '06v', '07', '08', '09', '12'].map((n) => [n, innodbLock])), '04': innodbMx('04'), '10': innodbMx('10'), '11': innodbMdl },
