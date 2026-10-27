@@ -30,6 +30,21 @@ export const CORE = {
     a: 'Share 락이 RowExclusive 와 충돌해 INSERT 가 기다린다',
     x: ['INSERT 는 진행되고 인덱스가 끝난 뒤 따라잡는다', 'SELECT 만 기다리고 INSERT 는 그대로 진행된다', 'ShareUpdateExclusive 를 잡으므로 INSERT 와 부딪히지 않는다'],
   },
+  '03/4': {
+    q: 'A 가 SELECT 를 연 채 B 의 ALTER 가 기다리고, 그 뒤 C 의 SELECT 도 기다린다. pg_blocking_pids(C) 는?',
+    a: '{B} — 줄 앞에서 충돌하는 락을 청하고 있는 ALTER',
+    x: ['{A} — 테이블 락을 먼저 쥔 SELECT', '{A, B} — 앞에 있는 모든 세션', '{} — C 는 SELECT 라 아무도 막지 않는다'],
+  },
+  '03/7': {
+    q: 'BEGIN; ANALYZE t; 를 연 채 다른 세션이 VACUUM t 를 내면?',
+    a: '기다린다 — ShareUpdateExclusive 끼리 충돌한다',
+    x: ['바로 돈다 — VACUUM 과 ANALYZE 는 서로 다른 모드다', 'ANALYZE 가 취소된다 — VACUUM 이 우선이다', '바로 돈다 — 둘 다 쓰기를 막지 않는 약한 락이다'],
+  },
+  '03/9': {
+    q: 'UPDATE 를 연 트랜잭션이 있을 때 CREATE INDEX CONCURRENTLY 가 pg_locks 에서 granted f 로 기다리는 줄은?',
+    a: '그 트랜잭션의 virtualxid 에 대한 ShareLock',
+    x: ['t 의 ShareLock — 쓰기와 충돌해서', 't 의 ShareUpdateExclusiveLock — UPDATE 와 충돌해서', 'UPDATE 한 행의 tuple 락'],
+  },
   '04/1': {
     q: 'A 가 행 1, B 가 행 2 를 각자 잠근 시점의 상태는?',
     a: '아무 문제 없다 — 서로 다른 행이라 부딪히지 않는다',
