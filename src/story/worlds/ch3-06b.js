@@ -430,16 +430,17 @@ function make({ F, deck, labels, scene }) {
     /* 2 : 끝 384 B 확대 */
     const z = G.zoom, s5 = PAGE - 8 - H(5).PAGE_N_DIR_SLOTS * 2, d8 = regions(8).dir0;
     setText(zoomHd, `끝 384 B 확대  ·  ${fmt(z.from)} – 16,383`); place(zoomHd, z.x, z.y - 14);
-    setText(zoomDir, `p:8  ${H(8).PAGE_N_DIR_SLOTS} slot × 2 = ${H(8).PAGE_N_DIR_SLOTS * 2} B  (${fmt(d8)}–)`);
-    place(zoomDir, z.x, z.y - 46);
-    setText(ghost5, `p:5  ${H(5).PAGE_N_DIR_SLOTS} slot × 2 = ${H(5).PAGE_N_DIR_SLOTS * 2} B  (${fmt(s5)}–)`);
-    place(ghost5, z.x, z.y - 30);
+    /* 오른쪽 열이 좁으면(768 에서 185px) 괄호 안 시작 오프셋을 뺀다 — 둘 다 화면 오른쪽 끝을 넘었다(storysweep label-out) */
+    const fitText = (lb, x, long, short) => { setText(lb, long); if (x + lb.el.offsetWidth > G.L.x1) setText(lb, short); };
+    const dir8 = `p:8  ${H(8).PAGE_N_DIR_SLOTS} slot × 2 = ${H(8).PAGE_N_DIR_SLOTS * 2} B`, dir5 = `p:5  ${H(5).PAGE_N_DIR_SLOTS} slot × 2 = ${H(5).PAGE_N_DIR_SLOTS * 2} B`;
+    fitText(zoomDir, z.x, `${dir8}  (${fmt(d8)}–)`, dir8); place(zoomDir, z.x, z.y - 46);
+    fitText(ghost5, z.x, `${dir5}  (${fmt(s5)}–)`, dir5); place(ghost5, z.x, z.y - 30);
     /* 3 : 127 B 를 받을 수 있나 */
     const mx = MAXSZ(H(8).PAGE_N_RECS);
     setText(resLb, `빈 page ${fmt(EMPTY)} − (데이터 ${fmt(H(8).PAGE_HEAP_TOP - SUP_END)} + slot 예약 ${resv(H(8).PAGE_N_RECS + 1)}) = ${fmt(mx)} B 남음  ·  남겨야 할 1/16 = ${fmt(RESERVE)} B`);
     wrapTo(resLb, G.ww - 6); place(resLb, full.x, Math.max(full.y + COLS * full.pp + 10, yb + 45 + 12), 'l', 't');
     setText(recLb, `${fmt(RESERVE)} + ${RS} = ${fmt(RESERVE + RS)} > ${fmt(mx)}  →  split`);
-    place(recLb, rx, rowY(full, top) - 40);
+    wrapTo(recLb, G.L.x1 - rx - 4); place(recLb, rx, rowY(full, top) - 40);
     /* 4 : heap 번호 · lock bitmap */
     const n = heapN(6), lbB = 1 + Math.floor((n + 64) / 8), ts = Math.min(17, panel.w / (11 * 1.35));
     setText(tokLb, `heap 번호 ${n} = infimum · supremum 2 + 살아 있는 ${H(6).PAGE_N_RECS} + 지워진 ${GONE6}`);
