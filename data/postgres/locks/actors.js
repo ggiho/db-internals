@@ -28,6 +28,11 @@ const ACTORS = {
   part: { nm:'LOCK PARTITIONS', lane:'sql', kind:'list' },
   /* 02 · 03 — pg_locks 에 실제로 남은 줄(잰 값). 항목 하나가 줄 하나, 색은 fastpath 열 : ok = t · hold = f(공유 표) · x = granted f */
   pgl:  { nm:'pg_locks', lane:'obs', kind:'list' },
+  /* 09 — 백엔드 하나의 fast-path 칸(PGPROC). 항목 하나가 16 칸 묶음, sz = 칸 수 · n = 쓴 칸 — 세계가 쓴 만큼 채우고
+     칸 수를 max_locks_per_transaction 과, 쓴 칸을 잰 fastpath t 와 맞춘다 */
+  fp:   { nm:'FAST-PATH 칸  ·  이 백엔드', lane:'sql', kind:'bytes' },
+  /* 09 — fast-path 에 못 든 relation 락이 가는 곳(공유 해시). n = 이 백엔드의 줄 수(잰 fastpath f 와 맞춘다), 다른 세션의 줄은 n 없이 */
+  shr:  { nm:'SHARED LOCK TABLE', lane:'sql', kind:'list' },
 };
 const EDGES = [
   /* 락 표는 공유 메모리에 있고 튜플은 힙에 있다 — 재시작하면 앞쪽만 사라진다. */

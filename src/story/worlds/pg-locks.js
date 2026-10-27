@@ -5,9 +5,12 @@
        아래에 grantMask · waitMask 를 8 비트로 — 세계가 항목의 mode 로 셈한다(lock.h 의 LOCK 구조체 두 필드).
        항목에 req 가 있으면 그 요청의 conflictTab 을 함께 그려 & 결과를 보인다
      · graph 배우 = 노드 칸과 간선 화살표(대기 · rw-conflict)
+     · bytes 띠의 항목에 n(쓴 칸)과 sz(칸 수)가 있으면 fast-path 칸 배열(09) — 묶음마다 쓴 만큼 초록으로 채운다
      · 나머지 kv 는 글 블록, 나머지 list 는 칸 줄
      · 셈 맞추기 — 장면의 8 × 8 행렬이 아래 LockConflicts(lock.c 의 배열을 그대로 옮긴 것)와 다르거나, 큐 항목의 mode 를
-       모르면 console.error 로 알린다. 행렬 자체는 tools/pgmx.js 가 소스와 칸 단위로 대조한다
+       모르면 console.error 로 알린다. 행렬 자체는 tools/pgmx.js 가 소스와 칸 단위로 대조한다.
+       fast-path 띠는 칸 수의 합이 kv 의 max_locks_per_transaction 에서 셈한 묶음 수 × 16 과 같아야 하고, 쓴 칸의 합은 kv 의
+       'fastpath t'(잰 값), 칸 줄 항목의 n 합은 'fastpath f'(잰 값)와 같아야 한다
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
 import { kvLine } from './kvline.js';
@@ -96,6 +99,24 @@ function make({ F, deck, labels, scene }) {
     }));
   }
   for (const a of QUEUES) all.forEach((s) => s[a].forEach((x) => { if (x.mode && !modeNo(x.mode)) console.error(`pg locks ${sc.num} 세계 : ${a}.${x.id} 의 모드 '${x.mode}' 를 모른다`); }));
+  /* fast-path 칸 띠(09) — 묶음 수는 postinit.c InitializeFastPathLocks 의 셈 : Max(Min(pg_nextpower2_32(max_locks) / 16, 1024), 1).
+     띠가 그리는 칸 수 · 쓴 칸이 kv 의 설정값과 잰 pg_locks 셈(fastpath t / f)에서 벗어나면 알린다 */
+  const FPS = STRIPS.filter((a) => all.some((s) => s[a].some((x) => typeof x.n === 'number')));
+  const np2 = (v) => { let q = 1; while (q < v) q *= 2; return q; };
+  const num = (v) => { const m = /^\s*([\d,]+)/.exec(bare(v)); return m ? Number(m[1].replace(/,/g, '')) : null; };
+  for (const a of FPS) for (const bk of BAKES.values()) bk.S.forEach((s, i) => {
+    const its = s[a], kv = TEXTS.map((t) => s[t]).find((x) => 'max_locks_per_transaction' in x);
+    if (!its.length || !kv) return;
+    const at = `pg locks ${sc.num}/${i + 1} 세계 : ${a}`, mlpt = num(kv.max_locks_per_transaction);
+    const tot = its.reduce((t, x) => t + (x.sz || 0), 0), used = its.reduce((t, x) => t + (x.n || 0), 0);
+    const want = mlpt ? Math.max(Math.min(np2(mlpt) / 16, 1024), 1) * 16 : null;
+    if (want != null && tot !== want) console.error(`${at} 의 칸 ${tot} 개 — max_locks_per_transaction ${mlpt} 이면 ${want / 16} 묶음 × 16 = ${want}`);
+    for (const x of its) if ((x.n || 0) > (x.sz || 0)) console.error(`${at}.${x.id} 가 칸 ${x.sz} 에 ${x.n} 을 적었다`);
+    const ft = num(kv['fastpath t']), ff = num(kv['fastpath f']);
+    if (ft != null && ft !== used) console.error(`${at} 의 쓴 칸 ${used} 이 잰 fastpath t ${ft} 와 다르다`);
+    const out = ROWS.reduce((t, r) => t + s[r].reduce((u, x) => u + (typeof x.n === 'number' ? x.n : 0), 0), 0);
+    if (ff != null && ff !== out) console.error(`${at} : 공유 표 칸 줄의 n 합 ${out} 이 잰 fastpath f ${ff} 와 다르다`);
+  });
   let cur = BAKES.get(null) || [...BAKES.values()][0];
 
   /* ── 알갱이 구역 ── */
@@ -104,6 +125,9 @@ function make({ F, deck, labels, scene }) {
   const take = (k, n) => { R[k] = [at, at + n]; at += n; };
   for (const a of MATS) take('m:' + a, MSHAPE[a].r * MSHAPE[a].c * MC);
   for (const a of STRIPS) take('s:' + a, SB);
+  /* fast-path 칸마다 알갱이 하나(많아야 64 칸 — 16 칸 묶음 넷, 또는 큰 항목의 묶음 64) — 칸 그림은 overlay 가 그리지만,
+     알갱이가 없으면 dock 이 띠 안을 빈 자리로 보고 act 이름표를 칸 위에 세웠다 */
+  for (const a of FPS) take('c:' + a, 64);
   for (const a of QUEUES) { RIDS[a].forEach((id) => take(a + ':' + id, SL)); take('qm:' + a, 3 * QB); }
   for (const a of GRAPHS) RIDS[a].forEach((id) => take(a + ':' + id, SL));
   for (const a of ROWS) RIDS[a].forEach((id) => take(a + ':' + id, SL));
@@ -420,10 +444,27 @@ function make({ F, deck, labels, scene }) {
           const id = Object.keys(info.P).find((q) => x >= info.P[q][0] && x < info.P[q][0] + info.P[q][1]);
           const it = id && s[a].find((q) => q.id === id);
           hot = !!id && mod.has(id) && on; col = hot ? GOLD : it && it.tag && it.tag !== 'hdr' && it.tag !== 'clean' ? TAGC[it.tag] ?? INK : INK;
+          /* fast-path 묶음 — 쓴 칸 비율만큼 왼쪽을 채운다(바뀐 묶음은 금빛), 빈 칸은 흐리게 */
+          if (it && typeof it.n === 'number' && it.sz) { const f = (x - info.P[id][0]) / info.P[id][1]; if (f < it.n / it.sz) col = hot ? GOLD : GREEN; else { col = FAINT; hot = false; } }
         } else { const c = Math.floor((m - nl) / 4); if (c >= cuts.length) { put(o, i, dust[i * 2], dust[i * 2 + 1], 0, 0, 2, 1, FAINT); continue; } x = cuts[c]; y = G.strip[a].y + 5 + ((m - nl) % 4) * 5.3; }
         const [xx, yy] = into(i, x, y);
         put(o, i, xx, yy, (on ? 0.85 : 0.45) * dim * form, hot ? 0.5 : 0, 0.02, 1.05, col);
       }
+    }
+    for (const a of FPS) {
+      const [c0, c1] = R['c:' + a], info = G.strip[a].per.get(s);
+      let m = 0;
+      if (info) for (const it of s[a]) {
+        const P = info.P[it.id];
+        if (!P || !it.sz) continue;
+        const cells = it.sz > 16 ? it.sz / 16 : 16, cw = (P[1] - 8) / cells;
+        for (let c = 0; c < cells && c0 + m < c1; c++, m++) {
+          const f = it.sz > 16 ? (it.n || 0) / it.sz : c < (it.n || 0) ? 1 : 0;
+          const [x, y] = into(c0 + m, P[0] + 4 + c * cw + cw / 2 - 0.5, G.strip[a].y + 13);
+          put(o, c0 + m, x, y, (f > 0 ? 0.75 : 0.3) * dim * form, 0, 0.02, 1, f > 0 ? GREEN : FAINT);
+        }
+      }
+      for (; c0 + m < c1; m++) put(o, c0 + m, dust[(c0 + m) * 2], dust[(c0 + m) * 2 + 1], 0, 0, 2, 1, FAINT);
     }
     /* 행렬 — 칸마다 점 여섯. 막힘은 채운 빨강, 허용은 흐린 테두리 점, on 은 금빛 */
     for (const a of MATS) {
@@ -571,6 +612,23 @@ function make({ F, deck, labels, scene }) {
       const y = G.strip[a].y, off = (q) => q.row > 0 || q.cx < q.l || q.cx > q.r;
       for (const q of info.NM) if (off(q)) seg(ctx, q.cx, y - 3 - q.row * RH + 1, q.cx, y - 2);
       for (const q of info.VL) if (off(q)) seg(ctx, q.cx, y + 28, q.cx, y + 26 + 5 + q.row * RH - 1);
+    }
+    /* fast-path 묶음 — 띠 안에 칸을 그린다. 16 칸 묶음은 칸마다(쓴 칸은 초록으로 채움), 더 큰 항목은 묶음마다 한 칸에
+       평균 비율만큼(1024 의 64 묶음) — 띠의 두 줄 점만으로는 "찼다" 가 보이지 않았다 */
+    for (const a of FPS) {
+      const info = G.strip[a].per.get(s);
+      if (!info) continue;
+      const y = G.strip[a].y + 6, h = 14;
+      for (const it of s[a]) {
+        const P = info.P[it.id];
+        if (!P || !it.sz) continue;
+        const cells = it.sz > 16 ? it.sz / 16 : 16, cw = (P[1] - 8) / cells;
+        for (let c = 0; c < cells; c++) {
+          const x = P[0] + 4 + c * cw, f = it.sz > 16 ? (it.n || 0) / it.sz : c < (it.n || 0) ? 1 : 0;
+          ctx.globalAlpha = 0.3 * o; ctx.strokeStyle = css.faint; ctx.strokeRect(x + 0.5, y + 0.5, Math.max(1, cw - 2), h);
+          if (f > 0) { ctx.globalAlpha = 0.6 * o; ctx.fillStyle = css.green; ctx.fillRect(x + 1, y + 1 + h * (1 - f), Math.max(1, cw - 3), h * f - 1); }
+        }
+      }
     }
     /* 행렬 — on 칸에 금빛 테두리 */
     for (const a of MATS) {

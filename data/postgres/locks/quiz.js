@@ -145,4 +145,29 @@ export const CORE = {
     a: '보인다 — fastpath 열이 true 로',
     x: ['안 보인다 — 공유 표만 펼친다', '보인다 — 다만 granted 가 false 로', '세션이 끝난 뒤에야 보인다'],
   },
+  '09/4': {
+    q: '기본 설정(64)에서 한 트랜잭션이 테이블 65 개를 차례로 SELECT 하면 65 번째의 AccessShareLock 은? (oid 가 고르게 퍼졌다)',
+    a: '공유 락 표로 간다 — 그 묶음 16 칸이 찼다',
+    x: ['fast-path 에 든다 — 칸 수에는 상한이 없다', 'out of shared memory 로 실패한다', '가장 오래된 fast-path 락을 밀어내고 그 칸에 든다'],
+  },
+  '09/5': {
+    q: '기본 설정에서 테이블 17 개만 잡았는데 하나가 fastpath f 다. 왜인가?',
+    a: '17 개가 모두 한 묶음에 걸렸다',
+    x: ['18 도 트랜잭션마다 16 칸이 고정이다', '17 번째는 늘 공유 표로 간다', '다른 세션이 그 테이블을 SELECT 했다'],
+  },
+  '09/6': {
+    q: 'max_locks_per_transaction 을 16 으로 두고 재시작하면 fast-path 칸은?',
+    a: '묶음 하나, 16 칸',
+    x: ['그대로 64 칸 — 공유 표만 준다', '0 칸 — fast-path 가 꺼진다', '묶음 넷에 4 칸씩'],
+  },
+  '09/8': {
+    q: '같은 트랜잭션에서 LOCK TABLE … IN SHARE UPDATE EXCLUSIVE MODE 의 pg_locks.fastpath 는?',
+    a: 'f — 4 단계는 칸에 못 든다',
+    x: ['t — 4 단계는 쓰기를 막지 않는 약한 락이다', 't — 칸이 남으면 모드와 상관없다', 'f 이고 남의 칸까지 공유 표로 옮긴다'],
+  },
+  '09/10': {
+    q: '다른 세션이 f13 의 AccessShareLock 을 fast-path 로 쥔 뒤 내가 f13 에 ShareLock 을 잡으면, 그 세션의 줄은?',
+    a: 'fastpath f 로 바뀐다 — 내가 공유 표로 옮겼다',
+    x: ['fastpath t 그대로 — 남의 칸은 건드리지 않는다', '그 세션의 락이 풀린다', '내 ShareLock 이 칸이 빌 때까지 기다린다'],
+  },
 };

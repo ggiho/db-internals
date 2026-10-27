@@ -40,7 +40,7 @@ export const BESPOKE = {
   'mysql/innodb': { '01': innodb01, '02': innodbMvcc, '03': innodbLsn, '04': innodbLsn, '05': innodbLru, '05v': innodbLru, '06': innodbLru, '07': innodbLock, '08': innodbLock, '09': innodbMdl, '10': innodbTree, '11': innodbMvcc, '12': innodbMvcc, '13': innodbLsn },
   'mysql/locks': { ...Object.fromEntries(['01', '02', '02v', '03', '05', '06', '06v', '07', '08', '09', '12'].map((n) => [n, innodbLock])), '04': innodbMx('04'), '10': innodbMx('10'), '11': innodbMdl },
   'postgres/btree': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07', '08'].map((n) => [n, pgBtree])),
-  'postgres/locks': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07', '08'].map((n) => [n, pgLocks])),
+  'postgres/locks': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07', '08', '09'].map((n) => [n, pgLocks])),
   'postgres/wal': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07', '08'].map((n) => [n, pgWal])),
   'postgres/heap': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07', '08', '09', '10'].map((n) => [n, pgHeap])),
   'postgres/mvcc': Object.fromEntries(['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11'].map((n) => [n, pgMvcc])),
