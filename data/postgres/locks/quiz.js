@@ -11,6 +11,16 @@ export const CORE = {
     x: ['행마다 shared lock table 항목을 먹어 표가 넘친다', '대량 갱신 때 락 메모리가 모자라 에스컬레이션한다', 'xmax 를 쓰려면 테이블 락을 8단계로 올려야 한다'],
   },
   '02/3': {
+    q: 'BEGIN; UPDATE t … WHERE id = 2; 뒤 pg_locks 에 남는 relation 락은? (t 에 인덱스 둘)',
+    a: 't 와 인덱스 둘에 RowExclusiveLock — 셋 다 fastpath t',
+    x: ['t 에 RowExclusiveLock 하나 — 인덱스는 락 없이 고친다', '고친 행마다 tuple 락 한 줄씩', 't 에 ExclusiveLock 하나 — 공유 표에'],
+  },
+  '02/5': {
+    q: 'VACUUM 이 본 테이블을 끝내고 toast 를 도는 동안 pg_locks 의 본 테이블 줄은?',
+    a: '4단계가 session lock 으로 남는다',
+    x: ['사라진다 — 본 테이블의 트랜잭션이 커밋됐다', 'AccessExclusiveLock 으로 올라간다', '인덱스 줄과 함께 남는다 — 같은 트랜잭션이다'],
+  },
+  '02/8': {
     q: 'ALTER TABLE 이 AccessExclusiveLock 을 기다리는 동안 뒤에 온 SELECT 는?',
     a: '함께 막힌다 — 대기 중인 락이 뒤의 요청을 막는다',
     x: ['ALTER 를 앞질러 바로 읽는다 — SELECT 는 락이 필요 없다', '막히지 않는다 — MVCC 라 읽기는 락과 무관하다', '옛 snapshot 으로 읽는다 — ALTER 가 끝날 때까지'],

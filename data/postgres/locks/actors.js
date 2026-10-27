@@ -1,5 +1,7 @@
 const LANES = [
   { id:'sql',  lb:'서버',   note:'문장 · 락 표' },
+  /* 02 · 03 — pg_locks 로 잰 줄. 서버 레인에 두었더니 Lab 768 에서 카드 셋이 한 줄을 나눠 03 의 행렬 열 이름(SUE · SRE)이 잘렸다 */
+  { id:'obs',  lb:'관측',   note:'pg_locks 의 줄' },
   { id:'heap', lb:'HEAP',   note:'튜플' },
 ];
 const ACTORS = {
@@ -24,10 +26,14 @@ const ACTORS = {
   /* 08 — 락 표의 열쇠(16 바이트)와 파티션 */
   ltag: { nm:'LOCKTAG  ·  16 B', lane:'sql', kind:'bytes' },
   part: { nm:'LOCK PARTITIONS', lane:'sql', kind:'list' },
+  /* 02 · 03 — pg_locks 에 실제로 남은 줄(잰 값). 항목 하나가 줄 하나, 색은 fastpath 열 : ok = t · hold = f(공유 표) · x = granted f */
+  pgl:  { nm:'pg_locks', lane:'obs', kind:'list' },
 };
 const EDGES = [
   /* 락 표는 공유 메모리에 있고 튜플은 힙에 있다 — 재시작하면 앞쪽만 사라진다. */
-  { after:'sql', lb:'락 표 · 튜플', hot:'io' },
+  { after:'sql', before:'heap', lb:'락 표 · 튜플', hot:'io' },
+  /* 관측 레인(pg_locks)도 공유 메모리 쪽이다 — 그 아래가 튜플 */
+  { after:'obs', before:'heap', lb:'락 표 · 튜플', hot:'io' },
 ];
 
 export { LANES, ACTORS, EDGES };
