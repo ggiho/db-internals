@@ -106,14 +106,24 @@ export const CORE = {
     x: ['같은 키 범위의 INSERT 가 올 때만', 'VACUUM 이 파일 끝을 자를 때', 'REINDEX 를 해야만'],
   },
   '07/3': {
-    q: 'unique 인덱스에 같은 키가 있고 그 행을 지우는 트랜잭션이 진행 중이면?',
-    a: '그 트랜잭션이 끝나기를 기다렸다가 다시 본다',
-    x: ['곧바로 unique 위반 오류를 낸다', '그 행을 무시하고 바로 넣는다', '지우는 트랜잭션을 되돌린다'],
+    q: '같은 키 37 을 넣은 A 가 아직 커밋하지 않았다. 37 을 넣으려는 B 가 pg_locks 에서 기다리는 것은?',
+    a: 'A 의 transactionid 에 ShareLock',
+    x: ['heap 튜플 (4,96) 에 걸린 tuple 락', 'leaf 1 페이지의 쓰기 락 (LWLock)', 'uq_k 인덱스의 relation 락'],
+  },
+  '07/6': {
+    q: '키 38 인 행을 지우고 커밋했다. 다른 세션이 38 을 다시 넣으면?',
+    a: '기다리지 않고 들어간다 — 옛 항목의 heap 튜플을 한 번 읽는다',
+    x: ['23505 로 거절된다 — 인덱스에 38 이 남아 있다', 'VACUUM 이 옛 항목을 지울 때까지 기다린다', '옛 항목의 TID 를 새 튜플로 고쳐 쓴다'],
   },
   '07/8': {
-    q: 'unique 검사에서 PG 와 InnoDB 가 기다리는 대상의 차이는?',
-    a: 'PG 는 트랜잭션 ID, InnoDB 는 레코드 락을 기다린다',
-    x: ['둘 다 레코드 락을 기다린다', '둘 다 트랜잭션 ID 를 기다린다', 'PG 는 레코드 락, InnoDB 는 트랜잭션 ID'],
+    q: 'ON CONFLICT DO NOTHING 의 투기적 삽입이 끝나기 전, 같은 키를 넣으려는 세션이 기다리는 것은?',
+    a: '그 삽입 하나의 spectoken',
+    x: ['그 행의 tuple 락', 'arbiter 인덱스의 leaf 쓰기 락', '자기 transactionid 의 ExclusiveLock'],
+  },
+  '07/10': {
+    q: 'uq_k 가 DEFERRABLE INITIALLY DEFERRED 일 때 진행 중인 37 과 겹치는 INSERT 37 은?',
+    a: '곧바로 들어가고, COMMIT 이 기다렸다가 23505 를 낸다',
+    x: ['INSERT 가 기다렸다가 23505 를 낸다', 'INSERT 가 곧바로 23505 를 낸다', 'COMMIT 도 통과한다 — 검사를 하지 않는다'],
   },
   '08/1': {
     q: 'v 에 인덱스가 있어 HOT 이 안 되는 UPDATE 가 v 만 바꿨다. k 의 인덱스에는?',
