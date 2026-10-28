@@ -5,7 +5,7 @@
      · LINE POINTERS(lp, 항목에 off 나 fl 이 있을 때) = 칸 줄 + 지금 보는 항목의 ItemIdData 32 비트
        (lp_off 15 · lp_flags 2 · lp_len 15 — itemid.h 의 비트필드 선언 순서). to 가 있으면 PAGE 의 그 영역으로 선
      · FSM(fsm, 항목의 sub 가 숫자일 때) = 잎의 범주 위에 최댓값 트리(부모 = 두 자식의 최댓값, 세계가 셈한다).
-       kv 의 '찾는 범주' 가 있으면 루트에서 그 값 이상인 자식으로 내려가는 길
+       kv 의 '찾는 범주' 가 있으면 fsm_search_avail 의 길 — '시작 슬롯'(fp_next_slot) 잎에서 오르고 왼쪽 먼저 내려간다. 고른 잎은 금빛
      · 나머지 kv 는 글 블록, 나머지 list 는 칸 줄
      · 셈 맞추기 — 영역이 겹치거나 0 ‥ 8192 밖이거나, 헤더가 [0, 24) 가 아니거나, kv 의 pd_lower · pd_upper 나
        헤더 띠 칸(pd_lower · pd_upper · pd_special)의 sub '오프셋 · 값' 이 영역과 다르거나, 트리의 잎이 숫자가 아니면
@@ -199,14 +199,26 @@ function make({ F, deck, labels, scene }) {
     while (lv[lv.length - 1].length > 1) { const p = lv[lv.length - 1]; lv.push(Array.from({ length: p.length / 2 }, (_, i) => Math.max(p[2 * i], p[2 * i + 1]))); }
     return lv;
   };
-  /* 루트에서 need 이상인 자식으로 — 왼쪽 먼저(fsm_search_avail 은 시작 위치를 돌려 가며 고르지만, 여기서는 길만 보인다) */
-  const fsmPath = (lv, need) => {
-    if (!(need > 0) || lv[lv.length - 1][0] < need) return [];
-    const path = [];
-    let i = 0;
-    for (let d = lv.length - 1; d >= 0; d--) { path.push([d, i]); if (d) i = lv[d - 1][2 * i] >= need ? 2 * i : 2 * i + 1; }
+  /* fsm_search_avail 그대로 — 시작 잎(kv '시작 슬롯' = fp_next_slot, 없으면 0)이 need 미만이면 오른쪽 이웃의 부모로 오르고,
+     need 이상인 노드에 닿으면 왼쪽 자식을 먼저 보며 잎까지 내려간다. 루트가 need 보다 작으면 길이 없다(-1 을 돌려준다).
+     오른쪽 이웃은 그린 단 안에서 돈다 — 실제 페이지는 잎이 4,069 칸이라 더 넓게 돌지만 그린 잎 밖은 모두 0 이다 */
+  const fsmPath = (lv, need, start) => {
+    const top = lv.length - 1;
+    if (!(need > 0) || lv[top][0] < need) return [];
+    let d = 0, i = Math.min(Math.max(0, start || 0), lv[0].length - 1);
+    const path = [[0, i]];
+    while (d < top && lv[d][i] < need) { i = ((i + 1) % lv[d].length) >> 1; d++; path.push([d, i]); }
+    while (d > 0) { i = lv[d - 1][2 * i] >= need ? 2 * i : 2 * i + 1; d--; path.push([d, i]); }
     return path;
   };
+  const seekOf = (s) => { const lv = fsmTree(s), kv = (SEEK && s[SEEK]) || {}, path = fsmPath(lv, nums(kv['찾는 범주'])[0] || 0, nums(kv['시작 슬롯'])[0]); return { lv, path, pick: path.length ? path[path.length - 1][1] : -1 }; };
+  /* 셈 맞추기 — kv '고른 페이지' 가 잎 이름(p3 …)으로 시작하면 트리로 찾은 잎과 같아야 하고, '없음' 이면 길이 없어야 한다 */
+  if (FSM && SEEK) for (const [k, b] of BAKES) [b.S0, ...b.S].forEach((s, i) => {
+    const v = bare(s[SEEK]['고른 페이지'] || ''), want = (/^p\d+/.exec(v) || [])[0] || (/^없음/.test(v) ? '없음' : null);
+    if (!want) return;
+    const { pick } = seekOf(s), got = pick >= 0 ? (s[FSM][pick] || {}).id : '없음';
+    if (got !== want) console.error(`pg heap ${sc.num} 세계${k ? ' (' + sc.vary.knob + '=' + k + ')' : ''} : ${i ? i + ' 스텝' : 'init'} 의 고른 페이지 ${want} 가 FSM 트리로 찾은 ${got} 와 다르다`);
+  });
 
   /* 스텝마다의 글과 강조 — [글, 또렷한가, 색, 보이나, html] */
   const focusOf = (s, a) => (Array.isArray(s.look[a]) ? new Set(s.look[a].map(String)) : null);
@@ -259,8 +271,8 @@ function make({ F, deck, labels, scene }) {
       LPF.forEach(([, w], fi) => { const v = [bo, bf, bl][fi]; for (let b = w - 1; b >= 0; b--) t.set(bitDig[c++], [String((v >> b) & 1), on(LPA) && ((v >> b) & 1) === 1, fi === 1 ? 'gold' : '', !!fo]); });
     }
     if (FSM) {
-      const lv = fsmTree(s), need = SEEK ? nums(s[SEEK]['찾는 범주'])[0] : 0, path = fsmPath(lv, need);
-      for (const id of FIDS) { const it = s[FSM].find((x) => x.id === id); t.set(fLb[id].n, [it ? id : '', on(FSM), '', !!it]); t.set(fLb[id].v, [it ? String(nums(it.sub)[0]) : '', on(FSM) && !!it && hotIt(s, FSM, id), it && it.tag === 'red' ? 'red' : '', !!it]); }
+      const { lv, path, pick } = seekOf(s);
+      for (const id of FIDS) { const it = s[FSM].find((x) => x.id === id); t.set(fLb[id].n, [it ? id : '', on(FSM), '', !!it]); t.set(fLb[id].v, [it ? String(nums(it.sub)[0]) : '', on(FSM) && !!it && hotIt(s, FSM, id), it && it.tag === 'red' ? 'red' : it && s[FSM][pick] === it ? 'gold' : '', !!it]); }
       let k = 0;
       for (let d = 1; d < lv.length; d++) for (let j = 0; j < lv[d].length; j++) { const lb = fNode[k++]; if (lb) t.set(lb, [String(lv[d][j]), on(FSM) || (SEEK && on(SEEK)), path.some(([pd, pj]) => pd === d && pj === j) ? 'gold' : '', true]); }
       for (; k < fNode.length; k++) t.set(fNode[k], ['', false, '', false]);
@@ -559,7 +571,7 @@ function make({ F, deck, labels, scene }) {
     }
     /* FSM — 잎 칸과 그 위의 최댓값 노드. 찾는 길의 노드는 금빛 */
     if (FSM) {
-      const [q0] = R.fl, lv = fsmTree(s), n = lv[0].length, need = SEEK ? nums(s[SEEK]['찾는 범주'])[0] : 0, path = fsmPath(lv, need), on = s.touch.has(FSM) && !end;
+      const [q0] = R.fl, { lv, path } = seekOf(s), n = lv[0].length, on = s.touch.has(FSM) && !end;
       let i = q0;
       FIDS.forEach((id, j) => {
         const it = s[FSM].find((x) => x.id === id), P = fsmXY(0, j, n), w = Math.min(56, (G.L.x1 - G.L.x0) / n - 8);
@@ -751,7 +763,7 @@ function make({ F, deck, labels, scene }) {
       for (const q of G.bits.lb) { const ly = y + 8 + 10 + q.row * RH; if (q.row) seg(ctx, q.cx, y + 13, q.cx, ly - 1); }
     }
     if (FSM) {
-      const lv = fsmTree(s), n = lv[0].length, need = SEEK ? nums(s[SEEK]['찾는 범주'])[0] : 0, path = fsmPath(lv, need);
+      const { lv, path } = seekOf(s), n = lv[0].length;
       for (let d = 1; d < lv.length; d++) for (let j = 0; j < lv[d].length; j++) {
         const P = fsmXY(d, j, n);
         for (const c of [2 * j, 2 * j + 1]) {
