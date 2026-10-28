@@ -56,21 +56,26 @@ export const CORE = {
     x: ['doublewrite 사본을 먼저, 그다음 WAL', 'WAL 을 거꾸로 읽어 undo 부터', 'WAL 과 clog 를 번갈아 두 번'],
   },
   '03/1': {
-    q: 'checkpoint 를 부르는 두 문턱은?',
-    a: 'max_wal_size 만큼 쌓임, checkpoint_timeout 경과',
-    x: ['shared_buffers 가 가득 참, 커밋 수', 'wal_buffers 가 가득 참, bgwriter 주기', 'dirty page 비율 90% 도달, checkpoint_timeout 경과'],
+    q: 'max_wal_size 128MB · checkpoint_completion_target 0.9 에서 WAL 양으로 부르는 checkpoint 는 언제 시작하나?',
+    a: '128MB 보다 한참 앞 — 128MB / 1.9 를 내린 4 세그먼트째',
+    x: ['WAL 이 128MB 쌓였을 때', 'WAL 이 128MB × 0.9 = 115MB 쌓였을 때', '양으로는 부르지 않는다 — checkpoint_timeout 이 지나야 한다'],
   },
-  '03/2': {
+  '03/4': {
     q: 'online checkpoint 가 시작되자마자(아직 flush 전) 페이지를 고치면?',
     a: '어느 페이지든 첫 수정이 되어 이미지가 붙는다',
     x: ['flush 가 끝난 페이지만 이미지가 붙는다', '이미지는 checkpoint 가 끝날 때까지 붙지 않는다', 'dirty 였던 적 없는 페이지만 이미지가 붙는다'],
   },
-  '03/4': {
+  '03/7': {
+    q: '같은 dirty buffer 982 장을 WAL 로 부른 checkpoint 는 22 초, CHECKPOINT 명령은 0.036 초에 썼다. 왜 다른가?',
+    a: 'wal checkpoint 는 WAL 이 쌓이는 속도에 맞춰 나눠 쓰고, 명령은 쉬지 않는다',
+    x: ['명령은 dirty page 의 일부만 쓰고 나머지는 bgwriter 에 넘긴다', '배경 checkpoint 는 페이지를 쓸 때마다 fsync 를 따로 부른다', '명령이 도는 동안에는 다른 세션이 WAL 을 쓰지 못해 디스크가 한가하다'],
+  },
+  '03/8': {
     q: 'checkpoint 의 약속("redo 지점 앞의 변경은 데이터 파일에 있다")이 서는 때는?',
     a: 'pg_control 이 새 checkpoint 레코드를 가리킬 때',
     x: ['RedoRecPtr 를 새 위치로 옮기는 순간', 'dirty page flush 를 시작하는 순간', '옛 WAL 세그먼트를 지우거나 재활용할 때'],
   },
-  '03/5': {
+  '03/10': {
     q: 'checkpoint 를 자주 하면?',
     a: '복구는 짧아지지만 FPI 가 늘어 WAL 이 커진다',
     x: ['복구도 짧아지고 WAL 도 줄어든다', 'WAL 은 줄지만 복구가 길어진다', '복구 시간은 그대로고 쓰기만 줄어든다'],

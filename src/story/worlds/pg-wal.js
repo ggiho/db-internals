@@ -10,6 +10,8 @@
        슬롯(09) — kv 에 restart_lsn · wal_status 와 pg_current_wal_lsn · max_wal_size · max_slot_wal_keep_size 가 있으면 잰 wal_status ·
        safe_wal_size 를 GetWALAvailability · KeepLogSeg 의 규칙으로 다시 셈해 맞추고, 살아 있는 슬롯의 restart_lsn 이 칸 줄의
        세그먼트(lsn ‥ end) 안에 있는지 본다
+       checkpoint(03) — kv 에 max_wal_size(· completion_target) · RedoRecPtr 가 있으면 '문턱' 과 checkpoint starting: wal 이 찍힌 스텝의
+       Insert 를 CalculateCheckpointSegments · XLogCheckpointNeeded 로, '단계' 의 removed · recycled 를 redo 세그먼트와 칸 줄로 맞춘다
    손잡이가 있는 장면(04 synchronous_commit)은 값마다 따로 bake 해 두고 setVary 로 바꾼다.
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
@@ -174,6 +176,41 @@ function make({ F, deck, labels, scene }) {
     if (safe !== wantSafe) console.error(`${at} : safe_wal_size ${safe} 인데 규칙으로 셈하면 ${wantSafe}`);
     const segs = ROWS.flatMap((a) => s[a]).filter((x) => itLsn(x) != null && itEnd(x) != null);
     if (segs.length && !segs.some((x) => itLsn(x) <= R0 && R0 < itEnd(x))) console.error(`${at} : 슬롯이 ${st} 인데 restart_lsn ${lsnTx(R0)} 이 든 세그먼트가 칸 줄에 없다`);
+  });
+  /* checkpoint 문턱 · 재활용(03) — kv 의 max_wal_size 값에 completion_target 이 함께 있고 RedoRecPtr 가 있으면
+     xlog.c CalculateCheckpointSegments : CheckPointSegments = max(1, ⌊(max_wal_size / 16MB) / (1 + target)⌋),
+     XLogCheckpointNeeded : 다 쓴 세그먼트 ≥ redo 세그먼트 + CheckPointSegments − 1 이면 부른다.
+     '단계' 가 이번 스텝에 checkpoint starting: wal 이 되면 Insert 가 이번에 그 세그먼트를 넘었어야 하고, '문턱' 의 …XX · N 세그먼트가 그 셈과 같아야 한다.
+     '단계' 가 "R removed · C recycled" 가 되면 R + C = redo 세그먼트 − 직전 칸 줄의 가장 오랜 세그먼트, 칸 줄의 끝은
+     XLOGfileslop 의 상한 redo 세그먼트 + max_wal_size 세그먼트 − 1 을 넘지 않는다 */
+  const hexSeg = (v) => { const m = /…([0-9A-F]+)/.exec(bare(v)); return m ? parseInt(m[1], 16) : null; };
+  for (const [k, b] of BAKES) [b.S0, ...b.S].forEach((s, i, arr) => {
+    const pv = i ? arr[i - 1] : null; if (!pv) return;
+    const at = `pg wal ${sc.num} 세계${k ? ' (' + sc.vary.knob + '=' + k + ')' : ''} : ${i} 스텝`;
+    for (const a of TEXTS) {
+      const kv = s[a], o = pv[a];
+      const ct = /completion_target\s*([\d.]+)/.exec(bare(kv.max_wal_size ?? ''));
+      if (!ct || !('RedoRecPtr' in kv)) continue;
+      const mw = int(kv.max_wal_size), tg = Number(ct[1]), rs = Math.floor(lsnOf(kv.RedoRecPtr) / SEG);
+      const cps = Math.max(1, Math.floor(mw / 16 / (1 + tg))), trig = rs + cps - 1;
+      const th = bare(kv['문턱'] ?? '');
+      if (th !== bare(o['문턱'] ?? '') && th !== '—') {
+        const n = /=\s*(\d+)\s*세그먼트/.exec(th);
+        if (hexSeg(th) !== trig || (n && Number(n[1]) !== cps)) console.error(`${at} 의 ${a} : 문턱 "${th}" 가 셈(…${trig.toString(16).toUpperCase()} · ${cps} 세그먼트)과 다르다`);
+      }
+      const go = (v) => /checkpoint starting: wal/.test(bare(v ?? ''));
+      if (go(kv['단계']) && !go(o['단계'])) {
+        const was = Math.floor(lsnOf(o.Insert) / SEG), now = Math.floor(lsnOf(kv.Insert) / SEG);
+        if (!(was <= trig && now > trig)) console.error(`${at} 의 ${a} : checkpoint starting: wal 인데 Insert 가 이번에 문턱 세그먼트 …${trig.toString(16).toUpperCase()} 를 넘지 않았다 (…${was.toString(16).toUpperCase()} → …${now.toString(16).toUpperCase()})`);
+      }
+      const m = /(\d+)\s*removed\s*·\s*(\d+)\s*recycled/.exec(bare(kv['단계'] ?? ''));
+      if (m && bare(kv['단계']) !== bare(o['단계'] ?? '')) {
+        const spans = (st) => ROWS.flatMap((r) => st[r]).filter((x) => itLsn(x) != null && itEnd(x) != null);
+        const old = Math.min(...spans(pv).map((x) => Math.floor(itLsn(x) / SEG))), top = Math.max(...spans(s).map((x) => Math.ceil(itEnd(x) / SEG)));
+        if (Number(m[1]) + Number(m[2]) !== rs - old) console.error(`${at} 의 ${a} : ${m[1]} removed + ${m[2]} recycled 가 redo 세그먼트 …${rs.toString(16).toUpperCase()} − 가장 오랜 …${old.toString(16).toUpperCase()} 와 다르다`);
+        if (top > rs + mw / 16) console.error(`${at} 의 ${a} : 칸 줄이 …${(top - 1).toString(16).toUpperCase()} 까지인데 재활용 상한은 …${(rs + mw / 16 - 1).toString(16).toUpperCase()}`);
+      }
+    }
   });
   let cur = BAKES.get(null) || [...BAKES.values()][0];
 
