@@ -47,15 +47,20 @@ export const CORE = {
     a: '페이지를 만질 때의 즉시 정리(pruning)와 VACUUM',
     x: ['VACUUM(또는 autovacuum)이 돌 때에만 돌아온다', '커밋 시점에 그 트랜잭션이 바로 지운다', 'autovacuum 이 파일 끝을 잘라 돌려준다'],
   },
-  '04/2': {
+  '04/3': {
     q: '죽은 TID 가 maintenance_work_mem 에 다 안 담기면 VACUUM 은?',
     a: '멈추고 인덱스와 heap 을 한 바퀴 정리한 뒤 스캔을 잇는다',
     x: ['담기지 않은 TID 는 다음 VACUUM 으로 미룬다', '넘친 TID 를 임시 파일에 적어 두고 끝에 한 번에 지운다', 'heap 스캔을 처음부터 다시 시작한다'],
   },
-  '04/5': {
+  '04/6': {
     q: 'VACUUM 이 죽은 튜플의 line pointer(TID) 를 다시 쓸 수 있게 하는 것은 언제인가?',
     a: '인덱스에서 그 TID 를 모두 지운 뒤',
     x: ['heap 을 처음 훑으며 찾는 즉시', '인덱스를 지우기 전에 먼저', '다음 체크포인트가 끝난 뒤'],
+  },
+  '04/7': {
+    q: 'h 가 snapshot 을 연 채 VACUUM 한 직후 n_dead_tup 이 3 → 1 이 됐다. 남은 1 은?',
+    a: 'C — cutoff 830 보다 앞서지 않은 XID 가 지운 튜플',
+    x: ['인덱스에서 아직 못 지운 TID — 다음 바퀴 몫', 'line pointer 배열 끝에 남은 LP_UNUSED 자리', 'HOT 사슬의 머리로 남은 LP_REDIRECT 하나'],
   },
   '05/5': {
     q: 'VACUUM 이 visibility map 의 ALL_VISIBLE 페이지를 건너뛰는 조건은?',
