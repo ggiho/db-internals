@@ -5,7 +5,8 @@
      · kv 의 값이 칸 줄 항목의 id 와 같으면(훑는 곳) 그 칸 아래 화살표
      · 나머지 kv 는 글 블록(SQL 층), 나머지 list · frames 는 칸 줄. SQL 층과 InnoDB 사이 · 메모리와 디스크 사이에 점선
      · 셈 맞추기 — sep 이 둘 이상이거나, sub 가 'old' 로 시작하는 페이지가 경계 왼쪽(young)에 · 'young' 으로 시작하는 페이지가
-       오른쪽(old)에 있거나, win 이 0 이 아닌데 시간 창 안(acc × 1000 < win)에서 old → young 으로 옮겨지면 console.error
+       오른쪽(old)에 있거나, win 이 0 이 아닌데 시간 창 안(acc × 1000 < win)에서 old → young 으로 옮겨지면 console.error.
+       sep 의 sub 에 잰 'old N / M' 이 있는데 N 이 pct 의 목표에서 20(BUF_LRU_OLD_TOLERANCE) 넘게 벗어나도
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
 import { kvLine } from './kvline.js';
@@ -88,6 +89,13 @@ function one({ F, deck, labels, sc }) {
     const seps = s[LRU].filter((x) => x.tag === 'sep');
     if (seps.length > 1) console.error(`${at} : midpoint 가 ${seps.length} 개다`);
     const sep = seps[0], win = sep ? sep.win ?? 0 : 0, pv = i ? arr[i - 1] : null;
+    /* 경계에 잰 길이 'old N / M' 이 적혀 있으면 — N 은 목표 ⌊M × ⌊pct × 1024 / 100⌋ / 1024⌋ 에서 BUF_LRU_OLD_TOLERANCE(20) 안이어야 한다.
+       그 밖이면 buf_LRU_old_adjust_len 이 포인터를 옮겼을 값이다(05 : 758 · 755 / 2,047, 05v : 735 — 목표 755) */
+    const om = sep && /old\s+([\d,]+)\s*\/\s*([\d,]+)/.exec(sep.sub || ''), pm = sep && /old\s+(\d+)%/.exec(sep.id);
+    if (om && pm) {
+      const n = +om[1].replace(/,/g, ''), m = +om[2].replace(/,/g, ''), goal = Math.floor((m * Math.floor((+pm[1] * 1024) / 100)) / 1024);
+      if (Math.abs(n - goal) > 20) console.error(`${at} : old ${n} / ${m} 이 목표 ${goal} 에서 20 넘게 벗어났다`);
+    }
     for (const it of s[LRU]) {
       if (it.tag === 'sep') continue;
       const side = sideOf(s, it.id);
