@@ -526,7 +526,12 @@ function make({ F, deck, labels, scene }) {
       tok.el.className = 'wl stn-tok' + (act.gold ? ' gold' : '');
       if (!tokW) tokW = tok.el.offsetWidth;
       const x = Math.max(G.L.x0, Math.min(G.L.x1 - tokW, U.lerp(fx, tx2, e) + 14)), y = Math.max(G.L.y0, U.lerp(fy, ty2, e) - arc - (act.f === act.t ? 30 : 14));
-      const [qx, qy, keep] = dockAt(F, tok.el, s, p, x, y, G.L, tx2, ty2); o *= keep;
+      /* 플래그 지시선 묶음(overlay 가 긋는다) — 이름표가 그 위에 서지 않게 */
+      const lead = STATES.flatMap((a2) => {
+        const g = G.state[a2], qs = (g && g.per.get(s)) || [];
+        return qs.length ? [{ left: Math.min(...qs.map((q) => q.cx)) - 3, right: g.xL, top: Math.min(...qs.map((q) => g.y - 16 - q.row * RH)) - 3, bottom: g.y - 8 }] : [];
+      });
+      const [qx, qy, keep] = dockAt(F, tok.el, s, p, x, y, G.L, tx2, ty2, lead); o *= keep;
       tok.el.style.transform = `translate(${qx}px, ${qy}px)`;
     }
     if (Math.abs(o - tokO) > 0.004) { tok.el.style.opacity = o.toFixed(3); tokO = o; }

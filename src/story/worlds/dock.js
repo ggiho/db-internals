@@ -11,7 +11,7 @@ const show = (p, a, b) => U.smooth(U.range(p, a, b));
 const PAD = 3;
 const memo = new WeakMap();
 
-function find(F, el, L, x0, y0, ax, ay) {
+function find(F, el, L, x0, y0, ax, ay, avoid) {
   const w = el.offsetWidth, h = el.offsetHeight, box = el.parentElement;
   if (!w || !h || !box) return null;
   const others = [];
@@ -26,6 +26,7 @@ function find(F, el, L, x0, y0, ax, ay) {
     if (x < L.x0 || y < L.y0 || x + w > L.x1 || y + h > L.y1) return false;
     const a0 = x - PAD, b0 = y - PAD, a1 = x + w + PAD, b1 = y + h + PAD;
     for (const r of others) if (r.left < a1 && r.right > a0 && r.top < b1 && r.bottom > b0) return false;
+    for (const r of avoid) if (r.left < a1 && r.right > a0 && r.top < b1 && r.bottom > b0) return false;
     for (let i = 0; i < F.N; i++) {
       if (F.ta[i] < 0.25) continue;
       const gx = F.tx[i], gy = F.ty[i];
@@ -43,11 +44,13 @@ function find(F, el, L, x0, y0, ax, ay) {
   return null;
 }
 
-/* 이동 이름표의 이 프레임 자리와 불투명도 배수 — (x, y) 는 세계가 계산한 날아가는 자리, (ax, ay) 는 도착점 */
-export function dockAt(F, el, key, p, x, y, L, ax, ay) {
+/* 이동 이름표의 이 프레임 자리와 불투명도 배수 — (x, y) 는 세계가 계산한 날아가는 자리, (ax, ay) 는 도착점.
+   avoid — 세계가 canvas 에 긋는 선의 자리({left, top, right, bottom}). 이름표 · 알갱이만 보았더니 pg-buffer 03/9 (768) 에서
+   이름표가 플래그 지시선 위에 섰다 */
+export function dockAt(F, el, key, p, x, y, L, ax, ay, avoid = []) {
   if (p < 0.52 || !key) return [x, y, 1];
   let m = memo.get(key);
-  if (!m || m.L !== L || m.t !== el.textContent) { m = { L, t: el.textContent, at: find(F, el, L, x, y, ax, ay) }; memo.set(key, m); }
+  if (!m || m.L !== L || m.t !== el.textContent) { m = { L, t: el.textContent, at: find(F, el, L, x, y, ax, ay, avoid) }; memo.set(key, m); }
   const q = show(p, 0.52, 0.56);
   if (!m.at) return [x, y, 1 - q];
   return [U.lerp(x, m.at[0], q), U.lerp(y, m.at[1], q), 1];
