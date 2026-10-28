@@ -9,7 +9,8 @@
      · list 항목의 io = 한 I/O 로 묶인 칸들. 칸 아래 괄호, 그 id 를 가진 다른 칸 줄의 항목(진행 중 I/O)으로 선을 잇는다
      · 나머지 kv 는 글 블록, 나머지 list 는 칸 줄. 공유 메모리 쪽 칸 줄과 디스크 쪽 칸 줄 사이에 점선(버퍼 → 파일)
      · 셈 맞추기 — 모르는 플래그 · 비트 순서가 어긋난 플래그 · 18 비트를 넘는 refcount · 5 를 넘는 usage_count,
-       sub 의 'usage N' · '핀 N' 이 u · pin 과 다르면 console.error 로 알린다
+       sub 의 'usage N' · '핀 N' 이 u · pin 과 다르면 console.error 로 알린다,
+       글 블록의 'state 워드' 에 적은 0x… 가 그림의 띠(state kv 로 셈한 값)와 다르면 그것도 알린다
    손잡이가 있는 장면(02 shared_buffers)은 값마다 따로 bake 해 두고 setVary 로 바꾼다.
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
@@ -32,6 +33,7 @@ const TAGC = { clean: INK, x: RED, red: RED, dirty: RED, gold: GOLD, hold: GOLD,
 const FLAGS = ['BM_LOCKED', 'BM_DIRTY', 'BM_VALID', 'BM_TAG_VALID', 'BM_IO_IN_PROGRESS', 'BM_IO_ERROR', 'BM_JUST_DIRTIED', 'BM_PIN_COUNT_WAITER', 'BM_CHECKPOINT_NEEDED', 'BM_PERMANENT'];
 const RC_BITS = 18, UC_BITS = 4, MAX_UC = 5;
 const SKEYS = ['refcount', 'usage_count', 'flags'];
+const WKEY = 'state 워드';
 const flagsOf = (v) => { const t = bare(v).trim(); return !t || t === '—' ? [] : t.split(/\s*·\s*/); };
 const intOf = (v) => { const m = /-?\d+/.exec(bare(v)); return m ? parseInt(m[0], 10) : null; };
 /* 워드 → 칸(왼쪽이 31 번 비트) */
@@ -110,6 +112,14 @@ function make({ F, deck, labels, scene }) {
       if (su != null && su !== x.u) console.error(`${at} 의 ${a} ${x.id} : sub 는 usage ${su} 인데 u 는 ${x.u}`);
       if (x.u != null && (x.u < 0 || x.u > MAX_UC)) console.error(`${at} 의 ${a} ${x.id} : u ${x.u} 가 0~${MAX_UC} 밖이다`);
       if ((sp ?? 0) !== (x.pin ?? 0)) console.error(`${at} 의 ${a} ${x.id} : sub 는 핀 ${sp ?? 0} 인데 pin 은 ${x.pin ?? 0}`);
+    }
+    /* 잰 워드(또는 규칙으로 계산한 워드)를 글로 적었으면 그림의 띠가 같은 값이어야 한다 — 03 의 MEASURED · state 워드 */
+    for (const a of TEXTS) {
+      const m = /0x[0-9A-F]{8}/i.exec(bare(s[a][WKEY] ?? ''));
+      if (!m) continue;
+      if (!STATES.length) console.error(`${at} 의 ${a} : ${WKEY} ${m[0]} 를 적었는데 그릴 state 워드가 없다`);
+      for (const b of STATES) if (hex(wordOf(s[b]).w) !== m[0].toUpperCase().replace('0X', '0x'))
+        console.error(`${at} 의 ${a} : ${WKEY} ${m[0]} 인데 ${b} 의 띠는 ${hex(wordOf(s[b]).w)}`);
     }
   });
   let cur = BAKES.get(null) || [...BAKES.values()][0];
