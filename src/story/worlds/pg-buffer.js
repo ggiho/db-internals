@@ -112,6 +112,11 @@ function make({ F, deck, labels, scene }) {
       if (su != null && su !== x.u) console.error(`${at} 의 ${a} ${x.id} : sub 는 usage ${su} 인데 u 는 ${x.u}`);
       if (x.u != null && (x.u < 0 || x.u > MAX_UC)) console.error(`${at} 의 ${a} ${x.id} : u ${x.u} 가 0~${MAX_UC} 밖이다`);
       if ((sp ?? 0) !== (x.pin ?? 0)) console.error(`${at} 의 ${a} ${x.id} : sub 는 핀 ${sp ?? 0} 인데 pin 은 ${x.pin ?? 0}`);
+      /* 진행 중 I/O 의 'N 블록 · MKB' — M 은 8 × N, 그 I/O 로 묶여 괄호를 그리는 칸도 N 개여야 한다 (06 의 42..44 · 60..60) */
+      const nb = /(\d+)\s*블록/.exec(x.sub), kb = /(\d+)\s*KB/.exec(x.sub);
+      if (nb && kb && +kb[1] !== 8 * +nb[1]) console.error(`${at} 의 ${a} ${x.id} : ${nb[1]} 블록이면 ${8 * nb[1]}KB 인데 sub 는 ${kb[1]}KB`);
+      const tied = nb ? ROWS.reduce((t, r) => t + s[r].filter((y) => y.io != null && String(y.io) === x.id).length, 0) : 0;
+      if (tied && tied !== +nb[1]) console.error(`${at} 의 ${a} ${x.id} : sub 는 ${nb[1]} 블록인데 io ${x.id} 로 묶인 칸은 ${tied}`);
     }
     /* 잰 워드(또는 규칙으로 계산한 워드)를 글로 적었으면 그림의 띠가 같은 값이어야 한다 — 03 의 MEASURED · state 워드 */
     for (const a of TEXTS) {

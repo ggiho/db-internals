@@ -867,17 +867,34 @@ const SCENES = [
           ['src/backend/catalog/system_views.sql','pg_stat_get_buf_alloc() AS buffers_alloc,']] },
   ],
 },
+/* 잰 값(PG 18.6, 이 빌드, --data-checksums, macOS) — io_method worker · io_workers 3 · io_combine_limit 16 (= 128kB) · io_max_combine_limit 16 ·
+   effective_io_concurrency 16 (모두 기본). pg_stat_activity 의 io worker 3 개, wait_event IoWorkerMain. 18 의 pg_stat_io 에는 op_bytes 가 없다 — read_bytes / reads 로 본다.
+   postgres DB 의 big 12,800 블록(100MB)을 pg_buffercache_evict_relation 으로 비우고 max_parallel_workers_per_gather 0 으로 SELECT count(*) — EXPLAIN 은 언제나 shared read=12800.
+     shared_buffers 128MB : io_combine_limit 16 → client backend · bulkread reads 804 · read_bytes 104,857,600 (I/O 하나 130,420 B = 15.92 블록),
+       io_combine_limit 1 → reads 12,800. pg_aios 4 초(표본 84,513, I/O 가 보인 표본 7,668) : 16 블록 I/O 4,534 개, 동시에 최대 5 개(5 개인 표본 6,924);
+       effective_io_concurrency 1 → 동시에 최대 1 개(16 블록 I/O 4,745 개).
+     shared_buffers 16MB : io_combine_limit 16 → reads 4,268 (I/O 하나 24,568 B = 3.00 블록), 1 → 12,800, effective_io_concurrency 1 이어도 4,268.
+       pg_aios : 3 블록 I/O 1,907 개, 동시에 최대 1 개 — 예 'blocks 42..44 in file "base/5/16478"' length 24,576, 상태 STAGED.
+     lldb 로 쉬는 백엔드에 붙어 : 16MB NBuffers 2,048 · MaxBackends 136 · MaxProportionalPins 11 · GetAdditionalPinLimit() 3 (PrivateRefCountOverflowed 0),
+       128MB 16,384 · 136 · 94 · 86.
+     스캔 뒤 pg_stat_io 의 io worker 줄 : reads 0 · read_bytes 0 — 읽기는 시작한 client backend 가 센다.
+     pg_aios 에서 본 상태 : SUBMITTED · COMPLETED_SHARED · COMPLETED_IO · HANDED_OUT · STAGED · DEFINED · COMPLETED_LOCAL.
+   규칙으로 계산 : 핀 몫 = NBuffers / (MaxBackends 136 + 보조 프로세스 6 + MAX_IO_WORKERS 32) — 2,048 / 174 = 11, 16,384 / 174 = 94.
+     더 걸 수 있는 핀 = 그 몫 − REFCOUNT_ARRAY_ENTRIES 8 → 3 · 86, 86 / 16 = 5 개의 16 블록 I/O.
+   io_uring 은 재지 않았다(macOS 에는 없다). 그림의 블록 순서(10 · 42..44 · 60)는 read_stream.c 머리말의 예다.
+   로그 : ~/.cache/dbi/measure/buf/buffer-06.txt (sql/buffer-06.sh, 핀 몫과 io worker 줄은 sql/buffer-06b.sh) */
 {
   num:'06', tab:'Read Stream', title:'PG 18 Asynchronous I/O: Read Streams and I/O Combining',
   sub:'블록을 하나씩 ReadBuffer 하지 않는다 — read stream 이 앞을 내다보며 이웃 블록을 한 I/O 로 묶고, IO worker 가 뒤에서 읽는다',
-  cast:['be','iow','cmp','strm','ios','heap'],
+  cast:['be','iow','cmp','strm','ios','heap','pbc'],
   knobs:[
     ['io_method','worker','sync · worker · io_uring — 서버를 다시 띄워야 바뀐다'],
+    ['io_workers','3','IO worker 프로세스 수 — io_method = worker 일 때'],
     ['io_combine_limit','128kB','한 I/O 로 묶는 최대 크기 — 8KB 블록 16 개'],
     ['effective_io_concurrency','16','한 스트림이 동시에 진행할 I/O 의 상한'] ],
   watch:[
     ['pg_aios','지금 진행 중인 비동기 I/O — pid · state · operation · length · target_desc'],
-    ['pg_stat_io',"backend_type = 'io worker' — worker 가 대신 한 읽기"],
+    ['pg_stat_io','reads · read_bytes — read_bytes / reads 가 I/O 하나의 크기. worker 가 읽어도 시작한 백엔드가 센다'],
     ['pg_stat_activity',"backend_type = 'io worker' — io_workers 개의 프로세스"] ],
   links:[['04','한 블록의 읽기 — BM_IO_IN_PROGRESS'],['02','큰 스캔의 링 — 읽는 중인 몫을 더 준다']],
   init:{
@@ -892,6 +909,7 @@ const SCENES = [
       { id:'blk 43', tag:'clean', sub:'디스크' },
       { id:'blk 44', tag:'clean', sub:'디스크' },
       { id:'blk 60', tag:'clean', sub:'디스크' } ] },
+    pbc:{ kv:{ 'io_combine_limit 16':'—', 'io_combine_limit 1':'—', '핀 몫':'—', 'io worker':'—', 'pg_aios 동시':'—' } },
   },
   steps:[
   { look:{ be:true, strm:true },
@@ -915,9 +933,10 @@ const SCENES = [
           be:{ set:{ '거리':'7|gold' } } } },
 
   { act:{ f:'be', t:'strm', lb:'42 · 43 · 44 묶기' },
+    look:{ pbc:['io_combine_limit 16','io_combine_limit 1'] },
     note:'42 → 43 → 44 연속 — pending read 하나로 merge (io_combine_limit 16 블록까지)',
-    why:'callback 이 준 블록이 대기 중인 읽기의 바로 다음이면 그 읽기에 붙인다 — io_combine_limit(기본 128kB = 16 블록)까지. 붙일 수 없으면 대기 중인 읽기를 StartReadBuffers 로 보내고 새로 시작한다. 아직은 블록 번호뿐이라 핀도 I/O 도 없다.',
-    key:'세 번의 8KB 읽기가 <em>한 번의 24KB 읽기</em>가 된다. 시스템 호출도, 기다림도 한 번이다.',
+    why:'callback 이 준 블록이 대기 중인 읽기의 바로 다음이면 그 읽기에 붙인다 — io_combine_limit(기본 128kB = 16 블록)까지. 붙일 수 없으면 대기 중인 읽기를 StartReadBuffers 로 보내고 새로 시작한다. 아직은 블록 번호뿐이라 핀도 I/O 도 없다. 잰 값: shared_buffers 128MB 에서 12,800 블록(100MB) 테이블을 버퍼에서 비우고 순차 스캔하자 pg_stat_io 의 reads 804 · read_bytes 104,857,600 — I/O 하나가 평균 15.92 블록이다. io_combine_limit 를 1 로 하면 reads 12,800. 18 의 pg_stat_io 에는 op_bytes 가 없어 read_bytes 를 reads 로 나눠 본다.',
+    key:'세 번의 8KB 읽기가 <em>한 번의 24KB 읽기</em>가 된다. 시스템 호출도, 기다림도 한 번이다. 잰 값 : 12,800 블록을 <em>804 번</em>에 읽었다 — 묶지 않으면 12,800 번.',
     ref:'src/backend/storage/aio/read_stream.c', sym:'read_stream_look_ahead',
     fact:['to form reads of up to io_combine_limit, by attempting to merge them with a',
           'stream->pending_read_blocknum + stream->pending_read_nblocks == blocknum)',
@@ -926,7 +945,8 @@ const SCENES = [
     ops:{ strm:{ add:[
       { id:'blk 42', tag:'hold', io:'42..44', sub:'대기 읽기  ·  42..44 를 한 I/O(24KB)로' },
       { id:'blk 43', tag:'hold', io:'42..44', sub:'대기 읽기' },
-      { id:'blk 44', tag:'hold', io:'42..44', sub:'대기 읽기' } ] } } },
+      { id:'blk 44', tag:'hold', io:'42..44', sub:'대기 읽기' } ] },
+          pbc:{ set:{ 'io_combine_limit 16':'128MB 에서 reads 804 — 15.92 블록씩|gold', 'io_combine_limit 1':'reads 12,800 — 1 블록씩' } } } },
 
   { act:{ f:'be', t:'ios', lb:'StartReadBuffers(42..44)' },
     note:'60 은 비연속 — 42..44 를 StartReadBuffers 로 보낸다 · pin 3 개, I/O 시작 후 즉시 반환',
@@ -940,22 +960,39 @@ const SCENES = [
                  add:[{ id:'blk 60', tag:'hold', io:'60..60', sub:'대기 읽기' }] },
           ios:{ add:[{ id:'42..44', tag:'wait', sub:'3 블록  ·  24KB' }] } } },
 
+  { look:{ strm:['blk 42','blk 43','blk 44'], pbc:['핀 몫'] },
+    note:'잰 값 — 16MB 에서는 I/O 하나가 3 블록 : 백엔드 하나의 핀 몫 11 중 8 을 이미 쥔 것으로 친다',
+    why:'묶음의 상한은 io_combine_limit 만이 아니다. 백엔드 하나가 쥘 핀의 몫은 NBuffers / (MaxBackends + 보조 프로세스 수)이고, 더 걸 수 있는 핀은 그 몫에서 PrivateRefCountArray 의 8 칸을 이미 쓴 것으로 치고 뺀 수다. 대기 읽기가 그보다 길면 거기서 자르고 거리도 줄인다. 잰 값: lldb 로 쉬는 백엔드에 붙어 보니 shared_buffers 16MB 에서 MaxProportionalPins 11 · GetAdditionalPinLimit() 3, 128MB 에서 94 · 86. 16MB 에서 같은 스캔은 reads 4,268 — I/O 하나가 3.00 블록이었고, pg_aios 에도 "blocks 42..44" 같은 24,576 바이트 I/O 만 보였다. 그림의 42..44 가 바로 그 크기다.',
+    key:'작은 shared_buffers 는 <em>묶음 자체를 줄인다</em>. 잰 값 : 16MB 에서 I/O 하나 <em>3 블록</em>(reads 4,268), 128MB 에서 16 블록(reads 804).',
+    ref:'src/backend/storage/buffer/bufmgr.c', sym:'GetAdditionalPinLimit',
+    fact:['MaxProportionalPins = NBuffers / (MaxBackends + NUM_AUXILIARY_PROCS);',
+          "That's very pessimistic, but outside toy-sized shared_buffers it should",
+          'estimated_pins_held = PrivateRefCountOverflowed + REFCOUNT_ARRAY_ENTRIES;',
+          ['src/backend/storage/aio/read_stream.c','buffer_limit = Min(GetAdditionalPinLimit(), PG_INT16_MAX);'],
+          ['src/backend/storage/aio/read_stream.c','/* Shrink distance: no more look-ahead until buffers are released. */']],
+    beat:1,
+    ops:{ pbc:{ set:{ '핀 몫':'16MB 11 − 8 = 3 → reads 4,268 · 3 블록씩|gold' } } } },
+
   { act:{ f:'ios', t:'iow', lb:'제출 큐 → worker 0' },
+    look:{ pbc:['io worker'] },
     note:'io_method = worker (기본) — shared memory submission queue 의 I/O 를 worker 가 동기 pread',
-    why:'IO worker 는 공유 메모리의 제출 큐에서 I/O 를 꺼내 보통의 동기 시스템 호출로 읽고, 완료 처리(BM_VALID 켜기 · 핀 내리기)까지 곧바로 한다. 백엔드는 큐에 넣기만 하고 제 일을 계속한다. 이 방식은 모든 빌드 · 모든 OS 에서 쓸 수 있고 기본값이다. 기본 worker 는 셋이다.',
-    key:'"비동기" 의 실체는 <em>다른 프로세스가 대신 기다리는 것</em>이다. 백엔드는 그 시간에 다음 블록을 계산한다.',
+    why:'IO worker 는 공유 메모리의 제출 큐에서 I/O 를 꺼내 보통의 동기 시스템 호출로 읽고, 완료 처리(BM_VALID 켜기 · 핀 내리기)까지 곧바로 한다. 백엔드는 큐에 넣기만 하고 제 일을 계속한다. 이 방식은 모든 빌드 · 모든 OS 에서 쓸 수 있고 기본값이다. 기본 worker 는 셋이다. 잰 값: pg_stat_activity 에 io worker 셋(wait_event IoWorkerMain). 스캔 뒤 pg_stat_io 의 io worker 줄은 reads 0 이었다 — 읽기는 I/O 를 시작한 client backend 가 센다.',
+    key:'"비동기" 의 실체는 <em>다른 프로세스가 대신 기다리는 것</em>이다. 백엔드는 그 시간에 다음 블록을 계산한다. 잰 값 : worker 셋, 읽기는 <em>시작한 백엔드</em>가 센다(io worker 줄 reads 0).',
     ref:'src/backend/storage/aio/method_worker.c', sym:'IoWorkerMain',
     fact:['IO workers consume IOs from a shared memory submission queue, run',
           'This method of AIO is available in all builds on all operating systems, and',
           ['src/include/storage/aio.h','#define DEFAULT_IO_METHOD IOMETHOD_WORKER'],
-          ['src/backend/utils/misc/guc_tables.c','3, 1, MAX_IO_WORKERS,']],
-    ops:{ iow:{ set:{ 'worker 0':'42..44 를 pread|gold' } },
+          ['src/backend/utils/misc/guc_tables.c','3, 1, MAX_IO_WORKERS,'],
+          ['src/backend/storage/buffer/bufmgr.c','The IO operation itself was already counted earlier, in']],
+    ops:{ pbc:{ set:{ 'io worker':'3 개 · pg_stat_io 의 reads 0 (시작한 백엔드가 센다)' } },
+          iow:{ set:{ 'worker 0':'42..44 를 pread|gold' } },
           heap:{ set:{ 'blk 42':{ tag:'hold', sub:'읽히는 중' }, 'blk 43':{ tag:'hold', sub:'읽히는 중' }, 'blk 44':{ tag:'hold', sub:'읽히는 중' } } } } },
 
   { act:{ f:'be', t:'ios', lb:'StartReadBuffers(60)' },
+    look:{ pbc:['pg_aios 동시'] },
     note:'stream 끝 — 60 도 시작, 두 I/O 동시 진행 · max_ios = effective_io_concurrency 16',
-    why:'callback 이 더 줄 블록이 없다고 하면 남은 대기 읽기를 보낸다. 한 스트림이 동시에 진행할 I/O 수의 상한은 effective_io_concurrency(기본 16)이고, 핀으로 쥘 버퍼의 상한은 (그 수 + 1) × io_combine_limit 이다. 이제 머리말의 그림 그대로다 — 버퍼 다섯에 핀, I/O 둘이 진행 중.',
-    key:'디스크는 <em>여러 요청을 한꺼번에</em> 받을 때 빠르다. 스트림이 그 줄을 채워 준다.',
+    why:'callback 이 더 줄 블록이 없다고 하면 남은 대기 읽기를 보낸다. 한 스트림이 동시에 진행할 I/O 수의 상한은 effective_io_concurrency(기본 16)이고, 핀으로 쥘 버퍼의 상한은 (그 수 + 1) × io_combine_limit 이다. 이제 머리말의 그림 그대로다 — 버퍼 다섯에 핀, I/O 둘이 진행 중. 잰 값: 128MB 에서 스캔하는 동안 pg_aios 를 4 초 쉬지 않고 떠 보니 16 블록 I/O 가 동시에 최대 5 개였다 — 더 걸 수 있는 핀 86 을 16 으로 나눈 5(규칙으로 계산)다. effective_io_concurrency 1 이면 최대 1 개, 16MB 에서는 핀 3 이라 언제나 1 개.',
+    key:'디스크는 <em>여러 요청을 한꺼번에</em> 받을 때 빠르다. 스트림이 그 줄을 채워 준다. 잰 값 : 128MB 에서 동시에 <em>5 개</em>, effective_io_concurrency 1 이면 1 개.',
     ref:'src/backend/storage/aio/read_stream.c', sym:'read_stream_begin_impl',
     fact:['max_ios = effective_io_concurrency;',
           'max_pinned_buffers = (max_ios + 1) * io_combine_limit;',
@@ -965,7 +1002,8 @@ const SCENES = [
           ios:{ add:[{ id:'60..60', tag:'wait', sub:'1 블록  ·  8KB' }] },
           iow:{ set:{ 'worker 1':'60 을 pread|gold' } },
           heap:{ set:{ 'blk 60':{ tag:'hold', sub:'읽히는 중' } } },
-          be:{ set:{ '거리':'0 (스트림 끝)' } } } },
+          be:{ set:{ '거리':'0 (스트림 끝)' } },
+          pbc:{ set:{ 'pg_aios 동시':'128MB 최대 5 · eic 1 이면 1 · 16MB 1' } } } },
 
   { act:{ f:'strm', t:'be', lb:'next_buffer → 10, 42' },
     note:'consumer — 10 은 즉시, 42 는 WaitReadBuffers 후 · 그 사이 worker 0 이 이미 완료',
@@ -985,7 +1023,7 @@ const SCENES = [
 
   { look:{ iow:true, ios:true },
     note:'io_uring — Linux 에서 liburing 빌드 시, worker 없이 backend 별 ring 으로 kernel 에 직접 제출',
-    why:'io_method = io_uring 은 백엔드마다 io_uring 인스턴스를 하나씩 두고 커널에 직접 제출한다. 인스턴스는 postmaster 가 미리 만들어 두어, 제출한 백엔드가 바쁠 때 다른 백엔드가 완료를 처리할 수 있다. io_method 는 PGC_POSTMASTER 라 서버를 다시 띄워야 바뀐다. 진행 중인 I/O 는 18 의 새 뷰 pg_aios 로 본다.',
+    why:'io_method = io_uring 은 백엔드마다 io_uring 인스턴스를 하나씩 두고 커널에 직접 제출한다. 인스턴스는 postmaster 가 미리 만들어 두어, 제출한 백엔드가 바쁠 때 다른 백엔드가 완료를 처리할 수 있다. io_method 는 PGC_POSTMASTER 라 서버를 다시 띄워야 바뀐다. 잰 서버는 macOS 라 io_uring 이 없어 재지 않았다. 진행 중인 I/O 는 18 의 새 뷰 pg_aios 로 본다 — 잰 값: 떠 모은 줄에 DEFINED · STAGED · SUBMITTED · COMPLETED_IO · COMPLETED_SHARED · HANDED_OUT 이 보였고, target_desc 는 blocks 351..366 in file "base/5/16478" 꼴이었다.',
     key:'worker 는 <em>어디서나</em>, io_uring 은 <em>프로세스 하나를 덜 거친다</em>. 어느 쪽이든 위의 read stream 은 같다.',
     ref:'src/backend/storage/aio/method_io_uring.c', sym:'pgaio_uring_submit',
     fact:['For now we create one io_uring instance for each backend. These io_uring',
@@ -993,9 +1031,9 @@ const SCENES = [
           ['src/backend/catalog/system_views.sql','CREATE VIEW pg_aios AS']],
     ops:{ iow:{ set:{ 'io_method':'worker  —  io_uring 이면 worker 없이 백엔드마다 ring 으로 커널에 직접 (재시작 필요)|gold' } } } },
 
-  { look:{ be:true, strm:true, cmp:true },
+  { look:{ be:true, strm:true, cmp:true, pbc:true },
     note:'정리 — 미리 보고(look-ahead), 묶고(combine), 맡긴다(worker · io_uring)',
-    why:'read stream 자체는 18 보다 먼저 들어왔다 — 파일의 저작권 줄이 2024 년부터다. AIO 가 없으면 묶은 읽기를 동기로 하고, 앞서 읽기는 권고(advice)로 흉내 낸다 — 지금도 io_method = sync 면 그렇다. 18 이 더한 것은 그 아래의 진짜 비동기 I/O 다. 쓰기는 아직 AIO 를 쓰지 않는다.',
+    why:'read stream 자체는 18 보다 먼저 들어왔다 — 파일의 저작권 줄이 2024 년부터다. AIO 가 없으면 묶은 읽기를 동기로 하고, 앞서 읽기는 권고(advice)로 흉내 낸다 — 지금도 io_method = sync 면 그렇다. 18 이 더한 것은 그 아래의 진짜 비동기 I/O 다. 쓰기는 아직 AIO 를 쓰지 않는다. 잰 값으로 다시 보면 같은 12,800 블록 스캔의 I/O 수는 묶음이 정한다 — 128MB 에서 804 번, 핀 몫이 작은 16MB 에서 4,268 번, io_combine_limit 1 이면 12,800 번.',
     key:'InnoDB 는 오래전부터 <em>자기 read-ahead 와 읽기 I/O 스레드</em>를 가졌고, PG 는 18 에서야 같은 일을 <em>스캔이 블록을 알려 주는 방식</em>으로 들였다.',
     ref:'src/backend/storage/aio/read_stream.c', sym:'read_stream_look_ahead',
     fact:['Portions Copyright (c) 2024-2025, PostgreSQL Global Development Group',
