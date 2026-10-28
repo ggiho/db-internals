@@ -15,7 +15,12 @@ export const CORE = {
     a: '몇 배로 는다 — 첫 수정마다 페이지 이미지가 붙어서',
     x: ['줄어든다 — dirty page 가 방금 비워져서', '그대로다 — 레코드 크기는 변경분에만 달려서', '잠깐 멈춘다 — checkpoint 가 WAL 쓰기를 막아서'],
   },
-  '01/6': {
+  '01/7': {
+    q: 'checkpoint 뒤 이미 한 번 고친 페이지를 같은 주기 안에서 또 고치면, 그 WAL 레코드는?',
+    a: '변경분만 — 페이지 LSN 이 RedoRecPtr 보다 커서',
+    x: ['이미지를 또 붙인다 — 수정마다 FPI 가 들어간다', '이미지에서 바뀐 바이트만 골라 다시 넣는다', '다음 checkpoint 가 끝날 때까지 기록을 미룬다'],
+  },
+  '01/9': {
     q: 'torn page(torn page)를 InnoDB 와 PG 는 각각 어떻게 대비하나?',
     a: 'InnoDB 는 doublewrite 버퍼, PG 는 WAL 안의 페이지 이미지',
     x: ['둘 다 doublewrite 버퍼에 먼저 쓴다', 'InnoDB 는 redo 안의 페이지 이미지, PG 는 별도 doublewrite 버퍼', '둘 다 checksum 으로 찾아 replica 에서 받아 온다'],

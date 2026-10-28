@@ -104,6 +104,31 @@ function make({ F, deck, labels, scene }) {
       if (L0 != null && (!o || itLsn(o) !== L0) && L0 > fl) console.error(`${at} 의 heap ${x.id} 가 LSN ${lsnTx(L0)} 로 쓰였는데 Flush 는 ${lsnTx(fl)} — WAL 이 먼저가 아니다`);
     }
   });
+  /* FPI(01) — xloginsert.c XLogRecordAssemble : needs_backup = (page_lsn <= RedoRecPtr). '이미지 필요' 가 이번 스텝에 바뀌면
+     괄호 안의 두 LSN 이 직전 상태의 페이지 LSN · 지금 RedoRecPtr 과 같고, 예 ↔ ≤ · 아니오 ↔ > 여야 한다.
+     이미지 칸(img · hole · saved)은 BLCKSZ 8192 를 채워야 하고, 칸마다 b 가 있으면 그 합이 '레코드' 의 바이트와 같아야 한다 */
+  const BLCKSZ = 8192;
+  for (const [k, b] of BAKES) [b.S0, ...b.S].forEach((s, i, arr) => {
+    const at = `pg wal ${sc.num} 세계${k ? ' (' + sc.vary.knob + '=' + k + ')' : ''} : ${i ? i + ' 스텝' : 'init'}`, pv = i ? arr[i - 1] : null;
+    for (const a of TEXTS) {
+      const kv = s[a], need = bare(kv['이미지 필요'] ?? '');
+      const m = /^(예|아니오)\s*\(\s*([0-9A-F]+\/[0-9A-F]+)\s*(≤|>)\s*([0-9A-F]+\/[0-9A-F]+)\s*\)/.exec(need);
+      if (m && pv && bare(pv[a]['이미지 필요'] ?? '') !== need) {
+        const pl = lsnOf(m[2]), rr = lsnOf(m[4]), le = pl <= rr;
+        if ((m[1] === '예') !== le || (m[3] === '≤') !== le) console.error(`${at} 의 ${a} : 이미지 필요 "${need}" 가 page_lsn <= RedoRecPtr 셈과 맞지 않는다`);
+        if (pl !== lsnOf(pv[a]['페이지 LSN'])) console.error(`${at} 의 ${a} : 판정의 페이지 LSN ${m[2]} 이 직전 페이지 LSN 이 아니다`);
+        if (rr !== lsnOf(kv.RedoRecPtr)) console.error(`${at} 의 ${a} : 판정의 RedoRecPtr ${m[4]} 이 지금 RedoRecPtr 이 아니다`);
+      }
+    }
+    for (const a of STRIPS) {
+      for (const x of s[a]) if (x.img != null && x.img + (x.hole || 0) + (x.saved || 0) !== BLCKSZ) console.error(`${at} 의 ${x.id} : 이미지 ${x.img} + 구멍 ${x.hole || 0} + 압축 ${x.saved || 0} 이 ${BLCKSZ} 가 아니다`);
+      const rl = TEXTS.map((t) => bare(s[t]['레코드'] ?? '')).map((v) => /([\d,]+)\s*B\b/.exec(v)).find(Boolean);
+      if (rl && s[a].length && s[a].every((x) => x.b != null)) {
+        const sum = s[a].reduce((p, x) => p + x.b, 0), want = Number(rl[1].replace(/,/g, ''));
+        if (sum !== want) console.error(`${at} 의 ${a} : 칸 바이트 합 ${sum} 이 레코드 ${want} B 와 다르다`);
+      }
+    }
+  });
   /* 슬롯이 붙잡는 WAL(09) — xlog.c GetWALAvailability : 세그먼트 = 16 MB, max_wal_size 안(지금 세그먼트 − (max_wal_size/16 + 1) 이후)이면
      reserved, 슬롯 때문에 그보다 오래 남기면 extended, max_slot_wal_keep_size 를 넘었지만 아직 안 지웠으면 unreserved.
      slotfuncs.c 의 safe_wal_size = (restart 세그먼트 + keep 세그먼트 + 1) 의 시작 − 지금 LSN. 잰 값이 이 셈과 다르면 알린다 */
