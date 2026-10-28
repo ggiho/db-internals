@@ -527,12 +527,17 @@ for (const sc of SCENES) {
     /* free list 를 무대에 올린 장면이라면, 버퍼풀에 페이지가 생길 때
        반드시 프레임을 하나 써야 한다. 안 그러면 화면이 물리적으로 모순된다
        (FREE LIST 는 0 인데 페이지가 계속 늘어나는 그림). 눈으로 잡은 버그를 규칙으로 남긴다. */
+    /* 프레임은 free list 에서 오거나, 같은 스텝에 버린(축출한) 페이지의 자리에서 온다 — free 가 0 인 eviction 장면
+       (mysql/innodb 06)은 bp del 로 자리를 만든다. 축출을 세지 않았을 때 그 장면은 fr 를 무대에서 빼야 했다 */
     if (sc.cast.includes('fr') && sc.cast.includes('bp')) {
       const addN = ((step.ops || {}).bp || {}).add || [];
       const useN = ((step.ops || {}).fr || {}).del || [];
-      if (addN.length && addN.length !== useN.length)
-        err(S + ' 버퍼풀에 ' + addN.length + '개 담는데 free 프레임은 ' +
-            useN.length + '개만 쓴다 — 프레임 없이 페이지가 생긴다');
+      const evN = ((step.ops || {}).bp || {}).del || [];
+      if (addN.length > useN.length + evN.length)
+        err(S + ' 버퍼풀에 ' + addN.length + '개 담는데 free 프레임은 ' + useN.length + '개, 버린 페이지는 ' +
+            evN.length + '개 — 프레임 없이 페이지가 생긴다');
+      else if (addN.length && useN.length > addN.length)
+        err(S + ' free 프레임을 ' + useN.length + '개 쓰는데 버퍼풀에 담는 것은 ' + addN.length + '개다');
     }
 
     /* 아무것도 안 바뀌고 토큰도 안 날고 요점도 아니면, 그 스텝은 무대에서 아무 일도 안 한다 */
