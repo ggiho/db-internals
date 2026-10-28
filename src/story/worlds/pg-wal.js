@@ -16,6 +16,7 @@
        레코드 · 페이지 머리(05 · 06) — 띠 칸의 "바이트 … → 값" 을 little-endian 으로 다시 읽어 값 · 칸 바이트 수와 맞추고, 머리 24 · 머리 + 몸 = xl_tot_len ·
        끝 = MAXALIGN(시작 + 길이) · xl_prev, 페이지 머리 40 / 24 · LONG_HEADER ⇔ 세그먼트 첫 페이지 · CONTRECORD ⇔ rem_len · 넘어온 꼬리의 길이를 맞춘다
        동시 삽입(07) — 락 번호 = ProcNumber % 8, 'N B · …' 구간의 end = MAXALIGN(lsn + N) · 빈틈 없음, CurrBytePos = XLogRecPtrToBytePos(Insert), '쓸 수 있는 끝' = 복사 중인 가장 앞 삽입
+       세그먼트(08) — 03 의 removed + recycled 셈에 wal_keep_size · .ready 를 넣고, pg_wal "N 개 · B B (…X ‥ …Y)" 를 칸 줄과, SWITCH 칸의 쓴 · 남은 바이트를 세그먼트 경계와 맞춘다
    손잡이가 있는 장면(04 synchronous_commit)은 값마다 따로 bake 해 두고 setVary 로 바꾼다.
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
@@ -241,7 +242,8 @@ function make({ F, deck, labels, scene }) {
      XLogCheckpointNeeded : 다 쓴 세그먼트 ≥ redo 세그먼트 + CheckPointSegments − 1 이면 부른다.
      '단계' 가 이번 스텝에 checkpoint starting: wal 이 되면 Insert 가 이번에 그 세그먼트를 넘었어야 하고, '문턱' 의 …XX · N 세그먼트가 그 셈과 같아야 한다.
      '단계' 가 "R removed · C recycled" 가 되면 R + C = redo 세그먼트 − 직전 칸 줄의 가장 오랜 세그먼트, 칸 줄의 끝은
-     XLOGfileslop 의 상한 redo 세그먼트 + max_wal_size 세그먼트 − 1 을 넘지 않는다 */
+     XLOGfileslop 의 상한 redo 세그먼트 + max_wal_size 세그먼트 − 1 을 넘지 않는다.
+     (08) R + C 는 직전 칸 줄의 세그먼트 가운데 경계 앞의 것 — 경계는 redo 세그먼트, wal_keep_size 가 있으면 그만큼 앞, archive_status 의 .ready 는 뺀다 */
   const hexSeg = (v) => { const m = /…([0-9A-F]+)/.exec(bare(v)); return m ? parseInt(m[1], 16) : null; };
   for (const [k, b] of BAKES) [b.S0, ...b.S].forEach((s, i, arr) => {
     const pv = i ? arr[i - 1] : null; if (!pv) return;
@@ -266,7 +268,12 @@ function make({ F, deck, labels, scene }) {
       if (m && bare(kv['단계']) !== bare(o['단계'] ?? '')) {
         const spans = (st) => ROWS.flatMap((r) => st[r]).filter((x) => itLsn(x) != null && itEnd(x) != null);
         const old = Math.min(...spans(pv).map((x) => Math.floor(itLsn(x) / SEG))), top = Math.max(...spans(s).map((x) => Math.ceil(itEnd(x) / SEG)));
-        if (Number(m[1]) + Number(m[2]) !== rs - old) console.error(`${at} 의 ${a} : ${m[1]} removed + ${m[2]} recycled 가 redo 세그먼트 …${rs.toString(16).toUpperCase()} − 가장 오랜 …${old.toString(16).toUpperCase()} 와 다르다`);
+        /* 08 — KeepLogSeg 의 wal_keep_size(MB)가 경계를 redo 세그먼트 − keep 으로 물리고, .ready 인 세그먼트는 XLogArchiveCheckDone 이 거짓이라 건너뛴다 */
+        const wk = int(kv.wal_keep_size ?? '') || 0, cut = wk > 0 ? Math.min(rs, rs - wk / 16) : rs;
+        const ready = new Set(ROWS.flatMap((r) => s[r]).map((x) => /…([0-9A-F]+)\.ready$/.exec(x.id)).filter(Boolean).map((q) => parseInt(q[1], 16)));
+        const segs = new Set(spans(pv).flatMap((x) => { const o = []; for (let n = Math.floor(itLsn(x) / SEG); n < Math.ceil(itEnd(x) / SEG); n++) o.push(n); return o; }));
+        const want = [...segs].filter((n) => n < cut && !ready.has(n)).length;
+        if (Number(m[1]) + Number(m[2]) !== want) console.error(`${at} 의 ${a} : ${m[1]} removed + ${m[2]} recycled 인데 셈은 ${want} — redo 세그먼트 …${rs.toString(16).toUpperCase()}${wk ? ' · wal_keep_size ' + wk + 'MB' : ''}${ready.size ? ' · .ready ' + ready.size + ' 개' : ''} · 가장 오랜 …${old.toString(16).toUpperCase()}`);
         if (top > rs + mw / 16) console.error(`${at} 의 ${a} : 칸 줄이 …${(top - 1).toString(16).toUpperCase()} 까지인데 재활용 상한은 …${(rs + mw / 16 - 1).toString(16).toUpperCase()}`);
       }
     }
@@ -309,6 +316,15 @@ function make({ F, deck, labels, scene }) {
     const at = `pg wal ${sc.num} 세계${k ? ' (' + sc.vary.knob + '=' + k + ')' : ''} : ${i ? i + ' 스텝' : 'init'}`;
     for (const a of ROWS) {
       for (const x of s[a]) { const m = /ProcNumber\s*(\d+)/.exec(x.sub); if (m && Number(m[1]) % 8 !== Number(x.id)) console.error(`${at} 의 ${a} : 락 ${x.id} 를 ProcNumber ${m[1]} 가 쥐는데 ${m[1]} % 8 = ${Number(m[1]) % 8}`); }
+      /* 08 — 'SWITCH L · 24 B' 를 품은 세그먼트 칸 : XLOG_SWITCH 는 머리 24 B 뿐이고 세그먼트의 나머지를 차지한다(ReserveXLogSwitch).
+         "U B 만 쓰고" 는 L + 24 − 세그먼트 시작, "남은 Z B" 는 세그먼트 끝 − (L + 24) */
+      for (const x of s[a]) {
+        const m = /SWITCH\s+([0-9A-F]+\/[0-9A-F]+)\s*·\s*(\d+) B/.exec(x.sub); if (!m || itLsn(x) == null || itEnd(x) == null) continue;
+        const e = lsnOf(m[1]) + Number(m[2]), u = /([\d,]+) B 만 쓰고/.exec(x.sub), z = /남은 ([\d,]+) B/.exec(x.sub);
+        if (Number(m[2]) !== 24 || !(itLsn(x) < e && e <= itEnd(x))) console.error(`${at} 의 ${x.id} : SWITCH ${m[1]} · ${m[2]} B 가 이 세그먼트 안의 24 B 레코드가 아니다`);
+        if (u && int(u[1]) !== e - itLsn(x)) console.error(`${at} 의 ${x.id} : ${u[1]} B 만 썼다는데 SWITCH 끝 ${lsnTx(e)} − 시작 ${x.lsn} = ${e - itLsn(x)}`);
+        if (z && int(z[1]) !== itEnd(x) - e) console.error(`${at} 의 ${x.id} : 남은 ${z[1]} B 인데 세그먼트 끝 ${x.end} − ${lsnTx(e)} = ${itEnd(x) - e}`);
+      }
       const sp = s[a].filter((x) => itLsn(x) != null && itEnd(x) != null && /^\s*[\d,]+ B ·/.test(x.sub)).sort((p, q) => itLsn(p) - itLsn(q));
       sp.forEach((x, j) => {
         const n = int(x.sub);
@@ -322,6 +338,13 @@ function make({ F, deck, labels, scene }) {
         if (cb !== bytePos(I)) console.error(`${at} 의 ${a} : CurrBytePos ${cb} 인데 Insert ${lsnTx(I)} 를 XLogRecPtrToBytePos 로 바꾸면 ${bytePos(I)}`);
         const m = /바이트\s*([\d,]+)\s*−\s*머리\s*([\d,]+)/.exec(bare(kv.CurrBytePos));
         if (m && (int(m[1]) !== I || int(m[1]) - int(m[2]) !== cb)) console.error(`${at} 의 ${a} : CurrBytePos 괄호 "${m[0]}" 가 Insert 바이트 ${I} · 값 ${cb} 와 맞지 않는다`);
+      }
+      /* 08 — "N 개 · B B (…X ‥ …Y)" : B = N × 16 MB, 칸 줄의 세그먼트가 꼭 …X ‥ …Y 의 N 개 */
+      const pw = /^(\d+) 개 · ([\d,]+) B\s*\(…([0-9A-F]+) ‥ …([0-9A-F]+)\)/.exec(bare(kv.pg_wal ?? ''));
+      if (pw) {
+        const n = Number(pw[1]), lo = parseInt(pw[3], 16), hi = parseInt(pw[4], 16);
+        const have = new Set(ROWS.flatMap((r) => s[r]).filter((x) => itLsn(x) != null && itEnd(x) != null).flatMap((x) => { const o = []; for (let q = Math.floor(itLsn(x) / SEG); q < Math.ceil(itEnd(x) / SEG); q++) o.push(q); return o; }));
+        if (int(pw[2]) !== n * SEG || hi - lo + 1 !== n || have.size !== n || Math.min(...have) !== lo || Math.max(...have) !== hi) console.error(`${at} 의 ${a} : pg_wal "${pw[0]}" 가 칸 줄의 세그먼트 ${have.size} 개(…${Math.min(...have).toString(16).toUpperCase()} ‥ …${Math.max(...have).toString(16).toUpperCase()})· N × 16 MB 와 맞지 않는다`);
       }
       const wl = lsnOf(kv['쓸 수 있는 끝'] ?? '');
       if (wl != null) {

@@ -141,19 +141,24 @@ export const CORE = {
     x: ['WAL 세그먼트 파일이 디스크를 다 채웠다', 'checkpoint 가 제때 끝나지 못했다', '삽입 락 여덟 개가 모두 쥐어져 있었다'],
   },
   '08/2': {
-    q: 'checkpoint 가 끝났는데도 pg_wal 의 옛 세그먼트가 지워지지 않는 흔한 까닭은?',
-    a: '복제 슬롯의 restart_lsn 이 그 세그먼트를 붙잡고 있다',
-    x: ['wal_recycle 이 꺼져 있어 지우지 않는다', 'min_wal_size 가 그 세그먼트를 지킨다', 'checkpoint 는 세그먼트를 지우지 않고 VACUUM 이 지운다'],
+    q: 'checkpoint 가 redo 를 …61 로 옮겼다. 그 앞의 다 쓴 세그먼트 …5F · …60 은 (max_wal_size 128MB 안에서) 어떻게 되나?',
+    a: '이름이 …67 · …68 로 바뀐다 — 같은 파일',
+    x: ['지우고 0 으로 채운 새 파일을 만든다', '보관 디렉터리로 옮긴 뒤 지운다', 'VACUUM 이 돌 때까지 그대로 남는다'],
   },
-  '08/4': {
+  '08/3': {
+    q: 'wal_keep_size 48MB 에서 checkpoint 가 redo 를 …64 로 옮겼다. 다 쓴 …61 ‥ …63 은?',
+    a: '그대로 남는다 — 0 removed · 0 recycled',
+    x: ['셋 모두 재활용된다 — redo 앞이니까', '…61 만 지워진다 — 48MB 를 넘는 하나', 'wal_keep_size 는 슬롯이 있을 때만 먹는다'],
+  },
+  '08/5': {
+    q: '세그먼트 앞쪽 약 250 KB 만 쓴 채 pg_switch_wal() 을 부르면 그 세그먼트 파일은?',
+    a: '16 MB 그대로 — 남은 자리는 페이지 머리까지 0 이 된다',
+    x: ['쓴 만큼으로 잘려 250 KB 가 된다', '16 MB 그대로 — 남은 자리에는 옛 바이트가 남는다', '지워지고 다음 세그먼트로 내용이 옮겨진다'],
+  },
+  '08/7': {
     q: 'archive_mode = on 일 때 checkpoint 가 세그먼트를 지우거나 재활용할 수 있는 조건은?',
     a: '그 세그먼트의 상태 파일이 .done 이 되었을 것',
     x: ['.ready 파일이 만들어졌을 것', 'archive_timeout 이 지났을 것', 'standby 가 그 세그먼트를 받았을 것'],
-  },
-  '08/5': {
-    q: 'max_slot_wal_keep_size 를 정해 두었고 슬롯이 그보다 오래된 WAL 을 붙잡으면?',
-    a: '그 슬롯이 무효(wal_removed)가 되고 WAL 은 지워진다',
-    x: ['WAL 을 계속 남기고 경고만 낸다', '새 WAL 쓰기를 멈추고 기다린다', '슬롯의 restart_lsn 을 앞으로 당겨 준다'],
   },
   '09/1': {
     q: '슬롯 없이 max_wal_size 64MB 에서 WAL 을 160 MB 쓰고 CHECKPOINT 하면 pg_wal 은?',
