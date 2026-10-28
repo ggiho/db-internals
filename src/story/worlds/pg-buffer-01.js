@@ -201,9 +201,9 @@ function make({ F, deck, labels, scene }) {
       const py = y0 + 16 + tallest(txBe) + 14;
       place(hdPb, mx, py); place(txPb, mx, py + 16); wrap(txPb, mw);
       const kvH = tallest(txPb, true), hy = py + 16 + kvH + 6;
-      const rh = Math.ceil(histLb[0].el.getBoundingClientRect().height || 14) + 1;
+      /* 줄 높이 · 폭은 정해 둔 글로 잰다 — 그 순간의 글(빈 칸일 수 있다)로 쟀더니 다시 짤 때마다 줄 간격이 달라졌다(2560 의 hold-still) */
       const keep = histLb[0].el.textContent; histLb[0].el.textContent = `${MAXU}\u00a0\u00a0${'0'.padStart(5, '\u00a0')}`;
-      const lw = Math.ceil(histLb[0].el.getBoundingClientRect().width); histLb[0].el.textContent = keep;
+      const r0 = histLb[0].el.getBoundingClientRect(), lw = Math.ceil(r0.width), rh = Math.ceil(r0.height) + 1; histLb[0].el.textContent = keep;
       histLb.forEach((lb, u) => place(lb, mx, hy + u * rh));
       G.hist = { x: mx + lw + 10, w: Math.max(30, mw - lw - 10), y: hy, rh, bh: 6 };
       my = Math.max(my, hy + (MAXU + 1) * rh + 16);
