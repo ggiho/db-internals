@@ -1555,9 +1555,23 @@ const SCENES = [
   num:'07', tab:'Gap Locks', title:'Next-Key Locking: Gap Locks Against Phantoms',
   sub:'phantom 을 막는 유일한 수단은 빈 구간을 잠그는 것 — REPEATABLE READ 의 range scan 은 next-key lock',
   cast:['ses','stmt','idx','lock'],
+  /* 잰 값(8.4.8-debug, 이 빌드) — ~/.cache/dbi/measure/in2/07.txt (measure07.sh) · 07-rc.txt (measure07b.sh). 본 서버(3421)에 표를 새로 만들었다 —
+       g.t (a INT PRIMARY KEY, c INT) = 10 · 20 · 30 · 50,  g.s (id INT PRIMARY KEY, a INT, c INT, KEY k_a (a)) = (1,10) (2,20) (3,30) (4,50).
+       세션은 배경 mysql 클라이언트를 SELECT SLEEP 으로 붙잡고, P_S.data_locks · data_lock_waits · INNODB_TRX · INNODB STATUS 로 봤다.
+         RR · A(trx 8388) a BETWEEN 15 AND 35 FOR UPDATE → 20 · 30, data_locks TABLE IX · PRIMARY X 20 · X 30 · X,GAP 50, trx_rows_locked 3 · lock_structs 3
+         B(trx 8389) INSERT 25 → PRIMARY X,GAP,INSERT_INTENTION WAITING 30, data_lock_waits 가 A 의 X 30 을 가리킴,
+               INNODB STATUS "lock_mode X locks gap before rec insert intention waiting", 기본 50 초에서 16:46:00.908 → 16:46:51.896 ERROR 1205
+         탐침(timeout 1) INSERT 5 · 55 통과, 12 · 40 → 1205, a = 50 · a = 10 FOR UPDATE · UPDATE a = 50 통과, a = 30 FOR UPDATE → 1205
+         a >= 45 FOR UPDATE → X 50 · X supremum pseudo-record, INSERT 99 → 1205.  a = 20 FOR UPDATE → X,REC_NOT_GAP 20 하나
+         g.s FORCE INDEX (k_a) 같은 범위 → k_a X (20,2) · X (30,3) · X (50,4) — 50 도 next-key, PRIMARY X,REC_NOT_GAP 2 · 3. id = 4 FOR UPDATE 통과, INSERT a = 40 → 1205
+         RC 막힘 없이 → PRIMARY X,REC_NOT_GAP 20 · 30 만 (k_a 쪽도 X,REC_NOT_GAP (20,2) · (30,3) · PRIMARY 2 · 3)
+         RC · B0(8408)이 a = 50 을 쥔 채 A(8409) → X,REC_NOT_GAP 20 · 30 GRANTED · 50 WAITING, 4.495 초 뒤 20 · 30 반환 — 기다려 얻은 50 은 커밋까지 남음
+         RC · B(8410) INSERT 25 → 0.001 초, B 의 줄은 TABLE IX 하나. A 의 재조회 → B 의 25 가 X,REC_NOT_GAP GRANTED 로 바뀌고 A 는 25 WAITING,
+               B 커밋 뒤 3.120 초 만에 20 · 25 · 30
+     전에 적었던 trx 60 · 61 은 잰 값으로 바꿨다. */
   init:{
-    ses:{ kv:{ 'trx 60':'—', 'trx 61':'—', '격리 수준':'REPEATABLE READ', '잠근 것':'0' } },
-    stmt:{ kv:{ '테이블':'t (a INT PRIMARY KEY, …)', '범위 조회':'SELECT … WHERE a BETWEEN 15 AND 35 FOR UPDATE', '다른 세션':'INSERT INTO t (a) VALUES (25)   — autocommit' } },
+    ses:{ kv:{ 'A':'—', 'B':'—', '격리 수준':'REPEATABLE READ', '잠근 것':'0' } },
+    stmt:{ kv:{ '테이블':'g.t (a INT PRIMARY KEY, c INT)', '범위 조회':'SELECT * FROM g.t WHERE a BETWEEN 15 AND 35 FOR UPDATE', '다른 세션':'INSERT INTO g.t VALUES (25, 0)   — autocommit' } },
     idx:{ axis:{ min:0, max:60 }, items:[
       { id:'10', v:10 }, { id:'20', v:20 }, { id:'30', v:30 }, { id:'50', v:50 } ],
       spans:[] },
@@ -1565,12 +1579,12 @@ const SCENES = [
   },
   knobs:[
     ['transaction_isolation','REPEATABLE-READ','RC 로 낮추면 gap lock 이 사라진다'],
-    ['innodb_lock_wait_timeout','50','gap 에 막힌 INSERT 가 이만큼 기다린 뒤 1205 로 실패한다'],
+    ['innodb_lock_wait_timeout','50','gap 에 막힌 INSERT 가 이만큼 기다린 뒤 1205 로 실패한다 — 잰 값 51.0 초'],
     ['innodb_autoinc_lock_mode','2','AUTO-INC 는 gap lock 과 다른 경로로 잠근다'] ],
   watch:[
-    ['P_S.data_locks','LOCK_MODE 열에 X, GAP, X,REC_NOT_GAP 이 그대로 보인다'],
+    ['P_S.data_locks','LOCK_MODE 열에 X · X,GAP · X,REC_NOT_GAP · X,GAP,INSERT_INTENTION 이 그대로 보인다'],
     ['P_S.data_lock_waits','누가 누구의 락을 기다리는지'],
-    ['SHOW ENGINE INNODB STATUS','TRANSACTIONS 절의 lock struct 수'] ],
+    ['SHOW ENGINE INNODB STATUS','TRANSACTIONS 절의 lock struct 수와 기다리는 락의 lock_mode'] ],
   links:[
     ['08','gap lock 두 개가 교차하면 deadlock 이 된다'],
     ['01','이 락들은 커밋까지 유지된다'],
@@ -1591,7 +1605,7 @@ const SCENES = [
                 'the index records, NOT the gaps before them, and thus allow'],
           ops:{ ses:{ set:{ '격리 수준':'READ COMMITTED|green' } } } },
 
-      2:{ note:'SELECT * FROM t WHERE a BETWEEN 15 AND 35 FOR UPDATE',
+      2:{ note:'SELECT * FROM g.t WHERE a BETWEEN 15 AND 35 FOR UPDATE',
           why:'같은 조회다. 그러나 잠금의 단위를 정하기 전에 InnoDB 는 이 트랜잭션이 gap 을 건너뛰어도 되는지를 먼저 판정한다.',
           key:'판정하는 것은 조회가 아니라 <em>트랜잭션의 격리 수준</em>이다. READ UNCOMMITTED 와 READ COMMITTED 는 건너뛰고, REPEATABLE READ 와 SERIALIZABLE 은 건너뛰지 않는다.',
           ref:'storage/innobase/include/trx0trx.h', sym:'skip_gap_locks',
@@ -1599,11 +1613,11 @@ const SCENES = [
                 'case READ_COMMITTED:',
                 'case SERIALIZABLE:',
                 'bool allow_semi_consistent() const { return (skip_gap_locks()); }'],
-          ops:{ ses:{ set:{ 'trx 60':'ACTIVE|gold' } } } },
+          ops:{ ses:{ set:{ 'A':'ACTIVE|gold' } } } },
 
       3:{ act:{ f:'ses', t:'idx', lb:'20 에 레코드 락만' },
           note:'20 — record lock 만, 앞 gap 은 미잠금',
-          why:'row_search_mvcc 가 스캔을 시작하기 전에 set_also_gap_locks 를 false 로 내린다. 주석이 조건을 그대로 적는다 — 평범한 잠금 SELECT 이고 격리 수준이 낮다.',
+          why:'row_search_mvcc 가 스캔을 시작하기 전에 set_also_gap_locks 를 false 로 내린다. 주석이 조건을 그대로 적는다 — 평범한 잠금 SELECT 이고 격리 수준이 낮다. 잰 값: data_locks 에 PRIMARY X,REC_NOT_GAP 20.',
           key:'같은 함수, 같은 조회인데 <em>잠금의 단위가 달라진다</em>. next-key(레코드 + 그 앞 gap) 대신 레코드만이다.',
           ref:'storage/innobase/row/row0sel.cc', sym:'row_search_mvcc',
           fact:['level is low: do not lock gaps */',
@@ -1612,24 +1626,24 @@ const SCENES = [
                 ['storage/innobase/include/lock0lock.h','constexpr uint32_t LOCK_REC_NOT_GAP = 1024;']],
           ops:{ idx:{ span:{ add:[
                   { id:'r20', from:20, to:20, kind:'rec', lb:'rec', row:0 }] } },
-                lock:{ add:[{ id:'20 · rec only', tag:'hold', sub:'LOCK_REC_NOT_GAP = 1024' }] },
+                lock:{ add:[{ id:'X,REC_NOT_GAP 20', tag:'hold', sub:'A · GRANTED — LOCK_REC_NOT_GAP = 1024' }] },
                 ses:{ set:{ '잠근 것':'1' } } } },
 
       4:{ act:{ f:'ses', t:'idx', lb:'30 에 레코드 락만' },
           note:'30 도 record lock 만 — (20, 30) gap 은 open',
-          why:'REPEATABLE READ 라면 두 next-key 가 이어지며 10 부터 30 까지 연속으로 덮였다. 여기서는 두 점만 남는다.',
+          why:'REPEATABLE READ 라면 두 next-key 가 이어지며 10 부터 30 까지 연속으로 덮였다. 여기서는 두 점만 남는다 — 잰 값: X,REC_NOT_GAP 30. 보조 인덱스 k_a 로 같은 범위를 잠가도 k_a X,REC_NOT_GAP (20,2) · (30,3) 과 PRIMARY 2 · 3 뿐이었다.',
           key:'잠긴 것이 <em>구간이 아니라 점</em>이 되면서, 그 사이는 누구나 들어올 수 있는 자리가 된다.',
           ref:'storage/innobase/row/row0sel.cc', sym:'row_search_mvcc',
           fact:['row_to_range_relation.gap_can_intersect_range = false;',
                 'lock_type = LOCK_REC_NOT_GAP;'],
           ops:{ idx:{ span:{ add:[
                   { id:'r30', from:30, to:30, kind:'rec', lb:'rec', row:0 }] } },
-                lock:{ add:[{ id:'30 · rec only', tag:'hold', sub:'LOCK_REC_NOT_GAP = 1024' }] },
+                lock:{ add:[{ id:'X,REC_NOT_GAP 30', tag:'hold', sub:'A · GRANTED' }] },
                 ses:{ set:{ '잠근 것':'2' } } } },
 
       5:{ note:'50 은 잠깐 record lock — 범위 밖이라 곧 해제', act:{ f:'ses', t:'idx', lb:'50 잠갔다가 곧 해제' },
-          why:'범위가 끝났음을 알려면 조건을 넘어선 첫 레코드를 읽어야 한다. gap 을 건너뛰는 트랜잭션은 범위 검사를 잠금 뒤로 미루므로 50 에도 LOCK_REC_NOT_GAP 을 건다. 서버가 50 이 조건 밖임을 보고 unlock_row 를 부르면 InnoDB 가 그 락을 놓는다 — 조건에 맞지 않은 행의 락을 놓는 것이 RC 의 동작이다. 그래서 다른 트랜잭션이 50 을 X 로 쥐고 있었다면 이 SELECT 도 거기서 기다린다.',
-          key:'REPEATABLE READ 에서는 이 지점이 (30, 50) gap lock 이 됐다. 여기서는 <em>잠갔다가 놓는다</em> — 끝나면 남는 것이 없다.',
+          why:'범위가 끝났음을 알려면 조건을 넘어선 첫 레코드를 읽어야 한다. gap 을 건너뛰는 트랜잭션은 범위 검사를 잠금 뒤로 미루므로 50 에도 LOCK_REC_NOT_GAP 을 건다. 잰 값: 다른 트랜잭션(trx 8408)이 a = 50 을 FOR UPDATE 로 쥐고 있자 이 조회는 data_locks 에 X,REC_NOT_GAP 50 WAITING 을 띄우고 4.495 초 기다렸다 — 50 을 잠그러 간다는 증거다.',
+          key:'REPEATABLE READ 에서는 이 지점이 (30, 50) gap lock 이 됐다. 여기서는 <em>잠갔다가 놓는다</em> — 막힘이 없으면 끝에 남는 것이 없다.',
           ref:'storage/innobase/row/row0sel.cc', sym:'row_compare_row_to_range',
           fact:['if (!set_also_gap_locks || trx->skip_gap_locks() ||',
                 'row_to_range_relation.gap_can_intersect_range = false;',
@@ -1639,32 +1653,34 @@ const SCENES = [
           /* ops 를 생략하면 "아무것도 안 한다" 가 아니라 기본 스텝의 ops 를 물려받는다 —
              처음 저작할 때 이 자리에서 갭 락이 그대로 붙었다. 50 의 레코드 락은 여기서 걸고 6 에서 놓는다 */
           ops:{ idx:{ span:{ add:[{ id:'r50', from:50, to:50, kind:'rec', lb:'rec · 곧 해제', row:0 }] } },
-                lock:{ add:[{ id:'50 · rec only', tag:'hold', sub:'조건 밖 · 곧 놓는다' }] },
+                lock:{ add:[{ id:'X,REC_NOT_GAP 50', tag:'hold', sub:'A · 조건 밖 · 곧 놓는다' }] },
                 ses:{ set:{ '잠근 것':'3' } } } },
 
       6:{ look:{ idx:['r20','r30'] },
           note:'결과 — 남은 lock 은 point 둘 (50 은 잠갔다 놓았다)',
-          why:'조회가 반환한 행은 20 과 30, 끝에 남은 잠금도 20 과 30 이다. 50 은 읽고 잠깐 잠갔다가 놓았다.',
+          why:'잰 값(막힘 없이): 조회가 끝난 뒤 data_locks 는 TABLE IX · X,REC_NOT_GAP 20 · 30 — 50 은 없다. 서버가 50 이 조건 밖임을 보고 unlock_row 를 불러 이번 조회가 새로 만든 락을 놓았다. 예외도 쟀다: 50 에서 기다려 얻은 락은 커밋까지 남았다 — 재시도 때 lock_rec_lock 이 "이미 가진 락"(DB_SUCCESS)을 돌려줘 새 락 표시가 없으니 놓을 대상이 아니다.',
           key:'REPEATABLE READ 에서 깨졌던 직관이 여기서는 <em>맞는다</em>. 대신 다른 것을 잃는다 — 그것이 뒤에 나온다.',
           beat:1,
-          ops:{ idx:{ span:{ del:['r50'] } }, lock:{ del:['50 · rec only'] }, ses:{ set:{ '잠근 것':'2' } } },
+          ops:{ idx:{ span:{ del:['r50'] } }, lock:{ del:['X,REC_NOT_GAP 50'] }, ses:{ set:{ '잠근 것':'2' } } },
           ref:'storage/innobase/row/row0sel.cc', sym:'row_search_mvcc',
           fact:[['storage/innobase/include/trx0trx.h','bool releases_non_matching_rows() const { return skip_gap_locks(); }'],
-                ['storage/innobase/include/trx0trx.h','do not match the WHERE clause are released */']], },
+                ['storage/innobase/include/trx0trx.h','do not match the WHERE clause are released */'],
+                ['storage/innobase/lock/lock0lock.cc','/* The trx already has a strong enough lock on rec: do nothing */'],
+                ['storage/innobase/handler/ha_innodb.cc','which were merely reused, are not released as they are still needed).']], },
 
-      7:{ act:{ f:'ses', t:'idx', lb:'trx 61 : INSERT 25  성공' },
+      7:{ act:{ f:'ses', t:'idx', lb:'B : INSERT 25  성공' },
           note:'타 세션 INSERT 25 — block 없음',
-          why:'INSERT 는 삽입 지점 뒤의 레코드 30 을 본다. 30 에는 trx 60 의 레코드 락(LOCK_REC_NOT_GAP)뿐이고, 레코드 락은 gap 을 덮지 않으므로 insert intention 을 막지 않는다. 충돌이 없으면 insert intention 락은 만들어지지도 않는다 — 25 는 trx 61 의 암묵 락(행의 DB_TRX_ID)만 갖고, data_locks 에도 나오지 않는다.',
+          why:'INSERT 는 삽입 지점 뒤의 레코드 30 을 본다. 30 에는 A 의 레코드 락(LOCK_REC_NOT_GAP)뿐이고, 레코드 락은 gap 을 덮지 않으므로 insert intention 을 막지 않는다. 잰 값: B(trx 8410)의 INSERT 25 는 0.001 초에 끝났고, 커밋 전 data_locks 의 B 줄은 TABLE IX 하나다 — 충돌이 없으면 insert intention 락은 만들어지지도 않고, 25 는 행의 DB_TRX_ID 라는 암묵 락만 갖는다.',
           key:'같은 두 트랜잭션, 같은 순서인데 <em>기다림이 사라졌다</em>. RC 를 고르는 이유가 여기다.',
           ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_insert_check_and_lock',
           fact:[['storage/innobase/include/lock0lock.h','constexpr uint32_t LOCK_INSERT_INTENTION = 2048;'],
                 '/* Lock on gap does not need to wait for',
                 'if (!lock_rec_has_any(lock_sys->rec_hash, block->get_page_id(), heap_no)) {',
                 'if (conflicting.wait_for != nullptr) {'],
-          ops:{ idx:{ add:[{ id:'25', v:25 }] }, ses:{ set:{ 'trx 61':'INSERT 25 · 커밋|green' } } } },
+          ops:{ idx:{ add:[{ id:'25', v:25 }] }, ses:{ set:{ 'B':'trx 8410 · INSERT 25 · 커밋 전|green' } } } },
 
-      8:{ note:'trx 61 대기 시간 0',
-          why:'REPEATABLE READ 에서는 이 자리에서 30 의 next-key 락에 막혀, trx 60 이 끝나거나 innodb_lock_wait_timeout(50초)이 지날 때까지 기다렸다.',
+      8:{ note:'B 대기 시간 0.001 초',
+          why:'REPEATABLE READ 에서는 이 자리에서 30 의 next-key 락에 막혀, A 가 끝나거나 innodb_lock_wait_timeout 이 지날 때까지 기다렸다 — 잰 값으로 51.0 초 뒤 1205.',
           key:'deadlock 의 재료 하나가 <em>없어졌다</em>. gap 을 두고 다투는 일이 없으면 그 gap 에서 시작되는 사이클도 생기지 않는다.',
           ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_insert_check_and_lock',
           fact:[['storage/innobase/handler/ha_innodb.cc','nullptr, nullptr, 50, 1, 1024 * 1024 * 1024, 0);'],
@@ -1672,9 +1688,9 @@ const SCENES = [
           look:{ idx:['r20','r30'], lock:true },
           beat:1 },
 
-      9:{ act:{ f:'ses', t:'stmt', lb:'trx 60 : 같은 조회 다시' },
-          note:'trx 60 재조회 — 이번엔 세 행 (phantom)',
-          why:'trx 61 은 autocommit 으로 이미 커밋했다. 20 · 25 · 30 이 돌아온다 — 25 는 첫 조회 때 없던 값이다. 같은 트랜잭션 안에서 같은 조건의 답이 달라졌다. trx 61 이 아직 커밋 전이었다면 FOR UPDATE 가 25 의 암묵 락을 명시 락으로 바꾸고 기다렸을 것이다.',
+      9:{ act:{ f:'ses', t:'stmt', lb:'A : 같은 조회 다시' },
+          note:'A 재조회 — 25 에서 기다렸다가 세 행 (phantom)',
+          why:'잰 값: A 가 같은 조회를 다시 하자 B 의 25 에서 멈췄다. 그 순간 data_locks 에 B 의 X,REC_NOT_GAP 25 GRANTED 가 생겼다 — 암묵 락이 명시 락으로 바뀐 것이다 — 그리고 A 의 X,REC_NOT_GAP 25 WAITING. B 가 커밋하자 3.120 초 만에 20 · 25 · 30 이 돌아왔다. 25 는 첫 조회 때 없던 값이다.',
           key:'이것이 팬텀이다. RC 는 이것을 <em>결함이 아니라 계약</em>으로 둔다 — 막지 않겠다고 미리 정해 둔 것이다.',
           ref:'storage/innobase/include/trx0trx.h', sym:'skip_gap_locks',
           fact:['free inserting; each consistent read reads its own snapshot */',
@@ -1683,18 +1699,18 @@ const SCENES = [
           beat:1,
           ops:{ idx:{ span:{ add:[
                   { id:'r25', from:25, to:25, kind:'rec', lb:'rec', row:0 }] } },
-                lock:{ add:[{ id:'25 · rec only', tag:'hold', sub:'두 번째 조회가 잡았다' }] },
-                ses:{ set:{ '잠근 것':'3' } } } },
+                lock:{ add:[{ id:'X,REC_NOT_GAP 25', tag:'hold', sub:'A · B 커밋 뒤 GRANTED' }] },
+                ses:{ set:{ '잠근 것':'3', 'B':'trx 8410 · 커밋|green' } } } },
 
       10:{ look:{ idx:['r20','r25','r30'] },
            note:'point 셋 — range 는 여전히 open',
-           why:'다시 잠근 것도 점이다. 지금 이 순간에도 27 을 넣으려는 세션은 막히지 않는다.',
+           why:'다시 잠근 것도 점이다. 잰 값: 이때 A 의 data_locks 는 X,REC_NOT_GAP 20 · 25 · 30. 지금 이 순간에도 27 을 넣으려는 세션은 막히지 않는다.',
            key:'격리 수준은 성능 설정이 아니라 <em>무엇을 보장할지</em>의 선택이다. REPEATABLE READ 는 넓게 잠그고 팬텀을 막는다. READ COMMITTED 는 좁게 잠그고 팬텀을 받아들인다.',
            fact:[['storage/innobase/lock/lock0lock.cc','a LOCK_REC_NOT_GAP type lock */'],
                  ['storage/innobase/include/trx0trx.h','read the same snapshot; full next-key locking used in locking'],
                  ['storage/innobase/include/trx0trx.h','reads to block insertions into gaps */']],
            beat:1,
-           ops:{} },   /* trx 60 은 아직 열려 있다 — 락은 커밋까지 */
+           ops:{} },   /* A 는 아직 열려 있다 — 락은 커밋까지 */
     },
   } },
 
@@ -1709,17 +1725,17 @@ const SCENES = [
           ['storage/innobase/include/lock0priv.h','same time. The locks on the gap are purely inhibitive: an insert cannot']],
     beat:1 },
 
-  { note:'SELECT * FROM t WHERE a BETWEEN 15 AND 35 FOR UPDATE',
-    why:'범위 조회다. 조건에 맞는 레코드는 20 과 30 두 개뿐이다.',
+  { note:'SELECT * FROM g.t WHERE a BETWEEN 15 AND 35 FOR UPDATE',
+    why:'범위 조회다. 잰 값: 돌아온 행은 20 과 30 두 개다.',
     key:'문제는 조건에 맞는 <em>레코드가 아니라 조건에 맞는 범위</em>다. 지금 비어 있는 21~29 도 조건 안에 있다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_lock',
     fact:[['storage/innobase/include/lock0priv.h','FACT B: If a transaction has read some result set with a cursor, it can read'],
           ['storage/innobase/include/lock0priv.h','result set in the meantime. Hence, there is no phantom problem. If the']],
-    ops:{ ses:{ set:{ 'trx 60':'ACTIVE|gold' } } } },
+    ops:{ ses:{ set:{ 'A':'trx 8388 · ACTIVE|gold' } } } },
 
   { act:{ f:'ses', t:'idx', lb:'20 에 next-key 락' },
     note:'20 — record 가 아니라 next-key lock (앞 gap 포함)',
-    why:'LOCK_ORDINARY(= 0)가 기본이다. next-key 락은 "레코드 + 그 앞의 갭"이라는 하나의 단위다.',
+    why:'LOCK_ORDINARY(= 0)가 기본이다. next-key 락은 "레코드 + 그 앞의 갭"이라는 하나의 단위다. 잰 값: data_locks 에 PRIMARY · RECORD · LOCK_MODE X · LOCK_DATA 20 — GAP 도 REC_NOT_GAP 도 붙지 않은 X 가 next-key 다.',
     key:'기본값이 next-key 인 것이 핵심이다. <em>따로 요청하지 않아도</em> gap 이 잠긴다 — 그래서 예상보다 넓게 잠긴다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'row_search_mvcc',
     fact:[['storage/innobase/include/lock0lock.h','constexpr uint32_t LOCK_ORDINARY = 0;'],
@@ -1728,12 +1744,12 @@ const SCENES = [
           ['storage/innobase/lock/lock0lock.cc','equivalent to two locks: Record Lock and GAP Lock separately.']],
     ops:{ idx:{ span:{ add:[
             { id:'nk20', from:10, to:20, kind:'next', lb:'next-key  (10,20]', row:0 }] } },
-          lock:{ add:[{ id:'20 · next-key', tag:'hold', sub:'LOCK_ORDINARY = 0' }] },
+          lock:{ add:[{ id:'X 20', tag:'hold', sub:'A · GRANTED — LOCK_ORDINARY = 0' }] },
           ses:{ set:{ '잠근 것':'1' } } } },
 
   { act:{ f:'ses', t:'idx', lb:'30 에 next-key 락' },
     note:'30 에도 같은 lock — 범위가 (20, 30] 로 확장',
-    why:'두 next-key 락이 이어지면서 10 부터 30 까지가 연속으로 덮인다.',
+    why:'두 next-key 락이 이어지면서 10 부터 30 까지가 연속으로 덮인다. 잰 값: X 30.',
     key:'범위 조회의 잠금은 <em>레코드 수만큼의 next-key</em>로 만들어진다. 별도의 "범위 락" 같은 것은 없다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_lock',
     fact:['explicit locks. This function sets a normal next-key lock, or in the case',
@@ -1741,12 +1757,12 @@ const SCENES = [
           ['storage/innobase/include/lock0priv.h','both on the record and the gap. If the gap bit is set, the lock is only']],
     ops:{ idx:{ span:{ add:[
             { id:'nk30', from:20, to:30, kind:'next', lb:'next-key  (20,30]', row:0 }] } },
-          lock:{ add:[{ id:'30 · next-key', tag:'hold', sub:'LOCK_ORDINARY = 0' }] },
+          lock:{ add:[{ id:'X 30', tag:'hold', sub:'A · GRANTED' }] },
           ses:{ set:{ '잠근 것':'2' } } } },
 
   { act:{ f:'ses', t:'idx', lb:'50 에 gap lock 만' },
     note:'범위 밖 첫 record 50 — gap lock 만 남긴다',
-    why:'스캔이 50 을 읽어서야 "범위가 끝났다"를 안다. a 가 PRIMARY KEY 이고 오름차순으로 훑는 범위라, 조건 밖의 레코드 50 은 잠그지 않고 그 앞의 (30, 50) gap 만 LOCK_GAP(512)으로 잠근다. a 가 보조 인덱스였다면 50 에 next-key (30, 50] 이 걸려 레코드 50 까지 잠긴다.',
+    why:'스캔이 50 을 읽어서야 "범위가 끝났다"를 안다. a 가 PRIMARY KEY 이고 오름차순으로 훑는 범위라, 조건 밖의 레코드 50 은 잠그지 않고 그 앞의 (30, 50) gap 만 LOCK_GAP(512)으로 잠근다 — 잰 값: X,GAP 50. 같은 값을 보조 인덱스 k_a(중복 허용)로 둔 g.s 에서는 k_a 에 X (50, 4) — next-key 라 레코드 50 까지 잠겼다. 범위 조회에서 gap 만 남기는 줄임은 클러스터 인덱스의 오름차순 범위에만 있다(등호 조회는 다르다 — mysql/locks 05 의 c = 200 은 다음 레코드 300 에 X,GAP).',
     key:'그래서 <em>조건에 없는 값도 잠금에 연루된다</em>. 35 를 조회했는데 50 이 관여하는 것이 이상해 보이는 이유.',
     ref:'storage/innobase/row/row0sel.cc', sym:'row_compare_row_to_range',
     fact:[['storage/innobase/include/lock0lock.h','constexpr uint32_t LOCK_GAP = 512;'],
@@ -1756,22 +1772,23 @@ const SCENES = [
     beat:1,
     ops:{ idx:{ span:{ add:[
             { id:'g50', from:30, to:50, kind:'gap', lb:'gap  (30,50)', row:0 }] } },
-          lock:{ add:[{ id:'50 · gap', tag:'hold', sub:'LOCK_GAP = 512' }] },
+          lock:{ add:[{ id:'X,GAP 50', tag:'hold', sub:'A · GRANTED — LOCK_GAP = 512' }] },
           ses:{ set:{ '잠근 것':'3' } } } },
 
   { look:{ idx:['g50','nk20','nk30'] },
     note:'결과 — 읽은 값은 둘, 잠긴 범위는 10–50',
-    why:'조회가 반환한 행은 20 과 30 두 개다. 그런데 잠긴 구간은 10 초과 50 미만 전체다.',
-    key:'"두 행을 읽었으니 두 행만 잠긴다"는 직관이 <em>여기서 깨진다</em>. 잠긴 것은 행이 아니라 구간이다.',
+    why:'잰 값(다른 세션, innodb_lock_wait_timeout 1): INSERT 5 · 55 는 지나가고 12 · 40 은 1205. a = 10 · a = 50 의 FOR UPDATE 와 UPDATE … a = 50 은 지나가고 a = 30 의 FOR UPDATE 는 1205. INNODB_TRX 는 trx_rows_locked 3 · trx_lock_structs 3. 끝을 열어 두면(a >= 45) 50 에 X, supremum pseudo-record 에 X 가 걸려 맨 끝 gap 까지 잠긴다 — INSERT 99 도 1205 였다. 같은 20 을 등호(a = 20)로 잠그면 X,REC_NOT_GAP 20 하나다.',
+    key:'"두 행을 읽었으니 두 행만 잠긴다"는 직관이 <em>여기서 깨진다</em>. 잠긴 것은 행이 아니라 10 초과 50 미만의 구간이다.',
     beat:1,
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_lock',
     fact:[['storage/innobase/row/row0sel.cc','if (err == DB_SUCCESS && !row_to_range_relation.row_can_be_in_range) {'],
           ['storage/innobase/include/lock0lock.h','/** when this bit is set, it means that the lock holds only on the gap before'],
-          ['storage/innobase/include/lock0lock.h','the record; for instance, an x-lock on the gap does not give permission to']], },
+          ['storage/innobase/include/lock0lock.h','the record; for instance, an x-lock on the gap does not give permission to'],
+          ['storage/innobase/trx/trx0i_s.cc','*lock_data = "supremum pseudo-record";']], },
 
-  { act:{ f:'ses', t:'idx', lb:'trx 61 : INSERT 25' },
+  { act:{ f:'ses', t:'idx', lb:'B : INSERT 25' },
     note:'타 세션 INSERT 25 — 존재하지 않는 값인데 block',
-    why:'INSERT 는 삽입 지점 바로 뒤의 레코드, 30 을 본다. 30 에는 trx 60 의 next-key 락 (20, 30] 이 있고, 그 앞 gap 이 25 가 들어갈 자리다. 그래서 trx 61 은 30 에 insert intention 락(LOCK_INSERT_INTENTION = 2048)을 대기로 건다 — data_locks 에는 LOCK_DATA 30, LOCK_MODE X,GAP,INSERT_INTENTION 으로 보인다.',
+    why:'INSERT 는 삽입 지점 바로 뒤의 레코드, 30 을 본다. 30 에는 A 의 next-key 락 (20, 30] 이 있고, 그 앞 gap 이 25 가 들어갈 자리다. 잰 값: B(trx 8389)의 줄은 PRIMARY · X,GAP,INSERT_INTENTION · WAITING · LOCK_DATA 30, data_lock_waits 는 그것이 A 의 X 30 을 기다린다고 적는다.',
     key:'insert intention lock 끼리는 <em>서로 호환된다</em> — 여러 세션이 같은 gap 에 동시에 넣을 수 있다. 막는 것은 그 gap 을 덮는 gap 락과 next-key 락이다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_rec_insert_check_and_lock',
     fact:[['storage/innobase/include/lock0lock.h','constexpr uint32_t LOCK_INSERT_INTENTION = 2048;'],
@@ -1780,21 +1797,22 @@ const SCENES = [
           'Also, insert intention locks do not disturb each'],
     ops:{ idx:{ span:{ add:[
             { id:'ii25', from:25, to:25, kind:'blk', lb:'INSERT 25  대기', row:1 }] } },
-          lock:{ add:[{ id:'30 · insert intention', tag:'x', sub:'trx 61 대기  ·  X,GAP,INSERT_INTENTION' }] },
-          ses:{ set:{ 'trx 61':'INSERT 25 · 대기|red' } } } },
+          lock:{ add:[{ id:'X,GAP,INSERT_INTENTION 30', tag:'x', sub:'B · WAITING — A 의 X 30 을 기다림' }] },
+          ses:{ set:{ 'B':'trx 8389 · INSERT 25 · LOCK WAIT|red' } } } },
 
-  { note:'trx 61 대기 — insert intention 이 30 의 next-key 와 충돌',
-    why:'테이블에 25 는 존재하지 않는다. 충돌하는 것은 값이 아니라 "그 값이 들어갈 자리"에 대한 권리다. trx 61 은 trx 60 이 끝나거나 innodb_lock_wait_timeout(50초)이 지날 때까지 기다린다.',
+  { note:'B 대기 — insert intention 이 30 의 next-key 와 충돌',
+    why:'테이블에 25 는 존재하지 않는다. 충돌하는 것은 값이 아니라 "그 값이 들어갈 자리"에 대한 권리다. 잰 값: INNODB STATUS 는 이 기다림을 "lock_mode X locks gap before rec insert intention waiting" 으로 적었고, 기본 innodb_lock_wait_timeout 50 에서 B 는 51.0 초 뒤 ERROR 1205 로 끝났다(A 는 그동안 열려 있었다).',
     key:'gap 을 둘러싼 deadlock 이 여기서 나온다. 개발자는 <em>서로 다른 행을 만졌다고 생각하는데</em> 실제로는 같은 gap 을 두고 다툰다.',
     ref:'storage/innobase/lock/lock0wait.cc', sym:'lock_wait_suspend_thread',
     fact:['slot = lock_wait_table_reserve_slot(thr, lock_wait_timeout);',
           'os_event_wait(slot->event);',
-          ['storage/innobase/lock/lock0lock.cc','const ulint type_mode = LOCK_X | LOCK_GAP | LOCK_INSERT_INTENTION;']],
-    look:{ idx:['ii25','nk30'], lock:['30 · next-key','30 · insert intention'] },   /* 부딪히는 한 쌍 */
+          ['storage/innobase/lock/lock0lock.cc','const ulint type_mode = LOCK_X | LOCK_GAP | LOCK_INSERT_INTENTION;'],
+          ['storage/innobase/lock/lock0lock.cc','fputs(" locks gap before rec", file);']],
+    look:{ idx:['ii25','nk30'], lock:['X 30','X,GAP,INSERT_INTENTION 30'] },   /* 부딪히는 한 쌍 */
     beat:1 },
 
   { note:'READ COMMITTED — gap lock 비활성',
-    why:'RC 에서는 팬텀을 막지 않기로 한 것이므로 gap 을 잠그지 않는다 — next-key 대신 LOCK_REC_NOT_GAP(1024)만 쓴다. 범위 밖 50 도 잠깐 레코드 락을 잡지만 조건에 맞지 않음을 보면 곧 놓는다. 예외 하나 — 유니크 보조 인덱스의 중복 검사는 RC 에서도 next-key 를 건다. 그 판정은 트랜잭션이 아니라 테이블이 한다.',
+    why:'RC 에서는 팬텀을 막지 않기로 한 것이므로 gap 을 잠그지 않는다 — next-key 대신 LOCK_REC_NOT_GAP(1024)만 쓴다. 잰 값: 같은 조회 뒤 data_locks 는 TABLE IX · X,REC_NOT_GAP 20 · 30 — 50 은 없다(잠갔다가 조건 밖이라 놓았다). 보조 인덱스 k_a 로 해도 k_a · PRIMARY 의 X,REC_NOT_GAP 뿐이었다. 예외 하나 — 유니크 보조 인덱스의 중복 검사는 RC 에서도 next-key 를 건다. 그 판정은 트랜잭션이 아니라 테이블이 한다.',
     key:'그래서 RC 는 <em>동시성이 좋고 deadlock 이 적다</em>. 대가는 같은 트랜잭션 안에서 범위 조회의 결과가 달라질 수 있다는 것.',
     ref:'storage/innobase/row/row0sel.cc', sym:'row_compare_row_to_range',
     fact:[['storage/innobase/include/lock0lock.h','constexpr uint32_t LOCK_REC_NOT_GAP = 1024;'],
@@ -1802,17 +1820,17 @@ const SCENES = [
           'if (!set_also_gap_locks || trx->skip_gap_locks() ||',
           'lock_type = LOCK_REC_NOT_GAP;'],
     beat:1,
-    ops:{ ses:{ set:{ '격리 수준':'READ COMMITTED|green', '잠근 것':'2' } },
+    ops:{ ses:{ set:{ '격리 수준':'READ COMMITTED|green', '잠근 것':'2', 'A':'trx 8415 · ACTIVE|gold', 'B':'—' } },
           idx:{ span:{ del:['nk20','nk30','g50','ii25'],
                        add:[{ id:'r20', from:20, to:20, kind:'rec', lb:'rec', row:0 },
                             { id:'r30', from:30, to:30, kind:'rec', lb:'rec', row:0 }] } },
-          lock:{ del:['20 · next-key','30 · next-key','50 · gap','30 · insert intention'],
-                 add:[{ id:'20 · rec only', tag:'hold', sub:'LOCK_REC_NOT_GAP = 1024' },
-                      { id:'30 · rec only', tag:'hold', sub:'LOCK_REC_NOT_GAP = 1024' }] } } },
+          lock:{ del:['X 20','X 30','X,GAP 50','X,GAP,INSERT_INTENTION 30'],
+                 add:[{ id:'X,REC_NOT_GAP 20', tag:'hold', sub:'A · GRANTED — LOCK_REC_NOT_GAP = 1024' },
+                      { id:'X,REC_NOT_GAP 30', tag:'hold', sub:'A · GRANTED' }] } } },
 
   { look:{ idx:['r20','r30'] },
     note:'같은 조회 · 같은 데이터 — 잠긴 것은 point 둘',
-    why:'25 를 넣으려던 세션은 이제 막히지 않는다. 구간이 아니라 레코드만 잠겼기 때문이다.',
+    why:'25 를 넣으려던 세션은 이제 막히지 않는다 — 잰 값: RC 의 A 가 열린 채 INSERT 25 는 0.001 초. 구간이 아니라 레코드만 잠겼기 때문이다.',
     key:'격리 수준은 성능 설정이 아니라 <em>무엇을 보장할지</em>의 선택이다. 잠금 범위는 그 선택의 결과로 따라온다.',
     fact:[['storage/innobase/include/trx0trx.h','SELECT ... FOR UPDATE and ... LOCK IN SHARE MODE only lock'],
           ['storage/innobase/include/trx0trx.h','the index records, NOT the gaps before them, and thus allow'],
