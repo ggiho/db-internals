@@ -66,11 +66,21 @@ export const CORE = {
     x: ['root 는 늘 0 번 블록에 있다', 'InnoDB 처럼 root 페이지 번호가 그대로다', '탐색마다 leaf 부터 거슬러 올라간다'],
   },
   '05/3': {
-    q: 'leaf 를 (Kim, Minji) | (Lee, Ara) 사이에서 가르면 왼쪽의 새 high key 는?',
-    a: '(Lee) — 첫 열만 남긴다',
-    x: ['(Lee, Ara) 그대로', '(Kim, Minji) 그대로', '(Kim, Minji, Lee, Ara) 를 모두'],
+    q: "(last, email) leaf 를 ('Kim', 'kim.0160@…') | ('Lee', 'lee.0001@…') 사이에서 가르면 새 high key 는?",
+    a: "('Lee') 16 B — 첫 열만 남긴다",
+    x: ["('Lee', 'lee.0001@…') 40 B 그대로", "('Kim', 'kim.0160@…') — 왼쪽 마지막 키", "('Lee', 'lee.0001@…') 에 heap TID 를 붙인 48 B"],
+  },
+  '05/6': {
+    q: '키 열이 모두 같은 항목뿐인 leaf(posting list 없이)를 가르면 새 high key 는?',
+    a: '키 열 전부에 heap TID 를 덧붙인다',
+    x: ['키 열 하나만 남겨 짧게 만든다', '키 없이 heap TID 만 담는다', '가를 자리가 없어 가르지 않는다'],
   },
   '05/7': {
+    q: '같은 10 만 행을 한 행씩 넣은 인덱스와 다 넣고 CREATE INDEX 한 인덱스 — 16 B pivot 이 훨씬 많은 쪽은?',
+    a: '한 행씩 넣은 쪽 — 분할점을 고른다',
+    x: ['CREATE INDEX 쪽 — 정렬해서 차례로 끊는다', '둘이 같다 — 자르는 규칙이 같다', '어느 쪽도 없다 — 내부 페이지는 자르지 않는다'],
+  },
+  '05/8': {
     q: 'InnoDB 의 node pointer 와 비교해 PG 의 pivot 키가 다른 점은?',
     a: 'PG 는 두 쪽을 가르는 데 필요한 열까지만 둔다',
     x: ['PG 는 자식 페이지의 첫 키를 그대로 둔다', 'InnoDB 가 PG 보다 키를 더 짧게 자른다', '둘 다 키 없이 heap TID 만 담는다'],
