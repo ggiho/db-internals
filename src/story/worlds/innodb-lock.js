@@ -7,7 +7,8 @@
        이웃한 레코드가 아니거나, rec 가 레코드 위에 있지 않거나, hot 으로 칠한 간선이 사이클 위에 없으면 console.error
        칸 줄의 id 가 data_locks 의 LOCK_MODE · LOCK_DATA 꼴('X 20' · 'X,GAP 50' · 'X,REC_NOT_GAP 30' · 'X,GAP,INSERT_INTENTION 30')이면
        축에 그 모양의 범위가 있어야 한다 — X = next (…, 20], X,GAP = gap (…, 50), X,REC_NOT_GAP = rec 20, INSERT_INTENTION = 그 레코드 앞 gap 안의
-       blk · ii. 없으면 console.error (07 — 잰 data_locks 줄과 그림이 어긋나지 않게)
+       blk · ii. 없으면 console.error (07 — 잰 data_locks 줄과 그림이 어긋나지 않게). 뒤에 ' · A' 처럼 임자를 붙여도 같고(08 — 두 트랜잭션이
+       같은 레코드를 하나는 쥐고 하나는 기다린다), sub 에 WAITING 이 있으면 범위 대신 그 레코드의 blk 가 있어야 한다
    손잡이가 있는 장면(07 격리 수준 · 08 innodb_deadlock_detect)은 값마다 따로 bake 해 두고 setVary 로 바꾼다.
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
@@ -117,9 +118,10 @@ function one({ F, deck, labels, sc }) {
       const vs = s[IDX].map((x) => x.v).sort((p, q) => p - q), ax = s[IDX + '#ax'], sp = s[IDX + '#sp'];
       const prevOf = (v) => { const j = vs.indexOf(v); return j > 0 ? vs[j - 1] : ax.min; };
       for (const r of ROWS) for (const it of s[r]) {
-        const m = /^([XS])(,GAP)?(,REC_NOT_GAP)?(,INSERT_INTENTION)?\s+(\d+)$/.exec(it.id);
+        const m = /^([XS])(,GAP)?(,REC_NOT_GAP)?(,INSERT_INTENTION)?\s+(\d+)(?:\s+·\s+\S+)?$/.exec(it.id);
         if (!m) continue;
         const v = +m[5], ok = m[4] ? sp.some((q) => (q.kind === 'blk' || q.kind === 'ii') && vs.includes(v) && q.from > prevOf(v) && q.from < v)
+          : /WAITING/.test(it.sub || '') ? sp.some((q) => q.kind === 'blk' && q.from === v && q.to === v)
           : m[3] ? sp.some((q) => q.kind === 'rec' && q.to === v)
           : m[2] ? sp.some((q) => q.kind === 'gap' && q.to === v)
           : sp.some((q) => q.kind === 'next' && q.to === v);
