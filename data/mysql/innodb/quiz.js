@@ -141,21 +141,31 @@ export const CORE = {
     x: ['없다 — 스캔이 끝나면 스캔 페이지도 곧 old 로 내려간다', '스캔 페이지가 dirty 가 되어 flush 가 몰린다', 'free list 가 바닥나 모든 읽기가 멈춘다'],
   },
   '06/1': {
-    q: '8.4 서버에서 Free buffers 가 0 으로 떨어졌다면?',
-    a: 'page cleaner 가 free list 를 못 채우고 뒤처졌다',
-    x: ['정상이다 — buffer pool 을 다 쓰고 있다는 뜻이다', '메모리 누수 — 재시작해야 한다', 'buffer pool 인스턴스 하나가 고장 났다'],
+    q: 'page cleaner 가 도는 서버에서 Free buffers 가 0 으로 떨어졌다면?',
+    a: 'cleaner 가 lru_scan_depth 만큼 채워 두는 속도를 읽기가 앞질렀다',
+    x: ['정상이다 — buffer pool 을 다 쓰고 있다는 뜻일 뿐이다', '메모리 누수 — 재시작해야 한다', 'buffer pool 인스턴스 하나가 고장 났다'],
+  },
+  '06/4': {
+    q: 'LRU 꼬리 일곱 장이 dirty 이고 여덟째가 clean 일 때, 빈 frame 이 필요한 읽기는?',
+    a: '일곱 장을 지나쳐 여덟째를 버린다 — 쓰기 없이',
+    x: ['꼬리 첫 장을 flush 한 뒤 그 frame 을 쓴다', '거기서 멈추고 page cleaner 를 기다린다', 'dirty 일곱 장을 young 으로 돌려보내고 다시 본다'],
   },
   '06/6': {
-    q: 'eviction 하려는 LRU 꼬리 페이지가 dirty 이면?',
-    a: '버릴 수 없다 — 먼저 디스크에 flush 해야 한다',
-    x: ['그냥 버린다 — 변경은 redo 에 있으니 괜찮다', '꼬리를 young 으로 돌려보내고 읽기를 포기한다', 'flush list 로 옮기고 frame 을 바로 비운다'],
+    q: '꼬리 100 장이 모두 dirty 일 때 첫 훑기는?',
+    a: '100 장에서 멈추고 실패한다 — try_LRU_scan 을 내린다',
+    x: ['목록 끝까지 훑어 clean 을 찾는다', 'young 쪽으로 넘어가 clean 을 버린다', '처음부터 훑지 않는다 — 꼬리를 바로 flush 한다'],
   },
   '06/7': {
-    q: '빈 frame 을 얻으려고 사용자 스레드가 dirty page 를 직접 flush 할 때의 문제는?',
-    a: '쿼리가 무관한 디스크 쓰기를 기다리고, 한 장씩이라 비효율적이다',
-    x: ['doublewrite 를 건너뛰고 바로 쓰므로 torn page 위험이 생긴다', 'redo 보다 페이지가 먼저 가서 WAL 이 깨진다', 'checkpoint 가 뒤로 밀려 복구가 길어진다'],
+    q: '빈 frame 을 얻으려고 사용자 스레드가 꼬리 dirty 를 직접 쓸 때 일어나는 일은?',
+    a: '한 장을 doublewrite 와 데이터 파일에 쓰고 fsync 를 두 번 기다린다',
+    x: ['doublewrite 를 건너뛰고 데이터 파일에만 쓴다', '꼬리 128 장을 모아 한 번에 쓴다 — LRU batch 처럼', 'redo 만 fsync 하고 페이지 쓰기는 cleaner 에게 맡긴다'],
   },
-  '06/9': {
+  '06/8': {
+    q: '100 장 훑기가 한 번 실패한 뒤, 다음 읽기가 빈 frame 을 구하는 방법은?',
+    a: '훑지 않고 곧장 꼬리를 쓴다 — flush batch 가 끝날 때까지',
+    x: ['다시 100 장을 훑어 본다', '목록 전체를 훑는다', '10 ms 자며 page cleaner 를 기다린다'],
+  },
+  '06/10': {
     q: '04(checkpoint 나이) 와 06(빈 frame 부족) 을 비교하면?',
     a: 'cleaner 가 못 따라간 결과 — 04 는 쓰기, 06 은 읽기를 막는다',
     x: ['둘 다 redo 를 재사용 못해서 생긴다 — 그래서 막는 것도 같다', '04 는 읽기를 막고 06 은 쓰기를 막는다', '04 는 cleaner 가 느린 문제, 06 은 buffer pool 이 작아서 생기는 문제'],

@@ -7,6 +7,7 @@
      · 셈 맞추기 — sep 이 둘 이상이거나, sub 가 'old' 로 시작하는 페이지가 경계 왼쪽(young)에 · 'young' 으로 시작하는 페이지가
        오른쪽(old)에 있거나, win 이 0 이 아닌데 시간 창 안(acc × 1000 < win)에서 old → young 으로 옮겨지면 console.error.
        sep 의 sub 에 잰 'old N / M' 이 있는데 N 이 pct 의 목표에서 20(BUF_LRU_OLD_TOLERANCE) 넘게 벗어나도
+       LRU 에서 사라진 dirty 칸이 같은 스텝에 다른 칸 줄(doublewrite · .ibd)에 새로 들지 않아도 — dirty 는 쓰지 않고 버릴 수 없다(06)
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
 import { kvLine } from './kvline.js';
@@ -95,6 +96,13 @@ function one({ F, deck, labels, sc }) {
     if (om && pm) {
       const n = +om[1].replace(/,/g, ''), m = +om[2].replace(/,/g, ''), goal = Math.floor((m * Math.floor((+pm[1] * 1024) / 100)) / 1024);
       if (Math.abs(n - goal) > 20) console.error(`${at} : old ${n} / ${m} 이 목표 ${goal} 에서 20 넘게 벗어났다`);
+    }
+    /* dirty 는 그냥 버릴 수 없다(buf_flush_ready_for_replace) — LRU 에서 사라진 dirty 칸은 같은 스텝에 다른 칸 줄에
+       새로 들어가야 한다. 06 의 single page flush 는 doublewrite · .ibd 에, LRU batch 는 .ibd 에 같은 id 를 넣는다 */
+    if (pv) for (const it of pv[LRU]) {
+      if (it.tag !== 'dirty' || s[LRU].some((x) => x.id === it.id)) continue;
+      if (!ROWS.some((r) => r !== LRU && ((s.chg[r] && s.chg[r].add) || []).map(String).includes(it.id)))
+        console.error(`${at} : dirty ${it.id} 가 LRU 에서 사라졌는데 이 스텝에 쓰인 곳이 없다 — 쓰지 않고 버렸다`);
     }
     for (const it of s[LRU]) {
       if (it.tag === 'sep') continue;
