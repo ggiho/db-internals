@@ -12,6 +12,7 @@
        세그먼트(lsn ‥ end) 안에 있는지 본다
        checkpoint(03) — kv 에 max_wal_size(· completion_target) · RedoRecPtr 가 있으면 '문턱' 과 checkpoint starting: wal 이 찍힌 스텝의
        Insert 를 CalculateCheckpointSegments · XLogCheckpointNeeded 로, '단계' 의 removed · recycled 를 redo 세그먼트와 칸 줄로 맞춘다
+       커밋(04) — 칸 설명의 '힌트 못 적음' · 'XMIN_COMMITTED 힌트' 를 SetHintBits 의 규칙(커밋 LSN 대 Flush · 페이지 LSN)으로, "커밋 N · fsyncs M — R 개씩" 을 N / M 으로 맞춘다
    손잡이가 있는 장면(04 synchronous_commit)은 값마다 따로 bake 해 두고 setVary 로 바꾼다.
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
@@ -212,6 +213,33 @@ function make({ F, deck, labels, scene }) {
       }
     }
   });
+  /* 커밋(04) — heapam_visibility.c SetHintBits : 커밋 LSN 까지 WAL 이 안 내려갔고(XLogNeedsFlush) 페이지 LSN 도 그보다 작으면 힌트를 못 적는다.
+     커밋 LSN 은 asyncXactLSN(비동기) 또는 'COMMIT' 이 적힌 마지막 Insert. 칸의 설명이 이번 스텝에 '힌트 못 적음' 이 되면 Flush 와 페이지 LSN 이
+     둘 다 그보다 작아야 하고, 'XMIN_COMMITTED 힌트' 가 되면 둘 중 하나가 그 이상이어야 한다.
+     또 kv 의 "커밋 N · fsyncs M — R 개씩" 은 N / M 을 소수 한 자리로 셈한 값이 R 이어야 한다(그룹 커밋) */
+  for (const [k, b] of BAKES) {
+    let commit = null;
+    [b.S0, ...b.S].forEach((s, i, arr) => {
+      const at = `pg wal ${sc.num} 세계${k ? ' (' + sc.vary.knob + '=' + k + ')' : ''} : ${i ? i + ' 스텝' : 'init'}`, pv = i ? arr[i - 1] : null;
+      for (const a of TEXTS) {
+        if (/COMMIT/.test(bare(s[a].Insert ?? '')) && lsnOf(s[a].Insert) != null) commit = lsnOf(s[a].Insert);
+        if (lsnOf(s[a].asyncXactLSN) != null) commit = lsnOf(s[a].asyncXactLSN);
+        for (const [key, v] of Object.entries(s[a])) {
+          const m = /커밋\s*([\d,]+)\s*·\s*fsyncs\s*([\d,]+)\s*—\s*([\d.]+)\s*개씩/.exec(bare(v)); if (!m) continue;
+          const r = Number(m[1].replace(/,/g, '')) / Number(m[2].replace(/,/g, ''));
+          if (r.toFixed(1) !== m[3]) console.error(`${at} 의 ${a} ${key} : 커밋 ${m[1]} / fsyncs ${m[2]} = ${r.toFixed(2)} 인데 ${m[3]} 개씩이라 적었다`);
+        }
+      }
+      if (!pv || commit == null) return;
+      const fl = flushOf(s);
+      for (const a of ROWS) for (const x of s[a]) {
+        const o = pv[a].find((q) => q.id === x.id); if (o && o.sub === x.sub) continue;
+        const pl = itLsn(x) ?? itLsn(o);
+        if (/힌트 못 적음/.test(x.sub) && !(fl < commit && pl < commit)) console.error(`${at} 의 ${x.id} : 힌트를 못 적는다는데 Flush ${lsnTx(fl)} · 페이지 LSN ${lsnTx(pl)} 중 커밋 LSN ${lsnTx(commit)} 이상이 있다`);
+        if (/XMIN_COMMITTED 힌트/.test(x.sub) && !(fl >= commit || pl >= commit)) console.error(`${at} 의 ${x.id} : 힌트를 적었다는데 Flush ${lsnTx(fl)} · 페이지 LSN ${lsnTx(pl)} 둘 다 커밋 LSN ${lsnTx(commit)} 보다 작다`);
+      }
+    });
+  }
   let cur = BAKES.get(null) || [...BAKES.values()][0];
 
   /* ── 알갱이 구역 ── */
