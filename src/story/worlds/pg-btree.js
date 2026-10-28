@@ -8,7 +8,8 @@
      · 페이지의 grp(08 : 인덱스 둘)가 있으면 grp 마다 옆으로 나란한 칸에 그 인덱스의 트리를 따로 세운다
      · 셈 맞추기 — high key 가 있는 페이지는 모든 키가 high key 보다 작고 오름차순이어야 한다(숫자 키일 때).
        페이지에 잰 free(bt_page_stats 의 free_size)가 있으면 fill 이 1 − free / 8148 과 맞아야 하고,
-       list(그 페이지를 보이는 list 배우)와 live 가 있으면 그 줄의 항목 수(칸마다 n, 없으면 1)의 합이 live 와 같아야 한다.
+       list(그 페이지를 보이는 list 배우)와 live 가 있으면 그 줄의 항목 수(칸마다 n, 없으면 1)의 합이 live 와 같아야 한다 —
+       LP_DEAD 칸(x)은 빼고 따로 dead(dead_items, 없으면 0)와 맞춘다.
        어긋나면 console.error 로 알린다(storysweep 의 errors 가 잡는다)
      · act 는 덩어리가 f 에서 t 로 — 트리는 act 이름이 짚는 페이지, 없으면 그 스텝에서 바뀐 페이지
      · 그 스텝이 건드린 배우(touch)는 또렷하게, 나머지는 흐리게
@@ -79,8 +80,11 @@ function make({ F, deck, labels, scene }) {
         if (typeof p.free === 'number' && typeof p.fill === 'number' && Math.abs(p.fill - (1 - p.free / 8148)) > 0.01)
           console.error(`${tag} : ${at} 의 ${p.id} fill ${p.fill} 가 free_size ${p.free} 로 셈한 ${(1 - p.free / 8148).toFixed(3)} 와 다르다`);
         if (p.list && typeof p.live === 'number' && s[p.list]) {
-          const sum = s[p.list].reduce((t, x) => t + (typeof x.n === 'number' ? x.n : 1), 0);
+          /* LP_DEAD 칸(x)은 bt_page_stats 의 dead_items 다 — live_items 에 들지 않는다(01 의 leaf 1) */
+          const cnt = (f) => s[p.list].filter(f).reduce((t, x) => t + (typeof x.n === 'number' ? x.n : 1), 0);
+          const sum = cnt((x) => x.tag !== 'x'), dead = cnt((x) => x.tag === 'x'), pd = typeof p.dead === 'number' ? p.dead : 0;
           if (sum !== p.live) console.error(`${tag} : ${at} 의 ${p.id} live ${p.live} 와 ${A[p.list].nm} 의 항목 합 ${sum} 이 다르다`);
+          if (dead !== pd) console.error(`${tag} : ${at} 의 ${p.id} dead ${pd} 와 ${A[p.list].nm} 의 LP_DEAD 칸 합 ${dead} 이 다르다`);
         }
       }
     });
