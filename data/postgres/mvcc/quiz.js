@@ -87,17 +87,17 @@ export const CORE = {
     a: '인덱스 키 열 불변, 같은 페이지에 빈 자리',
     x: ['인덱스 키 열 불변이면 충분하다', '키 불변, 그리고 fillfactor 가 100 미만', '테이블에 인덱스가 하나도 없어야 한다'],
   },
-  '09/3': {
-    q: 'REPEATABLE READ 세션 S1(xmin 500)이 열려 있을 때, 600 이 지우고 커밋한 튜플을 VACUUM 은?',
-    a: '남긴다 — 600 이 OldestXmin 500 보다 뒤다',
+  '09/5': {
+    q: 'REPEATABLE READ 세션 S1(xmin 12902)이 열려 있을 때, 13000 이 지우고 커밋한 튜플을 VACUUM 은?',
+    a: '남긴다 — 13000 이 OldestXmin 12902 보다 뒤다',
     x: ['곧바로 치운다 — 600 은 이미 커밋됐다', 'S1 이 그 테이블을 읽은 적이 없으면 치운다', 'VACUUM 이 S1 이 끝날 때까지 기다렸다가 치운다'],
   },
-  '09/5': {
+  '09/4': {
     q: '"idle in transaction" 세션이 horizon 을 붙잡지 않는 경우는?',
     a: '읽기만 한 READ COMMITTED 세션 — 남은 snapshot 이 없다',
     x: ['REPEATABLE READ 로 SELECT 만 한 세션', '무엇이든 쓴 뒤 노는 READ COMMITTED 세션', 'idle 이면 수준과 무관하게 모두 붙잡는다'],
   },
-  '09/8': {
+  '09/9': {
     q: 'VACUUM 로그의 removable cutoff 가 계속 아주 오래됐다면 먼저 볼 것은?',
     a: 'backend_xmin 이 가장 작은 세션과 복제 슬롯의 xmin',
     x: ['autovacuum_max_workers 를 늘렸는지', '테이블의 fillfactor 와 HOT 비율', 'shared_buffers 와 checkpoint 간격'],
