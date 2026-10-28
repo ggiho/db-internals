@@ -700,14 +700,30 @@ const SCENES = [
     ops:{ pbc:{ set:{ 'BufferMapping':'4 / 활성 109' } } } },
   ],
 },
+/* 잰 값(PG 18.6, 이 빌드, --data-checksums, macOS) — shared_buffers 16MB = 2,048 칸, autovacuum off, bgwriter_delay 200ms · lru_maxpages 100 · lru_multiplier 2,
+   bgwriter_flush_after 0 (이 OS 에는 sync_file_range 가 없어 기본이 0). DB bgw 에 pgbench -i -s 20 (pgbench_accounts 32,787 블록 = 버퍼 칸의 16 배).
+   부하마다 CHECKPOINT · pg_stat_reset_shared('bgwriter' · 'checkpointer' · 'io') 로 0 에서 시작, 끝에 CHECKPOINT 한 번. 쓰기 수는 pg_stat_io relation · normal 의 writes.
+     A 기본 — pgbench -N -c 8 -t 40000 (320,000 거래, 21,047 tps) : buffers_alloc 580,384 · buffers_clean 7,930 · maxwritten_clean 79,
+       writes client backend 324,943 · background writer 7,962, evictions 580,420. 끝에 dirty 701, CHECKPOINT 의 checkpointer 669.
+     B bgwriter_lru_maxpages 0 — 같은 320,000 거래 : buffers_clean 0, client backend 336,472, 끝 dirty 1,090, checkpointer 1,043.
+     C 기본 · 느린 부하 — pgbench -N -c 2 -R 200 -T 30 (6,044 거래) : buffers_alloc 11,145 · buffers_clean 5,300 · maxwritten_clean 0,
+       client backend writes 0 · evictions 11,162, background writer 5,300(뒤에 5,325), checkpointer 961.
+     (첫 판은 -T 30 이라 A · B 의 거래 수가 603k · 384k 로 달랐다 — A buffers_clean 15,029 · maxwritten_clean 150 · client backend 620,636, B 0 · 388,151.
+      tps 는 판마다 크게 흔들려(A 20,103 · 21,047, B 12,791 · 9,182) 장면에서 견주지 않는다.)
+   겨울잠 — pg_stat_activity 의 bgwriter wait_event : A 가 끝나고 10:31:41.248 BgwriterMain → 42.601 BgwriterHibernate (1.35 초).
+     겨울잠 중 새 연결이 (30001,1) 을 읽자(EXPLAIN shared read=1, 계획 중 카탈로그 read=17) read 50.191 → 50.196 BgwriterMain → 51.001 BgwriterHibernate.
+     (첫 판의 B 부하 중 표본 40 장 : BgwriterMain 38 · BgwriterHibernate 2 — lru_maxpages 0 이면 BgBufferSync 가 곧바로 참을 돌려준다.)
+   규칙으로 계산 : 할당이 없어도 한 주기에 훑는 최소 = 2,048 / (120,000 / 200) = 3.4 칸.
+   로그 : ~/.cache/dbi/measure/buf/buffer-05.txt (본 측정 = sql/buffer-05b.sh, 첫 판 sql/buffer-05.sh) */
 {
   num:'05', tab:'Background Writer', title:'The Background Writer: Cleaning Ahead of the Clock',
   sub:'200ms 마다 깨어나 다음 주기의 할당량을 어림하고, 시계 바늘 앞의 재사용 후보 중 dirty 인 것만 미리 쓴다 — usage_count 는 건드리지 않는다',
-  cast:['clk','bgw','be','pool','heap'],
+  cast:['clk','bgw','be','pool','heap','pbc'],
   knobs:[
     ['bgwriter_delay','200ms','깨어나는 주기 — 할 일이 없으면 이것의 50 배를 잔다'],
+    ['bgwriter_lru_maxpages','100','한 주기에 쓰는 최대 버퍼 수 — 0 이면 bgwriter 가 쓰지 않는다'],
     ['bgwriter_lru_multiplier','2.0','최근 할당 속도에 곱하는 값 — 클수록 넉넉히 미리 쓴다'],
-    ['bgwriter_flush_after','512kB','이만큼 쓰면 커널에 writeback 을 요청한다 — Linux 에서만 기본으로 켜진다'] ],
+    ['bgwriter_flush_after','512kB','이만큼 쓰면 커널에 writeback 을 요청한다 — Linux 에서만 기본으로 켜진다 (잰 서버 macOS 는 0)'] ],
   watch:[
     ['pg_stat_bgwriter','buffers_clean — bgwriter 가 쓴 버퍼 · maxwritten_clean — bgwriter_lru_maxpages 에 걸려 멈춘 횟수'],
     ['pg_stat_bgwriter','buffers_alloc — 새로 할당한 버퍼 수, bgwriter 가 속도를 재는 그 수'],
@@ -730,15 +746,17 @@ const SCENES = [
       { id:'p:17', tag:'clean', sub:'옛 내용' },
       { id:'p:20', tag:'clean', sub:'옛 내용' },
       { id:'p:26', tag:'clean', sub:'옛 내용' } ] },
+    pbc:{ kv:{ 'buffers_alloc':'—', 'A 기본 100':'—', 'B maxpages 0':'—', 'C 느린 부하':'—', 'checkpointer':'—', '겨울잠':'—' } },
   },
   steps:[
-  { look:{ clk:true, pool:true },
+  { look:{ clk:true, pool:true, pbc:['buffers_alloc'] },
     note:'backend 가 시계로 버퍼를 받을 때마다 numBufferAllocs +1 — ring 재사용은 제외',
-    why:'StrategyGetBuffer 는 버퍼를 하나 내줄 때마다 공유 카운터를 원자적으로 하나 올린다. 주석 : bgwriter 가 버퍼를 쓰는 속도를 가늠하게 하려는 것이고, 링이 돌려 쓴 버퍼는 일부러 세지 않는다. 지난 200ms 동안 두 번 할당했다.',
-    key:'bgwriter 의 모든 판단은 <em>이 수 하나</em>에서 시작한다 — 얼마나 빨리 빈 버퍼가 소비되는가.',
+    why:'StrategyGetBuffer 는 버퍼를 하나 내줄 때마다 공유 카운터를 원자적으로 하나 올린다. 주석 : bgwriter 가 버퍼를 쓰는 속도를 가늠하게 하려는 것이고, 링이 돌려 쓴 버퍼는 일부러 세지 않는다. 그림의 풀(여덟 칸)에서는 지난 200ms 동안 두 번 할당했다. 잰 값: shared_buffers 16MB(2,048 칸)에 pgbench_accounts 32,787 블록을 두고 pgbench -N 320,000 거래를 돌리자 pg_stat_bgwriter 의 buffers_alloc 이 580,384 — 이 카운터를 bgwriter 가 주기마다 거둬 모은 값이다.',
+    key:'bgwriter 의 모든 판단은 <em>이 수 하나</em>에서 시작한다 — 얼마나 빨리 빈 버퍼가 소비되는가. 잰 값 : 320,000 거래에 <em>580,384</em> 번.',
     ref:'src/backend/storage/buffer/freelist.c', sym:'StrategyGetBuffer',
     fact:['We count buffer allocation requests so that the bgwriter can estimate',
-          'pg_atomic_fetch_add_u32(&StrategyControl->numBufferAllocs, 1);'] },
+          'pg_atomic_fetch_add_u32(&StrategyControl->numBufferAllocs, 1);'],
+    ops:{ pbc:{ set:{ 'buffers_alloc':'580,384 / 320,000 거래' } } } },
 
   { act:{ f:'bgw', t:'clk', lb:'StrategySyncStart' },
     note:'bgwriter 기상 — clock hand 위치와 할당 수를 읽고 카운터를 0 으로',
@@ -752,7 +770,7 @@ const SCENES = [
 
   { look:{ bgw:true },
     note:'예상 할당 = 평활 할당 × lru_multiplier 2.0 = 4 — fast attack · slow decline',
-    why:'smoothed_alloc 는 할당 수의 이동 평균이다. 늘 때는 곧바로 그 값으로 뛰고, 줄 때는 16 표본에 걸쳐 천천히 내려간다. 여기에 bgwriter_lru_multiplier 를 곱한 것이 다음 주기까지 필요할 깨끗한 버퍼의 어림이다. 할당이 거의 없어도 2 분이면 풀 전체를 한 바퀴 훑도록 주기마다 최소 몫을 둔다.',
+    why:'smoothed_alloc 는 할당 수의 이동 평균이다. 늘 때는 곧바로 그 값으로 뛰고, 줄 때는 16 표본에 걸쳐 천천히 내려간다. 여기에 bgwriter_lru_multiplier 를 곱한 것이 다음 주기까지 필요할 깨끗한 버퍼의 어림이다. 할당이 거의 없어도 2 분이면 풀 전체를 한 바퀴 훑도록 주기마다 최소 몫을 둔다 — 2,048 칸이면 2,048 / (120,000 / 200) = 3.4 칸(규칙으로 계산).',
     key:'갑자기 바빠지면 <em>바로 따라가고</em>, 잠깐 한가해져도 <em>천천히 늦춘다</em>. 쓸 버퍼가 모자라는 쪽보다 남는 쪽을 택한 비대칭이다.',
     ref:'src/backend/storage/buffer/bufmgr.c', sym:'BgBufferSync',
     fact:['float smoothing_samples = 16;',
@@ -787,21 +805,23 @@ const SCENES = [
           heap:{ set:{ 'p:26':{ sub:'bgwriter 가 씀' } } },
           bgw:{ set:{ '청소 위치':'buf 7', '이번 주기':'2 개 씀 · 재사용 3' } } } },
 
-  { look:{ bgw:true, pool:['buf 7','buf 0','buf 1'] },
+  { look:{ bgw:true, pool:['buf 7','buf 0','buf 1'], pbc:['A 기본 100'] },
     note:'buf 7 · 0 · 1 은 skip — 바늘을 한 바퀴 앞지르면 정지, 이번 주기 2 개 write',
-    why:'멈추는 조건은 셋이다 — 바늘을 한 바퀴 앞질렀거나, 다음 주기의 어림만큼 재사용 버퍼를 확보했거나, bgwriter_lru_maxpages(100)에 닿았거나. 마지막 경우는 maxwritten_clean 으로 센다. 쓴 블록이 bgwriter_flush_after(Linux 기본 64 블록 = 512kB)만큼 쌓이면 커널에 writeback 을 요청해 나중의 fsync 를 가볍게 한다.',
-    key:'목표는 <em>바늘이 닿을 때 이미 깨끗한 것</em>이다. 그 이상은 쓰지 않는다 — 다시 더러워질 버퍼를 미리 쓰는 것은 낭비다.',
+    why:'멈추는 조건은 셋이다 — 바늘을 한 바퀴 앞질렀거나, 다음 주기의 어림만큼 재사용 버퍼를 확보했거나, bgwriter_lru_maxpages(100)에 닿았거나. 마지막 경우는 maxwritten_clean 으로 센다. 잰 값: 부하 A(기본, 320,000 거래)에서 buffers_clean 7,930 · maxwritten_clean 79 — 거의 모든 주기가 100 개에서 멈췄다. 쓴 블록이 bgwriter_flush_after(Linux 기본 64 블록 = 512kB)만큼 쌓이면 커널에 writeback 을 요청해 나중의 fsync 를 가볍게 한다. 잰 서버(macOS)는 sync_file_range 가 없어 기본이 0 이고, pg_stat_io 의 writebacks 도 0 이었다.',
+    key:'목표는 <em>바늘이 닿을 때 이미 깨끗한 것</em>이다. 그 이상은 쓰지 않는다 — 다시 더러워질 버퍼를 미리 쓰는 것은 낭비다. 잰 값 : 바쁜 부하에서는 <em>100 에 걸린 주기 79 번</em>.',
     ref:'src/backend/storage/buffer/bufmgr.c', sym:'BgBufferSync',
     fact:['Now write out dirty reusable buffers, working forward from the',
           'requirements, or hit the bgwriter_lru_maxpages limit.',
           'if (++num_written >= bgwriter_lru_maxpages)',
-          ['src/include/pg_config_manual.h','#define DEFAULT_BGWRITER_FLUSH_AFTER 64']],
-    ops:{ bgw:{ set:{ '청소 위치':'buf 2', '앞선 바퀴':'바늘보다 1 바퀴 앞 — buf 2 는 다음 바퀴의 칸|gold', '이번 주기':'2 개 씀 · 재사용 3 · 한 바퀴|gold' } } } },
+          ['src/include/pg_config_manual.h','#define DEFAULT_BGWRITER_FLUSH_AFTER 64'],
+          ['src/include/pg_config_manual.h','#define DEFAULT_BGWRITER_FLUSH_AFTER 0']],
+    ops:{ bgw:{ set:{ '청소 위치':'buf 2', '앞선 바퀴':'바늘보다 1 바퀴 앞 — buf 2 는 다음 바퀴의 칸|gold', '이번 주기':'2 개 씀 · 재사용 3 · 한 바퀴|gold' } },
+          pbc:{ set:{ 'A 기본 100':'bgwriter 7,930 · 100 에 멈춤 79 번' } } } },
 
   { act:{ f:'be', t:'pool', lb:'빈 버퍼 하나' },
     note:'backend 할당 — buf 2 decrement 후 통과, buf 3 은 이미 clean → write 없이 즉시 사용',
-    why:'백엔드의 바늘은 buf 2 의 usage_count 를 3 에서 2 로 깎고 지나가, buf 3 에서 멈춘다. bgwriter 가 앞서 썼으므로 이 버퍼는 깨끗하다 — 백엔드는 쓰기 없이 바로 새 페이지를 담는다. 01 장면의 5 스텝과 같은 자리, 반대의 결과다.',
-    key:'bgwriter 가 이긴 경우다 — <em>질의가 쓰기를 떠안지 않는다</em>. pg_stat_io 에서 client backend 의 writes 가 오르지 않는다.',
+    why:'백엔드의 바늘은 buf 2 의 usage_count 를 3 에서 2 로 깎고 지나가, buf 3 에서 멈춘다. bgwriter 가 앞서 썼으므로 이 버퍼는 깨끗하다 — 백엔드는 쓰기 없이 바로 새 페이지를 담는다. 01 장면의 5 스텝과 같은 자리, 반대의 결과다. 잰 값: 느린 부하 C(pgbench -N 초당 200 거래, 30 초)에서 client backend 는 버퍼 11,162 개를 내보냈지만 쓴 것은 0 개, background writer 가 5,300 개를 썼다 — maxwritten_clean 0, 한 번도 100 에 닿지 않았다.',
+    key:'bgwriter 가 이긴 경우다 — <em>질의가 쓰기를 떠안지 않는다</em>. 잰 값 : 느린 부하에서 client backend 의 writes <em>0</em>, bgwriter 5,300.',
     ref:'src/backend/storage/buffer/freelist.c', sym:'StrategyGetBuffer',
     fact:['local_buf_state -= BUF_USAGECOUNT_ONE;',
           ['src/backend/postmaster/bgwriter.c','to keep regular backends from having to write out dirty shared buffers']],
@@ -809,12 +829,24 @@ const SCENES = [
     ops:{ pool:{ set:{ 'buf 2':{ u:2, sub:'p:12  ·  usage 2  (3 에서 깎임)' },
                        'buf 3':{ tag:'pin', u:1, pin:1, sub:'p:40  ·  usage 1  ·  핀 1' } } },
           clk:{ set:{ '바늘':'buf 4', 'numBufferAllocs':'1|gold' } },
-          be:{ set:{ '직접 쓴 버퍼':'0|green' } } } },
+          be:{ set:{ '직접 쓴 버퍼':'0|green' } },
+          pbc:{ set:{ 'C 느린 부하':'bgwriter 5,300 · backend 0|green' } } } },
 
-  { look:{ bgw:true, clk:true },
+  { look:{ pbc:['A 기본 100','B maxpages 0','checkpointer'] },
+    note:'잰 값 — 바쁜 부하에서는 backend 가 쓴다 : 기본 324,943 대 7,962, lru_maxpages 0 이면 336,472 대 0',
+    why:'같은 부하(pgbench -N 8 클라이언트, 320,000 거래)를 두 번 돌렸다. 기본 설정에서는 bgwriter 가 주기마다 100 개에서 멈추는 사이 client backend 가 victim 324,943 개를 직접 썼다 — bgwriter 는 7,962 개, 전체의 2.4%. bgwriter_lru_maxpages 를 0 으로 하자 BgBufferSync 는 아무것도 쓰지 않고 곧바로 돌아오고, client backend 의 writes 가 336,472. 부하 끝에 남은 dirty(701 · 1,090)는 CHECKPOINT 의 checkpointer 가 썼다(669 · 1,043). 느린 부하 C 에서는 그 몫이 961 이었다.',
+    key:'bgwriter 는 <em>주기마다 100 개</em>라는 상한 안에서만 돕는다. 그보다 빨리 더러워지면 쓰기는 질의를 돌리는 백엔드에게 돌아간다 — 잰 값 : 324,943 대 7,962.',
+    ref:'src/backend/storage/buffer/bufmgr.c', sym:'BgBufferSync',
+    fact:['if (bgwriter_lru_maxpages <= 0)',
+          'PendingBgWriterStats.maxwritten_clean++;',
+          ['src/backend/catalog/system_views.sql','pg_stat_get_checkpointer_buffers_written() AS buffers_written,']],
+    beat:1,
+    ops:{ pbc:{ set:{ 'A 기본 100':'bgwriter 7,962 · backend 324,943|red', 'B maxpages 0':'bgwriter 0 · backend 336,472|red', 'checkpointer':'끝의 CHECKPOINT  A 669 · B 1,043 · C 961' } } } },
+
+  { look:{ bgw:true, clk:true, pbc:['겨울잠'] },
     note:'그 뒤 할당 없는 주기가 둘 이어지면 hibernate — bgwriter_delay × 50 = 10 초, 첫 할당이 latch 로 깨운다',
-    why:'BgBufferSync 가 "할 일이 없었다" 를 돌려주고 그것이 두 주기 이어지면, bgwriter 는 StrategyNotifyBgWriter 로 자기 latch 를 걸어 두고 HIBERNATE_FACTOR 배 길게 잔다. 다음에 어느 백엔드든 StrategyGetBuffer 를 부르면 그 latch 를 세워 깨운다 — 한가한 서버에서 200ms 마다 깨는 전력을 아낀다.',
-    key:'한가할 때는 <em>할당 그 자체가 알람</em>이다. 바빠지는 첫 순간에 깨어난다.',
+    why:'BgBufferSync 가 "할 일이 없었다" 를 돌려주고 그것이 두 주기 이어지면, bgwriter 는 StrategyNotifyBgWriter 로 자기 latch 를 걸어 두고 HIBERNATE_FACTOR 배 길게 잔다. 다음에 어느 백엔드든 StrategyGetBuffer 를 부르면 그 latch 를 세워 깨운다 — 한가한 서버에서 200ms 마다 깨는 전력을 아낀다. 잰 값: pg_stat_activity 의 bgwriter wait_event 가 부하 A 가 끝나고 1.35 초 만에 BgwriterMain → BgwriterHibernate. 잠든 사이 새 연결이 블록 하나를 읽자(shared read=1) 5 ms 안에 BgwriterMain 으로 돌아왔고, 805 ms 뒤 다시 BgwriterHibernate 였다.',
+    key:'한가할 때는 <em>할당 그 자체가 알람</em>이다. 바빠지는 첫 순간에 깨어난다. 잰 값 : 읽기 하나에 <em>5 ms</em> 안에 깨고, 805 ms 뒤 다시 잔다.',
     ref:'src/backend/postmaster/bgwriter.c', sym:'BackgroundWriterMain',
     fact:['#define HIBERNATE_FACTOR 50',
           'the sleep in "hibernation" mode, where we sleep for much longer',
@@ -822,11 +854,12 @@ const SCENES = [
           ['src/backend/storage/buffer/freelist.c','This feature is used by the bgwriter process to wake itself up']],
     /* 7 스텝의 할당 1 이 남아 있으면 겨울잠에 들 수 없다 — can_hibernate 는 bufs_to_lap == 0 && recent_alloc == 0 */
     ops:{ bgw:{ set:{ '최근 할당':'0  (두 주기 연속)', '이번 주기':'할 일 없음 × 2|gold', '상태':'겨울잠 — 첫 할당이 깨운다' } },
-          clk:{ set:{ 'numBufferAllocs':'0' } } } },
+          clk:{ set:{ 'numBufferAllocs':'0' } },
+          pbc:{ set:{ '겨울잠':'부하 끝 1.35 s 뒤 · 읽기 1 에 깸 · 805 ms 뒤 다시|gold' } } } },
 
-  { look:{ bgw:true, pool:true, be:true },
+  { look:{ bgw:true, pool:true, be:true, pbc:true },
     note:'정리 — bgwriter = 바늘 앞의 dirty reusable 만 미리 write',
-    why:'bgwriter 는 할당 속도를 재고, 바늘 앞에서 곧 내줄 버퍼만 골라, 더러운 것만 쓴다. 나이(usage_count)는 건드리지 않고 핀이 걸린 버퍼도 건너뛴다. 따라가지 못하면 01 장면처럼 백엔드가 직접 쓴다. 성적표는 pg_stat_bgwriter 의 네 칸이다.',
+    why:'bgwriter 는 할당 속도를 재고, 바늘 앞에서 곧 내줄 버퍼만 골라, 더러운 것만 쓴다. 나이(usage_count)는 건드리지 않고 핀이 걸린 버퍼도 건너뛴다. 따라가지 못하면 01 장면처럼 백엔드가 직접 쓴다. 성적표는 pg_stat_bgwriter 의 세 칸(buffers_clean · maxwritten_clean · buffers_alloc)과 pg_stat_io 의 backend_type 별 writes 다 — 잰 세 판에서 느린 부하는 bgwriter 가, 바쁜 부하는 client backend 가 거의 다 썼다.',
     key:'InnoDB 의 page cleaner 가 LRU 꼬리를 미리 비우는 것과 <em>같은 자리의 일</em>이다(mysql/innodb 06). 다른 것은 목록이 아니라 시계 바늘 앞을 본다는 점이다.',
     ref:'src/backend/storage/buffer/bufmgr.c', sym:'BgBufferSync',
     fact:[['src/backend/catalog/system_views.sql','pg_stat_get_bgwriter_buf_written_clean() AS buffers_clean,'],

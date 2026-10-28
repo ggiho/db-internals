@@ -243,8 +243,10 @@ function make({ F, deck, labels, scene }) {
     G = { L, anc: {}, slot: {}, state: {}, ptr: {} };
     let tn = Math.max(1, Math.min(3, TEXTS.length));
     while (tn > 1 && (ww - (tn - 1) * gap) / tn < 150) tn--;
-    const tW = (ww - (tn - 1) * gap) / tn;
-    for (const a of TEXTS) wrap(tx[a], tW);
+    /* 글 블록의 폭 — 줄마다 그 줄의 블록 수로 나눈다. 마지막 줄에 하나만 남으면(04 · 05 의 MEASURED) 무대 폭을 다 쓴다 —
+       3 분의 1 폭에 잰 값을 접어 넣었더니 05 가 1024×768 에서 무대를 70px 넘었다 */
+    const tWr = (r) => { const k = Math.min(tn, TEXTS.length - r * tn); return (ww - (k - 1) * gap) / k; };
+    TEXTS.forEach((a, i) => wrap(tx[a], tWr(Math.floor(i / tn))));
     const tRows = Math.ceil(TEXTS.length / tn), tHs = Array.from({ length: tRows }, (_, r) => hMax(TEXTS.slice(r * tn, r * tn + tn).map((a) => tx[a])));
     const wc = new Map();
     const wOf = (lb, html) => {
@@ -314,7 +316,7 @@ function make({ F, deck, labels, scene }) {
     const lay = (y0, k = 1) => {
       let y = y0;
       const rowY = [y]; for (let r = 0; r < tRows; r++) rowY.push(rowY[r] + HD + tHs[r] + 12 * k);
-      TEXTS.forEach((a, i) => { const x = L.x0 + (i % tn) * (tW + gap), yy = rowY[Math.floor(i / tn)]; place(hd[a], x, yy); place(tx[a], x, yy + HD); G.anc[a] = { x: x + tW - 18, y: yy + 8 }; });
+      TEXTS.forEach((a, i) => { const r = Math.floor(i / tn), tW = tWr(r), x = L.x0 + (i % tn) * (tW + gap), yy = rowY[r]; place(hd[a], x, yy); place(tx[a], x, yy + HD); G.anc[a] = { x: x + tW - 18, y: yy + 8 }; });
       y = rowY[tRows];
       for (const a of STATES) {
         place(hd[a], L.x0, y); place(W[a].hex, L.x1, y, 'r', 't');

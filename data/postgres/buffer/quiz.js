@@ -60,6 +60,11 @@ export const CORE = {
     a: 'victim 을 고를 때의 쓰기',
     x: ['매핑 표 조회 한 번', '다음 블록을 읽는 I/O', 'WAL 레코드 하나의 기록'],
   },
+  '05/8': {
+    q: '버퍼보다 큰 테이블에 바쁜 쓰기 부하가 돌면 victim 의 dirty 페이지는 대부분 누가 쓰나?',
+    a: '질의를 돌리던 client backend',
+    x: ['앞서 깨어난 background writer', '다음 checkpoint 의 checkpointer', 'WAL 을 쓰는 walwriter'],
+  },
   '06/3': {
     q: 'read stream 이 42 · 43 · 44 를 읽는 방법은?',
     a: '한 I/O 로 묶어 24KB 를 한 번에',
