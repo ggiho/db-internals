@@ -82,10 +82,20 @@ export const CORE = {
     a: '새 XID 가 필요한 명령을 거부한다',
     x: ['가장 오래된 튜플부터 자동으로 지운다', 'XID 를 64비트로 넓혀 계속 쓴다', '데이터베이스를 읽기 전용으로 재시작한다'],
   },
-  '06/5': {
+  '06/6': {
     q: 'frozen xmin 을 튜플 헤더는 어떻게 표시하나?',
     a: 'COMMITTED 와 INVALID 두 힌트 비트를 함께 켠다',
     x: ['t_infomask 에 FROZEN 전용 비트를 하나 더 둔다', 'xmax 에 freeze 전용 XID 를 적는다', 't_ctid 에 freeze 표식을 적는다'],
+  },
+  '06/7': {
+    q: 'vacuum_freeze_table_age 를 넘겨 aggressive 가 된 VACUUM 이 반드시 하는 일은?',
+    a: '얼지 않은 페이지를 다 읽어 relfrozenxid 를 올린다',
+    x: ['min_age 와 상관없이 모든 튜플을 얼린다', '인덱스 정리를 건너뛰고 freeze 만 한다', 'ALL_VISIBLE 이 아닌 페이지만 골라 읽는다'],
+  },
+  '06/9': {
+    q: 'failsafe 가 켜진 VACUUM 이 끝난 뒤 테이블에 남는 것은?',
+    a: 'LP_DEAD 와 그 인덱스 항목 — 얼리고 relfrozenxid 만 올렸다',
+    x: ['아무것도 — 평소보다 빠르게 같은 일을 다 했다', '얼지 않은 튜플 — 얼리기를 건너뛰고 경고만 남겼다', '잘라 낸 빈 페이지 — failsafe 는 파일부터 줄인다'],
   },
   '08/4': {
     q: '다른 세션이 고치는 중인 행을 UPDATE 하면 pg_locks 에서 무엇을 기다리나?',

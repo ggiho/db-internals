@@ -801,7 +801,9 @@ function make({ F, deck, labels, scene }) {
       if (RINGA) {
         const { x, y, r } = G.ring, th0 = ringTh(nums(s[RINGA]['현재 XID'])[0] || 0), xm = ringXmin(s);
         const out = (lb, th, d) => { const c = Math.cos(th), sn = Math.sin(th); place(lb, x + c * (r + d), y + sn * (r + d), c > 0.3 ? 'l' : c < -0.3 ? 'r' : 'c', sn > 0.3 ? 't' : sn < -0.3 ? 'b' : 'c'); };
-        if (xm) out(ringX.xmin, ringTh(xm), 8);
+        /* 잰 XID 는 2^32 에 비해 작아 눈금이 늘 꼭대기다 — 위에 세우면 고리가 작을 때(1280×720) 머리 XID SPACE 와 겹치니 눈금 오른쪽에 */
+        if (xm && Math.sin(ringTh(xm)) < -0.9) place(ringX.xmin, x + 8, y - r - 4, 'l', 'b');
+        else if (xm) out(ringX.xmin, ringTh(xm), 8);
         /* wrap 한계는 눈금 옆 — 고리 아래로 내려가면 다음 띠의 머리와 겹친다(768) */
         if (xm) { const th = ringTh(xm + 2 ** 31), c = Math.cos(th), sn = Math.sin(th); place(ringX.wrap, x + c * (r + 6) + (c < -0.3 ? -6 : 6), y + sn * (r + 6), c < -0.3 ? 'r' : 'l', sn > 0.3 ? 't' : sn < -0.3 ? 'b' : 'c'); }
         place(ringX.past, x + Math.cos(th0 - Math.PI / 2) * r * 0.55, y + Math.sin(th0 - Math.PI / 2) * r * 0.55, 'c', 'c');
