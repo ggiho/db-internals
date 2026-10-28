@@ -62,12 +62,17 @@ export const CORE = {
     a: 'C — cutoff 830 보다 앞서지 않은 XID 가 지운 튜플',
     x: ['인덱스에서 아직 못 지운 TID — 다음 바퀴 몫', 'line pointer 배열 끝에 남은 LP_UNUSED 자리', 'HOT 사슬의 머리로 남은 LP_REDIRECT 하나'],
   },
-  '05/5': {
+  '05/7': {
     q: 'VACUUM 이 visibility map 의 ALL_VISIBLE 페이지를 건너뛰는 조건은?',
     a: '그런 페이지가 32 장 이상 이어질 때',
     x: ['ALL_VISIBLE 이면 한 장이라도 늘 건너뛴다', 'ALL_FROZEN 까지 켜져 있을 때만', '테이블이 shared_buffers 보다 클 때만'],
   },
   '05/4': {
+    q: 'VACUUM 이 100 페이지를 모두 ALL_VISIBLE 로 켠 직후, 300 행을 읽는 Index Only Scan 의 Heap Fetches 는?',
+    a: '0 — 페이지가 모두 ALL_VISIBLE 이라 heap 을 들르지 않는다',
+    x: ['300 — 인덱스에는 visibility 가 없어 행마다 heap 을 확인한다', '10 — heap 페이지마다 한 번씩만 확인한다', '300 — ANALYZE 가 relallvisible 을 고치기 전까지는 맵을 안 본다'],
+  },
+  '05/5': {
     q: 'ALL_VISIBLE 비트가 켜진 페이지에 UPDATE 가 한 번 생기면?',
     a: '비트가 꺼지고, 다음 VACUUM 이 검사해야 다시 켜진다',
     x: ['비트는 그대로 두고 커밋 때 다시 판정한다', '그 튜플만 따로 표시되고 페이지 비트는 켜진 채로 둔다', '비트가 꺼졌다가 그 트랜잭션이 커밋하면 켜진다'],
