@@ -13,7 +13,8 @@
        지금 쓰는 파일이 하나가 아니거나 LSN 이 그 안에 없거나, checkpoint 가 가장 오래된 파일보다 앞이거나,
        physical_size(Innodb_redo_log_physical_size) 가 쓰는 파일 크기의 합(Σ n × size)과 다르면 console.error
      · 셈 맞추기 — checkpoint 가 다른 LSN 바늘보다 앞서거나, 'checkpoint age' 가 LSN − checkpoint 와 다르거나, gg.v 가
-       나이 / cap 과 1% 넘게 다르거나, checkpoint 가 flush list 의 가장 오래된 oldest_modification 을 넘으면 console.error
+       나이 / cap 과 1% 넘게 다르거나, checkpoint 가 flush list 의 가장 오래된 oldest_modification 을 넘으면 console.error.
+       replay 구간(03)이 checkpoint 에서 시작하지 않거나 '스캔 끝' 에서 끝나지 않아도
    손잡이가 있는 장면(03 innodb_doublewrite)은 값마다 따로 bake 해 두고 setVary 로 바꾼다.
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
@@ -105,6 +106,10 @@ function make({ F, deck, labels, scene }) {
     const c = ckptOf(s), l = lsnOf(s), kv = s[RV];
     if (c == null) return;
     for (const k of KM) { const p = posOf(kv[k]); if (p != null && k !== 'Last checkpoint at' && p < c) console.error(`${at} : ${k} ${fmt(p)} 가 checkpoint ${fmt(c)} 보다 앞이다`); }
+    /* replay 구간(03) — checkpoint 에서 시작해 스캔이 닿은 끝에서 멈춘다. 둘 중 하나만 바꾸면 띠가 바늘을 벗어난다 */
+    const rk = KM.find((k) => /replay/.test(k)), rb = rk ? bandOf(kv[rk]) : null, se = posOf(kv['스캔 끝']);
+    if (rb && rb[0] !== c) console.error(`${at} : ${rk} 의 시작 ${fmt(rb[0])} 이 checkpoint ${fmt(c)} 가 아니다`);
+    if (rb && se != null && rb[1] !== se) console.error(`${at} : ${rk} 의 끝 ${fmt(rb[1])} 이 스캔 끝 ${fmt(se)} 가 아니다`);
     const ageK = Object.keys(kv).find((k) => /age|나이/i.test(k)), age = ageK ? posOf(kv[ageK]) : null;
     if (age != null && l != null && age !== l - c) console.error(`${at} : ${ageK} ${fmt(age)} 가 LSN − checkpoint = ${fmt(l - c)} 와 다르다`);
     const g = ggOf(s);

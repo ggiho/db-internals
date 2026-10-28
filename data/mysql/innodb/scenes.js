@@ -703,26 +703,49 @@ const SCENES = [
   num:'03', tab:'Crash Recovery', title:'Crash Recovery: Doublewrite, Redo Apply & Binlog Arbitration',
   sub:'디스크에 남은 redo · undo · binlog 만으로 commit 여부를 판정 — PREPARED 트랜잭션의 운명은 binlog 가 정한다',
   cast:['ses','bin','bp','undo','dw','ibd','redo'],
+  /* 잰 값(8.4.8-debug, 이 빌드, macOS — innodb_flush_method fsync · log_bin ON · sync_binlog 1 · log_error_verbosity 3) —
+     ~/.cache/dbi/measure/in2/03.txt(색인) 와 03-on*.txt · 03-off*.txt · 03-det*.txt, 각 .err · 03-on-r.trace(--debug=d,ib_log).
+     스크립트 measure03.sh(작업 → kill -9 → 찢기) · measure03r.sh(찢은 사본으로 재시작). 본 서버(3421)와 따로, 새로 initialize 한 바탕의 사본으로.
+       d.r (id INT PRIMARY KEY, c INT, pad CHAR(200)) STATS_PERSISTENT=0, 1,000 행 · c = 100, SPACE 2 — id 1–33 은 잎 p:5, id 500 은 p:13.
+       전부 내리고 checkpoint 19,579,567 에서 innodb_checkpoint_disabled 로 묶는다.
+         UPDATE id 5 · 500 커밋 → innodb_buf_flush_list_now : doublewrite 를 거쳐 p:5 는 19,579,686, p:13 은 19,579,767 로 디스크에
+         page cleaner 를 멈추고 UPDATE id 6 커밋 · 1301 BEGIN; UPDATE id 10–14 (ACTIVE)
+         1302 UPDATE id 8 — bgc_after_sync_stage_before_commit_stage 에서 세움(binlog 에 Xid 74 로 sync 까지, InnoDB 는 PREPARED)
+         1303 UPDATE id 7 — bgc_before_flush_stage 에서 세움(InnoDB 는 PREPARED, binlog 에는 없다). 2 초 뒤 LSN = flushed 19,584,369 → kill -9
+       죽은 뒤 p:5 의 뒤 8 KiB 를 0 으로 덮어 "쓰는 도중 찢어진 페이지" 를 흉내냈다. doublewrite 파일의 p:5 사본은 둘 — slot 129 · 19,579,686 과 slot 238 · 19,303,831.
+       ON 재시작: "Starting to parse redo log at lsn = 19579451, whereas checkpoint_lsn = 19579567 and start_lsn = 19579392"
+         · "Doing recovery: scanned up to log sequence number 19584369"(0.30 초) · "Applying a batch of 17 redo log records" — 17 은 페이지 수(n_addrs)
+         · 13 ms 뒤 p:5 "Trying to recover it from the doublewrite file." → "Recovered page [page id: space=2, page number=5] from the doublewrite buffer."
+         · "Apply batch completed!" (0.54 초). ib_log : 레코드 403 · 적용 375 — p:5 는 9 중 8(19,579,643 의 id 5 를 건너뜀 → 되살린 것은 19,579,686 사본),
+           p:13 은 1 개(19,579,724)를 건너뜀(디스크 19,579,767). 나머지 15 페이지(undo 14 · ibdata1 1)는 393 중 367
+         · "Transaction 1303 · 1302 was in the XA prepared state." · "3 transaction(s) … in total 5 row operations to undo"(ACTIVE 인 1301 만 센다)
+         · "8.4.8 started; log sequence number 19584379" → "Found 2 prepared transaction(s) in InnoDB" · "Successfully committed 1, rolled back 1 internal transaction(s)."
+         · 22 ms 뒤 "Rolling back trx with id 1301, 5 rows to undo" · 3.6 ms 뒤 completed · ready for connections — 프로세스 시작에서 6.8 초
+         결과 id 5 = 101 · 6 = 102 · 8 = 500 · 7 = 100 · 10–14 = 100 · 500 = 101. 다시 한 재시작의 첫 연결: checkpoint 19,630,120 · LSN 19,631,777 · dirty 23,
+         p:5 NEWEST 19,612,764 · OLDEST 0
+     전에 적었던 4,800 · 5,900 · trx 77 · XID 76 · p:12 는 지웠다 — 잰 값이 아니었다. */
   init:{
-    ses:{ kv:{ '서버 상태':'죽어 있음|red', 'PREPARED trx':'—', '롤백 대상':'—' } },
+    ses:{ kv:{ '서버 상태':'kill -9 뒤 · 죽어 있음|red', 'PREPARED trx':'—', '롤백 대상':'—' } },
     bin:{ kv:{ 'last XID':'—', '판정':'—' } },
     bp:{ items:[{ id:'free', tag:'free', sub:'— 전부 비었다' }] },
-    undo:{ items:[{ id:'undo 7', tag:'hold', sub:'trx 77 · 커밋 안 됨' }] },
-    dw:{ items:[{ id:'p:5', tag:'ok', sub:'온전한 사본' }] },
+    undo:{ items:[
+      { id:'trx 1301', tag:'hold', sub:'id 10–14 · 커밋 안 됨' },
+      { id:'trx 1302', tag:'hold', sub:'id 8 · 커밋 안 됨' },
+      { id:'trx 1303', tag:'hold', sub:'id 7 · 커밋 안 됨' } ] },
+    dw:{ items:[{ id:'p:5', tag:'ok', sub:'온전한 16 KiB 사본 · slot 129' }] },
     ibd:{ items:[
-      { id:'p:5',  tag:'x',     sub:'앞 8KB 만 기록 · checksum 불일치' },
-      { id:'p:9',  tag:'clean', sub:'LSN 4,610' },
-      { id:'p:12', tag:'clean', sub:'LSN 5,400  ·  이미 최신' } ] },
-    redo:{ kv:{ 'Last checkpoint at':'4,800', '파일 끝':'5,900', 'replay 구간':'—' } },
+      { id:'p:5',  tag:'x',     sub:'LSN 19,579,686 · 뒤 8 KiB 가 0 · checksum 불일치' },
+      { id:'p:13', tag:'clean', sub:'LSN 19,579,767 · 커밋 뒤에 내려졌다' } ] },
+    redo:{ kv:{ 'Last checkpoint at':'19,579,567', '스캔 끝':'—', 'replay 구간':'—' } },
   },
   knobs:[
-    ['innodb_force_recovery','0','값이 클수록 더 많이 건너뛴다(누적) — redo 적용을 건너뛰는 것은 6 뿐이다. 최후의 수단'],
-    ['innodb_doublewrite','ON','torn page 를 되살리는 근거'],
-    ['innodb_redo_log_capacity','100 MB','replay 구간의 길이 = 재시작 시간. innodb_log_file_size 는 폐기 예정 — 이 값이 없을 때만 쓰인다'] ],
+    ['innodb_force_recovery','0','값이 클수록 더 많이 건너뛴다(누적) — redo 적용을 건너뛰는 것은 6 뿐이다. 잰 값: 이 장면의 찢은 사본은 OFF · DETECT_ONLY 모두 1 로는 뜨지 않았고 6 만 연결을 받았다'],
+    ['innodb_doublewrite','ON','torn page 를 되살리는 근거. 눌러서 바꾸면 4 스텝부터 갈린다 — 세 값 모두 같은 순서로 찢은 사본에서 쟀다'],
+    ['innodb_redo_log_capacity','100 MB','replay 구간의 길이 = 재시작 시간(잰 값 104,857,600). 이 장면의 구간은 4,802 B 라 스캔이 0.30 초였다. innodb_log_file_size 는 폐기 예정 — 이 값이 없을 때만 쓰인다'] ],
   watch:[
-    ['에러 로그','Doing recovery: scanned up to log sequence number …  /  Applying a batch of N redo log records …'],
-    ['SHOW ENGINE INNODB STATUS','재시작 직후 Last checkpoint at 이 어디까지 올라갔는지'],
-    ['I_S.INNODB_TRX','PREPARED 로 남은 트랜잭션이 있는지'] ],
+    ['에러 로그','[Note] 줄이라 log_error_verbosity 3 에서만 남는다 — Doing recovery: scanned up to log sequence number …  /  Applying a batch of N redo log records … (N 은 페이지 수)'],
+    ['에러 로그','Transaction N was in the XA prepared state.  /  Crash recovery finished in InnoDB engine. Successfully committed …, rolled back …'],
+    ['I_S.INNODB_TRX','PREPARED 로 남은 트랜잭션이 있는지 — 이 장면에서는 복구가 다 정리해 연결 때 비어 있었다'] ],
   links:[
     ['01','여기서 쌓은 redo 와 undo 를 쓴다'],
     ['04','checkpoint 나이가 곧 복구 시간이다'],
@@ -731,21 +754,27 @@ const SCENES = [
   /* doublewrite 를 내리면 복구가 4스텝에서 막힌다 — 찢어진 페이지를 되살릴 근거가 없으므로
      redo 를 얹을 대상이 없다. 그 뒤 스텝들은 "정상 복구" 가 아니라 "기동 실패와 그 다음" 이 된다.
      3·5 스텝(redo 스캔, LSN 비교로 건너뛰기)은 값과 무관하므로 물려받는다.
-     6~9 는 실측이다(2026-10-15, 이 트리의 8.4.8-debug, 쓰는 도중 찢어진 p:4 를 만든 데이터 디렉터리) —
-       ON          "Applying a batch…" 다음 "Recovered page … from the doublewrite buffer", 정상 기동
-       DETECT_ONLY 적용을 시작하자마자 [FATAL] "Cannot recover it from the doublewrite buffer because it was
-                   written in detect_only-doublewrite mode." — force_recovery 1 도 같다, 6 만 연다
-       OFF         손상 오류를 남기고 기동이 끝나지 않는다(abort 하지 않는다). force_recovery 1 이면 연결을
-                   받지만 깨진 페이지를 읽는 순간 Assertion failure 로 죽었다
-     전에는 "몇 번 다시 읽고 abort" 라 적었다 — 둘 다 그렇게 하지 않았다. */
+     4~10 은 다시 쟀다(2026-10-28, 03.txt) —
+       OFF         ON 과 같은 찢은 사본을 --innodb-doublewrite=OFF 로. batch 17 직후 "Database page corruption on disk or a failed file read of page
+                   [page id: space=2, page number=5]" 와 "100%" 뒤로 줄이 없다. Apply batch completed! 없이 4 분 넘게(ps STAT S) — kill -9.
+                   force_recovery 1 : 깨진 페이지에 redo 를 얹어 batch 를 끝내고 InnoDB 가 뜬 뒤, 그 페이지를 쓰려다
+                   [FATAL] "Apparent corruption of an index page … to be written to data file"(buf0dblwr.cc:1536) — 연결 전.
+                   1302 · 1303 은 그때도 "was in the XA prepared state" — 강제 롤백 문구는 insert undo 쪽에만 있다.
+                   force_recovery 6 : "skipping log redo", @@innodb_read_only 1 로 연결을 받는다. id 500 은 101, p:5 를 읽자 Assertion failure(page0page.ic:353)
+       DETECT_ONLY 처음부터 그 값으로 띄워 같은 순서를 다시 돌렸다(03-det.txt — LSN 이 1 씩 작다). #ib_16384_0.bdblwr 32,768 B 에 d.r 항목 둘
+                   (p:5 · 19,579,685, p:13 · 19,579,766), .dblwr 에는 d.r 페이지가 없다. 재시작 · force_recovery 1 모두 batch 17 의 17 ms 뒤
+                   [FATAL] "… Cannot recover it from the doublewrite buffer because it was written in detect_only-doublewrite mode."(buf0dblwr.cc:3237).
+                   force_recovery 6 은 연결을 받고 INNODB_TRX 0, p:5 를 읽자 Assertion failure
+     전에는 "OFF 는 11 분 넘게", "OFF + force_recovery 1 은 연결을 받는다", "1 이상이면 PREPARED 도 롤백" 이라 적었다 — 이번 사본에서는 셋 다 아니었다. */
   vary:{ knob:'innodb_doublewrite', base:'ON', order:['DETECT_ONLY','OFF'], alt:{
     'DETECT_ONLY':{
       /* 줄인 항목은 처음부터 그렇다 — 4 스텝에서 사본이 항목으로 바뀌면 복구 도중 사본이 낡는 것처럼 보였다 */
-      1:{ ops:{ dw:{ set:{ 'p:5':{ tag:'wait', sub:'항목만 있음 · 16바이트' } } } } },
+      1:{ ops:{ dw:{ set:{ 'p:5':{ tag:'wait', sub:'항목만 · 16 B (space · page · lsn)' } } },
+                ses:{ set:{ '서버 상태':'재시작 · crash recovery|gold' } } } },
       4:{ act:{ f:'dw', t:'ses', lb:'p:5 가 찢어졌음을 알아낸다' },
           note:'doublewrite 파일엔 page 내용이 없다 — page id 만',
           why:'이 모드에서는 페이지 전체를 쓰지 않고 Reduced_entry 만 남긴다 — space_id · page_no · lsn 세 개, 16 바이트다. 그래서 "p:5 가 기록 중이었다" 는 알 수 있다.',
-          key:'탐지와 복구가 <em>분리된다</em>. 무엇이 깨졌는지는 정확히 말해 주지만, 그것으로 되살릴 수는 없다 — 사본이 없으니까.',
+          key:'잰 값(같은 순서를 DETECT_ONLY 로 다시 돌린 사본): #ib_16384_0.bdblwr 는 <em>32,768 B</em>, d.r 의 항목은 p:5 · p:13 둘(lsn 19,579,685 · 19,579,766). 16 KiB 사본을 담는 .dblwr 에는 d.r 의 페이지가 하나도 없다. 탐지와 복구가 <em>분리된다</em>.',
           ref:'storage/innobase/buf/buf0dblwr.cc', sym:'recv::Pages::reduced_recover',
           fact:[['storage/innobase/include/buf0dblwr.h','When --innodb-doublewrite=DETECT_ONLY, page contents are not written to the'],
                 ['storage/innobase/include/buf0dblwr.h','this mode is also called as reduced mode. It is called reduced because the'],
@@ -757,8 +786,8 @@ const SCENES = [
 
       6:{ act:{ f:'dw', t:'ses', lb:'사본 없음 → FATAL' },
           note:'redo 적용 시작 — p:5 가 기록 중이었음을 알고 곧바로 FATAL',
-          why:'적용을 시작하며 테이블스페이스를 열면 줄인 doublewrite 항목이 p:5 를 가리킨다. 사본이 없으니 치명 오류로 멈춘다 — 에러 로그 : "Cannot recover it from the doublewrite buffer because it was written in detect_only-doublewrite mode." 다시 읽어 보지도 않는다.',
-          key:'doublewrite 가 막아 주던 것이 바로 이 지점이다 — <em>redo 가 있어도 소용이 없는 상태</em>. redo 는 델타이지 페이지가 아니다.',
+          why:'적용을 시작하며 테이블스페이스를 열면 줄인 doublewrite 항목이 p:5 를 가리킨다. 사본이 없으니 치명 오류로 멈춘다. 다시 읽어 보지도 않는다.',
+          key:'잰 값: "Applying a batch of 17" 의 17 ms 뒤 [FATAL] "Database page corruption of tablespace ./d/r.ibd space_id: 2 page_num: 5. <em>Cannot recover it from the doublewrite buffer</em> because it was written in detect_only-doublewrite mode." — buf0dblwr.cc:3237 의 Assertion failure 로 죽는다. redo 는 델타이지 페이지가 아니다.',
           ref:'storage/innobase/buf/buf0dblwr.cc', sym:'recv::Pages::reduced_recover',
           fact:[['storage/innobase/log/log0recv.cc','dberr_t err = fil_tablespace_open_for_recovery(space.first);'],
                 ['share/messages_to_error_log.txt','Cannot recover it from the doublewrite buffer because it was written in detect_only-doublewrite mode.']],
@@ -766,8 +795,8 @@ const SCENES = [
           ops:{ bp:{ set:{ 'p:5':{ tag:'x', sub:'사본 없음 · 되살릴 수 없다' } } },
                 ses:{ set:{ '서버 상태':'[FATAL] · 기동 중단|red' } } } },
 
-      7:{ note:'innodb_force_recovery 1 ~ 5 도 같은 자리에서 멈춘다', act:null,
-          why:'force_recovery 를 1 로 올려도 같은 검사에서 같은 FATAL 로 멈췄다(실측). redo 적용을 아예 건너뛰는 6 만 기동한다.',
+      7:{ note:'innodb_force_recovery 1 도 같은 자리에서 멈춘다', act:null,
+          why:'force_recovery 를 1 로 올려도 같은 검사에서 같은 FATAL 로 멈췄다(잰 값, 같은 batch 17 의 21 ms 뒤). redo 적용을 아예 건너뛰는 6 만 기동한다.',
           key:'복구가 <em>시작조차 끝나지 못한다</em>. undo 도, binlog 판정도, 여기까지 오지 못한다.',
           ref:'storage/innobase/buf/buf0dblwr.cc', sym:'recv::Pages::reduced_recover',
           fact:[['share/messages_to_error_log.txt','Database page corruption of tablespace %s space_id: %u page_num: %u.'],
@@ -775,18 +804,18 @@ const SCENES = [
           ops:{ ses:{ set:{ '서버 상태':'force_recovery 1 도 FATAL|red' } } } },
 
       8:{ note:'binlog 판정 단계 미도달', act:null,
-          why:'binlog 로 PREPARED 트랜잭션을 판정하는 일은 InnoDB 의 기동이 돌아온 뒤에 한다. InnoDB 가 기동에서 멈췄으므로 trx 77 은 판정되지 않은 채 남는다.',
+          why:'binlog 로 PREPARED 트랜잭션을 판정하는 일은 InnoDB 의 기동이 돌아온 뒤에 한다. InnoDB 가 기동에서 멈췄으므로 1302 · 1303 은 판정되지 않은 채 남는다 — binlog 에는 1302 의 Xid 74 가 있는데도.',
           key:'복구의 단계들은 <em>순서대로 묶여 있다</em>. 물리 복구가 막히면 논리 복구는 시작도 하지 않는다.',
           ref:'sql/binlog/recovery.cc', sym:'Binlog_recovery::recover',
           fact:[['sql/mysqld.cc','if (tc_log->open(opt_bin_log ? opt_bin_logname : opt_tc_log_file)) {'],
                 ['share/messages_to_error_log.txt','Starting XA crash recovery...']],
           look:{ undo:true, bin:true },
           ops:{ bin:{ set:{ '판정':'실행되지 않음|red' } },
-                ses:{ set:{ 'PREPARED trx':'77 · undo 에만 있다 (못 읽음)|red' } } } },
+                ses:{ set:{ 'PREPARED trx':'1302 · 1303 · undo 에만 있다 (못 읽음)|red' } } } },
 
       9:{ note:'남은 수단 — innodb_force_recovery = 6, redo 없이 연다', act:null,
-          why:'6 은 redo 적용을 건너뛰고 연다. p:5 는 깨진 채이고, 다른 페이지에도 checkpoint 뒤의 변경이 빠져 있다. 깨진 페이지를 읽는 순간 서버가 죽었다(실측, debug 빌드의 Assertion failure). 5 이상은 undo 를 아예 읽지 않아 미완료 트랜잭션도 커밋된 것으로 다룬다 — trx 77 은 판정도 롤백도 없이 디스크에 쓰인 만큼만 남는다.',
-          key:'그래서 이것은 <em>복구가 아니라 탈출</em>이다. 열린 뒤 할 일은 깨지지 않은 테이블을 덤프해 새 인스턴스로 옮기는 것뿐이다.',
+          why:'6 은 redo 적용을 건너뛰고 연다. p:5 는 깨진 채이고, 다른 페이지에도 checkpoint 뒤의 변경이 빠져 있다. 5 이상은 undo 를 아예 읽지 않는다 — 1301 · 1302 · 1303 은 되살아나지도 않는다.',
+          key:'잰 값: "The user has set SRV_FORCE_NO_LOG_REDO on, skipping log redo" 뒤 연결을 받았고 INNODB_TRX 는 <em>0</em> 행. 그러나 p:5 를 읽는 순간 <em>Assertion failure</em>(page0page.ic:353)로 죽었다. 그래서 이것은 <em>복구가 아니라 탈출</em>이다.',
           ref:'storage/innobase/srv/srv0start.cc', sym:'srv_start',
           fact:[['storage/innobase/include/srv0srv.h','SRV_FORCE_NO_LOG_REDO = 6 /*!< do not do the log roll-forward'],
                 ['storage/innobase/log/log0recv.cc','if (srv_force_recovery >= SRV_FORCE_NO_LOG_REDO) {'],
@@ -794,12 +823,12 @@ const SCENES = [
                 ['storage/innobase/include/srv0srv.h','SRV_FORCE_NO_UNDO_LOG_SCAN = 5, /*!< do not look at undo logs when'],
                 ['storage/innobase/trx/trx0sys.cc','if (srv_force_recovery < SRV_FORCE_NO_UNDO_LOG_SCAN) {']],
           beat:1,
-          ops:{ ses:{ set:{ '서버 상태':'force_recovery 6 으로 기동|gold', 'PREPARED trx':'77 · 커밋으로 취급|red' } },
+          ops:{ ses:{ set:{ '서버 상태':'force_recovery 6 으로 기동|gold', 'PREPARED trx':'— · undo 를 읽지 않는다|red' } },
                 redo:{ set:{ 'replay 구간':'적용 안 함|red' } },
-                ibd:{ set:{ 'p:5':{ tag:'x', sub:'깨진 채로 열림' } } } } },
+                ibd:{ set:{ 'p:5':{ tag:'x', sub:'깨진 채로 열림 · 읽으면 Assertion failure' } } } } },
 
       10:{ note:'DETECT_ONLY 의 값 — "기록 중에 찢어졌다" 는 사실',
-           why:'OFF 도 오류 메시지에 깨진 페이지 번호를 적는다. DETECT_ONLY 가 더해 주는 것은 그것이 쓰는 도중에 찢어졌다는 사실이다. 줄인 파일이 작아 최근에 쓴 배치만 덮는다 — 그 밖에서 깨진 페이지는 OFF 와 똑같이 보였다.',
+           why:'OFF 도 오류 메시지에 깨진 페이지 번호를 적는다. DETECT_ONLY 가 더해 주는 것은 그것이 쓰는 도중에 찢어졌다는 사실이다. 줄인 파일이 작아(이 사본에서 32,768 B) 최근에 쓴 배치만 덮는다.',
            key:'DETECT_ONLY 가 사는 자리가 여기다 — 쓰기 비용은 거의 없고, <em>진단은 얻고 복구는 포기</em>한다.',
            ref:'storage/innobase/include/buf0dblwr.h', sym:'Reduced_entry',
            fact:['In this mode, dblwr is used only to detect torn writes. At code level,',
@@ -810,10 +839,10 @@ const SCENES = [
     },
     'OFF':{
       /* 사본이 없는 것은 처음부터다 */
-      1:{ ops:{ dw:{ del:['p:5'] } } },
+      1:{ ops:{ dw:{ del:['p:5'] }, ses:{ set:{ '서버 상태':'재시작 · crash recovery|gold' } } } },
       4:{ act:{ f:'ibd', t:'ses', lb:'되살릴 근거가 없다' },
           note:'doublewrite 파일 비어 있음',
-          why:'이 모드에서는 페이지를 이중으로 쓰지 않는다. 그래서 찢어진 p:5 에 대응하는 사본도, 그것이 기록 중이었다는 기록조차 없다.',
+          why:'이 모드에서는 페이지를 이중으로 쓰지 않는다. 그래서 찢어진 p:5 에 대응하는 사본도, 그것이 기록 중이었다는 기록조차 없다. 재시작에서도 doublewrite 파일을 아예 보지 않는다 — ON 으로 쓴 사본이 남아 있던 이 사본에서도 그랬다.',
           key:'디스크에 남은 것은 <em>절반만 쓰인 페이지 하나</em>다. 그것이 절반만 쓰인 것인지, 원래 그런 것인지 구별할 근거도 없다.',
           ref:'storage/innobase/include/buf0dblwr.h', sym:'is_enabled',
           fact:['/** Equal to FALSEE. In this mode, dblwr is disabled. */',
@@ -824,8 +853,8 @@ const SCENES = [
 
       6:{ act:{ f:'ibd', t:'bp', lb:'p:5 읽기 — checksum 불일치' },
           note:'redo 적용 중 page read — checksum 불일치, 한 번 읽고 오류',
-          why:'적용하려고 p:5 를 읽으면 checksum 이 맞지 않는다. 다시 읽어 보지 않고 손상 오류를 남긴다 — "Database page corruption on disk or a failed file read". redo 는 온전한 페이지에 얹는 델타라 적용할 대상이 없다.',
-          key:'redo 가 온전히 남아 있어도 <em>소용이 없다</em>. checkpoint 도, replay 구간도 정확한데 얹을 페이지가 없다.',
+          why:'적용하려고 p:5 를 읽으면 checksum 이 맞지 않는다. 다시 읽어 보지 않고 손상 오류와 페이지 덤프를 남긴다. redo 는 온전한 페이지에 얹는 델타라 적용할 대상이 없다.',
+          key:'잰 값: "Applying a batch of 17" 의 3 ms 뒤 "Database page corruption on disk or a failed file read of page [page id: space=2, page number=5]. You may have to recover from a backup." redo 가 온전히 남아 있어도 <em>소용이 없다</em>.',
           ref:'storage/innobase/buf/buf0buf.cc', sym:'buf_page_io_complete',
           fact:[['storage/innobase/buf/buf0rea.cc','buf_read_page_low(&err, false, IORequest::DO_NOT_WAKE, BUF_READ_ANY_PAGE,'],
                 'if (srv_force_recovery < SRV_FORCE_IGNORE_CORRUPT) {',
@@ -834,7 +863,7 @@ const SCENES = [
           ops:{ bp:{ set:{ 'p:5':{ tag:'x', sub:'checksum 불일치 · 읽을 수 없다' } } } } },
 
       7:{ note:'기동이 끝나지 않는다 — abort 도 하지 않는다', act:null,
-          why:'redo 적용이 그 페이지를 기다리는 루프에 머문 채 기동이 끝나지 않았다. 11 분 넘게 그대로였다(실측). 에러 로그의 마지막 줄은 손상 오류다.',
+          why:'에러 로그는 손상 오류와 "100%" 를 남기고 멈췄다 — "Apply batch completed!" 는 끝내 나오지 않았다. 4 분 넘게 그대로였고(ps STAT S) kill -9 로 끝냈다.',
           key:'복구가 <em>끝나지도, 실패하지도 않는다</em>. undo 도, binlog 판정도, 여기까지 오지 못한다.',
           ref:'storage/innobase/log/log0recv.cc', sym:'recv_apply_hashed_log_recs',
           fact:['while (recv_sys->n_addrs != 0) {',
@@ -842,29 +871,30 @@ const SCENES = [
           ops:{ ses:{ set:{ '서버 상태':'기동 중 멈춤 · 끝나지 않는다|red' } } } },
 
       8:{ note:'binlog 판정 단계 미도달', act:null,
-          why:'binlog 로 PREPARED 트랜잭션을 판정하는 일은 InnoDB 의 기동이 돌아온 뒤에 한다. InnoDB 가 기동에서 멈췄으므로 trx 77 은 판정되지 않은 채 남는다.',
+          why:'binlog 로 PREPARED 트랜잭션을 판정하는 일은 InnoDB 의 기동이 돌아온 뒤에 한다. InnoDB 가 기동에서 멈췄으므로 1302 · 1303 은 판정되지 않은 채 남는다 — binlog 에는 1302 의 Xid 74 가 있는데도.',
           key:'복구의 단계들은 <em>순서대로 묶여 있다</em>. 물리 복구가 막히면 논리 복구는 시작도 하지 않는다.',
           ref:'sql/binlog/recovery.cc', sym:'Binlog_recovery::recover',
           fact:[['sql/mysqld.cc','if (tc_log->open(opt_bin_log ? opt_bin_logname : opt_tc_log_file)) {'],
                 ['share/messages_to_error_log.txt','Starting XA crash recovery...']],
           look:{ undo:true, bin:true },
           ops:{ bin:{ set:{ '판정':'실행되지 않음|red' } },
-                ses:{ set:{ 'PREPARED trx':'77 · undo 에만 있다 (못 읽음)|red' } } } },
+                ses:{ set:{ 'PREPARED trx':'1302 · 1303 · undo 에만 있다 (못 읽음)|red' } } } },
 
-      9:{ note:'남은 수단 — innodb_force_recovery 로 연다, 깨진 페이지는 그대로', act:null,
-          why:'force_recovery 를 1 로 올리면 "ready for connections" 까지 간다. 그러나 깨진 테이블을 읽는 순간 서버가 죽었다(실측, debug 빌드의 Assertion failure). 1 이상이면 PREPARED 트랜잭션도 binlog 에 묻지 않고 롤백한다.',
-          key:'그래서 이것은 <em>복구가 아니라 탈출</em>이다. 열린 뒤 할 일은 깨지지 않은 테이블을 덤프해 새 인스턴스로 옮기는 것뿐이다.',
+      9:{ note:'남은 수단 — innodb_force_recovery, 그러나 1 로는 열리지 않았다', act:null,
+          why:'1 은 손상을 무시하고 깨진 페이지에 redo 를 얹어 "Apply batch completed!" 까지 간다. 1302 · 1303 도 여전히 XA prepared 로 되살아났다 — 강제 롤백 문구("Since innodb_force_recovery …")는 insert undo 쪽에만 있다. 그런데 InnoDB 가 뜬 뒤 그 페이지를 쓰려는 순간 서버가 스스로 죽었다. 6 은 redo 를 건너뛰고 읽기 전용으로 연결을 받는다.',
+          key:'잰 값: 1 은 [FATAL] "<em>Apparent corruption of an index page</em> [page id: space=2, page number=5] to be written to data file." — 연결 전이다. 6 은 @@innodb_read_only 1 로 열려 id 500 은 101 을 돌려주지만, p:5 를 읽자 Assertion failure. 그래서 이것은 <em>복구가 아니라 탈출</em>이다.',
           ref:'storage/innobase/srv/srv0start.cc', sym:'srv_start',
           fact:[['storage/innobase/include/srv0srv.h','SRV_FORCE_IGNORE_CORRUPT = 1, /*!< let the server run even if it'],
                 ['storage/innobase/buf/buf0buf.cc','if (srv_force_recovery < SRV_FORCE_IGNORE_CORRUPT) {'],
-                ['storage/innobase/trx/trx0trx.cc','<< "Since innodb_force_recovery"']],
+                ['storage/innobase/buf/buf0dblwr.cc','<< "Apparent corruption of an index page " << block->page.id'],
+                ['storage/innobase/trx/trx0trx.cc','<< "Since innodb_force_recovery"'],
+                ['storage/innobase/include/srv0srv.h','SRV_FORCE_NO_LOG_REDO = 6 /*!< do not do the log roll-forward']],
           beat:1,
-          ops:{ ses:{ set:{ '서버 상태':'force_recovery 1 로 기동|gold', 'PREPARED trx':'—', '롤백 대상':'trx 77 · binlog 없이 강제 롤백|red' } },
-                undo:{ set:{ 'undo 7':{ tag:'x', sub:'trx 77 · binlog 판정 없이 롤백 대상' } } },
-                ibd:{ set:{ 'p:5':{ tag:'x', sub:'깨진 채로 열림' } } } } },
+          ops:{ ses:{ set:{ '서버 상태':'1 은 FATAL · 6 으로 읽기 전용|gold', 'PREPARED trx':'1302 · 1303 · 끝내 판정 없음|red' } },
+                ibd:{ set:{ 'p:5':{ tag:'x', sub:'깨진 채로 열림 · 읽으면 Assertion failure' } } } } },
 
       10:{ note:'doublewrite 의 존재 이유 — 이 장면 전체',
-           why:'ON 이었다면 4스텝에서 사본으로 되살리고 나머지 복구가 정상으로 흘렀다 — 같은 찢어진 데이터 디렉터리로 확인했다. 그 차이를 만든 것은 페이지를 두 번 쓰는 비용뿐이다.',
+           why:'ON 이었다면 4스텝에서 사본으로 되살리고 나머지 복구가 정상으로 흘렀다 — 같은 찢은 사본으로 확인했다(6.8 초에 연결 수락). 그 차이를 만든 것은 페이지를 두 번 쓰는 비용뿐이다.',
            key:'두 번 쓰기는 <em>보험이지 성능 설정이 아니다</em>. 끄면 빨라지는 것은 맞지만, 빨라지는 대가로 이 장면을 산다.',
            ref:'storage/innobase/buf/buf0dblwr.cc', sym:'dblwr::recv::Pages::dblwr_recover_page',
            fact:['bool dblwr::recv::Pages::dblwr_recover_page(page_no_t dblwr_page_no,',
@@ -876,124 +906,138 @@ const SCENES = [
   } },
 
   steps:[
-  { note:'restart — 디스크에 있는 것만이 사실',
-    why:'메모리는 전부 사라졌다. buffer pool 도, log buffer 도, 어떤 트랜잭션이 진행 중이었는지도 없다.',
-    key:'복구는 <em>기억 없이</em> 시작한다. 남은 단서는 데이터 파일, redo, undo, binlog, doublewrite 파일 다섯이다.',
+  { note:'kill -9 뒤 restart — 디스크에 있는 것만이 사실',
+    why:'메모리는 전부 사라졌다. buffer pool 도, log buffer 도, 어떤 트랜잭션이 진행 중이었는지도 없다. 죽인 순간 끝나지 않은 트랜잭션은 셋이었다 — ACTIVE 하나와 PREPARED 둘.',
+    key:'잰 값(죽이기 직전): Log sequence number = Log flushed up to <em>19,584,369</em>, Last checkpoint at 19,579,567. 재시작 로그는 "Database was not shutdown normally!" · "Starting crash recovery." 로 시작한다. 복구는 <em>기억 없이</em> 시작한다 — 단서는 데이터 파일 · redo · undo · binlog · doublewrite 파일 다섯이다.',
     ref:'storage/innobase/srv/srv0start.cc', sym:'srv_start',
     fact:['We always try to do a recovery, even if the database had',
           'been shut down normally: this is the normal startup path',
           'err = recv_recovery_from_checkpoint_start(*log_sys, flushed_lsn);',
           ['share/messages_to_error_log.txt','Database was not shutdown normally!']],
     look:{ ibd:true, dw:true, redo:true, undo:true, bin:true },   /* 살아남은 단서 다섯 */
+    ops:{ ses:{ set:{ '서버 상태':'재시작 · crash recovery|gold' } } },
     beat:1 },
 
-  { act:{ f:'redo', t:'ses', lb:'checkpoint 4,800 읽기' },
+  { act:{ f:'redo', t:'ses', lb:'checkpoint 19,579,567 읽기' },
     note:'redo 의 checkpoint LSN — replay 시작점',
-    why:'checkpoint 는 "이 LSN 까지의 모든 변경이 데이터 파일에 있다"는 약속이다. 그 앞은 볼 필요가 없다.',
-    key:'checkpoint 가 밀려 있으면 replay 구간이 길어져 <em>재시작이 느려진다</em>. 복구 시간은 checkpoint 나이에 비례한다.',
+    why:'checkpoint 는 "이 LSN 까지의 모든 변경이 데이터 파일에 있다"는 약속이다. 그 앞은 볼 필요가 없다. 다만 checkpoint 가 레코드 묶음 한가운데일 수 있어서, 그것이 든 512 B 블록에서 처음 시작하는 묶음부터 읽는다.',
+    key:'잰 값: "Starting to parse redo log at lsn = 19579451, whereas checkpoint_lsn = <em>19579567</em> and start_lsn = 19579392". checkpoint 가 밀려 있으면 replay 구간이 길어져 <em>재시작이 느려진다</em>.',
     ref:'storage/innobase/log/log0recv.cc', sym:'recv_find_max_checkpoint',
     fact:['/** Find the latest checkpoint (check all existing redo log files).',
           'for (auto checkpoint_header_no : {Log_checkpoint_header_no::HEADER_1,',
-          ['storage/innobase/include/log0constants.h','constexpr const char *const LOG_FILE_BASE_NAME = "#ib_redo";'],
-          ['storage/innobase/include/log0sys.h','Up to this lsn value, all dirty pages have been added to flush']],
-    ops:{ redo:{ set:{ 'replay 구간':'4,800 → 5,900|gold' } } } },
+          'recv_sys->parse_start_lsn = scanned_lsn + block_header.m_first_rec_group;',
+          'checkpoint_lsn could potentially point to',
+          ['storage/innobase/include/log0sys.h','Up to this lsn value, all dirty pages have been added to flush']] },
 
   { act:{ f:'redo', t:'bp', lb:'redo 스캔 · 페이지별로 모은다' },
     note:'redo scan — page 별 변경을 hash 로 수집',
     why:'해시 맵에 페이지별로 redo 레코드를 모은다. 한 페이지에 여러 변경이 있으면 LSN 순서대로 쌓인다. 적용은 해시 순서로 하되, 페이지를 읽을 때 주변 32 페이지 영역을 함께 읽어 I/O 를 묶는다.',
-    key:'페이지마다 <em>한 번 읽고 한꺼번에</em> 적용하기 위해서다. redo 순서대로 페이지를 오가면 같은 페이지를 몇 번이고 다시 읽게 된다.',
+    key:'잰 값: "Doing recovery: scanned up to log sequence number <em>19584369</em>" — 4,802 B 를 0.30 초에. ib_log 추적으로 센 레코드는 403 개, 페이지는 <em>17</em> 개다 — p:5 에 9 개, p:13 에 1 개, 나머지는 undo 14 페이지와 ibdata1 1 페이지. 페이지마다 <em>한 번 읽고 한꺼번에</em> 적용하려는 것이다.',
     ref:'storage/innobase/log/log0recv.cc', sym:'recv_scan_log_recs',
     fact:[['storage/innobase/include/log0recv.h','std::unordered_map<page_no_t, recv_addr_t *, std::hash<page_no_t>,'],
           ['storage/innobase/include/log0recv.h','/** List of log records for this page */'],
           ['storage/innobase/log/log0recv.cc','UT_LIST_ADD_LAST(recv_addr->rec_list, recv);'],
           ['storage/innobase/log/log0recv.cc','static const size_t RECV_READ_AHEAD_AREA = 32;']],
     ops:{ bp:{ del:['free'], add:[
-            { id:'p:5',  tag:'pin', sub:'redo 3건 대기' },
-            { id:'p:12', tag:'pin', sub:'redo 1건 대기 · 5,210' } ] } } },
+            { id:'p:5',  tag:'pin', sub:'redo 9 개 대기' },
+            { id:'p:13', tag:'pin', sub:'redo 1 개 대기 · 19,579,724' },
+            { id:'그 밖 15', tag:'pin', sub:'undo 14 · ibdata1 1 페이지 — 393 개' } ] },
+          redo:{ set:{ '스캔 끝':'19,584,369', 'replay 구간':'19,579,567 → 19,584,369|gold' } } } },
 
   { act:{ f:'dw', t:'ibd', lb:'p:5 사본으로 복원', hot:'io' },
     note:'적용 직전 — checksum 불일치 p:5 를 doublewrite 사본으로',
-    why:'redo 스캔이 끝나고 적용을 시작하며 테이블스페이스를 열 때, doublewrite 파일에 사본이 있는 페이지를 검사해 깨진 것을 되살린다. 첫 레코드를 얹기 전이어야 한다 — redo 는 온전한 페이지에 얹는 델타이므로 깨진 페이지에는 적용할 수 없다.',
-    key:'순서가 강제된다 — <em>doublewrite 복원이 redo replay 보다 먼저</em>다. 반대로 하면 깨진 바이트 위에 델타를 얹는 셈이 된다.',
+    why:'redo 스캔이 끝나고 적용을 시작하며 테이블스페이스를 열 때, doublewrite 파일에 사본이 있는 페이지를 검사해 깨진 것을 되살린다. 첫 레코드를 얹기 전이어야 한다 — redo 는 온전한 페이지에 얹는 델타이므로 깨진 페이지에는 적용할 수 없다. 파일에는 p:5 의 사본이 둘(19,579,686 · 19,303,831) 있었고, 되살린 것은 새 쪽이다 — 다음 스텝의 건너뛰기가 그 증거다.',
+    key:'잰 값: "Applying a batch of 17 redo log records ..." 의 13 ms 뒤 "… page [page id: space=2, page number=5]. Trying to recover it from the doublewrite file." → "<em>Recovered page [page id: space=2, page number=5] from the doublewrite buffer.</em>" 17 은 레코드가 아니라 페이지 수다. 순서가 강제된다 — <em>doublewrite 복원이 redo replay 보다 먼저</em>다.',
     ref:'storage/innobase/buf/buf0dblwr.cc', sym:'dblwr::recv::Pages::dblwr_recover_page',
     fact:[['storage/innobase/buf/buf0dblwr.cc','/* Is the page read from the data file corrupt? */'],
-          ['storage/innobase/buf/buf0dblwr.cc','/* Write the good page from the doublewrite buffer to the'],
           ['storage/innobase/buf/buf0dblwr.cc','<< "Recovered page " << page_id << " from the doublewrite buffer.";'],
-          ['storage/innobase/fil/fil0fil.cc','recv_sys->dblwr->recover(space);']],
+          ['storage/innobase/fil/fil0fil.cc','recv_sys->dblwr->recover(space);'],
+          ['storage/innobase/log/log0recv.cc','auto batch_size = recv_sys->n_addrs;']],
     beat:1,
-    ops:{ ibd:{ set:{ 'p:5':{ tag:'clean', sub:'사본으로 복원 · LSN 4,900' } } },
-          dw:{ del:['p:5'] } } },
+    ops:{ ibd:{ set:{ 'p:5':{ tag:'clean', sub:'사본으로 복원 · LSN 19,579,686' } } },
+          dw:{ set:{ 'p:5':{ tag:'free', sub:'복원에 씀 · 파일에는 그대로' } } } } },
 
-  { note:'p:12 skip — page LSN 이 redo 레코드보다 뒤',
+  { note:'p:13 skip — page LSN 이 redo 레코드보다 뒤',
     why:'판정은 레코드마다다. 레코드의 시작 LSN 이 페이지의 FIL_PAGE_LSN 보다 작으면 이미 반영된 것이라 건너뛰고, 같거나 크면 적용한다. 판정하려면 그 페이지를 디스크에서 먼저 읽어야 하므로 replay 대상이 아닌 페이지도 한 번은 읽힌다.',
-    key:'이 비교가 redo replay 를 <em>몇 번 해도 결과가 같게</em> 만든다. 복구 중에 또 죽어도 안전한 이유다 — 멱등성.',
+    key:'잰 값(ib_log): p:13 의 레코드 19,579,724 에는 apply 줄이 없다 — 디스크의 FIL_PAGE_LSN 이 <em>19,579,767</em> 이다. p:5 의 첫 레코드(19,579,643, id 5)도 같은 까닭으로 건너뛰었다. 이 비교가 replay 를 <em>몇 번 해도 결과가 같게</em> 만든다 — 멱등성.',
     ref:'storage/innobase/log/log0recv.cc', sym:'recv_recover_page_func',
     fact:[['storage/innobase/include/fil0types.h','constexpr uint32_t FIL_PAGE_LSN = 16;'],
           'lsn_t page_lsn = mach_read_from_8(page + FIL_PAGE_LSN);',
           'if (recv->start_lsn >= page_lsn',
           '/* page lsn must be less than the lsn of a log record here. Otherwise,'],
     beat:1,
-    ops:{ bp:{ set:{ 'p:12':{ tag:'clean', sub:'LSN 5,400 > 5,210 · 건너뜀' } } } } },
+    ops:{ bp:{ set:{ 'p:13':{ tag:'clean', sub:'LSN 19,579,767 > 19,579,724 · 건너뜀' } } } } },
 
-  { act:{ f:'redo', t:'bp', lb:'p:5 에 3건 적용' },
-    note:'p:5 redo apply — uncommitted 변경까지 함께',
+  { act:{ f:'redo', t:'bp', lb:'p:5 에 8 개 적용' },
+    note:'p:5 redo apply — 커밋 안 된 변경까지 함께',
     why:'redo 는 트랜잭션의 커밋 여부를 구분하지 않는다. 일단 물리적으로 전부 다시 해 놓는다. 적용으로 더러워진 페이지는 기동 중에 곧바로 디스크에 쓴다.',
-    key:'복구는 두 단계다 — 먼저 <em>redo 로 전부 앞으로</em>, 그다음 <em>undo 로 일부 되돌린다</em>. 이 순서가 뒤집히면 안 된다.',
+    key:'잰 값: p:5 에 apply <em>8</em> 줄 — id 6(19,580,844, 커밋됨), 1301 의 id 10–14(19,581,978 ~ 19,582,302), 1302 의 id 8(19,583,131), 1303 의 id 7(19,584,138). 전부 403 개 중 375 개를 얹었고 "Apply batch completed!" 는 0.54 초 뒤다. 먼저 <em>redo 로 전부 앞으로</em>, 그다음 <em>undo 로 일부 되돌린다</em>.',
     ref:'storage/innobase/log/log0recv.cc', sym:'recv_apply_hashed_log_recs',
     fact:['recv_parse_or_apply_log_rec_body(recv->type, buf, buf_end,',
           'buf_flush_recv_note_modification(block, start_lsn, end_lsn);',
           ['storage/innobase/srv/srv0start.cc','recv_apply_hashed_log_recs(*log_sys, !recv_sys->is_cloned_db && !log_upgrade);'],
           ['share/messages_to_error_log.txt','Applying a batch of %llu redo log records ...']],
-    ops:{ bp:{ set:{ 'p:5':{ tag:'dirty', sub:'LSN 5,900 · trx 77 변경 포함' } } } } },
+    ops:{ bp:{ set:{ 'p:5':{ tag:'dirty', sub:'8 개 적용 · 1301 · 1302 · 1303 의 변경 포함' },
+                     '그 밖 15':{ tag:'dirty', sub:'367 개 적용 · 26 개 건너뜀' } } } } },
 
-  { act:{ f:'undo', t:'ses', lb:'PREPARED trx 77 발견' },
-    note:'undo scan — 미완료 trx 77 이 PREPARED 상태',
-    why:'undo 세그먼트의 헤더에 트랜잭션 상태가 있다. PREPARED 는 "1단계는 끝났고 판정을 못 들었다"는 뜻이다.',
-    key:'ACTIVE 로 남은 것은 그냥 롤백한다. <em>PREPARED 만이 판정을 필요로 한다</em> — 스스로 결정할 수 없는 상태.',
+  { act:{ f:'undo', t:'ses', lb:'PREPARED 1302 · 1303 발견' },
+    note:'undo scan — 끝나지 않은 셋, 그중 둘이 PREPARED',
+    why:'undo 세그먼트의 헤더에 트랜잭션 상태가 있다. PREPARED 는 "1단계는 끝났고 판정을 못 들었다"는 뜻이다. 되돌릴 행 수는 ACTIVE 인 것만 센다.',
+    key:'잰 값: "Transaction 1303 was in the XA prepared state." · "Transaction 1302 …" 그리고 "3 transaction(s) which must be rolled back or cleaned up in total <em>5</em> row operations to undo" — 5 는 1301 의 것뿐이다. ACTIVE 는 그냥 롤백한다. <em>PREPARED 만이 판정을 필요로 한다</em>.',
     ref:'storage/innobase/trx/trx0trx.cc', sym:'trx_lists_init_at_db_start',
-    fact:[['storage/innobase/include/trx0undo.h','constexpr uint32_t TRX_UNDO_STATE = 0;'],
-          ['storage/innobase/include/trx0undo.h','constexpr uint32_t TRX_UNDO_PREPARED = 6;'],
+    fact:[['storage/innobase/include/trx0undo.h','constexpr uint32_t TRX_UNDO_PREPARED = 6;'],
           '/* Prepared transactions are left in the prepared state',
+          '<< " was in the XA prepared state.";',
+          ['storage/innobase/trx/trx0sys.cc','rows_to_undo += trx->undo_no;'],
           ['storage/innobase/trx/trx0roll.cc','/* Note: For XA recovered transactions, we rely on MySQL to']],
-    ops:{ ses:{ set:{ 'PREPARED trx':'77|gold' } } } },
+    ops:{ ses:{ set:{ 'PREPARED trx':'1302 · 1303|gold' } },
+          undo:{ set:{ 'trx 1301':{ tag:'hold', sub:'ACTIVE · id 10–14 · 5 행' },
+                       'trx 1302':{ tag:'wait', sub:'PREPARED · id 8' },
+                       'trx 1303':{ tag:'wait', sub:'PREPARED · id 7' } } } } },
 
-  { act:{ f:'bin', t:'ses', lb:'binlog 에서 XID 77 을 찾는다' },
-    note:'binlog 에서 XID 77 탐색 — 이것이 판정',
-    why:'있으면 커밋 직전까지 갔다는 뜻이므로 커밋한다. 없으면 binlog 에 남기지 못한 것이므로 롤백한다. XID 는 InnoDB 의 trx id 가 아니라 서버가 문장 번호로 만든 값이다 — 그림에서는 같은 77 로 적었다. 이 판정은 InnoDB 의 기동이 끝난 뒤에 한다.',
-    key:'MySQL 은 별도 파일을 두지 않고 <em>binlog 를 판정 기록으로</em> 쓴다. binlog 를 끄면 코디네이터가 바뀐다 — 2PC 엔진이 둘 이상이면 tc.log(TC_LOG_MMAP), InnoDB 하나뿐이면 2PC 자체를 하지 않는다(TC_LOG_DUMMY).',
+  { act:{ f:'bin', t:'ses', lb:'binlog 에서 XID 를 찾는다' },
+    note:'binlog 에서 XID 탐색 — 이것이 판정',
+    why:'있으면 커밋 직전까지 갔다는 뜻이므로 커밋한다. 없으면 binlog 에 남기지 못한 것이므로 롤백한다. XID 는 InnoDB 의 trx id 가 아니라 서버가 만든 값이다 — 1302 의 XID 는 74 였다. 이 판정은 InnoDB 의 기동이 끝난 뒤("8.4.8 started")에 한다. binlog 를 끄면 코디네이터가 바뀐다 — 2PC 엔진이 둘 이상이면 tc.log(TC_LOG_MMAP), InnoDB 하나뿐이면 2PC 자체를 하지 않는다(TC_LOG_DUMMY).',
+    key:'잰 값: binlog.000001 의 마지막 Xid 는 <em>74</em> — 1302 의 UPDATE id 8 이다. 1303 의 이벤트는 없다. 에러 로그: "Found 2 prepared transaction(s) in InnoDB" → "Successfully committed 1, rolled back 1 internal transaction(s)." MySQL 은 별도 파일 없이 <em>binlog 를 판정 기록으로</em> 쓴다.',
     ref:'sql/binlog/recovery.cc', sym:'Binlog_recovery::recover',
     fact:[['sql/mysqld.cc','if (opt_bin_log) tc_log = &mysql_bin_log; else tc_log = &tc_log_mmap;'],
           ['sql/mysqld.cc','tc_log = &tc_log_dummy;'],
           ['sql/binlog/recovery.h','and to roll back all prepared transactions that are not in the set.'],
-          ['sql/xa/recovery.cc','if (info.commit_list ? info.commit_list->count(xid) != 0']],
+          ['sql/xa/recovery.cc','if (info.commit_list ? info.commit_list->count(xid) != 0'],
+          ['share/messages_to_error_log.txt','Found %d prepared transaction(s) in %s']],
     beat:1,
-    ops:{ bin:{ set:{ 'last XID':'76', '판정':'77 없음 → 롤백|red' } } } },
+    ops:{ bin:{ set:{ 'last XID':'74 (1302 의 UPDATE id 8)', '판정':'1302 커밋 · 1303 롤백|gold' } },
+          undo:{ set:{ 'trx 1302':{ tag:'free', sub:'커밋 — binlog 에 Xid 74' },
+                       'trx 1303':{ tag:'x', sub:'롤백 판정 — binlog 에 없다' } } },
+          ses:{ set:{ '서버 상태':'InnoDB 기동 끝 · XA 복구|gold', 'PREPARED trx':'—', '롤백 대상':'1303 · 1301|red' } } } },
 
-  { act:{ f:'undo', t:'bp', lb:'trx 77 되돌리기' },
-    note:'판정 = rollback — undo 로 trx 77 되돌림',
-    why:'binlog 의 판정이 rollback_by_xid 를 거쳐 InnoDB 의 롤백으로 내려온다 — InnoDB 가 기동하며 스스로 정리하는 단계는 PREPARED 를 일부러 건드리지 않는다. redo 로 앞으로 갔던 것을 undo 로 뒤로 물리고, 이 되돌리기 자체도 redo 를 남긴다. 에러 로그 : Successfully rolled back 1 internal transaction(s).',
-    key:'롤백이 redo 를 쓴다는 것이 처음엔 이상하게 들린다. 하지만 되돌리기도 <em>페이지 변경</em>이므로 내구성이 필요하다.',
+  { act:{ f:'undo', t:'bp', lb:'1303 · 1301 되돌리기' },
+    note:'rollback — 판정된 것과 주인 잃은 것',
+    why:'binlog 의 판정이 rollback_by_xid 를 거쳐 InnoDB 의 롤백으로 내려온다 — 1303 이다. InnoDB 가 기동하며 스스로 정리하는 단계는 PREPARED 를 일부러 건드리지 않는다. ACTIVE 였던 1301 은 판정 없이 백그라운드 스레드가 되돌린다. redo 로 앞으로 갔던 것을 undo 로 뒤로 물리고, 이 되돌리기 자체도 redo 를 남긴다.',
+    key:'잰 값: XA 복구가 끝나고 22 ms 뒤 "Rolling back trx with id <em>1301, 5 rows to undo</em>", 3.6 ms 뒤 completed. 결과는 id 7 = 100 · id 10–14 = 100(되돌림), id 8 = 500(1302 커밋). 되돌리기도 <em>페이지 변경</em>이므로 redo 가 필요하다.',
     ref:'storage/innobase/trx/trx0roll.cc', sym:'trx_rollback_low',
     fact:['TRX_UNDO_PREPARED to TRX_UNDO_ACTIVE',
-          'so that if the system gets killed,',
           '/* Persist the XA ROLLBACK, so that crash',
+          '<< "Rolling back trx with id " << trx_id << ", "',
           ['sql/xa/recovery.cc','exec_status = ht.rollback_by_xid(&ht, const_cast<XID *>(&xa_trx.id));']],
-    ops:{ bp:{ set:{ 'p:5':{ tag:'dirty', sub:'trx 77 되돌림 · LSN 5,940' } } },
-          redo:{ set:{ '파일 끝':'5,940|gold' } },
-          undo:{ del:['undo 7'] },
-          ses:{ set:{ '롤백 대상':'trx 77 완료|green', 'PREPARED trx':'—' } } } },
+    ops:{ bp:{ set:{ 'p:5':{ tag:'dirty', sub:'1303 · 1301 되돌림 — redo 를 또 쓴다' } } },
+          undo:{ del:['trx 1301','trx 1303'] },
+          ses:{ set:{ '롤백 대상':'1303 · 1301 완료|green' } } } },
 
   { note:'recovery 완료 — connection 수락',
-    why:'p:5 는 롤백이 남긴 변경으로 다시 dirty 다 — redo 에 근거가 있으므로 page cleaner 가 천천히 flush 하면 된다. checkpoint 는 그 변경 앞(5,900)까지만 오른다.',
-    key:'복구가 끝난 시점에 <em>디스크가 깨끗할 필요는 없다</em>. 필요한 것은 "redo 와 데이터 파일이 정합한 상태"뿐이다.',
+    why:'복구가 끝나면 적용으로 더러워진 페이지를 기동 중에 한꺼번에 내리고, 그 뒤에야 checkpoint 를 다시 허락한다. 롤백과 시작 과정이 남긴 변경은 page cleaner 가 천천히 내리면 된다.',
+    key:'잰 값: "ready for connections" 는 프로세스 시작 <em>6.8 초</em> 뒤. 다시 한 재시작의 첫 연결에서 checkpoint 19,630,120 · LSN 19,631,777 · dirty 23 페이지, p:5 는 NEWEST 19,612,764 · OLDEST 0 — 이미 내려갔다. 복구가 끝난 시점에 <em>디스크가 깨끗할 필요는 없다</em>. 필요한 것은 "redo 와 데이터 파일이 정합한 상태" 뿐이다.',
     ref:'sql/mysqld.cc', sym:'init_server_components',
     fact:[['storage/innobase/srv/srv0start.cc','if (!srv_force_recovery && !srv_read_only_mode) { buf_flush_sync_all_buf_pools(); }'],
           ['storage/innobase/srv/srv0start.cc','log_sys->m_allow_checkpoints.store(true, std::memory_order_release);'],
-          ['storage/innobase/include/log0sys.h','A new checkpoint could be written for this lsn value.'],
+          ['share/messages_to_error_log.txt','%s started; log sequence number %llu'],
           ['share/messages_to_error_log.txt','%s: ready for connections.']],
     beat:1,
     ops:{ ses:{ set:{ '서버 상태':'연결 수락|green', '롤백 대상':'—' } },
-          redo:{ set:{ 'Last checkpoint at':'5,900|green', 'replay 구간':'—' } } } },
+          bp:{ set:{ 'p:5':{ tag:'clean', sub:'NEWEST 19,612,764 · OLDEST 0 — 이미 내려갔다' },
+                     '그 밖 15':{ tag:'clean', sub:'복구 끝에 한꺼번에 내린다 (규칙)' } } },
+          ibd:{ set:{ 'p:5':{ tag:'clean', sub:'복구 · 롤백 뒤의 페이지로 덮였다' } } },
+          redo:{ set:{ 'Last checkpoint at':'첫 연결 때 19,630,120|green', 'replay 구간':'—' } } } },
   ],
 },
 {

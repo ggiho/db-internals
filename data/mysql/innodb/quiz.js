@@ -61,7 +61,7 @@ export const CORE = {
     x: ['undo 로 끝나지 않은 트랜잭션을 먼저 되돌린다', 'binlog 에서 PREPARED 트랜잭션을 판정한다', 'checksum 이 깨진 페이지를 버리고 새로 만든다'],
   },
   '03/5': {
-    q: 'replay 중 p:12 의 FIL_PAGE_LSN 이 그 redo 레코드보다 이미 앞서 있으면?',
+    q: 'replay 중 p:13 의 FIL_PAGE_LSN 이 그 redo 레코드보다 이미 앞서 있으면?',
     a: '건너뛴다 — 이미 반영된 변경이다',
     x: ['다시 적용한다 — redo 는 몇 번 얹어도 같다', '복구를 멈추고 손상으로 보고한다', 'doublewrite 사본으로 먼저 덮어쓴다'],
   },
