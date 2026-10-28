@@ -73,6 +73,8 @@ function lookup(name) {
     new RegExp('constexpr\\s[\\w:<>*\\s]*\\b' + name + '\\s*=\\s*([^;]+);'),
     new RegExp('#define\\s+' + name + '\\s+([^/\\n]+)'),
     new RegExp('static\\s+const\\s[\\w\\s]*\\b' + name + '\\s*=\\s*([^;]+);'),
+    /* 이름공간 수준의 const — dict0mem.h 의 'const uint8_t MAX_ROW_VERSION = 64;' 를 못 찾아 '정의 못 찾음' 으로 남았다 */
+    new RegExp('^\\s*(?:inline\\s+)?const\\s[\\w:<>*\\s]*\\b' + name + '\\s*=\\s*([^;]+);'),
     new RegExp('\\b' + name + '\\s*=\\s*(0x[0-9A-Fa-f]+|\\d+)\\s*[,}]'),
   ];
   const vals = new Set();
