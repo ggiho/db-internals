@@ -453,11 +453,14 @@ function make({ F, deck, labels, scene }) {
         ctx.globalAlpha = (hot ? 0.9 : on ? 0.55 : 0.35) * o; ctx.strokeStyle = hot ? css.accent : css.ink; ctx.lineWidth = hot ? 1.5 : 1; ctx.setLineDash([]);
         ctx.beginPath(); ctx.moveTo(A0.x, A0.y + G.ph / 2 + 6 + G.pH + 3); ctx.lineTo(B0.x, B0.y - G.ph / 2 - 2); ctx.stroke();
       }
-      /* right-link — next 로 이웃한 상자 사이에 화살표 */
+      /* right-link — next 로 이웃한 상자 사이에 화살표. 금빛은 그 스텝에 새로 생긴 링크만 —
+         페이지의 다른 값(03 의 9 스텝 : 보이는 leaf 를 바꾼 list)이 바뀌었다고 링크까지 금빛이면 링크가 바뀐 것으로 읽힌다 */
+      const prev = kk > 0 ? S[kk - 1] : cur.S0;
       for (const pg of s.pages) {
         if (!pg.next) continue;
         const A0 = pageAt(s, pg.id), B0 = pageAt(s, pg.next); if (!A0 || !B0) continue;
-        const fresh = !end && (modOf(s, TREE).has(pg.id) || modOf(s, TREE).has(pg.next)), hot = step(pg.id, pg.next);
+        const was = prev.pages.find((x) => x.id === pg.id);
+        const fresh = !end && (!was || was.next !== pg.next), hot = step(pg.id, pg.next);
         ctx.globalAlpha = (hot || fresh ? 0.95 : on ? 0.6 : 0.4) * o * (fresh ? show(p, 0.3, 0.46) : 1);
         ctx.strokeStyle = hot ? css.accent : fresh ? css.gold : css.ink; ctx.lineWidth = hot || fresh ? 1.6 : 1.1; ctx.setLineDash([]);
         const y = A0.y + G.ph / 2 - 6, row = s.pages.filter((x) => sameRow(x, pg));
