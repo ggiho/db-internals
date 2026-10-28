@@ -30,12 +30,27 @@ export const CORE = {
     a: 'WAL 에 들어 있는 그 페이지의 온전한 이미지',
     x: ['checksum 이 틀린 바이트를 스스로 고친다', '데이터 파일에 남은 이전 세그먼트 사본', 'doublewrite 영역에 먼저 써 둔 사본'],
   },
-  '02/4': {
-    q: 'replay 중 p:9 의 페이지 LSN 이 레코드보다 이미 앞서 있으면?',
+  '02/5': {
+    q: 'full_page_writes on 에서, 디스크의 p:9 가 이미 rec C 의 끝 LSN 까지 반영돼 있다. 이미지가 붙은 rec C 를 replay 하면?',
+    a: '이미지로 덮는다 — 이미지가 있으면 LSN 을 견주지 않는다',
+    x: ['건너뛴다 — 페이지 LSN 이 레코드 끝과 같아서', '디스크 쪽을 믿고 이미지를 버린 뒤 checksum 만 다시 셈한다', '두 쪽이 달라 복구를 멈추고 오류로 알린다'],
+  },
+  '02/6': {
+    q: '크래시 복구가 redo done 을 찍은 뒤, 복원한 페이지는 언제 디스크에 가나?',
+    a: '연결을 받기 전 end-of-recovery checkpoint 가 쓴다',
+    x: ['다음 checkpoint_timeout 이 돌아올 때 쓴다', '버퍼에서 밀려날 때 bgwriter 가 쓴다', '쓰지 않는다 — WAL 에 있으니 다시 replay 하면 된다'],
+  },
+  '02/7': {
+    q: 'full_page_writes = off 로 쓴 WAL 로, 찢긴 p:7 을 고치는 레코드를 replay 하면?',
+    a: 'checksum 이 틀려 startup 이 FATAL 로 멈춘다',
+    x: ['checksum 이 틀린 바이트를 WAL 로 고쳐 쓴다', '찢긴 페이지만 건너뛰고 나머지를 replay 한다', '변경분을 얹으면 찢긴 반도 저절로 맞춰진다'],
+  },
+  '02/8': {
+    q: 'full_page_writes off 에서, 이미지 없는 rec C 의 끝 LSN 이 디스크 p:9 의 페이지 LSN 이하라면?',
     a: '그 레코드를 건너뛴다 — 이미 반영된 변경이다',
     x: ['덮어쓴다 — 로그가 항상 데이터보다 옳다', '복구를 멈추고 checksum 오류로 보고한다', '그 페이지의 FPI 를 찾아 먼저 복원한다'],
   },
-  '02/6': {
+  '02/9': {
     q: 'InnoDB 와 비교해 PG 크래시 복구가 읽는 자료는?',
     a: 'WAL 하나를 앞에서 뒤로 한 번',
     x: ['doublewrite 사본을 먼저, 그다음 WAL', 'WAL 을 거꾸로 읽어 undo 부터', 'WAL 과 clog 를 번갈아 두 번'],

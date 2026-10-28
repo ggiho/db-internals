@@ -129,6 +129,30 @@ function make({ F, deck, labels, scene }) {
       }
     }
   });
+  /* 복구(02) — xlogutils.c XLogReadBufferForRedoExtended. 레코드 칸에 pg(페이지) · fpi 가 있고 redo 가 이번 스텝에 정해지면
+     restored : 이미지가 있어야 하고 버퍼의 그 페이지 LSN 이 레코드의 end 가 된다 (PageSetLSN(page, EndRecPtr))
+     applied  : 이미지 없이 end > 직전 페이지 LSN, 얹은 뒤 버퍼 LSN = end      skipped : end ≤ 직전 페이지 LSN (BLK_DONE)
+     직전 페이지 LSN 은 버퍼에 있으면 버퍼, 없으면 데이터 파일의 것. 또 kv 값 안의 "LSN ≤ LSN" 같은 비교는 셈이 맞아야 한다 */
+  const pgLsn = (s, id) => { for (const a of ROWS) { const x = s[a].find((q) => q.id === id && A[a].short === '버퍼'); if (x) return itLsn(x); }
+    for (const a of ROWS) { const x = s[a].find((q) => q.id === id && itLsn(q) != null && itEnd(q) == null); if (x) return itLsn(x); } return null; };
+  const CMP = /([0-9A-F]{1,8}\/[0-9A-F]{1,8})\s*(≤|<|>|≥)\s*(?:[^\d\s/]+\s+)?([0-9A-F]{1,8}\/[0-9A-F]{1,8})/;
+  for (const [k, b] of BAKES) [b.S0, ...b.S].forEach((s, i, arr) => {
+    const at = `pg wal ${sc.num} 세계${k ? ' (' + sc.vary.knob + '=' + k + ')' : ''} : ${i ? i + ' 스텝' : 'init'}`, pv = i ? arr[i - 1] : null;
+    for (const a of TEXTS) for (const [key, v] of Object.entries(s[a])) {
+      const m = CMP.exec(bare(v)); if (!m) continue;
+      const l = lsnOf(m[1]), r = lsnOf(m[3]), ok = { '≤': l <= r, '<': l < r, '>': l > r, '≥': l >= r }[m[2]];
+      if (!ok) console.error(`${at} 의 ${a} ${key} : "${m[0]}" 가 셈과 맞지 않는다`);
+    }
+    if (!pv) return;
+    for (const a of RECS) for (const x of s[a]) {
+      if (!x.redo || !x.pg) continue;
+      const o = pv[a].find((q) => q.id === x.id); if (o && o.redo === x.redo) continue;
+      const end = itEnd(x), before = pgLsn(pv, x.pg), now = pgLsn(s, x.pg);
+      if (x.redo === 'restored' && (!x.fpi || now !== end)) console.error(`${at} 의 ${x.id} : restored 인데 ${x.fpi ? '버퍼 ' + x.pg + ' LSN 이 end 가 아니다' : '이미지가 없다'}`);
+      else if (x.redo === 'applied' && (x.fpi || before == null || !(end > before) || now !== end)) console.error(`${at} 의 ${x.id} : applied 인데 end > 직전 LSN · 얹은 뒤 LSN = end 가 아니다 (이미지 ${x.fpi})`);
+      else if (x.redo === 'skipped' && (x.fpi || before == null || !(end <= before))) console.error(`${at} 의 ${x.id} : skipped 인데 ${x.fpi ? '이미지가 있다 — 이미지는 견주지 않고 복원한다' : 'end 가 직전 페이지 LSN 보다 크다'}`);
+    }
+  });
   /* 슬롯이 붙잡는 WAL(09) — xlog.c GetWALAvailability : 세그먼트 = 16 MB, max_wal_size 안(지금 세그먼트 − (max_wal_size/16 + 1) 이후)이면
      reserved, 슬롯 때문에 그보다 오래 남기면 extended, max_slot_wal_keep_size 를 넘었지만 아직 안 지웠으면 unreserved.
      slotfuncs.c 의 safe_wal_size = (restart 세그먼트 + keep 세그먼트 + 1) 의 시작 − 지금 LSN. 잰 값이 이 셈과 다르면 알린다 */
