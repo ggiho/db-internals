@@ -490,10 +490,13 @@ function make({ F, deck, labels, scene }) {
   /* 영역의 알갱이 — 바이트 범위 안에 고르게. 이름표가 앉을 가운데 조각은 비운다 */
   const regionPts = (it, n) => {
     const sg = segs(it.off, it.len), tot = it.len, lg = sg.reduce((p, q) => (q[1] - q[0] > p[1] - p[0] ? q : p), sg[0]);
-    const pts = [];
+    const pts = [], cx = bxy(lg[0])[0] + ((lg[1] - lg[0]) * G.grid.cell) / 2;
     for (let m = 0; m < n; m++) {
       const u = (m + 0.5) / n, o = it.off + u * tot, [x, y] = bxy(o), r = Math.floor(o / ROWB), yy = y + 3 + ((m * 7) % 5) * ((G.grid.gr - 6) / 4);
-      pts.push([x, yy, r === lg[2] && it.len > 40 ? 1 : 0]);
+      /* 이름이 앉는 조각의 알갱이는 비킨다 — 40 B 를 넘는 영역은 그 조각 전체, 그보다 작은데 이름이 보이는 영역은 이름 폭만
+         (06 의 'lp 3 이후' 는 40 B 인데 넓은 무대에서 이름이 들어가 알갱이 4 개가 이름 위에 앉았다) */
+      const lw = G.gLw && G.gHide && G.gHide[it.id] === false ? G.gLw[it.id] : 0;
+      pts.push([x, yy, r === lg[2] && (it.len > 40 || (lw && Math.abs(x - cx) < lw / 2 + 3)) ? 1 : 0]);
     }
     return pts;
   };
@@ -625,7 +628,7 @@ function make({ F, deck, labels, scene }) {
       const s = S[kk];
       if (GRID) {
         /* 영역 이름은 가장 긴 조각의 가운데 — 이름이 조각보다 넓으면 숨긴다(설명 줄에 남아 있다) */
-        for (const it of s[GRID]) { const P = regionAt(s, it.id); place(gLb[it.id], P.x, P.y, 'c', 'c'); G.gHide = G.gHide || {}; G.gHide[it.id] = P.w < gLb[it.id].el.getBoundingClientRect().width + 6; }
+        for (const it of s[GRID]) { const P = regionAt(s, it.id); place(gLb[it.id], P.x, P.y, 'c', 'c'); G.gHide = G.gHide || {}; G.gLw = G.gLw || {}; G.gLw[it.id] = gLb[it.id].el.getBoundingClientRect().width; G.gHide[it.id] = P.w < G.gLw[it.id] + 6; }
         const bd = bounds(s), [lx, ly] = bxy(bd.lower), [ux, uy] = bxy(Math.min(PG - 1, bd.upper));
         /* pd_upper 가 줄의 맨 앞이면 이름을 눈금 오른쪽에 — 왼쪽은 무대 밖이다 */
         const upL = ux - 4 - mkLb.up.el.getBoundingClientRect().width < G.L.x0;

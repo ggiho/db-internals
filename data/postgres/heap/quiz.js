@@ -105,10 +105,20 @@ export const CORE = {
     a: '7,988 B — lp 하나 몫을 미리 뺀다',
     x: ['7,992 B — 두 경계의 차이 그대로', '8,168 B — 헤더를 뺀 페이지 전체', '0 — 이미 튜플이 둘 있으므로'],
   },
-  '06/5': {
+  '06/6': {
+    q: 'flags 5(HAS_FREE_LINES + ALL_VISIBLE)에 lp 2 가 UNUSED 인 페이지(lower 36)에 60 B 행을 넣으면?',
+    a: 'lp 2 를 다시 쓰고 pd_lower 는 36 그대로',
+    x: ['lp 4 를 새로 붙여 pd_lower 가 40 이 된다', 'lp 2 가 쓰던 옛 바이트 자리에 그대로 쓴다', 'UNUSED 번호는 VACUUM FULL 전에는 못 쓴다'],
+  },
+  '06/8': {
     q: 'heap 튜플을 넣다가 PageAddItem 이 InvalidOffsetNumber 를 돌려주면?',
     a: 'PANIC — 자리를 확인한 페이지에서 실패했으므로',
     x: ['다른 페이지를 골라 다시 시도한다', '페이지를 조각 모으기 한 뒤 다시 넣는다', '그 튜플을 TOAST 로 보내 크기를 줄인다'],
+  },
+  '06/10': {
+    q: 'UPDATE 의 새 버전이 옛 페이지에 안 들어가 다른 페이지로 갔다. 옛 페이지의 pd_flags 에 남는 것은?',
+    a: 'PD_PAGE_FULL — 정리해 볼 만하다는 힌트',
+    x: ['PD_ALL_VISIBLE — 모든 행이 보인다는 표시', 'PD_HAS_FREE_LINES — 빈 lp 가 생겼다는 표시', '아무것도 — FSM 값만 고친다'],
   },
   '07/2': {
     q: '조각 모으기가 튜플 C 를 다른 오프셋으로 옮기면 인덱스의 TID (블록, lp 3) 는?',
