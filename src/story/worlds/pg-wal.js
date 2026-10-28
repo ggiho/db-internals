@@ -15,6 +15,7 @@
        커밋(04) — 칸 설명의 '힌트 못 적음' · 'XMIN_COMMITTED 힌트' 를 SetHintBits 의 규칙(커밋 LSN 대 Flush · 페이지 LSN)으로, "커밋 N · fsyncs M — R 개씩" 을 N / M 으로 맞춘다
        레코드 · 페이지 머리(05 · 06) — 띠 칸의 "바이트 … → 값" 을 little-endian 으로 다시 읽어 값 · 칸 바이트 수와 맞추고, 머리 24 · 머리 + 몸 = xl_tot_len ·
        끝 = MAXALIGN(시작 + 길이) · xl_prev, 페이지 머리 40 / 24 · LONG_HEADER ⇔ 세그먼트 첫 페이지 · CONTRECORD ⇔ rem_len · 넘어온 꼬리의 길이를 맞춘다
+       동시 삽입(07) — 락 번호 = ProcNumber % 8, 'N B · …' 구간의 end = MAXALIGN(lsn + N) · 빈틈 없음, CurrBytePos = XLogRecPtrToBytePos(Insert), '쓸 수 있는 끝' = 복사 중인 가장 앞 삽입
    손잡이가 있는 장면(04 synchronous_commit)은 값마다 따로 bake 해 두고 setVary 로 바꾼다.
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
@@ -297,6 +298,39 @@ function make({ F, deck, labels, scene }) {
       }
     });
   }
+  /* 동시 삽입(07) — 칸 설명의 'ProcNumber N' 을 쥔 락 번호는 N % NUM_XLOGINSERT_LOCKS(8). 'N B · …' 구간은 end = MAXALIGN(lsn + N) 이고
+     LSN 순으로 앞 구간의 end 가 다음 lsn 이다(ReserveXLogInsertLocation). kv 의 CurrBytePos 는 Insert 를 XLogRecPtrToBytePos 로 바꾼 값,
+     괄호의 "바이트 X − 머리 Y" 는 X = Insert 의 바이트 · X − Y = 그 값. '쓸 수 있는 끝' 은 아직 복사 중(hold)인 가장 앞 구간의 lsn
+     (WaitXLogInsertionsToFinish) */
+  const PG8 = 8192, UPAGE = PG8 - 24, USEG = (SEG / PG8) * UPAGE - 16;
+  const bytePos = (p) => { const fs = Math.floor(p / SEG), fp = Math.floor((p % SEG) / PG8), o = p % PG8;
+    return fp === 0 ? fs * USEG + (o > 0 ? o - 40 : 0) : fs * USEG + (PG8 - 40) + (fp - 1) * UPAGE + (o > 0 ? o - 24 : 0); };
+  for (const [k, b] of BAKES) [b.S0, ...b.S].forEach((s, i) => {
+    const at = `pg wal ${sc.num} 세계${k ? ' (' + sc.vary.knob + '=' + k + ')' : ''} : ${i ? i + ' 스텝' : 'init'}`;
+    for (const a of ROWS) {
+      for (const x of s[a]) { const m = /ProcNumber\s*(\d+)/.exec(x.sub); if (m && Number(m[1]) % 8 !== Number(x.id)) console.error(`${at} 의 ${a} : 락 ${x.id} 를 ProcNumber ${m[1]} 가 쥐는데 ${m[1]} % 8 = ${Number(m[1]) % 8}`); }
+      const sp = s[a].filter((x) => itLsn(x) != null && itEnd(x) != null && /^\s*[\d,]+ B ·/.test(x.sub)).sort((p, q) => itLsn(p) - itLsn(q));
+      sp.forEach((x, j) => {
+        const n = int(x.sub);
+        if (itEnd(x) !== MAXA(itLsn(x) + n)) console.error(`${at} 의 ${x.id} : end ${x.end} 가 MAXALIGN(${x.lsn} + ${n}) 이 아니다`);
+        if (j && itLsn(x) !== itEnd(sp[j - 1])) console.error(`${at} 의 ${x.id} : 시작 ${x.lsn} 이 앞 구간 ${sp[j - 1].id} 의 끝 ${sp[j - 1].end} 이 아니다`);
+      });
+    }
+    for (const a of TEXTS) {
+      const kv = s[a], I = lsnOf(kv.Insert), cb = int(kv.CurrBytePos ?? '');
+      if (cb != null && I != null) {
+        if (cb !== bytePos(I)) console.error(`${at} 의 ${a} : CurrBytePos ${cb} 인데 Insert ${lsnTx(I)} 를 XLogRecPtrToBytePos 로 바꾸면 ${bytePos(I)}`);
+        const m = /바이트\s*([\d,]+)\s*−\s*머리\s*([\d,]+)/.exec(bare(kv.CurrBytePos));
+        if (m && (int(m[1]) !== I || int(m[1]) - int(m[2]) !== cb)) console.error(`${at} 의 ${a} : CurrBytePos 괄호 "${m[0]}" 가 Insert 바이트 ${I} · 값 ${cb} 와 맞지 않는다`);
+      }
+      const wl = lsnOf(kv['쓸 수 있는 끝'] ?? '');
+      if (wl != null) {
+        const held = ROWS.flatMap((r) => s[r]).filter((x) => x.tag === 'hold' && itLsn(x) != null).map(itLsn);
+        const want = held.length ? Math.min(...held) : I;
+        if (wl !== want) console.error(`${at} 의 ${a} : 쓸 수 있는 끝 ${lsnTx(wl)} 인데 가장 앞의 복사 중 삽입은 ${want == null ? '—' : lsnTx(want)}`);
+      }
+    }
+  });
   let cur = BAKES.get(null) || [...BAKES.values()][0];
 
   /* ── 알갱이 구역 ── */
