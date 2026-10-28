@@ -1,14 +1,24 @@
 /* 핵심 문항 — beat 스텝의 요점. 형식과 원칙은 postgres/mvcc/quiz.js 머리말. */
 export const CORE = {
-  '01/2': {
-    q: 'SELECT 가 잡는 AccessShareLock 은 보통 어디에 기록되나?',
-    a: '자기 백엔드의 fast-path 칸',
-    x: ['공유 메모리의 락 해시 표', '그 테이블의 첫 페이지 헤더', '디스크의 pg_locks 카탈로그'],
+  '01/3': {
+    q: 'BEGIN; UPDATE t … WHERE id = 1; 뒤 이 백엔드의 pg_locks 넷(t · t_pkey · virtualxid · transactionid) 중 공유 lock table 에 든 것은?',
+    a: 'transactionid 하나 — 남이 그 xid 를 기다리러 찾아온다',
+    x: ['넷 다 — pg_locks 는 공유 표를 그대로 보여 준다', 't 와 t_pkey 의 RowExclusiveLock 둘', 'virtualxid 하나 — 트랜잭션마다 공유 표에 한 칸'],
   },
-  '01/5': {
-    q: 'PG 가 행 락을 튜플의 xmax 에 적는 대가는?',
-    a: '락 메모리는 안 들지만 행 락만 잡아도 페이지가 더러워진다',
-    x: ['행마다 shared lock table 항목을 먹어 표가 넘친다', '대량 갱신 때 락 메모리가 모자라 에스컬레이션한다', 'xmax 를 쓰려면 테이블 락을 8단계로 올려야 한다'],
+  '01/4': {
+    q: 'A 가 t 에 Share 와 RowShare 를, B 가 Share 를 쥐었다. 공유 표의 LOCK · PROCLOCK 과 pg_locks 줄 수는?',
+    a: 'LOCK 1 · PROCLOCK 2 · 줄 3',
+    x: ['LOCK 3 · PROCLOCK 3 · 줄 3', 'LOCK 1 · PROCLOCK 3 · 줄 3', 'LOCK 2 · PROCLOCK 2 · 줄 2'],
+  },
+  '01/6': {
+    q: '20,000 행을 SELECT … FOR UPDATE 로 잠근 트랜잭션 — pg_locks 와 페이지는?',
+    a: 'pg_locks 는 넷 그대로, 행이 든 페이지가 모두 더러워지고 WAL 이 쌓인다',
+    x: ['pg_locks 에 tuple 줄이 20,000 개 생긴다', '행 락이 많아 테이블 락 하나로 에스컬레이션된다', 'pg_locks 도 페이지도 그대로 — 행 락은 메모리에만 있다'],
+  },
+  '01/8': {
+    q: 'max_locks_per_transaction 10 (공유 표를 460 칸으로 셈) 에서 한 트랜잭션이 테이블을 하나씩 잠그면?',
+    a: '460 을 넘겨 쥐다가 out of shared memory',
+    x: ['10 개째에서 실패 — 트랜잭션 하나의 상한', '정확히 460 개째에서 실패 — 표의 상한', '실패하지 않는다 — 넘친 락은 디스크로'],
   },
   '02/3': {
     q: 'BEGIN; UPDATE t … WHERE id = 2; 뒤 pg_locks 에 남는 relation 락은? (t 에 인덱스 둘)',

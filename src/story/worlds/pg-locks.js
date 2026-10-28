@@ -10,7 +10,9 @@
      · 셈 맞추기 — 장면의 8 × 8 행렬이 아래 LockConflicts(lock.c 의 배열을 그대로 옮긴 것)와 다르거나, 큐 항목의 mode 를
        모르면 console.error 로 알린다. 행렬 자체는 tools/pgmx.js 가 소스와 칸 단위로 대조한다.
        fast-path 띠는 칸 수의 합이 kv 의 max_locks_per_transaction 에서 셈한 묶음 수 × 16 과 같아야 하고, 쓴 칸의 합은 kv 의
-       'fastpath t'(잰 값), 칸 줄 항목의 n 합은 'fastpath f'(잰 값)와 같아야 한다
+       'fastpath t'(잰 값), 칸 줄 항목의 n 합은 'fastpath f'(잰 값)와 같아야 한다.
+       공유 표(01) — kv 의 MaxBackends 가 그 합과, '공유 표' 의 LOCK · PROCLOCK 이 NLOCKENTS 셈과, 'fast-path 칸' 이 묶음 셈과,
+       'pg_locks 줄' 의 t · f 가 칸 줄 n 합(ok · hold)과 맞아야 한다
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
 import { kvLine } from './kvline.js';
@@ -116,6 +118,30 @@ function make({ F, deck, labels, scene }) {
     if (ft != null && ft !== used) console.error(`${at} 의 쓴 칸 ${used} 이 잰 fastpath t ${ft} 와 다르다`);
     const out = ROWS.reduce((t, r) => t + s[r].reduce((u, x) => u + (typeof x.n === 'number' ? x.n : 0), 0), 0);
     if (ff != null && ff !== out) console.error(`${at} : 공유 표 칸 줄의 n 합 ${out} 이 잰 fastpath f ${ff} 와 다르다`);
+  });
+  /* 공유 표의 크기(01) — kv 의 'MaxBackends' 는 'N = a + b + c + d + 2'(postinit.c 의 합), '공유 표' 의 LOCK 은 lock.c NLOCKENTS
+     = max_locks × (MaxBackends + max_prepared), PROCLOCK 은 그 두 배, 'fast-path 칸' 은 InitializeFastPathLocks 의 셈이어야 한다.
+     'pg_locks 줄' 이 'fastpath t A · f B' 면 칸 줄의 n 합(ok = t · hold = f)과 같아야 하고, A 는 fast-path 칸을 넘을 수 없다 */
+  const nums = (v) => (bare(v).match(/\d[\d,]*/g) || []).map((x) => Number(x.replace(/,/g, '')));
+  for (const bk of BAKES.values()) bk.S.forEach((s, i) => {
+    const kv = TEXTS.map((t) => s[t]).find((x) => 'MaxBackends' in x && 'max_locks_per_transaction' in x);
+    if (!kv) return;
+    const at = `pg locks ${sc.num}/${i + 1} 세계`, mlpt = num(kv.max_locks_per_transaction), mb = nums(kv.MaxBackends);
+    if (mb.length > 1 && mb[0] !== mb.slice(1).reduce((t, x) => t + x, 0)) console.error(`${at} : MaxBackends ${mb[0]} 이 ${mb.slice(1).join(' + ')} 의 합이 아니다`);
+    const lk = /LOCK ([\d,]+)/.exec(bare(kv['공유 표'] || '')), pl = /PROCLOCK ([\d,]+)/.exec(bare(kv['공유 표'] || ''));
+    const want = mlpt * (mb[0] + (num(kv.max_prepared_transactions) || 0));
+    if (lk && Number(lk[1].replace(/,/g, '')) !== want) console.error(`${at} : 공유 표 LOCK ${lk[1]} — ${mlpt} × (${mb[0]} + max_prepared) = ${want}`);
+    if (pl && Number(pl[1].replace(/,/g, '')) !== 2 * want) console.error(`${at} : 공유 표 PROCLOCK ${pl[1]} — LOCK 의 두 배 ${2 * want}`);
+    const slots = Math.max(Math.min(np2(mlpt) / 16, 1024), 1) * 16;
+    if (kv['fast-path 칸'] != null && num(kv['fast-path 칸']) !== slots) console.error(`${at} : fast-path 칸 ${num(kv['fast-path 칸'])} — max_locks ${mlpt} 이면 ${slots}`);
+    const m = /fastpath t ([\d,]+) · f ([\d,]+)/.exec(bare(kv['pg_locks 줄'] || ''));
+    if (!m) return;
+    const [ft, ff] = [m[1], m[2]].map((x) => Number(x.replace(/,/g, '')));
+    const sum = (tg) => ROWS.reduce((t, r) => t + s[r].reduce((u, x) => u + (x.tag === tg && typeof x.n === 'number' ? x.n : 0), 0), 0);
+    if (sum('ok') !== ft || sum('hold') !== ff) console.error(`${at} : 칸 줄의 n 합 t ${sum('ok')} · f ${sum('hold')} 이 'pg_locks 줄' t ${ft} · f ${ff} 와 다르다`);
+    /* virtualxid 는 칸이 아니라 PGPROC 의 fpVXIDLock 이다 — relation 줄만 칸을 쓴다 */
+    const rel = ROWS.reduce((t, r) => t + s[r].reduce((u, x) => u + (x.tag === 'ok' && !/^virtualxid/.test(x.id) && typeof x.n === 'number' ? x.n : 0), 0), 0);
+    if (rel > slots) console.error(`${at} : fastpath t 인 relation 줄 ${rel} 이 fast-path 칸 ${slots} 을 넘는다`);
   });
   let cur = BAKES.get(null) || [...BAKES.values()][0];
 
