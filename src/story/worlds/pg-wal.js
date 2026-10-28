@@ -13,6 +13,8 @@
        checkpoint(03) — kv 에 max_wal_size(· completion_target) · RedoRecPtr 가 있으면 '문턱' 과 checkpoint starting: wal 이 찍힌 스텝의
        Insert 를 CalculateCheckpointSegments · XLogCheckpointNeeded 로, '단계' 의 removed · recycled 를 redo 세그먼트와 칸 줄로 맞춘다
        커밋(04) — 칸 설명의 '힌트 못 적음' · 'XMIN_COMMITTED 힌트' 를 SetHintBits 의 규칙(커밋 LSN 대 Flush · 페이지 LSN)으로, "커밋 N · fsyncs M — R 개씩" 을 N / M 으로 맞춘다
+       레코드 · 페이지 머리(05 · 06) — 띠 칸의 "바이트 … → 값" 을 little-endian 으로 다시 읽어 값 · 칸 바이트 수와 맞추고, 머리 24 · 머리 + 몸 = xl_tot_len ·
+       끝 = MAXALIGN(시작 + 길이) · xl_prev, 페이지 머리 40 / 24 · LONG_HEADER ⇔ 세그먼트 첫 페이지 · CONTRECORD ⇔ rem_len · 넘어온 꼬리의 길이를 맞춘다
    손잡이가 있는 장면(04 synchronous_commit)은 값마다 따로 bake 해 두고 setVary 로 바꾼다.
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
@@ -72,7 +74,8 @@ function make({ F, deck, labels, scene }) {
   const KMARK = TEXTS.flatMap((a) => [...new Set(all.flatMap((s) => Object.keys(s[a]).filter((k) => lsnOf(s[a][k]) != null)))].map((k) => ({ a, k })));
   const PAGES = ROWS.filter((a) => all.some((s) => s[a].some((x) => itLsn(x) != null && itEnd(x) == null)));
   const RECS = ROWS.filter((a) => all.some((s) => s[a].some((x) => itLsn(x) != null && itEnd(x) != null)));
-  const RULER = KMARK.length + PAGES.length + RECS.length > 0;
+  /* ruler:false — 자가 할 일이 없는 장면(05 레코드 해부 : 세 LSN 은 글 블록에 이미 있다)은 자를 그리지 않는다 */
+  const RULER = sc.ruler !== false && KMARK.length + PAGES.length + RECS.length > 0;
   const ids = (a) => [...new Set(all.flatMap((s) => (s[a] || []).map((x) => x.id)))];
   const SIDS = Object.fromEntries(STRIPS.map((a) => [a, ids(a)]));
   const RIDS = Object.fromEntries(ROWS.map((a) => [a, ids(a)]));
@@ -130,6 +133,60 @@ function make({ F, deck, labels, scene }) {
         const sum = s[a].reduce((p, x) => p + x.b, 0), want = Number(rl[1].replace(/,/g, ''));
         if (sum !== want) console.error(`${at} 의 ${a} : 칸 바이트 합 ${sum} 이 레코드 ${want} B 와 다르다`);
       }
+    }
+  });
+  /* 레코드 해부(05) · 페이지 머리(06) — 칸 sub 가 "바이트 … → 값" 이면 xxd 로 읽은 파일 순서의 바이트다. 바이트 수는 칸의 b(없으면 sz),
+     정수는 little-endian 으로 읽어 값과 같아야 한다(1663/5/16518 은 uint32 셋, X/Y 는 uint64 LSN). 낱말로 시작하는 값은 바이트 수만 본다.
+     05 : XLogRecord 칸의 합 = SizeOfXLogRecord 24, 머리 + 몸 = xl_tot_len, '끝' = MAXALIGN('시작' + xl_tot_len), '이전 레코드' = xl_prev.
+     06 : 머리 칸의 합 = XLP_LONG_HEADER 면 40, 아니면 24 — 긴 머리는 세그먼트의 첫 페이지(pageaddr % 16MB = 0)에만,
+          XLP_FIRST_IS_CONTRECORD ⇔ xlp_rem_len > 0 (CopyXLogRecordToWAL), '넘어온 레코드' "LSN · N B" 면 rem_len = N − (pageaddr − LSN),
+          '첫 레코드' 가 LSN 이면 = MAXALIGN(pageaddr + 머리 + rem_len) */
+  const HEXRE = /^((?:[0-9a-f]{2})+(?:[ ·]+(?:[0-9a-f]{2})+)*)\s+→\s+(.+)$/;
+  const hexOf = (sub) => { const m = HEXRE.exec(bare(sub)); return m ? { bytes: m[1].replace(/[ ·]/g, '').match(/../g).map((h) => parseInt(h, 16)), v: m[2] } : null; };
+  const le = (bs) => bs.reduceRight((p, x) => p * 256n + BigInt(x), 0n);
+  const wantOf = (v) => { let m;
+    if ((m = /^(\d+)\/(\d+)\/(\d+)(?![\d/])/.exec(v))) return { w: [m[1], m[2], m[3]].map(BigInt), by4: true };
+    if ((m = /^([0-9A-F]{1,8})\/([0-9A-F]{1,8})(?![0-9A-Za-z/])/.exec(v))) return { w: (BigInt('0x' + m[1]) << 32n) + BigInt('0x' + m[2]) };
+    if ((m = /^0x([0-9A-Fa-f]+)(?![0-9A-Za-z])/.exec(v))) return { w: BigInt('0x' + m[1]) };
+    if ((m = /^(\d{1,3}(?:,\d{3})+|\d+)(?![\d,/])/.exec(v))) return { w: BigInt(m[1].replace(/,/g, '')) };
+    return null; };
+  const nb = (x) => x.b ?? x.sz ?? 1;
+  const hv = (s, a, id) => { const x = (s[a] || []).find((q) => q.id === id), h = x && hexOf(x.sub); return h ? Number(le(h.bytes)) : null; };
+  const kvAny = (s, key) => { for (const t of TEXTS) if (key in s[t]) return bare(s[t][key]); return ''; };
+  const MAXA = (n) => Math.ceil(n / 8) * 8;
+  for (const [k, b] of BAKES) [b.S0, ...b.S].forEach((s, i) => {
+    const at = `pg wal ${sc.num} 세계${k ? ' (' + sc.vary.knob + '=' + k + ')' : ''} : ${i ? i + ' 스텝' : 'init'}`;
+    for (const a of STRIPS) for (const x of s[a]) {
+      const h = hexOf(x.sub); if (!h) continue;
+      if (h.bytes.length !== nb(x)) console.error(`${at} 의 ${a} ${x.id} : 바이트 ${h.bytes.length} 개가 칸의 ${nb(x)} B 와 다르다`);
+      if (/^\S+\s+·\s/.test(h.v)) continue; /* "0x8003 · 0x2802 · 24" — 여러 칸을 묶은 값은 바이트 수만 */
+      const q = wantOf(h.v); if (!q) continue;
+      const ok = q.by4 ? h.bytes.length === 4 * q.w.length && q.w.every((w, j) => le(h.bytes.slice(4 * j, 4 * j + 4)) === w) : le(h.bytes) === q.w;
+      if (!ok) console.error(`${at} 의 ${a} ${x.id} : 바이트를 little-endian 으로 읽은 값이 적은 값 "${h.v}" 와 다르다`);
+    }
+    if (STRIPS.includes('xr') && s.xr.length) {
+      const hd = s.xr.reduce((p, x) => p + nb(x), 0), tot = hv(s, 'xr', 'xl_tot_len');
+      if (hd !== 24) console.error(`${at} 의 xr : 머리 칸의 합 ${hd} B 가 SizeOfXLogRecord 24 가 아니다`);
+      if (tot != null) {
+        const body = STRIPS.filter((a) => a !== 'xr').reduce((p, a) => p + s[a].reduce((q, x) => q + nb(x), 0), 0);
+        if (hd + body !== tot) console.error(`${at} : 머리 ${hd} + 몸 ${body} B 가 xl_tot_len ${tot} 과 다르다`);
+        const st = lsnOf(kvAny(s, '시작')), en = lsnOf(kvAny(s, '끝'));
+        if (st != null && en != null && en !== MAXA(st + tot)) console.error(`${at} : 끝 ${lsnTx(en)} 이 MAXALIGN(시작 ${lsnTx(st)} + ${tot}) 이 아니다`);
+      }
+      const pr = hv(s, 'xr', 'xl_prev'), pl = lsnOf(kvAny(s, '이전 레코드'));
+      if (pr != null && pl != null && pr !== pl) console.error(`${at} : 이전 레코드 ${lsnTx(pl)} 이 xl_prev ${lsnTx(pr)} 가 아니다`);
+    }
+    if (STRIPS.includes('wp') && s.wp.length) {
+      const info = hv(s, 'wp', 'xlp_info'), addr = hv(s, 'wp', 'xlp_pageaddr'), rem = hv(s, 'wp', 'xlp_rem_len');
+      if (info == null || addr == null || rem == null) return;
+      const long = (info & 2) !== 0, hdr = long ? 40 : 24, sz = s.wp.reduce((p, x) => p + nb(x), 0);
+      if (sz !== hdr) console.error(`${at} 의 wp : 머리 칸의 합 ${sz} B 가 ${long ? 'SizeOfXLogLongPHD 40' : 'SizeOfXLogShortPHD 24'} 이 아니다`);
+      if (long !== (addr % 0x1000000 === 0)) console.error(`${at} 의 wp : LONG_HEADER ${long} 인데 pageaddr ${lsnTx(addr)} 가 세그먼트 ${long ? '첫 페이지가 아니다' : '첫 페이지다'}`);
+      if (((info & 1) !== 0) !== (rem > 0)) console.error(`${at} 의 wp : FIRST_IS_CONTRECORD 와 xlp_rem_len ${rem} 이 맞지 않는다`);
+      const cr = /^([0-9A-F]+\/[0-9A-F]+)\s*·\s*([\d,]+)\s*B\b/.exec(kvAny(s, '넘어온 레코드'));
+      if (cr && rem !== Number(cr[2].replace(/,/g, '')) - (addr - lsnOf(cr[1]))) console.error(`${at} 의 wp : xlp_rem_len ${rem} 이 넘어온 레코드 ${cr[2]} B − (${lsnTx(addr)} − ${cr[1]}) 가 아니다`);
+      const fr = lsnOf(kvAny(s, '첫 레코드'));
+      if (fr != null && fr !== MAXA(addr + hdr + rem)) console.error(`${at} 의 wp : 첫 레코드 ${lsnTx(fr)} 가 MAXALIGN(${lsnTx(addr)} + ${hdr} + ${rem}) 이 아니다`);
     }
   });
   /* 복구(02) — xlogutils.c XLogReadBufferForRedoExtended. 레코드 칸에 pg(페이지) · fpi 가 있고 redo 가 이번 스텝에 정해지면

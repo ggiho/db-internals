@@ -19,7 +19,8 @@ const ACTORS = {
   parr: { nm:'PROCARRAY',   lane:'mem',  kind:'list' },
   /* 05 레코드 해부 — 24 바이트 머리와 그 뒤의 몸 */
   xr:   { nm:'XLogRecord  ·  24 B', lane:'mem', kind:'bytes' },
-  xb:   { nm:'RECORD BODY', lane:'mem',  kind:'bytes' },
+  xb:   { nm:'BODY · 머리들', lane:'mem',  kind:'bytes' },
+  xd:   { nm:'BODY · 데이터', lane:'mem',  kind:'bytes' },
   /* 06 LSN 과 파일 — 세그먼트 첫 WAL 페이지의 긴 머리 */
   wp:   { nm:'WAL PAGE HEADER', lane:'disk', kind:'bytes' },
   /* 07 동시 삽입 — 자리를 받은 backend 들과 삽입 락 여덟 */
