@@ -122,17 +122,17 @@ export const CORE = {
     a: '멤버 공간 사용량이 안전선을 넘었을 때',
     x: ['XID 나이가 2억을 넘었을 때', 'MultiXact 버퍼가 가득 찼을 때', '부모 행에 잠금이 셋 이상일 때'],
   },
-  '11/5': {
+  '11/6': {
     q: '한 세션의 하위 트랜잭션이 64 개를 넘으면 다른 세션들에게는 무슨 일이?',
     a: '하위 XID 를 판정할 때마다 pg_subtrans 를 읽는다',
     x: ['아무 일도 없다 — 그 세션 안에서만 느려진다', '그 세션의 새 하위 트랜잭션이 오류로 거절된다', '다른 세션의 snapshot 이 그 세션이 끝나길 기다린다'],
   },
-  '11/6': {
-    q: '넘친 뒤 ROLLBACK TO SAVEPOINT 로 하위 트랜잭션을 되돌리면 overflowed 는?',
+  '11/7': {
+    q: '넘친 뒤 하위 트랜잭션 하나가 되돌려지면(EXCEPTION 블록의 오류) overflowed 는?',
     a: '그대로 — 최상위 트랜잭션이 끝나야 지워진다',
     x: ['캐시에 자리가 나면 곧바로 지워진다', 'SAVEPOINT 를 RELEASE 하면 지워진다', '다음 snapshot 을 잡을 때 지워진다'],
   },
-  '11/8': {
+  '11/9': {
     q: 'SubtransSLRU 대기가 늘었다. 근본 처방은?',
     a: '64 개를 넘기는 트랜잭션(행마다 EXCEPTION)을 고친다',
     x: ['subtransaction_buffers 를 크게 늘린다', 'max_connections 를 줄인다', 'autovacuum 을 더 자주 돌린다'],
