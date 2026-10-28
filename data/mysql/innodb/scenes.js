@@ -515,89 +515,106 @@ const SCENES = [
   cast:['ses','stmt','bp','undo','rv','lock','ibd'],
   /* redo 는 뺐다 — 12 스텝 내내 바뀌지 않고 일관 읽기와 무관하다(1024×768 에서 그 글 블록 한 줄 때문에 세계가 무대를 넘었다).
      원칙 : 행의 숨은 열(DB_TRX_ID · DB_ROLL_PTR) → undo 사슬 → read view 의 두 경계 + 활성 명단 → purge 의 기준(커밋 순서).
-     trx 41 이 c 를 80 → 100 으로 바꿨고 그 전의 행은 trx 40 이 INSERT 했다. undo 1 은 purge 가 아직 지우지 않은 trx 41 의 기록이다. */
+     잰 값(8.4.8-debug, 이 빌드) — ~/.cache/dbi/measure/in2/02.txt · 02-a.txt · 02-b.txt · 02-undo.txt · 02-recs5.txt, measure02.sh 한 번.
+       d.m (id INT PRIMARY KEY, c INT, pad CHAR(200)) STATS_PERSISTENT=0 — 한 트랜잭션이 1,000 행을 c = 80 으로 INSERT, 다른 트랜잭션이
+       id 5 를 c = 100 으로 UPDATE·COMMIT. id 5 는 잎 page 5. 쉼: Trx id counter 8,366 · Purge done for trx's n:o < 8366 · HLL 5
+       A  BEGIN; UPDATE … c = 200 — INNODB_TRX 8366 · 상태 줄 '2 lock struct(s), 1 row lock(s), undo log entries 1', 'Trx read view' 줄 없음,
+          data_locks IX · X,REC_NOT_GAP (LOCK_DATA 5), counter 8,367, HLL 5
+       B  REPEATABLE READ, BEGIN — INNODB_TRX 에는 A 하나. 첫 SELECT 가 100, 그때 B 가 281493981107072 로 나타난다.
+          SHOW ENGINE INNODB STATUS 는 B 를 적지 않는다(rw_trx_list 만 돈다) — B 의 m_low_limit_id 8367 · m_up_limit_id 8366 · m_ids { 8366 } ·
+          creator 0 은 그때의 counter 와 rw 목록으로 규칙으로 계산했다
+       C  autocommit SELECT 는 A 커밋 전 100, 뒤 200
+       innodb_buf_flush_list_now 뒤의 사본 — page 5 의 id 5 : DB_TRX_ID 8366 · DB_ROLL_PTR U · 2:370:3472 (tools/ibdpage.js --recs=5)
+         undo_002 p:370 · 3472 : TRX_UNDO_UPD_EXIST_REC · 옛 DB_TRX_ID 8364 · 옛 DB_ROLL_PTR U · 1:239:4204 · pos 3 (c) = 100   (undorec.mjs)
+         undo_001 p:239 · 4204 : TRX_UNDO_UPD_EXIST_REC · 옛 DB_TRX_ID 8363 · 옛 DB_ROLL_PTR I · 2:237:324 · c = 80 — INSERT 비트, 사슬 끝
+       A 의 SELECT(B 를 다 잰 뒤) 200, 그때 A 의 줄 'Trx read view will not see trx with id >= 8367, sees < 8367'
+       A COMMIT — counter 8,368, Purge done < 8367, HLL 6. B 의 다시 읽기 100, 2 초 뒤에도 Purge done < 8367
+       B COMMIT — 1 초 뒤 Purge done < 8368, HLL 은 10 초 뒤에도 6
+     첫 판(02-run1.txt)은 버렸다 — A 가 UPDATE 뒤 곧바로 SELECT 해 read view 를 가졌고, INNODB_TRX 의 캐시가 두 번째 트랜잭션 id 를 첫 번째로 보였다. */
   init:{
-    ses:{ kv:{ 'trx 50 (쓰기)':'—', '세션 B (읽기)':'—', 'trx_sys 활성 명단':'{ }', '충돌':'없음' } },
-    stmt:{ kv:{ '세션 A':'UPDATE t SET c = 200 WHERE id = 5   (커밋 안 함)', '세션 B':'SELECT c FROM t WHERE id = 5' } },
+    ses:{ kv:{ 'A (쓰기)':'—', '세션 B (읽기)':'—', 'trx_sys 활성 명단':'{ }', 'Purge done <':'8366', 'History list length':'5' } },
+    stmt:{ kv:{ '세션 A':'UPDATE m SET c = 200 WHERE id = 5   (커밋 안 함)', '세션 B':'SELECT c FROM m WHERE id = 5' } },
     bp:{ items:[
-      { id:'p:5', tag:'clean', pk:'id 5', trx:41, rp:'undo 1', c:100, sub:'c = 100  ·  DB_TRX_ID 41' },
+      { id:'p:5', tag:'clean', pk:'id 5', trx:8364, rp:'undo 1', c:100, sub:'c = 100  ·  DB_TRX_ID 8364' },
       { id:'free',tag:'free',  sub:'free buffer' } ] },
     undo:{ items:[
-      { id:'undo 1', tag:'clean', trx:40, ins:1, c:80, sub:'trx 41 이 씀  ·  c = 80  ·  DB_TRX_ID 40 (INSERT) — 사슬 끝' } ] },
+      { id:'undo 1', tag:'clean', trx:8363, ins:1, c:80, sub:'8364 가 씀 · undo_001 p:239 · 4204  ·  c = 80  ·  DB_TRX_ID 8363 (INSERT) — 사슬 끝' } ] },
     rv:{ kv:{ 'read view':'—', 'm_low_limit_id':'—', 'm_up_limit_id':'—', 'm_ids  (활성 trx)':'—', 'm_creator_trx_id':'—' } },
     lock:{ items:[] },
     ibd:{ items:[{ id:'p:5', tag:'clean', sub:'c = 100' }] },
   },
   knobs:[
     ['innodb_lock_wait_timeout','50','읽기는 이 값과 무관하다 — MVCC 읽기는 락을 잡지 않는다'],
-    ['innodb_max_undo_log_size','1 GB','넘으면 undo 테이블스페이스를 잘라내려 시도한다'],
-    ['innodb_purge_threads','코어 ≤16 이면 1, 아니면 4','회수 속도. 늘려도 오래 열린 read view 는 못 이긴다'] ],
+    ['innodb_max_undo_log_size','1 GiB','넘으면 undo 테이블스페이스를 잘라내려 시도한다(잰 값 1,073,741,824)'],
+    ['innodb_purge_threads','1','이 빌드에서 잰 값. 늘려도 오래 열린 read view 는 못 이긴다'] ],
   watch:[
-    ['SHOW ENGINE INNODB STATUS','TRANSACTIONS 절의 History list length — 회수 못 한 update undo log 수'],
-    ['I_S.INNODB_TRX','trx_started 로 가장 오래된 트랜잭션을 찾는다 — 읽기 전용의 trx_id 는 객체 주소로 만든 큰 수다'],
-    ['P_S.events_transactions_current','세션별로 어떤 트랜잭션이 열려 있는지'] ],
+    ['SHOW ENGINE INNODB STATUS','TRANSACTIONS 절의 History list length · Purge done for trx\'s n:o — 쓰는 트랜잭션은 Trx read view 줄도'],
+    ['I_S.INNODB_TRX','trx_started 로 가장 오래된 트랜잭션을 찾는다 — 읽기 전용의 trx_id 는 객체 주소로 만든 큰 수다(잰 값 281493981107072)'],
+    ['P_S.events_transactions_current','세션별로 어떤 트랜잭션이 열려 있는지 — B 처럼 id 없는 읽기 트랜잭션도'] ],
   links:[
     ['07','읽기는 락을 안 잡지만 FOR UPDATE 는 잡는다'],
-    ['09','오래 열린 트랜잭션이 ALTER 를 막는다'] ],
+    ['09','오래 열린 트랜잭션이 ALTER 를 막는다'],
+    ['12','이 장면의 B 를 오래 열어 두면 — history list 가 1 만을 넘는다'] ],
 
   steps:[
-  { note:'session A UPDATE — 첫 쓰기에서 trx id 50',
-    why:'InnoDB 트랜잭션은 읽기 전용으로 시작한다 — id 가 0 이다. 테이블에 IX 락을 잡는 순간 trx_set_rw_mode 가 읽기-쓰기로 올리며 id 를 준다. 그것이 50 이다. A 는 커밋하지 않은 채 오래 머문다고 가정한다.',
-    key:'MVCC 의 시험대는 <em>커밋되지 않은 변경</em>이다. 이것을 남에게 보여주지 않으면서 읽기를 막지도 않아야 한다.',
+  { note:'session A UPDATE — 첫 쓰기에서 trx id 8366',
+    why:'InnoDB 트랜잭션은 읽기 전용으로 시작한다 — id 가 0 이다. 테이블에 IX 락을 잡는 순간 trx_set_rw_mode 가 읽기-쓰기로 올리며 id 를 준다. A 는 커밋하지 않은 채 오래 머문다고 가정한다.',
+    key:'잰 값: INNODB_TRX trx_id <em>8366</em>, Trx id counter 8,366 → 8,367. MVCC 의 시험대는 <em>커밋되지 않은 변경</em>이다 — 남에게 보여주지 않으면서 읽기를 막지도 않아야 한다.',
     ref:'storage/innobase/trx/trx0trx.cc', sym:'trx_set_rw_mode',
     fact:[['storage/innobase/row/row0sel.cc','trx_start_if_not_started(trx, false, UT_LOCATION_HERE);'],
           'if (!trx->read_only && (trx->mysql_thd == nullptr || read_write || trx->ddl_operation)) {',
           ['storage/innobase/lock/lock0lock.cc','if ((mode == LOCK_IX || mode == LOCK_X) && !trx->read_only && trx->rsegs.m_redo.rseg == nullptr) { trx_set_rw_mode(trx);'],
           'Function is promoting existing trx from ro mode to rw mode.'],
-    ops:{ ses:{ set:{ 'trx 50 (쓰기)':'ACTIVE|gold', 'trx_sys 활성 명단':'{ 50 }' } } } },
+    ops:{ ses:{ set:{ 'A (쓰기)':'trx 8366 · ACTIVE|gold', 'trx_sys 활성 명단':'{ 8366 }' } } } },
 
   { act:{ f:'bp', t:'undo', lb:'옛 값 c = 100' },
     note:'before-image 를 undo 에 — 페이지의 행은 in-place 수정',
-    why:'바꿀 열의 옛 값과 행의 옛 DB_TRX_ID 41 과 DB_ROLL_PTR 을 undo 레코드에 적는다. 그 위치로 만든 새 roll pointer 와 50 이 행의 숨은 열에 들어간다 — 헤더가 아니라 PK 바로 뒤의 6 바이트(DB_TRX_ID)와 7 바이트(DB_ROLL_PTR)다. roll pointer 는 INSERT 여부 1 비트 · undo 테이블스페이스 번호 7 비트 · 페이지 번호 4 바이트 · 페이지 안 위치 2 바이트다.',
-    key:'행마다 <em>숨은 열 두 개</em>가 있다 — 누가 마지막에 바꿨나(DB_TRX_ID), 그 전 값은 어디 있나(DB_ROLL_PTR). 이 두 개가 MVCC 의 전부다.',
+    why:'바꿀 열의 옛 값과 행의 옛 DB_TRX_ID · DB_ROLL_PTR 을 undo 레코드에 적는다. 그 위치로 만든 새 roll pointer 와 A 의 id 가 행의 숨은 열에 들어간다 — 헤더가 아니라 PK 바로 뒤의 6 바이트(DB_TRX_ID)와 7 바이트(DB_ROLL_PTR)다. roll pointer 는 INSERT 여부 1 비트 · undo 테이블스페이스 번호 7 비트 · 페이지 번호 4 바이트 · 페이지 안 위치 2 바이트다.',
+    key:'잰 값(페이지를 내린 뒤의 사본): id 5 는 DB_TRX_ID <em>8366</em> · DB_ROLL_PTR <em>U · 2:370:3472</em>. 그 자리의 undo 레코드는 TRX_UNDO_UPD_EXIST_REC — 옛 DB_TRX_ID 8364, 옛 roll pointer U · 1:239:4204, 바뀐 열 c 의 옛 값 100.',
     ref:'storage/innobase/trx/trx0rec.cc', sym:'trx_undo_report_row_operation',
     fact:['Save to the undo log the old values of the columns to be updated.',
           '*roll_ptr = trx_undo_build_roll_ptr(op_type == TRX_UNDO_INSERT_OP, undo_ptr->rseg->space_id, page_no, offset);',
           ['storage/innobase/btr/btr0cur.cc','row_upd_rec_sys_fields(rec, nullptr, index, offsets, thr_get_trx(thr), roll_ptr);'],
           ['storage/innobase/include/row0upd.ic','trx_write_roll_ptr(rec + offset + DATA_TRX_ID_LEN, roll_ptr);']],
-    ops:{ undo:{ add:[{ id:'undo 0', tag:'hold', trx:41, rp:'undo 1', c:100, sub:'trx 50 이 씀  ·  c = 100  ·  DB_TRX_ID 41 → undo 1' }], move:[['undo 0',0]] },
-          bp:{ set:{ 'p:5':{ tag:'dirty', trx:50, rp:'undo 0', c:200, sub:'c = 200  ·  DB_TRX_ID 50 · DB_ROLL_PTR → undo 0' } } },
-          lock:{ add:[{ id:'p:5 · id=5', tag:'hold', sub:'trx 50 X 락' }] } } },
+    ops:{ undo:{ add:[{ id:'undo 0', tag:'hold', trx:8364, rp:'undo 1', c:100, sub:'8366 이 씀 · undo_002 p:370 · 3472  ·  c = 100  ·  DB_TRX_ID 8364 → undo 1' }], move:[['undo 0',0]] },
+          bp:{ set:{ 'p:5':{ tag:'dirty', trx:8366, rp:'undo 0', c:200, sub:'c = 200  ·  DB_TRX_ID 8366 · DB_ROLL_PTR → undo 0' } } },
+          lock:{ add:[{ id:'p:5 · id=5', tag:'hold', sub:'trx 8366 X,REC_NOT_GAP' }] } } },
 
   { note:'A 는 미커밋 — 붙잡는 것은 자기 undo 와 X 락뿐',
     why:'UPDATE 의 읽기는 잠그는 읽기(LOCK_X)라 read view 를 만들지 않는다. 그래서 A 가 열려 있어도 purge 의 기준은 움직이지 않는다 — A 가 붙잡는 것은 자기의 커밋 안 된 undo 와 행의 X 락이다. 현실에서 이런 트랜잭션은 흔하다 — 커밋 전에 외부 API 를 부르거나 사람이 콘솔을 열어 둔 경우.',
-    key:'긴 트랜잭션이 purge 를 막는 것은 <em>read view 를 가졌을 때</em>다. 그 트랜잭션이 다음에 온다.',
+    key:'잰 값: A 의 상태 줄은 "2 lock struct(s), 1 row lock(s), undo log entries 1" 이고 <em>Trx read view 줄이 없다</em>. data_locks 는 IX 와 X,REC_NOT_GAP(LOCK_DATA 5), Purge done < 8366 · HLL 5 그대로. 긴 트랜잭션이 purge 를 막는 것은 <em>read view 를 가졌을 때</em>다.',
     ref:'storage/innobase/row/row0sel.cc', sym:'row_search_mvcc',
     fact:[['storage/innobase/handler/ha_innodb.cc','m_prebuilt->select_lock_type = LOCK_X;'],
           '} else if (prebuilt->select_lock_type == LOCK_NONE) { /* This is a consistent read */ /* Assign a read view for the query */',
           ['storage/innobase/read/read0read.cc','ReadView *oldest_view = get_oldest_view();']],
     beat:1, look:{ ses:true, undo:['undo 0'], lock:true },   /* A 가 붙잡는 둘 */
-    ops:{ ses:{ set:{ 'trx 50 (쓰기)':'ACTIVE · 커밋 안 함|red' } } } },
+    ops:{ ses:{ set:{ 'A (쓰기)':'trx 8366 · 커밋 안 함|red' } } } },
 
   { note:'session B SELECT — 읽기 전용이라 trx id 가 없다',
     why:'B 는 아무것도 쓰지 않으므로 id 를 받지 않는다(0). INNODB_TRX 에 보이는 번호는 트랜잭션 객체의 주소로 만든 가짜다. REPEATABLE READ 라 첫 일관 읽기에서 read view 를 한 번 만들고 트랜잭션 내내 같은 것을 쓴다 — BEGIN 할 때가 아니다.',
-    key:'READ COMMITTED 는 <em>문장이 끝날 때마다</em> view 를 닫고 다음 문장에서 새로 만든다. 두 격리 수준의 차이는 이 한 줄이다.',
+    key:'잰 값: BEGIN 뒤 INNODB_TRX 에는 A 하나뿐이다. 첫 SELECT 뒤에야 B 가 <em>281493981107072</em> · REPEATABLE READ 로 나타난다. READ COMMITTED 는 <em>문장이 끝날 때마다</em> view 를 닫고 다음 문장에서 새로 만든다.',
     ref:'storage/innobase/trx/trx0trx.cc', sym:'trx_assign_read_view',
     fact:['Assigns a read view for a consistent read query. All the consistent reads',
           'within the same transaction will get the same read view, which is created',
           ['storage/innobase/handler/ha_innodb.cc','} else if (trx->isolation_level <= TRX_ISO_READ_COMMITTED && MVCC::is_view_active(trx->read_view)) {'],
           ['storage/innobase/handler/ha_innodb.cc','each consistent read set its own snapshot']],
-    ops:{ ses:{ set:{ '세션 B (읽기)':'ACTIVE · trx id 없음|green' } } } },
+    ops:{ ses:{ set:{ '세션 B (읽기)':'281493981107072 · id 없음|green' } } } },
 
   { act:{ f:'ses', t:'rv', lb:'read view 생성' },
     note:'read view 생성 — 두 경계와 active trx id 명단',
-    why:'ReadView::prepare 가 적는다. m_low_limit_id 는 이름과 달리 위쪽 경계 — 이 순간 다음에 줄 trx id(51)다. m_up_limit_id 는 아래쪽 경계 — 활성 명단의 가장 작은 id(50)다. 그리고 활성 읽기-쓰기 트랜잭션 명단 m_ids 의 사본. B 는 id 가 없으므로 m_creator_trx_id 도 0 이다.',
-    key:'read view 는 시각이 아니라 <em>명단</em>이다. "50번은 진행 중이었다"를 기억하기 때문에, 나중에 50이 커밋해도 B 는 계속 못 본다.',
+    why:'ReadView::prepare 가 적는다. m_low_limit_id 는 이름과 달리 위쪽 경계 — 이 순간 다음에 줄 trx id 다. m_up_limit_id 는 아래쪽 경계 — 활성 명단의 가장 작은 id 다. 그리고 활성 읽기-쓰기 트랜잭션 명단 m_ids 의 사본. B 는 id 가 없으므로 m_creator_trx_id 도 0 이다.',
+    key:'규칙으로 계산: 그때 Trx id counter 8,367(잰 값) → m_low_limit_id <em>8367</em>, rw 트랜잭션은 A 하나(잰 값) → m_ids { 8366 } · m_up_limit_id 8366. B 의 view 는 SHOW ENGINE INNODB STATUS 에 나오지 않는다 — 그 목록은 rw_trx_list 만 돈다. read view 는 시각이 아니라 <em>명단</em>이다.',
     ref:'storage/innobase/read/read0read.cc', sym:'ReadView::prepare',
     fact:['m_low_limit_id = trx_sys_get_next_trx_id_or_no();',
           'copy_trx_ids(trx_sys->rw_trx_ids);',
           'm_up_limit_id = !m_ids.empty() ? m_ids.front() : m_low_limit_id;',
-          ['storage/innobase/include/read0types.h','value. In other words, this is the "high water mark". */']],
-    ops:{ rv:{ set:{ 'read view':'생성됨', 'm_low_limit_id':'51', 'm_up_limit_id':'50', 'm_ids  (활성 trx)':'{ 50 }|gold', 'm_creator_trx_id':'0' } } } },
+          ['storage/innobase/include/read0types.h','value. In other words, this is the "high water mark". */'],
+          ['storage/innobase/lock/lock0lock.cc','m_trx_list = &trx_sys->rw_trx_list;']],
+    ops:{ rv:{ set:{ 'read view':'B', 'm_low_limit_id':'8367', 'm_up_limit_id':'8366', 'm_ids  (활성 trx)':'{ 8366 }|gold', 'm_creator_trx_id':'0' } } } },
 
   { act:{ f:'bp', t:'ses', lb:'p:5 의 행 읽기' },
-    note:'B 가 만난 version 의 작성자 trx 50 — 명단에 있다, invisible',
-    why:'판정 규칙은 셋이다. id 가 m_up_limit_id(50)보다 작으면 보인다. m_low_limit_id(51) 이상이면 안 보인다. 그 사이면 명단에 있는지 이진 검색한다 — 50 은 명단에 있으니 이 버전은 보여선 안 된다.',
+    note:'B 가 만난 version 의 작성자 trx 8366 — 명단에 있다, invisible',
+    why:'판정 규칙은 셋이다. id 가 m_up_limit_id 보다 작으면 보인다. m_low_limit_id 이상이면 안 보인다. 그 사이면 명단에 있는지 이진 검색한다 — 8366 은 명단에 있으니 이 버전은 보여선 안 된다.',
     key:'판정은 <em>행 하나하나에 대해</em> 일어난다 — 클러스터 인덱스에서는. 보조 인덱스 레코드에는 숨은 열이 없어 페이지의 PAGE_MAX_TRX_ID 로 먼저 거르고, 의심스러우면 클러스터 인덱스로 간다.',
     ref:'storage/innobase/include/read0types.h', sym:'ReadView::changes_visible',
     fact:['if (id < m_up_limit_id || id == m_creator_trx_id) {',
@@ -605,12 +622,12 @@ const SCENES = [
           'return (!std::binary_search(p, p + m_ids.size(), id));',
           ['storage/innobase/lock/lock0lock.cc','return (view->changes_visible(trx_id, index->table->name));']],
     look:{ bp:['p:5'], rv:true },   /* 판정에 쓰는 명단도 */
-    ops:{ bp:{ set:{ 'p:5':{ tag:'dirty', sub:'c = 200  ·  DB_TRX_ID 50  ← 안 보인다' } } } } },
+    ops:{ bp:{ set:{ 'p:5':{ tag:'dirty', sub:'c = 200  ·  DB_TRX_ID 8366  ← 안 보인다' } } } } },
 
   { act:{ f:'undo', t:'ses', lb:'ROLL_PTR 을 따라간다' },
-    note:'roll pointer → undo 0 — trx 41 의 version 을 재구성, 보인다',
-    why:'row_vers_build_for_consistent_read 가 undo 0 에서 옛 값(c = 100)과 그때의 DB_TRX_ID 41 을 꺼내 행의 사본을 되돌린다. 41 은 m_up_limit_id 50 보다 작으니 보인다 — 여기서 멈춘다. 이 사본은 B 만 쓰는 임시 이미지다.',
-    key:'그래서 읽기가 <em>쓰기를 기다리지 않는다</em>. 락도 잡지 않는다. "읽기는 쓰기를 막지 않는다"의 실제 구현이 이 한 걸음이다.',
+    note:'roll pointer → undo 0 — trx 8364 의 version 을 재구성, 보인다',
+    why:'row_vers_build_for_consistent_read 가 undo 0 에서 옛 값(c = 100)과 그때의 DB_TRX_ID 8364 를 꺼내 행의 사본을 되돌린다. 8364 는 m_up_limit_id 8366 보다 작으니 보인다 — 여기서 멈춘다. 이 사본은 B 만 쓰는 임시 이미지다.',
+    key:'잰 값: B 의 SELECT 는 <em>c = 100</em>, 같은 때 autocommit 으로 읽은 C 도 100. 그래서 읽기가 <em>쓰기를 기다리지 않는다</em> — data_locks 에 B 의 락은 없다.',
     ref:'storage/innobase/row/row0vers.cc', sym:'row_vers_build_for_consistent_read',
     fact:['bool purge_sees = trx_undo_prev_version_build(rec, mtr, version, index, *offsets, heap,',
           'if (view->changes_visible(trx_id, index->table->name)) {',
@@ -621,8 +638,8 @@ const SCENES = [
 
   { look:{ undo:true },
     note:'version chain 은 더 길 수 있다 — 끝은 INSERT 가 만든 version',
-    why:'undo 0 의 DB_ROLL_PTR 은 undo 1 을 가리키고, undo 1 은 trx 40 의 INSERT 로 만든 버전을 가리킨다. roll pointer 의 INSERT 비트가 켜져 있으면 그것이 처음 들어간 버전이라 더 거슬러 갈 곳이 없다. undo 1 은 purge 가 아직 지우지 않아 남아 있을 뿐이다.',
-    key:'더 오래된 read view 를 가진 트랜잭션이 있으면 <em>그 뒤까지 거슬러 간다</em>. 사슬이 길어질수록 읽기가 느려진다 — 오래된 read view 가 읽기 성능을 깎는 경로.',
+    why:'undo 0 의 옛 DB_ROLL_PTR 은 undo 1 을 가리키고, undo 1 은 INSERT 로 만든 버전을 가리킨다. roll pointer 의 INSERT 비트가 켜져 있으면 그것이 처음 들어간 버전이라 더 거슬러 갈 곳이 없다. undo 1 을 쓴 트랜잭션은 B 의 view 전에 커밋했다 — purge 는 이미 그 앞을 지났지만 바이트는 아직 페이지에 있다.',
+    key:'잰 값: undo_001 p:239 · 4204 의 레코드는 옛 DB_TRX_ID <em>8363</em> · 옛 roll pointer <em>I · 2:237:324</em> · c = 80 — INSERT 비트가 섰다. 쉼 때 이미 Purge done < 8366. 더 오래된 view 가 있으면 <em>그 뒤까지 거슬러 간다</em> — 사슬이 길수록 읽기가 느려진다.',
     ref:'storage/innobase/trx/trx0rec.cc', sym:'trx_undo_prev_version_build',
     fact:['ptr += mach_u64_write_compressed(ptr, trx_read_roll_ptr(field));',
           'ptr = trx_undo_update_rec_get_sys_cols(ptr, &trx_id, &roll_ptr, &info_bits);',
@@ -631,31 +648,32 @@ const SCENES = [
     beat:1 },
 
   { note:'B 는 c = 100, A 는 c = 200 — 같은 행, 다른 view',
-    why:'같은 페이지, 같은 행, 같은 시각인데 두 세션의 답이 다르다. 어느 쪽도 기다리지 않았다. A 가 자기 변경을 보는 것은 view 의 creator 가 자기 id 이기 때문이다.',
-    key:'두 값이 <em>동시에 참</em>이다 — 각자의 read view 안에서. 데이터베이스가 하나의 현재를 갖지 않는다는 것이 MVCC 의 본질이다.',
+    why:'같은 페이지, 같은 행, 같은 시각인데 두 세션의 답이 다르다. 어느 쪽도 기다리지 않았다. A 가 자기 변경을 보는 것은 view 의 creator 가 자기 id 이기 때문이다 — 사본을 뜰 때 creator 는 명단에서 뺀다.',
+    key:'잰 값: A 의 SELECT 는 <em>200</em>, 그때 A 의 줄은 "Trx read view will not see trx with id >= 8367, sees < 8367" — 명단이 비어 두 경계가 같다. 두 값이 <em>동시에 참</em>이다 — 각자의 read view 안에서.',
     ref:'storage/innobase/trx/trx0trx.cc', sym:'trx_set_rw_mode',
     fact:['/* So that we can see our own changes. */',
           'MVCC::set_view_creator_trx_id(trx->read_view, trx->id);',
-          ['storage/innobase/row/row0sel.cc','/* Do nothing: we let a non-locking SELECT read the']],
+          ['storage/innobase/read/read0read.cc','/* Copy all the trx_ids except the creator trx id */'],
+          ['storage/innobase/include/read0types.h','Trx read view will not see trx with']],
     beat:1, look:{ ses:true, bp:['p:5'], undo:['undo 0'] },   /* 두 답 — A 의 c = 200, B 의 c = 100 */
-    ops:{ ses:{ set:{ '충돌':'없음 · 아무도 안 기다림|green' } } } },
+    ops:{ ses:{ set:{ 'A (쓰기)':'trx 8366 · 자기 것은 c = 200|red' } } } },
 
   { note:'A 커밋 — B 의 read view 는 불변, 답도 불변',
-    why:'커밋은 trx 50 을 활성 명단에서 빼고 커밋 번호(trx no)를 준다. 그러나 B 의 m_ids 는 만들 때 뜬 사본이라 바뀌지 않는다 — 이후의 ReadView::prepare 만 50 을 빼고 만든다.',
-    key:'이것이 REPEATABLE READ 다. 같은 SELECT 를 다시 해도 <em>같은 답</em>이 나온다 — 그 사이에 무슨 일이 있었든.',
+    why:'커밋은 A 를 활성 명단에서 빼고 커밋 번호(trx no)를 준다. 그러나 B 의 m_ids 는 만들 때 뜬 사본이라 바뀌지 않는다 — 이후의 ReadView::prepare 만 8366 을 빼고 만든다.',
+    key:'잰 값: counter 8,367 → 8,368, HLL 5 → <em>6</em>. B 의 다시 읽기는 <em>여전히 100</em>, 새로 읽은 C 는 200. 이것이 REPEATABLE READ 다.',
     ref:'storage/innobase/trx/trx0trx.cc', sym:'trx_commit_in_memory',
     fact:['list. Active RW transaction list of a MVCC snapshot(ReadView::prepare)',
           "won't include this transaction after this call. All implicit locks are",
           ['storage/innobase/read/read0read.cc','/* Copy all the trx_ids except the creator trx id */'],
           'It no longer holds any user locks. */'],
-    look:{ rv:true, ses:true },   /* 전역 명단은 50 을 뺐고 B 의 사본은 그대로 */
-    ops:{ ses:{ set:{ 'trx 50 (쓰기)':'COMMITTED|green', 'trx_sys 활성 명단':'{ }  ← 50 빠짐|green' } },
-          stmt:{ set:{ '세션 A':'UPDATE t SET c = 200 WHERE id = 5   → COMMIT' } },
+    look:{ rv:true, ses:true },   /* 전역 명단은 8366 을 뺐고 B 의 사본은 그대로 */
+    ops:{ ses:{ set:{ 'A (쓰기)':'COMMITTED|green', 'trx_sys 활성 명단':'{ }  ← 8366 빠짐|green', 'History list length':'6' } },
+          stmt:{ set:{ '세션 A':'UPDATE m SET c = 200 WHERE id = 5   → COMMIT' } },
           lock:{ del:['p:5 · id=5'] } } },
 
   { note:'purge 불가 — undo 0 만, 기준은 사슬이 아니라 커밋 순서',
-    why:'purge 는 가장 오래된 read view 를 복제하고, 그 view 가 만들어질 때 아직 커밋 번호를 받지 않은 트랜잭션의 undo 앞에서 멈춘다. trx 50 은 B 의 view 다음에 커밋했으니 undo 0 은 남는다. 그보다 먼저 커밋한 trx 41 의 undo 1 은 B 가 열려 있어도 지울 수 있다 — 그러면 B 보다 더 오래된 view 를 위한 사슬이 끊길 뿐, 그런 view 는 없다.',
-    key:'이것이 <em>긴 트랜잭션이 위험한 진짜 이유</em>다. 락 때문이 아니라, 읽기만 하는 트랜잭션 하나의 view 가 그 뒤 모든 커밋의 undo 회수를 붙잡는다.',
+    why:'purge 는 가장 오래된 read view 를 복제하고, 그 view 가 만들어질 때 아직 커밋 번호를 받지 않은 트랜잭션의 undo 앞에서 멈춘다. A 는 B 의 view 다음에 커밋했으니 undo 0 은 남는다. 그보다 먼저 커밋한 트랜잭션의 undo 1 은 B 가 열려 있어도 지울 수 있다 — 그러면 B 보다 더 오래된 view 를 위한 사슬이 끊길 뿐, 그런 view 는 없다.',
+    key:'잰 값: A 커밋 2 초 뒤에도 <em>Purge done < 8367</em> — A 의 커밋 번호(8367, counter 로 규칙으로 계산) 앞에서 섰다. undo 1 쪽은 B 가 열리기 전부터 < 8366 이었다. <em>읽기만 하는 트랜잭션 하나의 view</em> 가 그 뒤 모든 커밋의 undo 회수를 붙잡는다.',
     ref:'storage/innobase/trx/trx0purge.cc', sym:'trx_purge',
     fact:['trx_sys->mvcc->clone_oldest_view(&purge_sys->view);',
           'if (purge_sys->iter.trx_no >= purge_sys->view.low_limit_no()) {',
@@ -663,20 +681,22 @@ const SCENES = [
           ['storage/innobase/include/read0types.h','they can be removed in purge if not needed by other views */']],
     beat:1,
     /* 첫 구절이 칸에 한 줄 더 적힌다 — 회수는 그 undo 를 쓴 trx 의 커밋 순서로 정하므로 쓴 쪽을 함께 */
-    ops:{ undo:{ set:{ 'undo 0':{ tag:'x', sub:'trx 50 이 씀 — 회수 불가 · trx 50 은 B 의 view 뒤에 커밋' },
-                       'undo 1':{ tag:'free', sub:'trx 41 이 씀 — 회수 가능 · trx 41 은 B 의 view 전에 커밋' } } } } },
+    ops:{ ses:{ set:{ 'Purge done <':'8367 — A 앞에서 멈춤|red' } },
+          undo:{ set:{ 'undo 0':{ tag:'x', sub:'8366 이 씀 — 회수 불가 · B 의 view 뒤에 커밋' },
+                       'undo 1':{ tag:'free', sub:'8364 가 씀 — 회수 가능 · B 의 view 전에 커밋' } } } } },
 
-  { note:'B 가 끝나 마지막 view 가 사라진다 — 회수 시작',
-    why:'마지막 view 가 사라졌다. purge 가 trx 50 의 update undo log 를 회수한다. 색인 안 된 열을 제자리에서 고친 것이라 지울 delete-mark 행은 없다. 롤백 세그먼트의 history 를 잘라 내는 일은 기본으로 128 번째 purge 배치마다 한다.',
-    key:'<em>History list length</em> 는 회수를 기다리는 update undo log 의 수다. 계속 자란다면 어딘가에 끝나지 않은 read view 가 있다 — 이 장면에서는 B 였다.',
+  { note:'B 가 끝나 마지막 view 가 사라진다 — purge 가 지나간다',
+    why:'마지막 view 가 사라졌다. purge 가 A 의 update undo log 를 처리한다. 색인 안 된 열을 제자리에서 고친 것이라 지울 delete-mark 행은 없다. 롤백 세그먼트의 history 를 잘라 내는 일은 기본으로 128 번째 purge 배치마다 한다(innodb_purge_rseg_truncate_frequency, 잰 값 128).',
+    key:'잰 값: B 커밋 1 초 뒤 <em>Purge done < 8368</em>, History list length 는 10 초 뒤에도 <em>6</em> — 처리와 목록에서 빼기는 따로다. HLL 이 계속 자란다면 어딘가에 끝나지 않은 read view 가 있다 — 이 장면에서는 B 였다(12 장면).',
     ref:'storage/innobase/trx/trx0purge.cc', sym:'trx_purge_truncate_history',
     fact:['if (undo_trx_no >= limit->trx_no) {',
           ['storage/innobase/srv/srv0srv.cc','(++count % srv_purge_rseg_truncate_frequency) == 0;'],
           ['storage/innobase/include/trx0sys.h','/** Length of the TRX_RSEG_HISTORY list (update undo logs for committed'],
           ['storage/innobase/lock/lock0lock.cc','History list length " UINT64PF']],
-    ops:{ undo:{ del:['undo 0','undo 1'] },
+    ops:{ undo:{ set:{ 'undo 0':{ tag:'free', sub:'purge 처리 · history 에는 남음' },
+                       'undo 1':{ tag:'free', sub:'purge 처리 · history 에는 남음' } } },
           rv:{ set:{ 'read view':'—', 'm_low_limit_id':'—', 'm_up_limit_id':'—', 'm_ids  (활성 trx)':'—', 'm_creator_trx_id':'—' } },
-          ses:{ set:{ '세션 B (읽기)':'—', 'trx 50 (쓰기)':'—', '충돌':'—' } } } },
+          ses:{ set:{ '세션 B (읽기)':'—', 'A (쓰기)':'—', 'Purge done <':'8368|green' } } } },
   ],
 },
 {
