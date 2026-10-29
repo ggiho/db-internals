@@ -40,7 +40,12 @@ export const CORE = {
     a: 'X 와 AUTO_INC',
     x: ['X 하나뿐 — AUTO_INC 끼리는 공존', 'S 와 X — 공유도 자기와 충돌', 'IX 와 X — intention lock 끼리 충돌'],
   },
-  '04/6': {
+  '04/5': {
+    q: 'kill -9 뒤 되살아난 트랜잭션이 IX 를 쥔 테이블에 다른 세션이 LOCK TABLES … READ (autocommit 0) 를 하면?',
+    a: 'MDL 은 얻고, InnoDB 의 TABLE S 가 WAITING 이 된다',
+    x: ['MDL 에서 막혀 data_locks 에 줄이 없다', '바로 GRANTED — 되살아난 트랜잭션은 락이 없다', 'ERROR 1213 — 교착으로 판정되어 한쪽이 롤백된다'],
+  },
+  '04/10': {
     q: '강도 표(lock_strength_matrix)가 테이블 층과 행 층에서 하는 일은?',
     a: '이미 충분한 락을 쥐었으면 새로 안 만든다',
     x: ['남의 락과 함께 설 수 있는지 판정한다', '대기 중인 락 중 누구를 먼저 깨울지 정한다', '테이블 락을 행 락으로 낮출지 정한다'],

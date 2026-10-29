@@ -620,11 +620,30 @@ const SCENES = [
   sub:'source 주석의 표가 곧 답 — compatibility 는 남과의 관계, strength 는 나 자신과의 관계',
   cast:['stmt','cmx','smx'],
   knobs:[
-    ['—','—','이 표는 설정으로 바꿀 수 없다 — 코드에 박힌 상수 배열이다']],
+    ['—','—','이 표는 설정으로 바꿀 수 없다 — 코드에 박힌 상수 배열이다'],
+    ['innodb_autoinc_lock_mode','2','AI 칸은 1 · 0 에서만 만난다 — 이 장면의 AI 칸은 1 로 띄운 서버에서 쟀다'],
+    ['innodb_lock_wait_timeout','50','InnoDB 테이블 락 대기도 이것으로 1205 — MDL 대기는 lock_wait_timeout']],
   watch:[
-    ['P_S.data_locks','두 세션의 LOCK_MODE 를 나란히 놓고 이 표에서 교차점을 찾는다'],
-    ['P_S.data_lock_waits','막힌 쪽과 막은 쪽이 짝으로 나온다 — REQUESTING · BLOCKING']],
+    ['P_S.data_locks','두 세션의 LOCK_MODE 를 나란히 놓고 이 표에서 교차점을 찾는다 — LOCK_STATUS 가 GRANTED 인가 WAITING 인가'],
+    ['P_S.data_lock_waits','막힌 쪽과 막은 쪽이 짝으로 나온다 — REQUESTING · BLOCKING'],
+    ['P_S.metadata_locks','data_locks 에 요청이 안 보이면 여기서 PENDING 이다 — InnoDB 칸까지 오지 못했다']],
   links:[['03','다섯 모드가 어디서 나왔나'],['09','S 와 X 를 직접 요청하는 문장'],['08','호환되지 않으면 기다린다']],
+
+  /* 잰 값(8.4.8-debug, 이 빌드) — ~/.cache/dbi/measure/ml2/04.txt. A 가 먼저 쥐고 B 가 요청, 셋째 세션이 data_locks ·
+     metadata_locks · data_lock_waits 를 본다. l.t (id PK, c) = (10,100) · (20,200), l.a (id AUTO_INCREMENT PK, c), l.src 6 행.
+       함께 GRANTED : IX/IX (P1, trx 1398 · 1401) · IS/IX (P3') · IS/IS (P4', 같은 행 10 에 S,REC_NOT_GAP 둘) · S/IS (P5') · S/S (P6')
+       MDL 이 먼저 : S/IX (P2 — READ LOCAL 도 SHARED_READ_ONLY, UPDATE 는 SHARED_WRITE PENDING) · X/IS (P7) · IX/S (P8) · AI/S (P12)
+                     — data_locks 에 B 의 줄이 없고 lock_wait_timeout 으로 1205
+       InnoDB 에서 WAITING : 커밋 전 UPDATE id=20 (trx 1417)을 kill -9 로 남기고 --debug=d,pause_rollback_on_recovery 로 다시 띄웠다.
+                     되살아난 TABLE IX 는 trx_recovery_rollback_thread(THREAD_ID 37)가 MDL SHARED · EXPLICIT 와 함께 쥔다 —
+                     IX/S (R1) LOCK TABLES t READ : MDL SHARED_READ_ONLY GRANTED, TABLE S WAITING, data_lock_waits 281493712671616 → 1417,
+                     innodb_lock_wait_timeout 4 로 1205 · IX/X (R2) LOCK TABLES t WRITE : SHARED_NO_READ_WRITE GRANTED, trx 1804 TABLE X WAITING, 1205 ·
+                     IX/IX · IX/IS (R3) UPDATE id=10 · FOR SHARE id=10 GRANTED. 디버그 표시를 지우자 롤백이 끝나 c=200 이 돌아왔다
+       AUTO_INC (innodb_autoinc_lock_mode=1 로 띄운 서버) : AI/AI (P9) A 1816 의 INSERT … SELECT 뒤에서 B 1817 의 AUTO_INC WAITING —
+                     막은 줄은 A 의 AUTO_INC · AI/IX (P10) · AI/IS (P11) GRANTED · 단순 INSERT VALUES (99) 도 AUTO_INC WAITING 2.472 초 (P13)
+       강도 : STR1 UPDATE(IX) 뒤 FOR SHARE → IS 없음 (tables_locked 1) · STR2 LOCK TABLES WRITE(X) 안의 UPDATE · FOR SHARE → IX · IS 없음,
+              행 락은 X,REC_NOT_GAP 10 · 20 (lock_structs 2) · STR3 LOCK TABLES READ(S) 안의 FOR SHARE → IS 없음 · 03 : FOR SHARE(IS) 뒤 UPDATE → IX 추가
+     meas 에 없는 칸은 잰 것이 아니라 lock_compatibility_matrix · lock_strength_matrix 의 규칙이다. */
   init:{
     stmt:{ kv:{ '이미 걸린 락':'—', '새 요청':'—', '결과':'—' } },
     cmx:{ mx:{
@@ -637,6 +656,8 @@ const SCENES = [
         ['+','+','-','-','-']],
       /* 행 = 이미 걸린 락 — lock_table_other_has_incompatible 이 lock_mode_compatible(쥔 락의 mode, 요청 mode) 로 부른다.
          강도 표(mode1 = 행 = 쥔 것)와 같은 방향이다. 표는 대칭이라 칸의 값은 어느 쪽이든 같다 */
+      meas:{ 'IS/IS':'+', 'IS/IX':'+', 'IX/IS':'+', 'IX/IX':'+', 'S/IS':'+', 'S/S':'+', 'AI/IS':'+', 'AI/IX':'+',
+             'IX/S':'-', 'IX/X':'-', 'AI/AI':'-' },
       lb:{ l:'행 = 이미 걸린 락  ·  열 = 새 요청', r:'lock_compatibility_matrix' } } },
     smx:{ mx:{
       rows:['IS','IX','S','X','AI'], cols:['IS','IX','S','X','AI'],
@@ -646,14 +667,16 @@ const SCENES = [
         ['+','-','+','-','-'],
         ['+','+','+','+','+'],
         ['-','-','-','-','+']],
-      /* 칸의 뜻 — 이 표는 허용 · 막힘이 아니라 "강하거나 같은가" 의 예 · 아니오다(없으면 허용 · 막힘) */
+      /* 칸의 뜻 — 이 표는 허용 · 막힘이 아니라 "강하거나 같은가" 의 예 · 아니오다(없으면 허용 · 막힘).
+         잰 칸의 + 는 "새 락을 안 만들었다", - 는 "하나 더 만들었다" */
+      meas:{ 'X/IX':'+', 'X/IS':'+', 'IX/IS':'+', 'S/IS':'+', 'IS/IX':'-' },
       yes:'예', no:'아니오',
       lb:{ l:'행이 열보다 강하거나 같은가', r:'lock_strength_matrix' } } },
   },
   steps:[
   { look:{ cmx:true },
     note:'5×5 matrix 하나 — InnoDB lock conflict rule 의 전부',
-    why:'lock_mode_compatible 은 이 배열을 한 번 읽는 것 말고 아무것도 하지 않는다. 판정 로직이 아니라 표다. 테이블 락에서는 이 표가 규칙의 전부다 — 주석 : 테이블 락의 규칙은 훨씬 단순하다. 행 락은 이 표를 지난 뒤 gap · not-gap · insert intention 규칙을 더 본다.',
+    why:'lock_mode_compatible 은 이 배열을 한 번 읽는 것 말고 아무것도 하지 않는다. 판정 로직이 아니라 표다. 테이블 락에서는 이 표가 규칙의 전부다 — 행 락은 이 표를 지난 뒤 gap · not-gap · insert intention 규칙을 더 본다. 칸 귀퉁이의 점은 이 장면이 두 세션으로 잰 11 칸이다 — 잰 결과는 모두 표와 같았다. 점 없는 14 칸은 이 배열의 규칙일 뿐이다.',
     key:'대각선을 보면 규칙이 읽힌다 — <em>X 와 AI 는 자기 자신과도 충돌한다</em>. IS·IX·S 는 같은 모드끼리 공존한다. 그 차이가 동시성의 경계다.',
     ref:'storage/innobase/include/lock0priv.h', sym:'lock_compatibility_matrix',
     fact:['static const byte lock_compatibility_matrix[5][5] = {',
@@ -665,7 +688,7 @@ const SCENES = [
 
   { act:{ f:'cmx', t:'stmt', lb:'IX / IX  →  허용' },
     note:'두 세션이 서로 다른 row 를 동시 수정 — table 층에서 충돌 없음',
-    why:'IX 와 IX 가 호환되므로 테이블 락(table lock) 단계를 둘 다 통과하고, 그 다음 행 락(row lock)에서 각자 다른 행을 잡는다.',
+    why:'IX 와 IX 가 호환되므로 테이블 락 단계를 둘 다 통과하고, 그 다음 행 락에서 각자 다른 행을 잡는다. 잰 값: A(trx 1398)의 UPDATE id=10 과 B(trx 1401)의 UPDATE id=20 — data_locks 에 TABLE IX GRANTED 두 줄과 X,REC_NOT_GAP 10 · 20, data_lock_waits 0 줄.',
     key:'이것이 <em>행 단위 동시성이 실제로 성립하는 자리</em>다. 테이블 층이 여기서 막으면 아래는 볼 것도 없다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_table_other_has_incompatible',
     fact:[['storage/innobase/include/lock0priv.h','/* IX */ {true, true, false, false, true},'],
@@ -673,58 +696,106 @@ const SCENES = [
           'table->count_by_mode[LOCK_S] == 0 && table->count_by_mode[LOCK_X] == 0) {',
           '// need to get an intention lock to perform their action - while this never'],
     ops:{ cmx:{ dim:[], on:['IX/IX'] },
-          stmt:{ set:{ '이미 걸린 락':'IX  (trx 81 · UPDATE)', '새 요청':'IX  (trx 82 · UPDATE)', '결과':'허용|green' } } } },
+          stmt:{ set:{ '이미 걸린 락':'IX  (A · trx 1398 · UPDATE id=10)', '새 요청':'IX  (B · trx 1401 · UPDATE id=20)', '결과':'허용 · 둘 다 GRANTED|green' } } } },
+
+  { look:{ cmx:true },
+    note:'허용 칸 넷 더 — 읽는 쪽끼리',
+    why:'잰 값: A 의 FOR SHARE(IS) 옆에서 B 의 UPDATE(IX) 와 같은 행 10 의 FOR SHARE(IS), A 의 LOCK TABLES t READ(S, autocommit 0) 옆에서 B 의 FOR SHARE(IS) 와 LOCK TABLES t READ(S) — 네 쌍 모두 data_locks 에 GRANTED 로 나란히 섰고 data_lock_waits 는 0 줄이었다. 행 10 에는 S,REC_NOT_GAP 두 줄이 함께 섰고, metadata_locks 에도 SHARED_READ_ONLY 와 SHARED_READ 가 함께 GRANTED 다.',
+    key:'S 는 <em>읽는 쪽끼리만</em> 공존한다 — IS · S 와는 서고, 쓰려는 IX 와는 못 선다. IS 는 X 하나만 빼고 누구와도 선다.',
+    ref:'storage/innobase/include/lock0priv.h', sym:'lock_compatibility_matrix',
+    fact:['/* IS */ {true, true, true, false, true},',
+          '/* S  */ {true, false, true, false, false},',
+          ['storage/innobase/lock/lock0lock.cc','if (lock->trx != trx && !lock_mode_compatible(lock_get_mode(lock), mode) &&']],
+    ops:{ cmx:{ on:['IS/IX','IS/IS','S/IS','S/S'] },
+          stmt:{ set:{ '이미 걸린 락':'IS · S  (A · FOR SHARE · LOCK TABLES READ)', '새 요청':'IX · IS · S  (B)', '결과':'허용 · 네 쌍 모두 대기 0|green' } } } },
 
   { act:{ f:'cmx', t:'stmt', lb:'S / IX  →  막힘' },
     note:'S 와 IX 는 함께 못 선다 — 다만 UPDATE 는 MDL 에서 먼저 멈춘다',
-    why:'S 는 테이블 전체를 읽기용으로 잠근 상태다(autocommit=0 의 LOCK TABLES … READ). IX 는 "안에서 뭘 고치겠다" 는 선언이므로 함께 설 수 없다. 사실 다른 세션의 UPDATE 는 그보다 먼저 서버 층에서 막힌다 — LOCK TABLES READ 가 쥔 MDL SHARED_READ_ONLY 와 UPDATE 의 SHARED_WRITE 가 충돌한다. 이 칸은 InnoDB 쪽의 두 번째 벽이다.',
-    key:'행을 하나도 건드리기 전에 막힌다. <em>어느 행이냐는 무관하다</em> — 테이블 층에서 이미 끝났다.',
+    why:'S 는 테이블 전체를 읽기용으로 잠근 상태다(autocommit=0 의 LOCK TABLES … READ). IX 는 "안에서 뭘 고치겠다" 는 선언이므로 함께 설 수 없다. 그러나 잰 값: B 의 UPDATE 는 metadata_locks 에 SHARED_WRITE PENDING 으로 서고 data_locks 에는 A 의 TABLE S 한 줄뿐이다 — READ LOCAL 로 걸어도 InnoDB 테이블에는 SHARED_READ_ONLY 였다. 거꾸로 A 의 UPDATE 뒤 B 의 LOCK TABLES t READ, A 의 LOCK TABLES t WRITE 뒤 B 의 FOR SHARE 도 MDL PENDING 에서 lock_wait_timeout 으로 1205 를 받았다.',
+    key:'행을 하나도 건드리기 전에 막힌다. 다만 이 칸을 지키는 것은 보통 <em>InnoDB 가 아니라 MDL</em> 이다 — 그래서 이 칸에는 점이 없다.',
     ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_table_other_has_incompatible',
-    fact:[['storage/innobase/include/lock0priv.h','/* S */ {true, false, true, false, false},'],
+    fact:[['storage/innobase/include/lock0priv.h','/* S  */ {true, false, true, false, false},'],
           ['storage/innobase/handler/ha_innodb.cc','MySQL is doing LOCK TABLES ... READ.'],
           ['sql/mdl.h','Used by LOCK TABLES READ statement.'],
           ['sql/mdl.cc','SW | + + + + + + - - - - |']],
     ops:{ cmx:{ on:['S/IX'] },
-          stmt:{ set:{ '이미 걸린 락':'S  (LOCK TABLES t READ)', '새 요청':'IX  (UPDATE)', '결과':'막힘 · 대기|red' } } } },
+          stmt:{ set:{ '이미 걸린 락':'S  (A · LOCK TABLES t READ)', '새 요청':'IX  (B · UPDATE)', '결과':'막힘 · MDL 에서 — InnoDB 에 줄 없음|red' } } } },
+
+  { act:{ f:'cmx', t:'stmt', lb:'IX / S  →  막힘' },
+    note:'복구 중인 테이블 — 표의 칸이 그대로 대기가 된다',
+    why:'커밋 전 UPDATE id=20 을 kill -9 로 남기고 --debug=d,pause_rollback_on_recovery 로 다시 띄우면 되살아난 trx 1417 의 TABLE IX 를 trx_recovery_rollback_thread 가 쥔다. 잰 값: 그 스레드의 MDL 은 SHARED · EXPLICIT 하나다. SHARED 는 SHARED_READ_ONLY 와 호환이므로 LOCK TABLES t READ(autocommit 0)는 MDL 을 얻고 InnoDB 까지 내려가 TABLE S WAITING 이 된다 — data_lock_waits 는 요청 281493712671616 → 막은 trx 1417, innodb_lock_wait_timeout 4 초 뒤 ERROR 1205.',
+    key:'표의 <em>IX / S 칸이 InnoDB 에서 실제로 기다리는</em> 모습이다. 복구 스레드는 롤백할 테이블마다 MDL 은 가장 약한 SHARED 만, InnoDB 에는 IX 를 잡는다 — 여기서는 InnoDB 의 표가 마지막 벽이다.',
+    ref:'storage/innobase/trx/trx0roll.cc', sym:'trx_recovery_rollback',
+    fact:['lock_table_ix_resurrect(table, trx);',
+          'if (dd_mdl_acquire(thd, &mdl_ticket, schema_name.data(),',
+          'while (DBUG_EVALUATE_IF("pause_rollback_on_recovery", true, false)) {',
+          ['storage/innobase/include/dict0dd.ic','ret = dd::acquire_shared_table_mdl(thd, db_p, table_p, false, mdl);'],
+          ['storage/innobase/lock/lock0lock.cc','wait_for = lock_table_other_has_incompatible(trx, LOCK_WAIT, table, mode);']],
+    ops:{ cmx:{ on:['IX/S'] },
+          stmt:{ set:{ '이미 걸린 락':'IX  (trx 1417 · 크래시 뒤 되살아남)', '새 요청':'S  (LOCK TABLES t READ)', '결과':'막힘 · TABLE S WAITING → 1205|red' } } },
+    beat:1 },
+
+  { act:{ f:'cmx', t:'stmt', lb:'IX / X  →  막힘' },
+    note:'쓰기 잠금도 같은 자리에서 — 배타 모드는 짝이 없다',
+    why:'잰 값: 같은 1417 앞에서 LOCK TABLES t WRITE 는 MDL SHARED_NO_READ_WRITE 를 GRANTED 로 얻었다 — SNRW 는 S · SH 와만 호환되는데 복구 스레드의 것이 바로 S 다. InnoDB 에는 trx 1804 의 TABLE X WAITING, 4 초 뒤 1205. 같은 때 다른 세션의 UPDATE id=10(IX)과 FOR SHARE id=10(IS)은 1417 의 IX 옆에 GRANTED 로 섰다.',
+    key:'X 는 <em>무엇과도</em> 함께 서지 못한다 — 표의 X 행 · 열이 전부 막힘인 이유다. 평소에는 SNRW 가 MDL 에서 먼저 막는다(03).',
+    ref:'storage/innobase/lock/lock0lock.cc', sym:'lock_table',
+    fact:[['storage/innobase/include/lock0priv.h','/* X  */ {false, false, false, false, false},'],
+          ['sql/mdl.h','Not compatible with any other lock type except S and SH.'],
+          'wait_for = lock_table_other_has_incompatible(trx, LOCK_WAIT, table, mode);',
+          ['storage/innobase/lock/lock0lock.cc','fputs(" waiting", file);']],
+    ops:{ cmx:{ on:['IX/X'] },
+          stmt:{ set:{ '이미 걸린 락':'IX  (trx 1417 · 되살아남)', '새 요청':'X  (trx 1804 · LOCK TABLES t WRITE)', '결과':'막힘 · TABLE X WAITING → 1205|red' } } } },
 
   { act:{ f:'cmx', t:'stmt', lb:'AI / AI  →  막힘' },
     note:'AUTO_INC 끼리는 비호환 — 두 INSERT 가 counter 에서 serialize',
-    why:'AI 행은 IS·IX 와만 호환되고 S·X·AI 셋을 막는다. 모드 0 에서는 INSERT 마다 이 락을 문장 끝까지 잡는다. 모드 1 에서는 단순 INSERT 는 mutex 만 쓰고, 다른 트랜잭션이 이 락을 쥐었을 때(INSERT … SELECT · LOAD DATA 같은 대량 삽입)만 그 뒤에서 기다린다.',
+    why:'AI 행은 IS·IX 와만 호환되고 S·X·AI 셋을 막는다. 잰 값(innodb_autoinc_lock_mode=1 로 띄운 서버): A(trx 1816)의 INSERT INTO a (c) SELECT … 가 3 초 도는 동안 B(trx 1817)의 같은 문장은 TABLE AUTO_INC WAITING 이고, data_lock_waits 가 가리키는 막은 줄은 A 의 IX 가 아니라 AUTO_INC 다. B 의 IX 는 아직 없다 — 번호를 받아야 행을 넣으러 간다. 단순 INSERT … VALUES (99) 도 A 뒤에서 AUTO_INC WAITING 으로 2.472 초 기다렸다.',
     key:'다만 기본값이 <em>innodb_autoinc_lock_mode=2</em> 이고, 그 모드는 이름 그대로 AUTOINC_NO_LOCKING 이다 — 테이블 락을 잡지 않고 mutex 만 쓴다. 이 행이 실제로 문제가 되는 것은 모드 0·1 에서다.',
     ref:'storage/innobase/handler/ha_innodb.cc', sym:'ha_innobase::innobase_lock_autoinc',
     fact:['static const long AUTOINC_NO_LOCKING = 2;',
-          'Acquire only the AUTOINC mutex.',
           ['storage/innobase/include/lock0priv.h','/* AI */ {true, true, false, false, false}};'],
           '/* Acquire only the AUTOINC mutex. */',
+          'if (ib_table->count_by_mode[LOCK_AUTO_INC]) {',
           'nullptr, nullptr, AUTOINC_NO_LOCKING, /* Default setting */'],
     ops:{ cmx:{ on:['AI/AI'] },
-          stmt:{ set:{ '이미 걸린 락':'AI  (trx 83 · INSERT)', '새 요청':'AI  (trx 84 · INSERT)', '결과':'막힘 · 카운터에서 줄  (mode 0 · 1)|red' } } } },
+          stmt:{ set:{ '이미 걸린 락':'AI  (A · trx 1816 · INSERT … SELECT)', '새 요청':'AI  (B · trx 1817 · INSERT … SELECT)', '결과':'막힘 · AUTO_INC WAITING  (mode 1)|red' } } } },
+
+  { look:{ cmx:true },
+    note:'카운터 락 옆의 UPDATE · 읽기 잠금은 그대로 지나간다',
+    why:'잰 값: A 가 AUTO_INC 와 IX 를 쥔 동안 B 의 UPDATE a … WHERE id=1 은 TABLE IX · X,REC_NOT_GAP 1 GRANTED, FOR SHARE id=1 은 IS · S,REC_NOT_GAP 1 GRANTED — 기다림 없이 끝났다. 같은 때 LOCK TABLES a READ 는 MDL(SHARED_READ_ONLY 대 A 의 SHARED_WRITE)에서 막혀 1 초 뒤 1205 — AI / S 칸까지 오지 못했다.',
+    key:'AUTO_INC 는 <em>번호를 받는 문장끼리만</em> 줄 세운다. 같은 테이블의 UPDATE 와 locking read 는 표의 AI / IX · AI / IS 칸대로 함께 선다.',
+    ref:'storage/innobase/include/lock0priv.h', sym:'lock_compatibility_matrix',
+    fact:['/* AI */ {true, true, false, false, false}};',
+          '/* IX */ {true, true, false, false, true},',
+          ['storage/innobase/include/lock0types.h','LOCK_AUTO_INC, /* locks the auto-inc counter of a table']],
+    ops:{ cmx:{ on:['AI/IX','AI/IS'] },
+          stmt:{ set:{ '이미 걸린 락':'AI · IX  (A · INSERT … SELECT)', '새 요청':'IX · IS  (B · UPDATE · FOR SHARE)', '결과':'허용 · 둘 다 대기 0|green' } } } },
 
   { act:{ f:'cmx', t:'smx', lb:'두 번째 표 — 강도' },
     note:'두 번째 표 — compatibility 가 아니라 strength',
-    why:'lock_strength_matrix 는 "행이 열보다 강하거나 같은가" 를 답한다. X 행은 전부 + 다 — X 는 무엇보다 강하다.',
+    why:'lock_strength_matrix 는 "행이 열보다 강하거나 같은가" 를 답한다. X 행은 전부 예 — X 는 무엇보다 강하다. 잰 값: LOCK TABLES t WRITE(autocommit 0, TABLE X) 안에서 UPDATE id=10 과 FOR SHARE id=20 을 해도 data_locks 는 TABLE X · X,REC_NOT_GAP 10 · X,REC_NOT_GAP 20 세 줄, lock_structs 2 — IX 도 IS 도 새로 생기지 않았다. FOR SHARE 의 행 락까지 X 인 것은 start_stmt 가 LOCK TABLES WRITE 때 정한 LOCK_X 를 문장마다 되살리기 때문이다.',
     key:'이 표는 충돌 판정이 아니라 <em>중복 요청을 걸러내는 데</em> 쓰인다. 이미 강한 락을 쥐고 있으면 약한 락은 새로 만들지 않는다.',
     ref:'storage/innobase/include/lock0priv.h', sym:'lock_strength_matrix',
     fact:['static const byte lock_strength_matrix[5][5] = {',
           '/* X  */ {true, true, true, true, true},',
           '/* STRONGER-OR-EQUAL RELATION (mode1=row, mode2=column)',
-          ['storage/innobase/include/lock0priv.ic','return (lock_strength_matrix[mode1][mode2] != 0);']],
-    ops:{ smx:{ on:['X/S','X/IS','X/IX','X/X','X/AI'] },
-          stmt:{ set:{ '이미 걸린 락':'X  (같은 trx 가 쥠)', '새 요청':'S  (같은 행)', '결과':'새로 안 잡는다 · 이미 충분|gold' } } } },
+          ['storage/innobase/include/lock0priv.ic','return (lock_strength_matrix[mode1][mode2] != 0);'],
+          ['storage/innobase/handler/ha_innodb.cc','Not a consistent read: restore the']],
+    ops:{ smx:{ on:['X/IX','X/IS'] },
+          stmt:{ set:{ '이미 걸린 락':'X  (같은 trx · LOCK TABLES t WRITE)', '새 요청':'UPDATE (IX) · FOR SHARE (IS)', '결과':'새로 안 잡는다 · data_locks 에 IX · IS 없음|gold' } } } },
 
   { look:{ smx:true },
     note:'strength 표의 사용처 — 이미 쥔 것이 충분하면 새로 만들지 않는다',
-    why:'lock_table_has 가 이 표로 trx 가 쥔 테이블 락을 훑어 요청보다 강하거나 같은 것이 있으면 통과시킨다 — 테이블 락은 목록 앞쪽에 모여 있으므로 행 락을 만나면 멈춘다. 행 락의 중복 판정 lock_rec_has_expl 도 같은 강도 비교를 쓰고, 거기에 gap 이 덮이는지를 더 본다 — 주석 : 레코드에 충분히 강한 락이 있으면 아무것도 안 한다.',
-    key:'두 표의 역할이 다르다 — <em>호환 표는 남과의 관계</em>, <em>강도 표는 나 자신과의 관계</em>다. 테이블 층과 행 층이 같은 강도 표를 쓴다.',
+    why:'lock_table_has 가 이 표로 trx 가 쥔 테이블 락을 훑어 요청보다 강하거나 같은 것이 있으면 통과시킨다 — 테이블 락은 목록 앞쪽에 모여 있으므로 행 락을 만나면 멈춘다. 잰 값: UPDATE(IX) 뒤의 FOR SHARE 는 IS 를 만들지 않았고(TABLE IX 한 줄, tables_locked 1), LOCK TABLES READ(S) 안의 FOR SHARE 도 TABLE S 한 줄뿐이다. 거꾸로 FOR SHARE(IS) 뒤의 UPDATE 는 IX 를 하나 더 만들었다(03 — tables_locked 2). IS / IX 칸이 아니오이기 때문이다.',
+    key:'두 표의 역할이 다르다 — <em>호환 표는 남과의 관계</em>, <em>강도 표는 나 자신과의 관계</em>다. 같은 두 문장이라도 <em>순서에 따라</em> 테이블 락이 한 줄이거나 두 줄이다.',
     ref:'storage/innobase/include/lock0priv.ic', sym:'lock_table_has',
-    fact:['Look for stronger locks the same trx already has on the table',
-          'lock_get_type(lock) == LOCK_TABLE;',
-          '/* Look for stronger locks the same trx already has on the table */',
+    fact:['/* Look for stronger locks the same trx already has on the table */',
           'lock != nullptr && lock_get_type(lock) == LOCK_TABLE;',
           'lock_mode_stronger_or_eq(mode, in_mode)) {',
+          ['storage/innobase/include/lock0priv.h','/* IS */ {true, false, false, false, false},'],
           ['storage/innobase/lock/lock0lock.cc','lock_mode_stronger_or_eq(lock_get_mode(lock), mode) &&']],
-    ops:{ smx:{ dim:['X/IS','X/IX','X/S','X/X','X/AI'], on:['X/S'] },
-          stmt:{ set:{ '결과':'락 개수 변화 없음|green' } } },
+    ops:{ smx:{ on:['IX/IS','S/IS','IS/IX'] },
+          stmt:{ set:{ '이미 걸린 락':'같은 trx 가 먼저 IX · S · IS', '새 요청':'그 뒤에 IS · IS · IX', '결과':'뒤의 IS 는 안 생김 · 뒤의 IX 는 하나 더|green' } } },
     beat:1 },
   ],
 },
