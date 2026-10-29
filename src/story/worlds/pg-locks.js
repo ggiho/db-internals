@@ -14,7 +14,9 @@
        공유 표(01) — kv 의 MaxBackends 가 그 합과, '공유 표' 의 LOCK · PROCLOCK 이 NLOCKENTS 셈과, 'fast-path 칸' 이 묶음 셈과,
        'pg_locks 줄' 의 t · f 가 칸 줄 n 합(ok · hold)과 맞아야 한다.
        교착(04) — graph 노드의 w(대기 시작, 잰 값)와 knobs 의 deadlock_timeout 으로 희생자(x)를 다시 셈하고, '검사' 의 after N ms 가
-       deadlock_timeout 보다 짧으면 알린다
+       deadlock_timeout 보다 짧으면 알린다.
+       SSI(05) — 칸 줄 항목의 lt · who · rel · pg · cnt(SIReadLock 줄)를 knobs 의 max_pred_locks_* 로 다시 세어, 문턱을 넘은 잘은 락이
+       남았거나 relation 아래 page · tuple 이 남으면 알린다. rw-conflict 그래프의 x 노드는 들고 나는 간선을 다 가져야 한다(피벗)
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
 import { kvLine } from './kvline.js';
@@ -160,6 +162,45 @@ function make({ F, deck, labels, scene }) {
     }
     for (const t of TEXTS) for (const m of bare(s[t]['검사'] || '').matchAll(/after ([\d.]+) ms/g))
       if (Number(m[1]) < dtS * 1000) console.error(`${at} : '검사' 의 after ${m[1]} ms 가 deadlock_timeout ${dtS * 1000} ms 보다 짧다`);
+  });
+  /* SIREAD 의 굵기(05) — 칸 줄 항목의 lt(relation · page · tuple) · who · rel · pg · cnt 로 predicate.c 의 승격을 다시 센다.
+     한 who 의 한 page 에 tuple 이 max_pred_locks_per_page 를 넘거나, 한 관계의 page + tuple 이 MaxPredicateChildLocks 의 관계 문턱
+     (음수면 max_pred_locks_per_transaction / −값 − 1)을 넘으면 이미 굵은 락이어야 한다. relation 을 쥔 who 는 그 관계에 page · tuple 이
+     없어야 한다(DeleteChildTargetLocks). rw-conflict 간선이 있는 그래프에서 x(40001)로 칠한 노드는 들고 나는 간선을 다 가진 피벗이어야 한다 */
+  const kn = (n) => { const k = (sc.knobs || []).find((x) => x[0] === n); return k ? Number(k[1]) : null; };
+  const perPage = kn('max_pred_locks_per_page'), perRel = kn('max_pred_locks_per_relation'), perXact = kn('max_pred_locks_per_transaction');
+  const relMax = perRel == null ? null : perRel < 0 ? Math.floor(perXact / -perRel) - 1 : perRel;
+  for (const bk of BAKES.values()) bk.S.forEach((s, i) => {
+    const at = `pg locks ${sc.num}/${i + 1} 세계`;
+    for (const a of ROWS) {
+      const its = s[a].filter((x) => x.lt);
+      if (!its.length) continue;
+      const by = new Map();
+      for (const x of its) {
+        if (!['relation', 'page', 'tuple'].includes(x.lt)) console.error(`${at} : ${a}.${x.id} 의 lt '${x.lt}' 는 SIREAD 의 locktype 이 아니다`);
+        const g = `${x.who} · ${x.rel}`;
+        if (!by.has(g)) by.set(g, []);
+        by.get(g).push(x);
+      }
+      for (const [g, xs] of by) {
+        const cnt = (x) => (typeof x.cnt === 'number' ? x.cnt : 1);
+        if (xs.some((x) => x.lt === 'relation') && xs.some((x) => x.lt !== 'relation')) console.error(`${at} : ${g} 가 relation 을 쥐었는데 page · tuple 줄이 남았다`);
+        const fine = xs.filter((x) => x.lt !== 'relation').reduce((t, x) => t + cnt(x), 0);
+        if (relMax != null && fine > relMax) console.error(`${at} : ${g} 의 page + tuple ${fine} 줄 — 관계 문턱 ${relMax} 을 넘으면 relation 하나여야 한다`);
+        const pages = new Set(xs.filter((x) => x.lt === 'page').map((x) => x.pg)), tp = new Map();
+        for (const x of xs.filter((y) => y.lt === 'tuple')) {
+          if (pages.has(x.pg)) console.error(`${at} : ${g} 가 page ${x.pg} 를 쥐었는데 그 안의 tuple 줄 ${x.id} 가 남았다`);
+          tp.set(x.pg, (tp.get(x.pg) || 0) + cnt(x));
+        }
+        if (perPage != null) for (const [pg, n] of tp) if (n > perPage) console.error(`${at} : ${g} 의 page ${pg} 에 tuple ${n} 줄 — max_pred_locks_per_page ${perPage} 를 넘으면 page 하나여야 한다`);
+      }
+    }
+    for (const g of GRAPHS) {
+      const rw = s[g].edges.filter((e) => e.lb === 'rw-conflict');
+      if (!rw.length) continue;
+      for (const x of s[g].filter((y) => y.tag === 'x'))
+        if (!rw.some((e) => e.to === x.id) || !rw.some((e) => e.from === x.id)) console.error(`${at} : ${x.id} 를 40001 로 칠했는데 들어오고 나가는 rw-conflict 를 다 갖지 않았다 — 피벗이 아니다`);
+    }
   });
   let cur = BAKES.get(null) || [...BAKES.values()][0];
 
