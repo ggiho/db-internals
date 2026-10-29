@@ -12,7 +12,9 @@
        fast-path 띠는 칸 수의 합이 kv 의 max_locks_per_transaction 에서 셈한 묶음 수 × 16 과 같아야 하고, 쓴 칸의 합은 kv 의
        'fastpath t'(잰 값), 칸 줄 항목의 n 합은 'fastpath f'(잰 값)와 같아야 한다.
        공유 표(01) — kv 의 MaxBackends 가 그 합과, '공유 표' 의 LOCK · PROCLOCK 이 NLOCKENTS 셈과, 'fast-path 칸' 이 묶음 셈과,
-       'pg_locks 줄' 의 t · f 가 칸 줄 n 합(ok · hold)과 맞아야 한다
+       'pg_locks 줄' 의 t · f 가 칸 줄 n 합(ok · hold)과 맞아야 한다.
+       교착(04) — graph 노드의 w(대기 시작, 잰 값)와 knobs 의 deadlock_timeout 으로 희생자(x)를 다시 셈하고, '검사' 의 after N ms 가
+       deadlock_timeout 보다 짧으면 알린다
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
 import { kvLine } from './kvline.js';
@@ -142,6 +144,22 @@ function make({ F, deck, labels, scene }) {
     /* virtualxid 는 칸이 아니라 PGPROC 의 fpVXIDLock 이다 — relation 줄만 칸을 쓴다 */
     const rel = ROWS.reduce((t, r) => t + s[r].reduce((u, x) => u + (x.tag === 'ok' && !/^virtualxid/.test(x.id) && typeof x.n === 'number' ? x.n : 0), 0), 0);
     if (rel > slots) console.error(`${at} : fastpath t 인 relation 줄 ${rel} 이 fast-path 칸 ${slots} 을 넘는다`);
+  });
+  /* 교착의 희생자(04) — 대기 그래프 노드의 w 는 그 백엔드가 기다리기 시작한 시각(초, 잰 값). 검사는 대기마다 한 번, w + deadlock_timeout 에
+     울리고(ProcSleep), 사이클은 마지막 대기(가장 큰 w)에 닫힌다. 그러니 희생자 = 닫힌 뒤 가장 먼저 울린 쪽 — x 로 칠한 노드가 그것이어야 한다.
+     kv '검사' 의 "after N ms" 는 모두 타이머 뒤의 로그라 deadlock_timeout 보다 짧을 수 없다 */
+  const dlk = (sc.knobs || []).find((k) => k[0] === 'deadlock_timeout');
+  const dtS = dlk ? (/ms$/.test(dlk[1]) ? parseFloat(dlk[1]) / 1000 : parseFloat(dlk[1])) : null;
+  if (dtS) for (const bk of BAKES.values()) bk.S.forEach((s, i) => {
+    const at = `pg locks ${sc.num}/${i + 1} 세계`;
+    for (const g of GRAPHS) {
+      const ws = s[g].filter((x) => typeof x.w === 'number'), xs = ws.filter((x) => x.tag === 'x');
+      if (ws.length < 2 || !xs.length) continue;
+      const close = Math.max(...ws.map((x) => x.w)), first = ws.filter((x) => x.w + dtS >= close).sort((p, q) => p.w - q.w)[0];
+      if (xs.length !== 1 || xs[0].id !== first.id) console.error(`${at} : 희생자가 ${xs.map((x) => x.id).join(' · ')} 인데 사이클이 ${close} s 에 닫히면 먼저 검사하는 것은 ${first.id} (${(first.w + dtS).toFixed(3)} s)`);
+    }
+    for (const t of TEXTS) for (const m of bare(s[t]['검사'] || '').matchAll(/after ([\d.]+) ms/g))
+      if (Number(m[1]) < dtS * 1000) console.error(`${at} : '검사' 의 after ${m[1]} ms 가 deadlock_timeout ${dtS * 1000} ms 보다 짧다`);
   });
   let cur = BAKES.get(null) || [...BAKES.values()][0];
 
@@ -379,7 +397,8 @@ function make({ F, deck, labels, scene }) {
         for (const a of P.gr) {
           place(hd[a], L.x0, y); y += HD + 4;
           G.gr[a] = { y: y + 13 + 22, sw: sw[a] }; G.anc[a] = { x: L.x0 + ww / 2, y: y + 35 };
-          y += 26 + 44 + 8; place(capLb[a], L.x0, y); G.gr[a].capY = y; y += cH[a] + 14 * k;
+          /* 오른쪽 → 왼쪽 간선의 이름은 노드 중심 + 34 에서 아래로 붙는다 — 글 블록을 그 아래(+ 56)로 내린다. + 43 이던 때 04 의 'ShareLock on 820' 이 첫 줄과 겹쳤다 */
+          y += 26 + 44 + 8 + 13; place(capLb[a], L.x0, y); G.gr[a].capY = y; y += cH[a] + 14 * k;
         }
         y = texts2(GR[ph].tail, y, k);
       });
