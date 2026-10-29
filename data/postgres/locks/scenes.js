@@ -1253,24 +1253,38 @@ const SCENES = [
             { id:'C · xid 918', tag:'x', sub:'transactionid ShareLock  ·  granted f  ·  blocked_by {66481}' }] } } },
   ],
 },
+/* 잰 값(PG 18.6, 이 빌드) — 1 ‥ 5 스텝의 LOCK 은 06 장면의 판 그대로 : database wq (OID 28585) 의 t (OID 28586), 2.0 s 에 T1 (pid 14774)
+   AccessShare granted t · fastpath f (T2 가 옮겼다), T2 (14773) AccessExclusive granted f · blocked_by {14774}, T3 (14771) · T4 (14772) AccessShare
+   granted f · blocked_by {14773} — 로그 ~/.cache/dbi/measure/pl2/locks-06.txt.
+   해시는 규칙으로 계산 : lt/hb.py 가 src/common/hashfn.c hash_bytes 를 옮긴 것이고 hashtext 와 길이 0 ‥ 16 의 문자열 16 개에서 모두 같았다.
+   LOCKTAG {28585, 28586, 0, 0, RELATION 0, method 1} → 0x8e6587bc → % 16 = 12.
+   database lt (OID 28661) 의 pt (a int) PARTITION BY RANGE 200 개(OID 28665 ‥ 29262, pt 28662), max_parallel_workers_per_gather 0 :
+   BEGIN; SELECT count(*) FROM pt; 뒤 자기 relation 락 201 = fastpath t 64 + f 137 (pg_locks 뷰 12073 은 뺐다). 그 137 의 파티션(규칙으로 계산)
+   0:8 1:4 2:9 3:5 4:13 5:12 6:6 7:7 8:11 9:8 10:11 11:10 12:10 13:9 14:8 15:6.
+   pgbench -f "SELECT count(*) FROM pt;" -T 8 (10 CPU), 1 s 뒤부터 50 ms 마다 120 번 pg_stat_activity 의 active client 를 셌다 :
+   max_locks 64 · 4 clients — CPU 441 · LockManager 5 (1.1%) / 454, 7,722 tps. 64 · 32 clients — LockManager 2,254 / 3,571 (63.1%), 6,247 tps,
+   그때 pg_locks 3,806 줄 = fastpath t 1,955 · f 1,851, f 의 relation 객체 143. 되돌려 다시 : 2,117 / 3,490 (60.7%), 4,875 tps, 3,368 줄 · f 1,697 · 143.
+   max_locks 1024 (재시작) — 한 세션 201 = fastpath t 201, 32 clients LockManager 0 / 2,107 (CPU 2,085 · ClientRead 22), 6,007 tps, 2,064 줄 · f 8.
+   4 clients 8,186 tps. (병렬 Gather 가 섞인 첫 두 판과 재시작 직후 표본 0 의 판은 버렸다.) 로그 : ~/.cache/dbi/measure/pl2/locks-08.txt */
 {
   num:'08', tab:'Lock Table', title:'Inside the Lock Table: LOCKTAG, Partitions, PROCLOCK',
-  sub:'16 바이트 LOCKTAG 를 해시해 16 개 파티션 가운데 하나로 — 거기에 LOCK 하나, 쥐거나 기다리는 backend 마다 PROCLOCK 하나',
+  sub:'16 바이트 LOCKTAG 를 해시해 16 개 파티션 가운데 하나로 — 거기에 LOCK 하나, 쥐거나 기다리는 backend 마다 PROCLOCK 하나. 많이 몰리면 파티션 LWLock 이 줄이 된다',
   cast:['stmt','ltag','part','lq'],
-  /* relation t 의 OID 16385, 데이터베이스 16384. 파티션 번호는 해시의 % 16 — 여기서는 이야기의 숫자 11 */
+  /* 파티션 번호는 hash_bytes(LOCKTAG) % 16 — 규칙으로 계산(위 주석). part 항목의 n 은 그 파티션으로 가는 pt 의 relation 락 수 */
   knobs:[
-    ['max_locks_per_transaction','64','공유 표의 크기를 정한다 — 01 장면'],
+    ['max_locks_per_transaction','64','공유 표의 크기와 fast-path 칸 수를 정한다 — 01 · 09 장면, 8 스텝은 1024'],
+    ['max_parallel_workers_per_gather','0','database lt 만 — 6 ‥ 8 스텝에 병렬 워커의 락이 섞이지 않게'],
     ['—','—','파티션 수 16 은 빌드 상수(LOG2_NUM_LOCK_PARTITIONS 4)다'] ],
   watch:[
     ['pg_locks','locktype · database · relation · page · tuple · … · mode · granted · fastpath · waitstart'],
     ['pg_stat_activity','wait_event = LockManager — 파티션 LWLock 을 기다린다'] ],
   links:[['01','fast-path — 공유 표를 아예 안 쓰는 락'],['06','이 LOCK 의 wait queue'],['04','deadlock 검사가 걷는 것'],['09','fast-path 칸 — 묶음과 strong 셈']],
   init:{
-    /* 공유 표로 오는 요청 — SELECT 의 AccessShare 는 fast-path(01)로 이 표를 피한다. 4 스텝의 T2 가 이 요청이다 */
-    stmt:{ kv:{ '요청':'T2 : ALTER TABLE t …  (AccessExclusive)', 'hashcode % 16':'—' } },
+    /* 공유 표로 오는 요청 — 06 장면의 T2. SELECT 의 AccessShare 는 fast-path(01)로 이 표를 피하지만 T2 의 센 요청이 T1 의 것을 옮겼다 */
+    stmt:{ kv:{ '요청':'T2 : ALTER TABLE t ADD COLUMN c int  (AccessExclusive · 06 장면)', 'hashcode % 16':'—', 'pg_locks':'—', '파티션별':'—', 'LockManager':'—', 'tps':'—' } },
     ltag:{ items:[
-      { id:'field1', sz:4, tag:'hdr', sub:'16384 · DB' },
-      { id:'field2', sz:4, tag:'hdr', sub:'16385 · relation' },
+      { id:'field1', sz:4, tag:'hdr', sub:'28585 · DB wq' },
+      { id:'field2', sz:4, tag:'hdr', sub:'28586 · relation t' },
       { id:'field3', sz:4, tag:'free', sub:'0' },
       { id:'field4', sz:2, tag:'free', sub:'0' },
       { id:'type', sz:1, tag:'gold', sub:'RELATION' },
@@ -1285,7 +1299,7 @@ const SCENES = [
   steps:[
   { look:{ ltag:true },
     note:'락의 열쇠 LOCKTAG — 32 비트 칸 셋, 16 비트 칸 하나, 종류 1 바이트, 방식 1 바이트',
-    why:'LOCKTAG 는 주석 그대로 16 바이트에 맞게 "작정하고" 짠 구조체다. 칸의 뜻은 locktag_type 이 정한다 — relation 이면 SET_LOCKTAG_RELATION 이 field1 에 데이터베이스 OID, field2 에 relation OID 를 넣고 나머지는 0 이다. 튜플이면 field3 · field4 에 블록 번호와 오프셋이 들어간다.',
+    why:'LOCKTAG 는 주석 그대로 16 바이트에 맞게 "작정하고" 짠 구조체다. 칸의 뜻은 locktag_type 이 정한다 — relation 이면 SET_LOCKTAG_RELATION 이 field1 에 데이터베이스 OID, field2 에 relation OID 를 넣고 나머지는 0 이다. 튜플이면 field3 · field4 에 블록 번호와 오프셋이 들어간다. 여기 칸은 06 장면의 relation t 다 — pg_locks 가 database 28585 · relation 28586 으로 보인 것.',
     key:'락 관리자는 <em>무엇을 잠그는지 모른다</em> — 16 바이트를 해시할 뿐이다. 그래서 relation · 트랜잭션 · advisory 가 한 표를 함께 쓴다.',
     ref:'src/include/storage/lock.h', sym:'LOCKTAG',
     fact:['The LOCKTAG struct is defined with malice aforethought to fit into 16',
@@ -1306,44 +1320,105 @@ const SCENES = [
           'We can handle up to 256 different LockTagTypes.'] },
 
   { act:{ f:'ltag', t:'part', lb:'해시 % 16' },
-    note:'해시를 16 으로 나눈 나머지가 파티션 — 파티션마다 LWLock 하나',
-    why:'락 관리자의 공유 해시 표는 경합을 줄이려고 나뉘어 있다 — LockHashPartition 이 해시값을 NUM_LOCK_PARTITIONS(1 << 4 = 16)로 나눈 나머지를 고른다. 대부분의 연산은 그 파티션 하나의 LWLock 만 잡는다. 다른 relation 의 락은 다른 파티션에서 동시에 처리된다.',
-    key:'파티션 LWLock 을 기다리면 wait_event 가 <em>LockManager</em> 로 보인다 — 락을 기다리는 것이 아니라 <em>락 표를 고치는 차례</em>를 기다리는 것이다. fast-path(01 장면)가 이 줄을 아예 피한다.',
+    note:'해시를 16 으로 나눈 나머지가 파티션 — relation t 의 열쇠는 12 번(0xC)',
+    why:'락 관리자의 공유 해시 표는 경합을 줄이려고 나뉘어 있다 — LOCK 표는 HASH_BLOBS 라 열쇠 16 바이트를 hash_bytes 로 해시하고, LockHashPartition 이 그 값을 NUM_LOCK_PARTITIONS(1 << 4 = 16)로 나눈 나머지를 고른다. 대부분의 연산은 그 파티션 하나의 LWLock 만 잡는다. 규칙으로 계산: hash_bytes 를 옮긴 스크립트(hashtext 와 문자열 16 개에서 같은 값)로 {28585, 28586, 0, 0, RELATION, 1} 을 해시하면 0x8E6587BC, % 16 = 12 다 — 파티션 번호는 pg_locks 에 나오지 않아 잴 수 없다.',
+    key:'파티션 LWLock 을 기다리면 wait_event 가 <em>LockManager</em> 로 보인다 — 락을 기다리는 것이 아니라 <em>락 표를 고치는 차례</em>를 기다리는 것이다(7 스텝). fast-path(01 장면)가 이 줄을 아예 피한다.',
     ref:'src/include/storage/lock.h', sym:'LockHashPartition',
     fact:['The lockmgr\'s shared hash tables are partitioned to reduce contention.',
           ['src/include/storage/lwlock.h','#define LOG2_NUM_LOCK_PARTITIONS 4'],
           ['src/include/storage/lwlock.h','#define NUM_LOCK_PARTITIONS (1 << LOG2_NUM_LOCK_PARTITIONS)'],
+          ['src/backend/storage/lmgr/lock.c','HASH_ELEM | HASH_BLOBS | HASH_PARTITION);'],
           ['src/backend/storage/lmgr/README','Most operations only need to lock the single partition they are working in.']],
     beat:1,
-    ops:{ stmt:{ set:{ 'hashcode % 16':'11  (0xB)' } },
-          part:{ set:{ 'B':{ tag:'hold', sub:'LWLock 을 잡는다' } } } } },
+    ops:{ stmt:{ set:{ 'hashcode % 16':'0x8E6587BC % 16 = 12  (0xC · 규칙으로 계산)' } },
+          part:{ set:{ 'C':{ tag:'hold', sub:'LWLock 을 잡는다' } } } } },
 
   { act:{ f:'part', t:'lq', lb:'LOCK 과 PROCLOCK' },
     note:'파티션 안의 LOCK — 객체 하나에 하나, 쥐거나 기다리는 backend 마다 PROCLOCK 하나',
-    why:'LOCK 은 tag · grantMask · waitMask · procLocks(PROCLOCK 목록) · waitProcs(기다리는 PGPROC) · 모드별 requested[] · granted[] 를 든다. 같은 객체에 여러 backend 가 락을 쥐거나 기다리므로 그 짝마다 PROCLOCK 이 하나씩 있고, 그 backend 가 쥔 모드를 holdMask 로 든다 — 기다리는 중이면 holdMask 는 0 이다.',
-    key:'"누가 무엇을" 은 PROCLOCK 에, "이 객체에 지금 무엇이" 는 LOCK 의 두 마스크에 있다 — 06 장면의 판정은 <em>LOCK 만 보고</em> 끝난다.',
+    why:'LOCK 은 tag · grantMask · waitMask · procLocks(PROCLOCK 목록) · waitProcs(기다리는 PGPROC) · 모드별 requested[] · granted[] 를 든다. 같은 객체에 여러 backend 가 락을 쥐거나 기다리므로 그 짝마다 PROCLOCK 이 하나씩 있고, 그 backend 가 쥔 모드를 holdMask 로 든다 — 기다리는 중이면 holdMask 는 0 이다. 잰 값(06 장면의 2.0 s): t 의 pg_locks 줄은 넷 — T1(14774) AccessShare granted t · fastpath f, T2(14773) AccessExclusive granted f, T3(14771) · T4(14772) AccessShare granted f. T1 의 락은 T2 가 청하는 순간 T1 의 fast-path 칸에서 이 LOCK 으로 옮겨졌다(FastPathTransferRelationLocks).',
+    key:'"누가 무엇을" 은 PROCLOCK 에, "이 객체에 지금 무엇이" 는 LOCK 의 두 마스크에 있다 — 06 장면의 판정은 <em>LOCK 만 보고</em> 끝난다. 그래서 센 요청은 남의 fast-path 칸부터 이 표로 옮겨 놓는다.',
     ref:'src/include/storage/lock.h', sym:'PROCLOCK',
     fact:['dlist_head procLocks; /* list of PROCLOCK objects assoc. with lock */',
           'dclist_head waitProcs; /* list of PGPROC objects waiting on lock */',
           'of a lockable object and a holder/waiter for that object.',
           'LOCKMASK holdMask; /* bitmask for lock types currently held */',
-          'zero holdMask, for any lock that the process is currently waiting on.'],
+          'zero holdMask, for any lock that the process is currently waiting on.',
+          ['src/backend/storage/lmgr/lock.c','FastPathTransferRelationLocks(LockMethod lockMethodTable, const LOCKTAG *locktag,']],
     ops:{ lq:{ add:[
-      { id:'T1', tag:'hold', q:'granted', mode:'AccessShare', sub:'PROCLOCK holdMask = AS  ·  T2 의 센 요청이 fast-path 칸에서 옮겨 왔다' },
-      { id:'T4', tag:'hold', q:'granted', mode:'RowExclusive', sub:'PROCLOCK holdMask = RE  ·  같은 까닭으로 옮겨 왔다' },
-      { id:'T2', tag:'wait', q:'waiting', mode:'AccessExclusive', sub:'PROCLOCK holdMask = 0 — 기다린다' }] },
-          part:{ set:{ 'B':{ tag:'hold', sub:'relation t 의 LOCK 이 여기' } } } } },
+      { id:'T1', tag:'hold', q:'granted', mode:'AccessShare', sub:'pid 14774 · PROCLOCK holdMask = AS — fast-path 칸에서 옮겨 왔다 (fastpath f)' },
+      { id:'T2', tag:'wait', q:'waiting', mode:'AccessExclusive', bp:['T1'], sub:'pid 14773 · holdMask 0 — blocked_by {14774}' },
+      { id:'T3', tag:'wait', q:'waiting', mode:'AccessShare', bp:['T2'], sub:'pid 14771 · holdMask 0 — blocked_by {14773}' },
+      { id:'T4', tag:'wait', q:'waiting', mode:'AccessShare', bp:['T2'], sub:'pid 14772 · holdMask 0 — blocked_by {14773}' }] },
+          part:{ set:{ 'C':{ tag:'hold', sub:'relation t 의 LOCK 이 여기' } } } } },
 
   { look:{ stmt:true, lq:true },
     note:'pg_locks 는 이 표를 펼친 것 — fast-path 칸의 락까지 함께, fastpath 열로 가른다',
-    why:'pg_locks 는 pg_lock_status() 의 16 열이다 — locktype 과 열쇠 칸들(database · relation · page · tuple · virtualxid · transactionid · classid · objid · objsubid), 그리고 virtualtransaction · pid · mode · granted · fastpath · waitstart. fast-path 로 backend 의 칸에만 있는 락도 fastpath = true 로 함께 보인다.',
+    why:'pg_locks 는 pg_lock_status() 의 16 열이다 — locktype 과 열쇠 칸들(database · relation · page · tuple · virtualxid · transactionid · classid · objid · objsubid), 그리고 virtualtransaction · pid · mode · granted · fastpath · waitstart. fast-path 로 backend 의 칸에만 있는 락도 fastpath = true 로 함께 보인다. 줄 하나는 PROCLOCK 하나의 모드 하나다 — 06 의 t 는 PROCLOCK 넷 · 줄 넷이었다.',
     key:'공유 표에 없는 락도 <em>pg_locks 에는 보인다</em> — fastpath 열이 그 구분이다. waitstart 는 기다리기 시작한 시각이라 06 장면의 줄을 시간 순으로 읽을 수 있다.',
     ref:'src/backend/utils/adt/lockfuncs.c', sym:'pg_lock_status',
     fact:['#define NUM_LOCK_STATUS_COLUMNS 16',
           'TupleDescInitEntry(tupdesc, (AttrNumber) 15, "fastpath",',
           'TupleDescInitEntry(tupdesc, (AttrNumber) 16, "waitstart",',
           ['src/backend/catalog/system_views.sql','CREATE VIEW pg_locks AS SELECT * FROM pg_lock_status() AS L;']],
-    beat:1 },
+    beat:1,
+    ops:{ stmt:{ set:{ 'pg_locks':'t 의 줄 4 = PROCLOCK 4 · LOCK 1  ·  T1 만 granted t' } } } },
+
+  { act:{ f:'stmt', t:'part', lb:'137 개가 공유 표로' },
+    note:'한 문장이 락 201 개 — 파티션 200 개짜리 표를 읽으면 fast-path 64 칸이 차고 137 개가 16 파티션에 흩어진다',
+    why:'잰 값: database lt 의 pt(파티션 200 개, 병렬 끔)에 BEGIN; SELECT count(*) FROM pt; 를 내자 이 세션의 relation 락은 201 개, fastpath t 64 · f 137 이었다 — 기본 max_locks_per_transaction 64 의 칸 64 개(09 장면)가 차고 나머지는 공유 표로 갔다. fastpath f 의 첫 relation pt_64(28854)의 열쇠 {28661, 28854, 0, 0, RELATION, 1} 은 0xD64279D7 → 7 번이고, 137 개 모두를 같은 규칙으로 계산했다(hash_bytes % 16): 0 번 8 · 1 번 4 · 2 번 9 · 3 번 5 · 4 번 13 · 5 번 12 · 6 번 6 · 7 번 7 · 8 번 11 · 9 번 8 · A 11 · B 10 · C 10 · D 9 · E 8 · F 6, 합 137.',
+    key:'파티션이 16 개라도 <em>락 하나하나가 LWLock 을 잡고 놓는다</em> — 이 문장 하나가 16 개 LWLock 을 모두 여러 번 잡는다. 많은 세션이 같은 relation 들을 이렇게 잠그면 같은 파티션에서 만난다.',
+    ref:'src/backend/storage/lmgr/lock.c', sym:'LockAcquireExtended',
+    fact:['partitionLock = LockHashPartitionLock(hashcode);',
+          'LWLockAcquire(partitionLock, LW_EXCLUSIVE);',
+          ['src/include/storage/lock.h','#define LockHashPartition(hashcode) \\']],
+    ops:{ stmt:{ set:{ '요청':'BEGIN; SELECT count(*) FROM pt  (pt 파티션 200 개 · database lt 28661)',
+                       'hashcode % 16':'pt_64 (28854) 0xD64279D7 % 16 = 7 — 137 개 모두 이렇게 (규칙으로 계산)',
+                       'pg_locks':'이 세션 relation 201 = fastpath t 64 + f 137',
+                       '파티션별':'0·8 1·4 2·9 3·5 4·13 5·12 6·6 7·7 8·11 9·8 A·11 B·10 C·10 D·9 E·8 F·6  (규칙으로 계산)' } },
+          lq:{ del:['T1','T2','T3','T4'] },
+          ltag:{ set:{ 'field1':{ sub:'28661 · DB lt' }, 'field2':{ sub:'28854 · pt_64' } } },
+          part:{ set:{
+            '0':{ tag:'hold', n:8, sub:'' }, '1':{ tag:'hold', n:4, sub:'' }, '2':{ tag:'hold', n:9, sub:'' }, '3':{ tag:'hold', n:5, sub:'' },
+            '4':{ tag:'hold', n:13, sub:'' }, '5':{ tag:'hold', n:12, sub:'' }, '6':{ tag:'hold', n:6, sub:'' }, '7':{ tag:'hold', n:7, sub:'' },
+            '8':{ tag:'hold', n:11, sub:'' }, '9':{ tag:'hold', n:8, sub:'' }, 'A':{ tag:'hold', n:11, sub:'' }, 'B':{ tag:'hold', n:10, sub:'' },
+            'C':{ tag:'hold', n:10, sub:'' }, 'D':{ tag:'hold', n:9, sub:'' }, 'E':{ tag:'hold', n:8, sub:'' }, 'F':{ tag:'hold', n:6, sub:'' } } } } },
+
+  { look:{ stmt:true, part:true },
+    note:'32 세션이 같은 문장을 — 표본의 63.1% 가 LWLock:LockManager, 4 세션이면 1.1%',
+    why:'잰 값: pgbench -f "SELECT count(*) FROM pt;" 8 초(이 맥 10 CPU), 1 초 뒤부터 50 ms 마다 120 번 pg_stat_activity 의 active client 를 셌다. 4 clients 는 표본 454 가운데 CPU 441 · LockManager 5 (1.1%), 7,722 tps. 32 clients 는 3,571 가운데 LockManager 2,254 (63.1%) · CPU 1,291, 6,247 tps — 되돌려 다시 잰 판도 60.7%, 4,875 tps. 그 순간 pg_locks 는 3,806 줄(fastpath t 1,955 · f 1,851)이고 공유 표의 relation 객체는 143 개였다 — LOCK 칸 8,704 · PROCLOCK 17,408(01 장면, 규칙)에 한참 못 미친다.',
+    key:'막힌 것은 <em>표의 크기가 아니라 파티션 LWLock 의 차례</em>다 — 143 개 객체, 1,851 줄이면 표는 텅 비었는데 세션 셋 중 둘이 LockManager 에 서 있다. 파티션을 16 개로 나눠도 모두가 같은 relation 들을 잠그면 같은 파티션에서 만난다.',
+    ref:'src/backend/storage/lmgr/lock.c', sym:'LockReleaseAll',
+    fact:['for (partition = 0; partition < NUM_LOCK_PARTITIONS; partition++)',
+          'LWLockAcquire(partitionLock, LW_EXCLUSIVE);',
+          ['src/backend/utils/activity/wait_event_names.txt','LockManager "Waiting to read or update information about <quote>heavyweight</quote> locks."']],
+    beat:1,
+    ops:{ stmt:{ set:{ '요청':'pgbench -c 32 -j 10 -T 8 · SELECT count(*) FROM pt',
+                       'LockManager':'2,254 / 3,571 표본 63.1%  ·  다시 60.7%  ·  4 clients 1.1%|red',
+                       'pg_locks':'3,806 줄 = fastpath t 1,955 · f 1,851 — 공유 표의 relation 객체 143',
+                       'tps':'6,247 · 다시 4,875  ·  4 clients 7,722' } },
+          part:{ set:{
+            '0':{ tag:'x' }, '1':{ tag:'x' }, '2':{ tag:'x' }, '3':{ tag:'x' }, '4':{ tag:'x' }, '5':{ tag:'x' }, '6':{ tag:'x' }, '7':{ tag:'x' },
+            '8':{ tag:'x' }, '9':{ tag:'x' }, 'A':{ tag:'x' }, 'B':{ tag:'x' }, 'C':{ tag:'x' }, 'D':{ tag:'x' }, 'E':{ tag:'x' }, 'F':{ tag:'x' } } } } },
+
+  { act:{ f:'stmt', t:'part', lb:'fast-path 가 피한다' },
+    note:'칸을 늘려 공유 표를 아예 피하면 — 파티션 LWLock 을 기다리는 세션이 사라진다',
+    why:'09 장면의 셈대로 1024 면 fast-path 칸이 1,024 개(64 묶음)다. 잰 값: 재시작 뒤 한 세션의 SELECT count(*) FROM pt 는 relation 201 개 모두 fastpath t. 같은 32 clients 는 표본 2,107 가운데 LockManager 0 · CPU 2,085 · ClientRead 22, 6,007 tps, pg_locks 2,064 줄 가운데 f 8. 4 clients 는 8,186 tps. 이 10 CPU 에서 32 clients 의 tps 는 CPU 에 묶여 6,247 · 4,875 와 크게 다르지 않았다 — 기다림이 사라진 자리를 계산이 채웠다. 센 락 하나가 끼면 FastPathTransferRelationLocks 가 칸의 락을 다시 이 표로 옮긴다(06 장면의 T1).',
+    key:'fast-path 는 <em>표를 넓히는 것이 아니라 표에 안 가는 것</em>이다 — 약한 relation 락이 백엔드의 칸에 머물면 파티션 LWLock 을 아예 잡지 않는다. 대신 그 칸은 max_locks_per_transaction 으로만 늘고, 바꾸려면 재시작이다.',
+    ref:'src/backend/storage/lmgr/lock.c', sym:'LockAcquireExtended',
+    fact:['if (EligibleForRelationFastPath(locktag, lockmode) &&',
+          ['src/backend/utils/init/postinit.c','FastPathLockGroupsPerBackend ='],
+          ['src/backend/storage/lmgr/lock.c','FastPathTransferRelationLocks(LockMethod lockMethodTable, const LOCKTAG *locktag,']],
+    ops:{ stmt:{ set:{ '요청':'max_locks_per_transaction 1024 (재시작) · 같은 pgbench -c 32',
+                       'hashcode % 16':'— 공유 표로 가는 pt 의 락이 없다',
+                       '파티션별':'모두 0 — 201 개가 fast-path 칸에|green',
+                       'pg_locks':'이 세션 relation 201 = fastpath t 201 + f 0  ·  pgbench 중 2,064 줄 · f 8',
+                       'LockManager':'0 / 2,107 표본 0%|green',
+                       'tps':'6,007  ·  4 clients 8,186 — CPU 에 묶였다' } },
+          part:{ set:{
+            '0':{ tag:'free', n:0, sub:'' }, '1':{ tag:'free', n:0, sub:'' }, '2':{ tag:'free', n:0, sub:'' }, '3':{ tag:'free', n:0, sub:'' },
+            '4':{ tag:'free', n:0, sub:'' }, '5':{ tag:'free', n:0, sub:'' }, '6':{ tag:'free', n:0, sub:'' }, '7':{ tag:'free', n:0, sub:'' },
+            '8':{ tag:'free', n:0, sub:'' }, '9':{ tag:'free', n:0, sub:'' }, 'A':{ tag:'free', n:0, sub:'' }, 'B':{ tag:'free', n:0, sub:'' },
+            'C':{ tag:'free', n:0, sub:'' }, 'D':{ tag:'free', n:0, sub:'' }, 'E':{ tag:'free', n:0, sub:'' }, 'F':{ tag:'free', n:0, sub:'' } } } } },
   ],
 },
 /* 잰 값(PG 18.6, 이 빌드) — f1 ‥ f200 (a int), 인덱스 · toast 없음, oid 16419 ‥ 17016 이 3 씩 오른다. 한 트랜잭션이 f1 부터 차례로

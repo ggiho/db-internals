@@ -20,6 +20,8 @@
        남았거나 relation 아래 page · tuple 이 남으면 알린다. rw-conflict 그래프의 x 노드는 들고 나는 간선을 다 가져야 한다(피벗)
        행 락(07) — 4 × 4 행렬의 got(잰 NOWAIT 칸)이 셈한 칸과, 칸 줄 sub 의 '0xHHHH = 이름 · …' 이 비트 합과, lm 이 붙은 잠금 줄의
        강도 비트 · tuple 줄의 mode 가 compute_new_xmax_infomask · tupleLockExtraInfo 와 맞아야 한다
+       파티션(08) — 16 칸 줄의 hold 가 '0x… % 16 = N' 과, 칸 n 의 합이 'relation T = fastpath t A + f B' 의 B 와 맞고, A 는 fast-path 칸을
+       넘지 않으며, 'X / Y 표본 Z%' 의 셈이 맞아야 한다
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
 import { kvLine } from './kvline.js';
@@ -133,6 +135,36 @@ function make({ F, deck, labels, scene }) {
       }
       if (x.lm && x.mode && modeNo(x.mode) !== ROWLK[x.lm]) console.error(`${at} : ${a}.${x.id} 는 ${x.lm} 를 청했는데 tuple 락이 ${x.mode} — tupleLockExtraInfo 는 ${MODES[ROWLK[x.lm] - 1]}Lock`);
       if (x.lm && !(x.lm in ROWLK)) console.error(`${at} : ${a}.${x.id} 의 lm '${x.lm}' 를 모른다`);
+    }
+  });
+  /* 락 표의 파티션(08) — 16 칸 줄(id 0 ‥ F)이 파티션이다. kv 의 '0xHHHHHHHH % 16 = N' 은 나눗셈이 맞고 N 번 칸이 hold(잡음) · x(줄)여야 한다(LockHashPartition).
+     칸 n 의 합은 kv 'pg_locks' 의 'relation T = fastpath t A + f B' 의 B 와 같고, T = A + B, A 는 그 스텝의 max_locks_per_transaction(kv 에 없으면
+     knobs)으로 셈한 fast-path 칸 수를 넘을 수 없다. 'X / Y 표본 Z%' 는 Z = 100 X / Y 여야 한다 */
+  const PARTS = ROWS.filter((a) => { const its = all[0][a]; return its.length === 16 && its.every((x, k) => x.id === k.toString(16).toUpperCase()); });
+  const knobMl = Number(((sc.knobs || []).find((k) => k[0] === 'max_locks_per_transaction') || [])[1]) || null;
+  const p2 = (v) => { let q = 1; while (q < v) q *= 2; return q; };
+  if (PARTS.length) for (const bk of BAKES.values()) bk.S.forEach((s, i) => {
+    const at = `pg locks ${sc.num}/${i + 1} 세계`, its = s[PARTS[0]], vals = TEXTS.flatMap((t) => Object.values(s[t]).map(bare));
+    for (const v of vals) {
+      const h = /0x([0-9A-Fa-f]{8}) % 16 = (\d+)/.exec(v);
+      if (h) {
+        const p = parseInt(h[1], 16) % 16, it = its.find((x) => x.id === p.toString(16).toUpperCase());
+        if (p !== Number(h[2])) console.error(`${at} : 0x${h[1]} % 16 은 ${p} 인데 ${h[2]} 로 적었다`);
+        else if (!it || !['hold', 'x'].includes(it.tag)) console.error(`${at} : 해시가 파티션 ${h[2]} 인데 그 칸이 hold · x 가 아니다`);
+      }
+      const f = /relation ([\d,]+) = fastpath t ([\d,]+) \+ f ([\d,]+)/.exec(v);
+      if (f) {
+        const [T, ft, ff] = [f[1], f[2], f[3]].map((x) => Number(x.replace(/,/g, '')));
+        const ml = Number((/max_locks_per_transaction (\d+)/.exec(vals.join(' ')) || [])[1]) || knobMl;
+        const slots = ml ? Math.max(Math.min(p2(ml) / 16, 1024), 1) * 16 : null, ns = its.reduce((t, x) => t + (typeof x.n === 'number' ? x.n : 0), 0);
+        if (T !== ft + ff) console.error(`${at} : relation ${T} 이 fastpath t ${ft} + f ${ff} 가 아니다`);
+        if (slots != null && ft > slots) console.error(`${at} : fastpath t ${ft} 가 max_locks ${ml} 의 fast-path 칸 ${slots} 을 넘는다`);
+        if (its.some((x) => typeof x.n === 'number') && ns !== ff) console.error(`${at} : 파티션 칸 n 의 합 ${ns} 이 공유 표로 간 f ${ff} 와 다르다`);
+      }
+      for (const m of v.matchAll(/([\d,]+) \/ ([\d,]+) 표본 ([\d.]+)%/g)) {
+        const [x, y] = [m[1], m[2]].map((q) => Number(q.replace(/,/g, ''))), z = Number(m[3]);
+        if (Math.abs((100 * x) / y - z) > 0.05) console.error(`${at} : ${m[1]} / ${m[2]} 는 ${((100 * x) / y).toFixed(1)}% 인데 ${m[3]}% 로 적었다`);
+      }
     }
   });
   for (const a of QUEUES) all.forEach((s) => s[a].forEach((x) => { if (x.mode && !modeNo(x.mode)) console.error(`pg locks ${sc.num} 세계 : ${a}.${x.id} 의 모드 '${x.mode}' 를 모른다`); }));
