@@ -7,7 +7,7 @@
        설계를 적으므로 지금 서비스의 값까지는 보증하지 않는다. */
 const DECK = {
   title: 'Aurora MySQL Architecture',
-  blurb: 'redo 만 storage 로 보내는 구조 — 6 copy quorum · 복구 · segment · 복제본 (논문과 AWS 문서 인용)',
+  blurb: 'Aurora 는 page 를 쓰지 않고 redo 만 보낸다. 여섯 copy 중 넷이 받으면 쓴 것이다.',
   brand: 'AURORA MYSQL',
   brand2: 'DOCS & PAPERS  ·  vs INNODB 8.4.8',
   favicon: '☁️',

@@ -4,7 +4,7 @@
    바늘이 그것을 깎으며 돈다 — 그리고 큰 스캔은 아예 따로 작은 링 안에서만 돈다. */
 const DECK = {
   title: 'PostgreSQL Shared Buffers',
-  blurb: 'shared buffers 를 누가 어떻게 쓰나 — clock sweep · ring buffer · state word · bgwriter · read stream',
+  blurb: '버릴 buffer 는 시계 바늘이 고른다. 큰 테이블을 훑어도 캐시가 밀려나지 않는 까닭.',
   brand: 'POSTGRESQL 18.6',
   brand2: 'SHARED BUFFERS  ·  vs INNODB',
   favicon: '🐘',

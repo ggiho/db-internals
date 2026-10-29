@@ -57,7 +57,7 @@ const BREAKS = {
   /* Lab 의 이름을 Story 요소에 붙인다 — 실제로 .wrap(display:grid) 이 이름표를 음절마다 접었다 */
   'css-leak': { js: true },
   /* 첫 화면 — 목록을 무대보다 넓게 만들면 가로로 넘친다 */
-  'hub': { css: '.hub-decks{width:3000px !important;max-width:none !important}' },
+  'hub': { css: '.hub-grid{width:3000px !important;max-width:none !important}' },
   'word-split': { css: '.st-copy *{word-break:break-all !important}' },
   /* 실제로 있었던 결함을 되살린다 — 항목의 id 와 설명 사이 공백을 지운다('INSER / T'). 낱말이 줄보다 넓으면 빼는
      예외가 이것까지 가리지 않는지 본다 */
@@ -445,10 +445,10 @@ async function runSize(browser, [w, h]) {
      가로로 넘치지 않는가, 오류 없이 뜨는가. 첫 화면은 장면 계획(plan)에 없어 따로 연다 */
   {
     await page.goto(`${BASE}/?probe&r=hub-${w}x${h}`, { waitUntil: 'load' });
-    await page.waitForSelector('.hub-decks a', { timeout: 20000 });
+    await page.waitForSelector('.hub-grid a', { timeout: 20000 });
     if (BREAK === 'hub') await page.addStyleTag({ content: BREAKS.hub.css });
     await page.waitForTimeout(300);
-    const H = await page.evaluate(() => ({ links: [...document.querySelectorAll('.hub-decks a')].map((a) => a.getAttribute('href')),
+    const H = await page.evaluate(() => ({ links: [...document.querySelectorAll('.hub-grid a')].map((a) => a.getAttribute('href')),
       sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth }));
     const want = Object.keys(STORY), got = H.links.map((l) => (l.match(/^#(.+)\/([^/]+)\/1$/) || []).slice(1));
     for (const d of want) if (!got.some(([dd]) => dd === d)) res.problems.push([res.size, 'hub', 'hub', `덱 ${d} 의 링크가 없다`]);

@@ -4,7 +4,7 @@
    PG 는 WAL 안에 페이지 전체 이미지를 넣는다. */
 const DECK = {
   title: 'PostgreSQL WAL & Crash Recovery',
-  blurb: 'WAL 한 바이트부터 복구까지 — FPI · redo · checkpoint · commit · 레코드 · 세그먼트 · slot',
+  blurb: 'checkpoint 뒤의 첫 변경은 page 를 통째로 WAL 에 쓴다. crash 뒤에는 무엇을 다시 하나.',
   brand: 'POSTGRESQL 18.6',
   brand2: 'WAL  ·  vs INNODB REDO',
   favicon: '🐘',
