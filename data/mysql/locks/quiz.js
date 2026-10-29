@@ -25,7 +25,12 @@ export const CORE = {
     a: 'MDL_SHARED_WRITE',
     x: ['MDL_SHARED_READ', 'MDL_EXCLUSIVE', 'MDL_SHARED_NO_WRITE'],
   },
-  '03/7': {
+  '03/5': {
+    q: 'IS · IX 를 쥔 트랜잭션 뒤에서 ALTER TABLE … ADD INDEX 가 멈춘 동안 data_locks 에 ALTER 의 줄은?',
+    a: '없다 — MDL 에서 멈춰 InnoDB 에 닿지 않았다',
+    x: ['TABLE X WAITING 한 줄 — 남의 IX 와 충돌해 기다린다', 'TABLE S WAITING 한 줄 — 인덱스를 만들려고 쓰기를 막는다', 'TABLE IX GRANTED 한 줄 — LOCK=NONE 이라 IX 만 잡는다'],
+  },
+  '03/8': {
     q: 'InnoDB 락 모드에 AUTO_INC 가 따로 있는 이유는?',
     a: '문장 단위 binlog replay 에서 같은 번호가 나와야 해서',
     x: ['AUTO_INCREMENT 컬럼의 unique check 을 빠르게 하려고', '카운터가 디스크에 없어 재시작 때 잃지 않으려고', 'gap lock 없이 새 행 자리를 확보하려고'],

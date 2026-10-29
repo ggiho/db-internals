@@ -9,7 +9,8 @@
        축에 그 모양의 범위가 있어야 한다 — X = next (…, 20], X,GAP = gap (…, 50), X,REC_NOT_GAP = rec 20, INSERT_INTENTION = 그 레코드 앞 gap 안의
        blk · ii. 없으면 console.error (07 — 잰 data_locks 줄과 그림이 어긋나지 않게). 뒤에 ' · A' 처럼 임자를 붙여도 같고(08 — 두 트랜잭션이
        같은 레코드를 하나는 쥐고 하나는 기다린다), sub 에 WAITING 이 있으면 범위 대신 그 레코드의 blk 가 있어야 한다
-   손잡이가 있는 장면(07 격리 수준 · 08 innodb_deadlock_detect)은 값마다 따로 bake 해 두고 setVary 로 바꾼다.
+       글 블록에 tables_locked 가 있으면(03) TABLE LOCKS 의 '표 · 모드' 칸 수와 같아야 한다 — INNODB_TRX 가 세는 것이 그 수다
+   손잡이가 있는 장면(07 격리 수준 · 08 innodb_deadlock_detect · 03 innodb_autoinc_lock_mode)은 값마다 따로 bake 해 두고 setVary 로 바꾼다.
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
 import { kvLine } from './kvline.js';
@@ -129,6 +130,14 @@ function one({ F, deck, labels, sc }) {
       }
     }
     if (GR) { const cyc = cycleOf(s); for (const e of s[GR + '#e']) if (e.hot && !cyc.has(e.id)) console.error(`${at} : hot 간선 ${e.id} 가 사이클 위에 없다`); }
+    /* 03 — 글 블록의 tables_locked 는 INNODB_TRX.trx_tables_locked = lock_number_of_tables_locked 다. 테이블 수가 아니라 trx 가 쥔
+       테이블 락 수(같은 t 의 IS · IX 는 2, AUTO_INC 도 하나)이므로, TABLE LOCKS 칸 가운데 '표 · 모드' 꼴('t · IS' · 'a · AUTO_INC')의 수와 같아야 한다 */
+    for (const t of TEXTS) {
+      const raw = s[t]['tables_locked']; if (raw == null) continue;
+      const n = Number(bare(raw).trim().split(/\s/)[0]);
+      const have = ROWS.filter((a) => A[a].nm === 'TABLE LOCKS').flatMap((a) => s[a]).filter((it) => it.tag !== 'free' && /^\S+ · (IS|IX|S|X|AUTO_INC)$/.test(it.id)).length;
+      if (n !== have) console.error(`${at} : tables_locked ${n} 인데 TABLE LOCKS 의 테이블 락 칸은 ${have} 개다`);
+    }
   });
   let cur = BAKES.get(null) || [...BAKES.values()][0];
 
