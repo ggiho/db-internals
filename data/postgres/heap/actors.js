@@ -20,8 +20,8 @@ const ACTORS = {
   /* TOAST 포인터 18 바이트(04) · 열 순서 두 가지의 행(08) · 체크섬(10) · relation 의 블록들(09) */
   tp:  { nm:'TOAST POINTER', lane:'page', kind:'bytes' },
   /* scale 이 같은 띠는 칸 폭의 눈금을 함께 쓴다 — 18 B 행이 32 B 행보다 짧게 보인다 */
-  r1:  { nm:'ROW  t1 (a bool, b int8, c bool, d int8)', lane:'page', kind:'bytes', scale:'row' },
-  r2:  { nm:'ROW  t2 (b int8, d int8, a bool, c bool)', lane:'page', kind:'bytes', scale:'row' },
+  r1:  { nm:'ROW  t1 (a int2, b int8, c int2, d int8)', lane:'page', kind:'bytes', scale:'row' },
+  r2:  { nm:'ROW  t2 (b int8, d int8, a int2, c int2)', lane:'page', kind:'bytes', scale:'row' },
   ck:  { nm:'CHECKSUM',    lane:'op',   kind:'kv' },
   blk: { nm:'RELATION BLOCKS', lane:'page', kind:'list' },
 };

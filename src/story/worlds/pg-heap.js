@@ -132,6 +132,17 @@ function make({ F, deck, labels, scene }) {
       if (f === 2) { const t = s[LPA].find((y) => y.id === 'lp ' + x.off); if (+x.len || !t || flagOf(t.fl) !== 1) console.error(`${at} 의 ${x.id} REDIRECT → lp ${x.off} 가 len 0 · NORMAL 대상이 아니다`); }
       if (f === 0 && (+x.off || +x.len)) console.error(`${at} 의 ${x.id} 는 UNUSED 인데 off ${x.off} · len ${x.len} 이다`);
     }
+    /* 행 띠(08, scale 'row') — 칸의 sub 첫 숫자는 앞 칸 sz 의 합(데이터 영역 오프셋)이어야 하고, 이름에 int2 · int4 · int8 이 든 값은
+       그 typalign 경계(2 · 4 · 8)에서 시작해야 한다 — heap_compute_data_size 의 셈 */
+    for (const a of STRIPS) if (A[a].scale === 'row') {
+      let o = 0;
+      for (const x of s[a]) {
+        const n = nums(x.sub), w = /int([248])/.exec(x.id);
+        if (n.length && n[0] !== o) console.error(`${at} 의 ${a}.${x.id} 오프셋 ${n[0]} 가 앞 칸들의 합 ${o} 와 다르다`);
+        if (w && o % +w[1]) console.error(`${at} 의 ${a}.${x.id} 가 ${o} 에서 시작한다 — ${w[1]} 의 배수가 아니다`);
+        o += +x.sz || 0;
+      }
+    }
     /* 조각 모으기(07) — kv 'compactify_tuples' 가 이 스텝에 'nitems N · presorted …' 로 바뀌면, 저장이 있는 lp 를 번호 순서로 세어 nitems 와,
        앞 상태에서 그 lp 들의 오프셋이 줄곧 줄었는지(presorted)를 맞추고, 지금 오프셋이 페이지 끝부터 MAXALIGN 길이로 빈틈없이 쌓였는지 본다 */
     const prev = i ? arr[i - 1] : null;
