@@ -18,6 +18,8 @@
        줄(06) — 큐 항목의 q · mode 로 걸린 것끼리의 충돌, 기다릴 까닭, 잰 pg_blocking_pids(bp), fastpath t(fp) 가 남을 수 있는지를 다시 센다.
        SSI(05) — 칸 줄 항목의 lt · who · rel · pg · cnt(SIReadLock 줄)를 knobs 의 max_pred_locks_* 로 다시 세어, 문턱을 넘은 잘은 락이
        남았거나 relation 아래 page · tuple 이 남으면 알린다. rw-conflict 그래프의 x 노드는 들고 나는 간선을 다 가져야 한다(피벗)
+       행 락(07) — 4 × 4 행렬의 got(잰 NOWAIT 칸)이 셈한 칸과, 칸 줄 sub 의 '0xHHHH = 이름 · …' 이 비트 합과, lm 이 붙은 잠금 줄의
+       강도 비트 · tuple 줄의 mode 가 compute_new_xmax_infomask · tupleLockExtraInfo 와 맞아야 한다
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
 import { kvLine } from './kvline.js';
@@ -105,6 +107,34 @@ function make({ F, deck, labels, scene }) {
       if (c !== want) console.error(`pg locks ${sc.num} 세계 : 행 락 행렬 ${m.rows[i]} × ${m.cols[j]} 가 '${c}' 인데 대응한 락 모드로 셈하면 '${want}'`);
     }));
   }
+  /* 행 락의 흔적(07) — 행 락 행렬의 got(NOWAIT 로 잰 ok · 55P03)은 셈한 칸과 같아야 한다. 칸 줄 항목 sub 의 '0xHHHH = 이름 · …' 은
+     htup_details.h 비트의 합(앞에 im2 가 있으면 t_infomask2, 아래 11 비트는 natts)이어야 하고, lm(KS · S · NKX · X)이 붙은 잠금 줄은
+     compute_new_xmax_infomask 가 그 강도에 켜는 비트(KS 0x90 · S 0xD0 · NKX · X 0xC0, X 만 KEYS_UPDATED)여야 한다.
+     mode 까지 붙은 pg_locks 의 tuple 줄은 그 백엔드가 청한 행 락 lm 의 tupleLockExtraInfo 대응 모드여야 한다 */
+  for (const a of MATS) {
+    const m = all[0][a];
+    if (m.got) m.cells.forEach((row, i) => row.forEach((c, j) => {
+      const g = (m.got[i] || [])[j];
+      if ((g === 'ok') !== (c === '+')) console.error(`pg locks ${sc.num} 세계 : 행렬 ${m.rows[i]} × ${m.cols[j]} 는 '${c}' 인데 잰 칸은 '${g}'`);
+    }));
+  }
+  const TIM1 = { KEYSHR: 0x10, EXCL: 0x40, LOCK_ONLY: 0x80, XMIN_COMMITTED: 0x100, XMAX_COMMITTED: 0x400, XMAX_INVALID: 0x800, IS_MULTI: 0x1000, UPDATED: 0x2000 };
+  const TIM2 = { KEYS_UPDATED: 0x2000, HOT_UPDATED: 0x4000, ONLY_TUPLE: 0x8000 };
+  const LKB = { KS: 0x90, S: 0xd0, NKX: 0xc0, X: 0xc0 };
+  for (const bk of BAKES.values()) bk.S.forEach((s, i) => {
+    const at = `pg locks ${sc.num}/${i + 1} 세계`;
+    for (const a of ROWS) for (const x of s[a]) {
+      for (const m of bare(x.sub).matchAll(/(im2 )?0x([0-9A-Fa-f]{4}) = ([A-Z_]+(?: · [A-Z_]+)*)/g)) {
+        const T = m[1] ? TIM2 : TIM1, names = m[3].split(' · '), hex = parseInt(m[2], 16), want = m[1] ? hex & ~0x7ff : hex;
+        const bad = names.filter((n) => !(n in T)), sum = names.reduce((t, n) => t | (T[n] || 0), 0);
+        if (bad.length || sum !== want) console.error(`${at} : ${a}.${x.id} 의 0x${m[2]} 가 ${names.join(' · ')} 의 합 0x${sum.toString(16)} 이 아니다${bad.length ? ' (모르는 이름 ' + bad.join(' · ') + ')' : ''}`);
+        if (x.lm && !m[1] && (hex & 0xd0) !== LKB[x.lm]) console.error(`${at} : ${a}.${x.id} 는 ${x.lm} 잠금인데 비트가 0x${(hex & 0xd0).toString(16)} — compute_new_xmax_infomask 는 0x${LKB[x.lm].toString(16)}`);
+        if (x.lm && m[1] && !!(hex & 0x2000) !== (x.lm === 'X')) console.error(`${at} : ${a}.${x.id} 의 KEYS_UPDATED 는 X 잠금에만 켜진다`);
+      }
+      if (x.lm && x.mode && modeNo(x.mode) !== ROWLK[x.lm]) console.error(`${at} : ${a}.${x.id} 는 ${x.lm} 를 청했는데 tuple 락이 ${x.mode} — tupleLockExtraInfo 는 ${MODES[ROWLK[x.lm] - 1]}Lock`);
+      if (x.lm && !(x.lm in ROWLK)) console.error(`${at} : ${a}.${x.id} 의 lm '${x.lm}' 를 모른다`);
+    }
+  });
   for (const a of QUEUES) all.forEach((s) => s[a].forEach((x) => { if (x.mode && !modeNo(x.mode)) console.error(`pg locks ${sc.num} 세계 : ${a}.${x.id} 의 모드 '${x.mode}' 를 모른다`); }));
   /* fast-path 칸 띠(09) — 묶음 수는 postinit.c InitializeFastPathLocks 의 셈 : Max(Min(pg_nextpower2_32(max_locks) / 16, 1024), 1).
      띠가 그리는 칸 수 · 쓴 칸이 kv 의 설정값과 잰 pg_locks 셈(fastpath t / f)에서 벗어나면 알린다 */

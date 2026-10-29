@@ -1039,20 +1039,45 @@ const SCENES = [
     ops:{ stmt:{ set:{ '로그':'process 15778 acquired AccessShareLock … after 1502.620 ms' } } } },
   ],
 },
+/* 잰 값(PG 18.6, 이 빌드) — 데이터베이스 rl (OID 28592) 의 r (id int primary key, v int) 한 행(OID 28641), parent (id int primary key, v int) 한 행 ·
+   child (id int, parent_id int REFERENCES parent), 셋 다 autovacuum_enabled = off, log_lock_waits on.
+   네 강도(칸마다 새 트랜잭션 A) : FOR KEY SHARE → t_xmax 889 · 0x0190 {KEYSHR_LOCK, LOCK_ONLY, XMIN_COMMITTED} · pgrowlocks For Key Share,
+   FOR SHARE → 897 · 0x01d0 (+ EXCL_LOCK) · For Share, FOR NO KEY UPDATE → 904 · 0x01c0 · For No Key Update, FOR UPDATE → 910 · 0x01c0 · t_infomask2 0x2002
+   (KEYS_UPDATED) · For Update. 넷 다 xid 가 붙고 pg_locks 는 r · r_pkey RowShareLock fastpath t + transactionid ExclusiveLock 뿐, tuple 줄 없음.
+   16 칸 : A 가 쥔 채 B 가 FOR … NOWAIT — 허용 6 칸 ok (0.353 ‥ 0.816 ms), 막힘 10 칸 ERROR 55P03 could not obtain lock on row in relation "r"
+   (heap_lock_tuple, heapam.c:5235). 셈한 표와 칸마다 같다.
+   줄 : A (pid 64946, xid 915) FOR SHARE, B (64947) UPDATE r SET v = v + 1 을 0.5 s 에, C (64944) 같은 UPDATE 를 1.0 s 에. 2.2 s 에 B 는 tuple (0,1)
+   ExclusiveLock granted t + transactionid 915 ShareLock granted f · Lock:transactionid · blocked_by {64946}, C 는 tuple (0,1) ExclusiveLock granted f ·
+   Lock:tuple · blocked_by {64947}, B · C 는 기다리기 전에 xid 916 · 917. 로그 "process 64947 still waiting for ShareLock on transaction 915 after 1001.172 ms"
+   (CONTEXT while updating tuple (0,1) in relation "r"), "process 64944 still waiting for ExclusiveLock on tuple (0,1) of relation 28641 of database 28592
+   after 1001.663 ms" (Process holding the lock: 64947). A ROLLBACK 3.0 s → B "acquired ShareLock on transaction 915 after 2498.480 ms", C "acquired
+   ExclusiveLock on tuple (0,1) … after 1998.611 ms" 같은 ms, 3.7 s 에 lp 1 xmax 916 · 0x0100 · 0x4002 (HOT) · lp 2 0x2800 · pgrowlocks No Key Update,
+   C 는 transactionid 916 ShareLock f · blocked_by {64947} ("still waiting … 916 after 1000.662 ms"), B COMMIT 4.5 s → "acquired … after 1509.803 ms", v 111.
+   FK : A (66481, xid 918) INSERT INTO child (1, 1) → parent lp 1 xmax 918 · 0x0190 · For Key Share. B (66484, xid 919) UPDATE parent SET v = v + 1 은 1.575 ms —
+   lp 1 xmax multi 7 · 0x1140 {EXCL_LOCK, IS_MULTI} · 0x4002, pg_get_multixact_members(7) 918 keysh · 919 nokeyupd, HOT 새 버전 lp 2 xmax 918 · 0x2090 (A 의 잠금).
+   B 커밋 뒤 C (66482, xid 920) UPDATE parent SET id = 2 : tuple (0,2) AccessExclusiveLock granted t + transactionid 918 ShareLock granted f ·
+   blocked_by {66481}, A ROLLBACK 3.0 s → UPDATE 1 in 1,003.330 ms, lp 2 xmax 920 · 0x2500 · 0xa002 (KEYS_UPDATED), lp 3 은 HOT 아님(0x0002).
+   자식 (1, 2) 를 커밋해 둔 뒤 UPDATE parent SET id = 3 WHERE id = 2 → ERROR 23503 … violates foreign key constraint "child_parent_id_fkey" (ri_triggers.c:2811).
+   로그 : ~/.cache/dbi/measure/pl2/locks-07.txt (스크립트 rl/*.sql · mx.sh · run.sh) */
 {
   num:'07', tab:'Row Locks', title:'Row Lock Modes: Four Strengths, One Conflict Table',
-  sub:'FOR KEY SHARE · FOR SHARE · FOR NO KEY UPDATE · FOR UPDATE — 각각을 테이블 락 모드에 대응시켜 같은 표로 충돌을 셈한다',
-  cast:['stmt','rmx'],
+  sub:'FOR KEY SHARE · FOR SHARE · FOR NO KEY UPDATE · FOR UPDATE — 각각을 테이블 락 모드에 대응시켜 같은 표로 충돌을 셈하고, 두 세션으로 16 칸을 잰다',
+  cast:['stmt','pgl','rmx','rows'],
   /* 행 락 넷을 heapam.c 의 tupleLockExtraInfo 대응(AccessShare · RowShare · Exclusive · AccessExclusive)으로 LockConflicts 에 넣어
-     얻은 4 × 4 — 세계가 그 대응으로 다시 셈해 칸마다 맞춘다 */
+     얻은 4 × 4 — 세계가 그 대응으로 다시 셈해 칸마다 맞추고, got(NOWAIT 로 잰 칸)과도 맞춘다. ROW LOCKS 의 0x 값은 비트 이름의 합 */
   knobs:[
-    ['—','—','행 락 모드는 문장이 정한다 — UPDATE 는 키 열을 바꾸지 않으면 NO KEY UPDATE 강도다'] ],
+    ['—','—','행 락 모드는 문장이 정한다 — UPDATE 는 키 열을 바꾸지 않으면 NO KEY UPDATE 강도다'],
+    ['log_lock_waits','on','이 장면의 로그 줄 — 기본 off, 06 장면처럼 켰다'] ],
   watch:[
     ['pgrowlocks 확장','한 테이블의 잠긴 행과 모드 · 잠근 XID'],
-    ['pg_locks','locktype = tuple 은 기다리는 동안만 — 행 락 자체는 xmax 에 있다(01 장면)'] ],
-  links:[['01','행 락은 xmax 에'],['03','테이블 락의 충돌 표'],['06','기다리는 줄']],
+    ['pg_locks','locktype = tuple 은 기다리는 동안만 — 행 락 자체는 xmax 에 있다(01 장면)'],
+    ['pg_get_multixact_members()','xmax 가 MultiXactId 일 때 그 명단(mvcc 10)'] ],
+  links:[['01','행 락은 xmax 에'],['03','테이블 락의 충돌 표'],['06','기다리는 줄'],['08','tuple · transactionid 줄이 사는 표']],
   init:{
-    stmt:{ kv:{ '요청':'—', '대응':'—', '판정':'—', 'pg_locks':'—' } },
+    stmt:{ kv:{ '대응':'—', 'A':'—', 'B':'—', 'C':'—', '판정':'—' } },
+    /* 그 순간의 pg_locks 중 tuple · transactionid 줄(관계 줄은 2 스텝만) — 색은 02 와 같다 : ok fastpath t · hold 공유 표 · x granted f.
+       lm 은 그 줄의 백엔드가 청한 행 락 — 세계가 tuple 줄의 mode 를 tupleLockExtraInfo 대응과 맞춘다 */
+    pgl:{ items:[] },
     rmx:{ mx:{
       rows:['KS','S','NKX','X'],
       cols:['KS','S','NKX','X'],
@@ -1061,22 +1086,51 @@ const SCENES = [
         ['+','+','-','-'],
         ['+','-','-','-'],
         ['-','-','-','-']],
+      /* 잰 칸 — A 가 행 쪽으로 쥔 채 B 가 열 쪽을 NOWAIT 로 청한 결과(ok · 55P03) */
+      got:[
+        ['ok','ok','ok','55P03'],
+        ['ok','ok','55P03','55P03'],
+        ['ok','55P03','55P03','55P03'],
+        ['55P03','55P03','55P03','55P03']],
       lb:{ l:'행 = 걸린 행 락  ·  열 = 새 요청', r:'KS 키 공유 · S 공유 · NKX 키 아닌 갱신 · X 갱신 · 삭제' } } },
+    /* 잠긴 행의 xmax — lm 이 붙은 줄은 잠금 하나(LOCK_ONLY)라 세계가 그 강도의 비트를 맞춘다 */
+    rows:{ items:[] },
   },
   steps:[
   { look:{ rmx:true, stmt:true },
     note:'행 락은 넷 — SELECT … FOR 의 네 강도, 그리고 UPDATE · DELETE 가 고르는 것',
     why:'LockTupleMode 는 KeyShare · Share · NoKeyExclusive · Exclusive 다. 주석이 문장을 적는다 — NoKeyExclusive 는 SELECT FOR NO KEY UPDATE 와 키 열을 바꾸지 않는 UPDATE, Exclusive 는 SELECT FOR UPDATE · 키 열을 바꾸는 UPDATE · DELETE 다.',
-    key:'평범한 UPDATE 는 대개 <em>가장 센 행 락이 아니다</em> — 키를 안 바꾸면 한 단계 약하다. 그 한 단계가 FK 검사와의 충돌을 없앤다(3 스텝).',
+    key:'평범한 UPDATE 는 대개 <em>가장 센 행 락이 아니다</em> — 키를 안 바꾸면 한 단계 약하다. 그 한 단계가 FK 검사와의 충돌을 없앤다(5 스텝).',
     ref:'src/include/nodes/lockoptions.h', sym:'LockTupleMode',
     fact:['LCS_FORKEYSHARE, /* FOR KEY SHARE */',
           '/* SELECT FOR NO KEY UPDATE, and UPDATEs that don\'t modify key columns */',
           '/* SELECT FOR UPDATE, UPDATEs that modify key columns, and DELETE */',
           ['src/backend/access/heap/heapam.c','If we\'re not updating any "key" column, we can grab a weaker lock type.']] },
 
+  { act:{ f:'stmt', t:'rows', lb:'xmax 에 적는다' },
+    note:'네 강도는 xmax 옆의 비트로 남는다 — FOR UPDATE 와 FOR NO KEY UPDATE 는 t_infomask 가 같다',
+    why:'compute_new_xmax_infomask 는 잠근 이가 없던 행에 자기 XID 를 넣고 LOCK_ONLY 와 강도 비트를 켠다 — KeyShare 는 KEYSHR_LOCK, Share 는 SHR_LOCK(EXCL_LOCK | KEYSHR_LOCK 두 비트), NoKeyExclusive 와 Exclusive 는 EXCL_LOCK, Exclusive 는 t_infomask2 의 KEYS_UPDATED 를 더한다. 잰 값: 칸마다 새 트랜잭션으로 잠그자 t_xmax 889 · 0x0190, 897 · 0x01D0, 904 · 0x01C0, 910 · 0x01C0 + infomask2 0x2002 였고 pgrowlocks 는 For Key Share · For Share · For No Key Update · For Update 로 읽었다(0x0100 은 먼저 읽어 켜진 XMIN_COMMITTED). 넷 다 xid 가 붙었고 pg_locks 에는 r · r_pkey 의 RowShareLock(fastpath t)과 transactionid 뿐, tuple 줄은 없었다.',
+    key:'잠금의 강도는 <em>튜플 헤더의 세 비트</em>에 산다 — FOR UPDATE 를 FOR NO KEY UPDATE 와 가르는 것은 t_infomask 가 아니라 <em>t_infomask2 의 KEYS_UPDATED</em> 다. pgrowlocks 도 그 비트로 가른다.',
+    ref:'src/backend/access/heap/heapam.c', sym:'compute_new_xmax_infomask',
+    fact:['case LockTupleShare: new_xmax = add_to_xmax; new_infomask |= HEAP_XMAX_SHR_LOCK;',
+          'new_infomask |= HEAP_XMAX_EXCL_LOCK; new_infomask2 |= HEAP_KEYS_UPDATED;',
+          ['src/include/access/htup_details.h','#define HEAP_XMAX_SHR_LOCK (HEAP_XMAX_EXCL_LOCK | HEAP_XMAX_KEYSHR_LOCK)'],
+          ['src/include/access/htup_details.h','#define HEAP_XMAX_LOCK_ONLY 0x0080 /* xmax, if valid, is only a locker */'],
+          ['contrib/pgrowlocks/pgrowlocks.c','snprintf(values[Atnum_modes], NCHARS, "{For No Key Update}");']],
+    beat:1,
+    ops:{ stmt:{ set:{ 'A':'r 의 행 1 을 FOR … 로 — 넷을 따로, 칸마다 새 트랜잭션' } },
+          rows:{ add:[
+            { id:'KS', tag:'hold', lm:'KS', sub:'FOR KEY SHARE  ·  xmax 889 · 0x0190 = KEYSHR · LOCK_ONLY · XMIN_COMMITTED' },
+            { id:'S', tag:'hold', lm:'S', sub:'FOR SHARE  ·  xmax 897 · 0x01D0 = KEYSHR · EXCL · LOCK_ONLY · XMIN_COMMITTED' },
+            { id:'NKX', tag:'hold', lm:'NKX', sub:'FOR NO KEY UPDATE  ·  xmax 904 · 0x01C0 = EXCL · LOCK_ONLY · XMIN_COMMITTED' },
+            { id:'X', tag:'hold', lm:'X', sub:'FOR UPDATE  ·  xmax 910 · 0x01C0 = EXCL · LOCK_ONLY · XMIN_COMMITTED  ·  im2 0x2002 = KEYS_UPDATED' }] },
+          pgl:{ add:[
+            { id:'r · r_pkey', tag:'ok', sub:'RowShareLock × 2  ·  fastpath t' },
+            { id:'transactionid', tag:'hold', sub:'ExclusiveLock 889 ‥ 910  ·  fastpath f — tuple 줄은 없다' }] } } },
+
   { look:{ rmx:true },
     note:'충돌 표는 따로 없다 — 각 강도를 테이블 락 모드에 대응시켜 03 장면의 표로 셈한다',
-    why:'heapam.c 의 tupleLockExtraInfo 가 대응을 적는다 — KeyShare 는 AccessShareLock, Share 는 RowShareLock, NoKeyExclusive 는 ExclusiveLock, Exclusive 는 AccessExclusiveLock. 두 행 락이 충돌하는지는 DoLockModesConflict 가 그 모드들을 일반 conflictTab 에 넣어 본다. 그래서 이 4 × 4 는 03 장면 8 × 8 의 네 행 · 네 열을 골라낸 것이다.',
+    why:'heapam.c 의 tupleLockExtraInfo 가 대응을 적는다 — KeyShare 는 AccessShareLock, Share 는 RowShareLock, NoKeyExclusive 는 ExclusiveLock, Exclusive 는 AccessExclusiveLock. 두 행 락이 충돌하는지는 DoLockModesConflict 가 그 모드들을 일반 conflictTab 에 넣어 본다. 그래서 이 4 × 4 는 03 장면 8 × 8 의 네 행 · 네 열을 골라낸 것이다 — 이 스텝의 칸은 규칙으로 계산한 것이다.',
     key:'규칙을 <em>한 벌만 둔다</em>. 행 락을 위한 표를 따로 적지 않으므로 두 표가 어긋날 일이 없다 — 이 세계도 그 대응으로 칸마다 다시 셈해 맞춘다.',
     ref:'src/backend/access/heap/heapam.c', sym:'LOCKMODE_from_mxstatus',
     fact:['Each tuple lock mode has a corresponding heavyweight lock, and one or two',
@@ -1086,41 +1140,117 @@ const SCENES = [
     beat:1,
     ops:{ rmx:{ on:['KS/X', 'NKX/NKX'] },
           stmt:{ set:{ '대응':'KS→AccessShare · S→RowShare · NKX→Exclusive · X→AccessExclusive',
-                       '판정':'KS × X = AS × AX 막힘  ·  NKX × NKX = X × X 막힘' } } } },
+                       '판정':'KS × X = AS × AX 막힘  ·  NKX × NKX = X × X 막힘 (규칙으로 계산)' } } } },
 
-  { look:{ rmx:true, stmt:true },
-    note:'FK 검사(KS) 와 키 아닌 UPDATE(NKX) — 허용, 서로 기다리지 않는다',
-    why:'자식 테이블에 INSERT 하면 RI 트리거가 부모 행을 FOR KEY SHARE 로 읽는다. 다른 세션이 그 부모 행의 키 아닌 열을 UPDATE 하면 NoKeyExclusive 다 — AccessShare 와 Exclusive 는 충돌하지 않는다. 같은 행에 두 잠금이 함께 있으면 xmax 가 MultiXact 가 된다(mvcc 10).',
-    key:'NoKeyExclusive 라는 단계가 있는 까닭이 이 칸이다 — <em>FK 가 많은 OLTP 에서 부모 행 갱신이 자식 INSERT 를 기다리지 않게</em>.',
+  { look:{ rmx:true, stmt:['B','판정'] },
+    note:'16 칸을 두 세션으로 잰다 — A 가 쥔 채 B 가 NOWAIT 로 청하면, 허용 6 칸 · 막힘 10 칸',
+    why:'NOWAIT 는 기다리지 않고 ConditionalXactLockTableWait 가 실패하면 바로 오류를 낸다. 잰 값: A 가 행 쪽 강도로 쥔 채 B 가 열 쪽 강도를 FOR … NOWAIT 로 청하자, 허용 칸 여섯은 0.353 ‥ 0.816 ms 에 ok, 나머지 열은 ERROR 55P03 could not obtain lock on row in relation "r"(heap_lock_tuple, heapam.c:5235) — 셈한 표와 칸마다 같았다. KS × KS · KS × S · S × S 처럼 둘이 함께 잠그면 xmax 가 MultiXact 가 된다(mvcc 10).',
+    key:'대응으로 셈한 표는 <em>재 보아도 같다</em> — 막힘 10 칸 가운데 7 칸이 X 행 · X 열, 공유끼리는 KS · S 사이에서만 함께 간다. 세계가 잰 칸(got)과 셈한 칸을 맞춘다.',
+    ref:'src/backend/access/heap/heapam.c', sym:'heap_lock_tuple',
+    fact:['if (!ConditionalXactLockTableWait(xwait, log_lock_failures))',
+          'errmsg("could not obtain lock on row in relation \\"%s\\"",',
+          ['src/backend/utils/errcodes.txt','55P03 E ERRCODE_LOCK_NOT_AVAILABLE lock_not_available']],
+    ops:{ rmx:{ on:['KS/KS','KS/S','KS/NKX','S/KS','S/S','NKX/KS'] },
+          stmt:{ set:{ 'B':'같은 행을 FOR … NOWAIT — 칸 하나에 B 하나',
+                       '판정':'ok 6 칸 (0.353 ‥ 0.816 ms) · 55P03 10 칸 — 셈한 표와 같다|green' } } } },
+
+  { act:{ f:'stmt', t:'rows', lb:'FK 검사 × UPDATE' },
+    note:'FK 검사(KS) 와 키 아닌 UPDATE(NKX) — 허용, 1.575 ms 에 끝나고 xmax 가 MultiXact 가 된다',
+    why:'자식 테이블에 INSERT 하면 RI 트리거가 부모 행을 FOR KEY SHARE 로 읽는다. 다른 세션이 그 부모 행의 키 아닌 열을 UPDATE 하면 NoKeyExclusive 다 — heap_update 는 xmax 가 키 공유 잠금뿐이고 키를 안 바꾸면 기다리지 않고 그 잠금을 남긴다. 잰 값: A(xid 918)의 INSERT 뒤 부모 lp 1 은 xmax 918 · 0x0190 · For Key Share, B(919)의 UPDATE parent SET v = v + 1 은 1.575 ms. 옛 버전 lp 1 의 xmax 는 multi 7 · 0x1140, 명단은 918 keysh · 919 nokeyupd(mvcc 10 과 같은 꼴)이고, HOT 새 버전 lp 2 는 xmax 918 · 0x2090 — A 의 잠금이 옮겨 왔다.',
+    key:'NoKeyExclusive 라는 단계가 있는 까닭이 이 칸이다 — <em>FK 가 많은 OLTP 에서 부모 행 갱신이 자식 INSERT 를 기다리지 않게</em>. 대신 그 행의 xmax 가 MultiXact 로 바뀐다.',
     ref:'src/backend/access/heap/heapam.c', sym:'heap_update',
     fact:['if (!bms_overlap(modified_attrs, key_attrs)) { *lockmode = LockTupleNoKeyExclusive;',
+          'If it\'s just a key-share locker, and we\'re not changing the key',
+          'then use InvalidTransactionId; otherwise, get the xmax from the old',
           ['src/backend/utils/adt/ri_triggers.c','FOR KEY SHARE OF x']],
-    ops:{ stmt:{ set:{ '요청':'KS 가 걸린 행에 NKX', '판정':'허용 — 기다리지 않는다|green' } },
-          rmx:{ on:['KS/NKX'] } } },
+    beat:1,
+    ops:{ stmt:{ set:{ 'A':'pid 66481 · xid 918  ·  INSERT INTO child (1, 1) — 부모 행 FOR KEY SHARE',
+                       'B':'pid 66484 · xid 919  ·  UPDATE parent SET v = v + 1 — 1.575 ms',
+                       '판정':'허용 — 기다리지 않는다|green' } },
+          rmx:{ on:['KS/NKX'] },
+          rows:{ del:['KS','S','NKX','X'], add:[
+            { id:'lp 1', tag:'hold', sub:'parent 옛 버전  ·  xmax multi 7 · 0x1140 = EXCL · IS_MULTI · XMIN_COMMITTED  ·  918 keysh · 919 nokeyupd' },
+            { id:'lp 2', tag:'hold', lm:'KS', sub:'HOT 새 버전  ·  xmax 918 · 0x2090 = KEYSHR · LOCK_ONLY · UPDATED — A 의 잠금이 옮겨 왔다' }] },
+          pgl:{ del:['r · r_pkey','transactionid'], add:[
+            { id:'A · xid 918', tag:'hold', sub:'transactionid ExclusiveLock' },
+            { id:'B · xid 919', tag:'hold', sub:'transactionid ExclusiveLock — tuple 줄도 기다림도 없다' }] } } },
 
-  { look:{ rmx:true, stmt:true },
-    note:'FOR SHARE(S) 와 키 아닌 UPDATE(NKX) — 막힌다, 키 공유보다 한 단계 센 공유',
-    why:'FOR SHARE 는 RowShare 에 대응하고 Exclusive 와 충돌한다. 그래서 FOR SHARE 로 읽은 행은 키가 아닌 열의 UPDATE 도 막는다 — "이 행이 바뀌지 않게" 라는 뜻이다. FOR KEY SHARE 는 "키만 바뀌지 않게" 다.',
-    key:'FK 검사가 FOR SHARE 가 아니라 FOR KEY SHARE 를 쓰는 까닭이 <em>이 두 칸의 차이</em>다 — FOR SHARE 였다면 부모 행의 키 아닌 UPDATE 도 자식 INSERT 를 기다렸을 것이다.',
-    ref:'src/backend/access/heap/heapam.c', sym:'LOCKMODE_from_mxstatus',
-    fact:['{ /* LockTupleShare */ RowShareLock,',
-          ['src/backend/storage/lmgr/lock.c','/* RowShareLock */']],
-    ops:{ stmt:{ set:{ '요청':'S 가 걸린 행에 NKX', '판정':'막힌다 — S 가 끝나길 기다린다|red' } },
-          rmx:{ on:['S/NKX'] } } },
+  { act:{ f:'stmt', t:'pgl', lb:'B 가 막힌다' },
+    note:'FOR SHARE(S) 와 키 아닌 UPDATE(NKX) — 막힌다, B 는 튜플 락을 쥐고 A 의 XID 를 기다린다',
+    why:'FOR SHARE 는 RowShare 에 대응하고 Exclusive 와 충돌한다 — "이 행이 바뀌지 않게" 다. heap_update 는 기다리기 전에 튜플 락을 잡고(heap_acquire_tuplock) XactLockTableWait 로 xmax 의 트랜잭션을 ShareLock 으로 기다린다. 잰 값: A(pid 64946, xid 915)의 FOR SHARE 뒤 r (0,1) 은 xmax 915 · 0x01D0. 0.5 s 에 B(64947)의 UPDATE r SET v = v + 1 이 멈췄고, 2.2 s 에 pg_locks 는 B 의 tuple (0,1) ExclusiveLock granted t 와 transactionid 915 ShareLock granted f, wait_event Lock:transactionid, blocked_by {64946}. 로그는 "process 64947 still waiting for ShareLock on transaction 915 after 1001.172 ms" · CONTEXT while updating tuple (0,1) in relation "r".',
+    key:'FK 검사가 FOR SHARE 가 아니라 FOR KEY SHARE 를 쓰는 까닭이 <em>5 스텝과 이 칸의 차이</em>다. 그리고 B 가 기다리는 것은 행이 아니라 <em>A 의 transactionid</em> 다 — 행 자체는 공유 표에 없다.',
+    ref:'src/backend/access/heap/heapam.c', sym:'heap_update',
+    fact:['Wait for regular transaction to end; but first, acquire tuple',
+          'heap_acquire_tuplock(relation, &(oldtup.t_self), *lockmode, LockWaitBlock, &have_tuple_lock);',
+          '{ /* LockTupleShare */ RowShareLock,',
+          ['src/backend/storage/lmgr/lmgr.c','cxt = gettext_noop("while updating tuple (%u,%u) in relation \\"%s\\"");']],
+    ops:{ stmt:{ set:{ 'A':'pid 64946 · xid 915  ·  SELECT … FROM r WHERE id = 1 FOR SHARE',
+                       'B':'pid 64947  ·  UPDATE r SET v = v + 1 (0.5 s) — xid 916 을 받고 멈춘다',
+                       '판정':'막힌다 — Lock:transactionid · blocked_by {64946}|red' } },
+          rmx:{ on:['S/NKX'] },
+          rows:{ del:['lp 1','lp 2'], add:[
+            { id:'r (0,1)', tag:'hold', lm:'S', sub:'xmax 915 · 0x01D0 = KEYSHR · EXCL · LOCK_ONLY · XMIN_COMMITTED  ·  For Share' }] },
+          pgl:{ del:['A · xid 918','B · xid 919'], add:[
+            { id:'A · xid 915', tag:'hold', sub:'transactionid ExclusiveLock' },
+            { id:'B · tuple (0,1)', tag:'hold', lm:'NKX', mode:'ExclusiveLock', sub:'ExclusiveLock  ·  granted t — 줄의 맨 앞' },
+            { id:'B · xid 915', tag:'x', sub:'transactionid ShareLock  ·  granted f  ·  1001.172 ms 에 still waiting' }] } } },
 
-  { act:{ f:'rmx', t:'stmt', lb:'행 락을 기다린다' },
-    note:'행 락을 기다릴 때 — 먼저 그 튜플의 heavyweight 락으로 줄을 서고, 그다음 상대 XID 를 기다린다',
-    why:'heap_lock_tuple 은 "우선순위를 정하려고" 튜플 락(LockTuple)을 먼저 잡는다. 그다음 XactLockTableWait 로 xmax 의 트랜잭션이 끝나길 기다린다 — 그 트랜잭션 락을 ShareLock 으로 요청하는데, 돌고 있는 트랜잭션은 자기 XID 를 ExclusiveLock 으로 쥐고 있다. README.tuplock 이 이유를 적는다 — xmax 의 트랜잭션이 끝나면 기다리던 이들이 한꺼번에 깨어 경쟁하므로, 공유 잠금이 이어지면 배타 잠금이 영영 굶을 수 있다.',
-    key:'행 락 자체는 xmax 에 있지만(01 장면) <em>기다리는 줄은 공유 표에 선다</em> — 그래서 pg_locks 에는 기다리는 동안만 tuple 과 transactionid 행이 보인다.',
-    ref:'src/backend/access/heap/heapam.c', sym:'heap_lock_tuple',
+  { act:{ f:'stmt', t:'pgl', lb:'C 는 튜플 락 줄에' },
+    note:'세 번째 세션 C 는 A 의 XID 까지 가지도 못한다 — B 가 쥔 튜플 락에서 기다린다',
+    why:'heap_lock_tuple · heap_update 는 "우선순위를 정하려고" 튜플 락(LockTuple)을 먼저 잡는다. README.tuplock 이 까닭을 적는다 — xmax 의 트랜잭션이 끝나면 기다리던 이들이 한꺼번에 깨어 경쟁하므로, 공유 잠금이 이어지면 배타 잠금이 영영 굶을 수 있다. 잰 값: 1.0 s 에 같은 UPDATE 를 낸 C(64944)는 2.2 s 에 tuple (0,1) ExclusiveLock granted f, wait_event Lock:tuple, blocked_by {64947} — A 가 아니라 B 다. 로그 "process 64944 still waiting for ExclusiveLock on tuple (0,1) of relation 28641 of database 28592 after 1001.663 ms", DETAIL Process holding the lock: 64947.',
+    key:'행 하나를 기다리는 줄은 <em>튜플 락 하나 + transactionid 하나</em>로 선다 — 맨 앞 하나만 상대 XID 를 기다리고, 나머지는 그 뒤에서 튜플 락을 기다린다. 그래서 pg_locks 에 tuple 줄은 기다리는 동안만 보인다.',
+    ref:'src/backend/access/heap/heapam.c', sym:'heap_acquire_tuplock',
     fact:['Acquire tuple lock to establish our priority for the tuple, or',
-          'XactLockTableWait(xwait, relation, &tuple->t_self, XLTW_Lock);',
           ['src/backend/access/heap/README.tuplock','tuple, potentially leading to indefinite starvation of some waiters. The'],
+          ['src/backend/storage/lmgr/lmgr.c','_("tuple (%u,%u) of relation %u of database %u"),'],
           ['src/backend/storage/lmgr/lmgr.c','(void) LockAcquire(&tag, ShareLock, false, false);']],
     beat:1,
-    /* 행렬은 비우지 않는다 — 막은 칸(S/NKX)이 기다림의 이유다. 대신 pg_locks 에 보이는 두 줄을 올린다(08 장면의 transactionid) */
-    ops:{ stmt:{ set:{ '요청':'NKX 가 S 에 막혔다', '판정':'LockTuple → XactLockTableWait',
-                       'pg_locks':'tuple (0,1) ExclusiveLock 받음  ·  transactionid(S 를 쥔 xid) ShareLock 기다림|red' } } } },
+    ops:{ stmt:{ set:{ 'C':'pid 64944  ·  같은 UPDATE (1.0 s) — xid 917',
+                       '판정':'C 는 B 뒤 — Lock:tuple · blocked_by {64947}|red' } },
+          pgl:{ add:[
+            { id:'C · tuple (0,1)', tag:'x', lm:'NKX', mode:'ExclusiveLock', sub:'ExclusiveLock  ·  granted f  ·  1001.663 ms 에 still waiting' }] } } },
+
+  { act:{ f:'pgl', t:'rows', lb:'A 가 물러난다' },
+    note:'A 가 끝나면 맨 앞 B 가 고치고 튜플 락을 놓는다 — 그 ms 에 C 가 튜플 락을 받고 이번엔 B 의 XID 를 기다린다',
+    why:'B 는 고친 뒤 튜플 락을 놓고(UnlockTupleTuplock) C 가 그것을 받는다. C 가 다시 보는 xmax 는 B 의 XID 다. 잰 값: 3.0 s 의 A ROLLBACK 에 B 가 "acquired ShareLock on transaction 915 after 2498.480 ms", 같은 ms 에 C 가 "acquired ExclusiveLock on tuple (0,1) … after 1998.611 ms". 3.7 s 에 lp 1 은 xmax 916 · 0x0100 · infomask2 0x4002(HOT_UPDATED), lp 2 가 새 버전, pgrowlocks 는 No Key Update, C 는 transactionid 916 ShareLock granted f · blocked_by {64947}. B 의 COMMIT(4.5 s) 뒤 C 가 "acquired ShareLock on transaction 916 after 1509.803 ms", v 는 10 → 11 → 111.',
+    key:'줄은 <em>온 차례대로</em> 풀렸다 — 튜플 락이 없다면 A 가 끝나는 순간 B · C 가 함께 깨어 경쟁했을 것이다. C 의 UPDATE 는 B 의 새 버전을 따라가 고친다(READ COMMITTED).',
+    ref:'src/backend/access/heap/heapam.c', sym:'heap_update',
+    fact:['Release the lmgr tuple lock, if we had it.',
+          'if (have_tuple_lock) UnlockTupleTuplock(relation, &(oldtup.t_self), *lockmode);',
+          ['src/backend/storage/lmgr/proc.c','(errmsg("process %d acquired %s on %s after %ld.%03d ms",']],
+    ops:{ stmt:{ set:{ 'A':'pid 64946  ·  ROLLBACK (3.0 s)',
+                       'B':'pid 64947 · xid 916  ·  UPDATE 1 — 2,499.986 ms, COMMIT 4.5 s',
+                       'C':'pid 64944 · xid 917  ·  B 의 916 을 기다려 UPDATE 1 — 3,509.659 ms, v = 111',
+                       '판정':'온 차례대로 — B 다음 C|green' } },
+          rmx:{ on:['NKX/NKX'] },
+          rows:{ del:['r (0,1)'], add:[
+            { id:'r (0,1)', tag:'hold', sub:'xmax 916 · 0x0100 = XMIN_COMMITTED  ·  im2 0x4002 = HOT_UPDATED  ·  No Key Update' },
+            { id:'r (0,2)', tag:'hold', sub:'B 의 새 버전  ·  0x2800 = UPDATED · XMAX_INVALID' }] },
+          pgl:{ del:['A · xid 915','B · tuple (0,1)','B · xid 915','C · tuple (0,1)'], add:[
+            { id:'B · xid 916', tag:'hold', sub:'transactionid ExclusiveLock' },
+            { id:'C · tuple (0,1)', tag:'hold', lm:'NKX', mode:'ExclusiveLock', sub:'ExclusiveLock  ·  granted t — 1998.611 ms 만에 받았다' },
+            { id:'C · xid 916', tag:'x', sub:'transactionid ShareLock  ·  granted f  ·  1000.662 ms 에 still waiting' }] } } },
+
+  { act:{ f:'stmt', t:'pgl', lb:'키 UPDATE 는 기다린다' },
+    note:'키 열을 바꾸는 UPDATE 는 Exclusive — FK 검사(KS)와 충돌해 A 가 끝나길 기다린다',
+    why:'키 열을 고치는 UPDATE 는 LockTupleExclusive 이고, 튜플 락은 AccessExclusiveLock 으로 잡는다. 잰 값: 5 스텝의 판에서 B 가 커밋한 뒤 C(66482, xid 920)가 UPDATE parent SET id = 2 를 내자, A 의 잠금이 옮겨 온 lp 2(xmax 918 · 0x2190)에서 멈췄다 — tuple (0,2) AccessExclusiveLock granted t, transactionid 918 ShareLock granted f, blocked_by {66481}. A 의 ROLLBACK(3.0 s) 뒤 UPDATE 1 이 1,003.330 ms 에 끝났고, lp 2 는 xmax 920 · infomask2 0xa002(KEYS_UPDATED), 새 lp 3 은 HOT 이 아니다 — 인덱스 키가 바뀌었다. 자식 (1, 2) 를 커밋해 두고 UPDATE parent SET id = 3 WHERE id = 2 를 내면 ERROR 23503 update or delete on table "parent" violates foreign key constraint "child_parent_id_fkey" on table "child" 이었다.',
+    key:'같은 부모 행이라도 <em>무엇을 고치느냐</em>가 기다림을 정한다 — v 는 1.575 ms, id 는 A 의 트랜잭션이 끝날 때까지. A 가 커밋했다면 기다린 끝은 FK 위반이다 — 자식 행을 커밋해 두고 다시 잰 UPDATE parent SET id = 3 은 ERROR 23503 (ri_ReportViolation).',
+    ref:'src/backend/access/heap/heapam.c', sym:'heap_update',
+    fact:['*lockmode = LockTupleExclusive; mxact_status = MultiXactStatusUpdate; key_intact = false;',
+          '{ /* LockTupleExclusive */ AccessExclusiveLock,',
+          ['src/include/access/htup_details.h','#define HEAP_KEYS_UPDATED 0x2000 /* tuple was updated and key cols'],
+          ['src/backend/utils/adt/ri_triggers.c','errmsg("update or delete on table \\"%s\\" violates foreign key constraint \\"%s\\" on table \\"%s\\"",']],
+    ops:{ stmt:{ set:{ 'A':'pid 66481 · xid 918  ·  INSERT INTO child (1, 1) — 연 채, 3.0 s 에 ROLLBACK',
+                       'B':'—',
+                       'C':'pid 66482 · xid 920  ·  UPDATE parent SET id = 2 — 1,003.330 ms',
+                       '판정':'막힌다 — KS × X, A 가 끝날 때까지|red' } },
+          rmx:{ on:['KS/X'] },
+          rows:{ del:['r (0,1)','r (0,2)'], add:[
+            { id:'parent lp 2', tag:'hold', lm:'KS', sub:'xmax 918 · 0x2190 = KEYSHR · LOCK_ONLY · XMIN_COMMITTED · UPDATED — FK 검사의 잠금' }] },
+          pgl:{ del:['B · xid 916','C · tuple (0,1)','C · xid 916'], add:[
+            { id:'A · xid 918', tag:'hold', sub:'transactionid ExclusiveLock' },
+            { id:'C · tuple (0,2)', tag:'hold', lm:'X', mode:'AccessExclusiveLock', sub:'AccessExclusiveLock  ·  granted t' },
+            { id:'C · xid 918', tag:'x', sub:'transactionid ShareLock  ·  granted f  ·  blocked_by {66481}' }] } } },
   ],
 },
 {

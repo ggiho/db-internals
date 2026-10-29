@@ -161,11 +161,21 @@ export const CORE = {
     x: ['T1 의 긴 SELECT 가 취소된다', 'ALTER 가 AccessShare 로 낮춰 다시 시도한다', '뒤에 선 SELECT 들이 모두 오류로 끝난다'],
   },
   '07/2': {
+    q: 'FOR UPDATE 와 FOR NO KEY UPDATE 로 잠근 행은 t_infomask 가 둘 다 0x01C0 이었다. 둘을 가르는 것은?',
+    a: 't_infomask2 의 HEAP_KEYS_UPDATED 비트',
+    x: ['pg_locks 의 tuple 줄에 남는 heavyweight 모드', 'xmax 가 MultiXactId 인지', '공유 메모리에 따로 둔 행 락 표'],
+  },
+  '07/3': {
     q: 'PG 는 행 락 네 단계의 충돌을 어떻게 판정하나?',
     a: '각 단계를 테이블 락 모드에 대응시켜 같은 충돌 표로',
     x: ['행 락 전용 4 × 4 표를 따로 둔다', '튜플 헤더의 비트끼리 직접 견준다', 'MultiXact 의 멤버 수로 정한다'],
   },
   '07/5': {
+    q: 'A 의 자식 INSERT(FK 검사)가 부모 행을 잠근 채, B 가 그 부모 행의 키 아닌 열을 UPDATE 하면?',
+    a: '기다리지 않는다 — xmax 가 MultiXact 가 된다',
+    x: ['A 가 끝날 때까지 기다린다 — 행 락끼리는 모두 충돌한다', '기다리지 않는다 — FK 검사는 부모 행을 잠그지 않는다', 'B 가 A 의 잠금을 지우고 xmax 에 자기 XID 를 쓴다'],
+  },
+  '07/7': {
     q: '행 락을 기다리는 backend 가 상대 XID 를 기다리기 전에 먼저 하는 일은?',
     a: '그 튜플의 heavyweight 락을 잡아 줄 순서를 정한다',
     x: ['그 튜플을 pg_locks 에서 지운다', 'xmax 를 자기 XID 로 덮어쓴다', 'deadlock_timeout 만큼 먼저 잔다'],
