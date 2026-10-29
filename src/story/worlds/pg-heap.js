@@ -102,7 +102,7 @@ function make({ F, deck, labels, scene }) {
   };
 
   /* 셈 맞추기 */
-  for (const [k, b] of BAKES) [b.S0, ...b.S].forEach((s, i) => {
+  for (const [k, b] of BAKES) [b.S0, ...b.S].forEach((s, i, arr) => {
     const at = `pg heap ${sc.num} 세계${k ? ' (' + sc.vary.knob + '=' + k + ')' : ''} : ${i ? i + ' 스텝' : 'init'}`;
     if (GRID) {
       const it = [...s[GRID]].sort((p, q) => p.off - q.off);
@@ -131,6 +131,20 @@ function make({ F, deck, labels, scene }) {
       if (GRID && f === 1 && x.to) { const g = s[GRID].find((y) => y.id === x.to); if (g && (g.off !== x.off || (g.len !== x.len && g.len !== Math.ceil(x.len / 8) * 8))) console.error(`${at} 의 ${x.id}(off ${x.off} · len ${x.len}) 가 가리키는 ${x.to} 는 [${g.off}, ${g.off + g.len}) 다`); }
       if (f === 2) { const t = s[LPA].find((y) => y.id === 'lp ' + x.off); if (+x.len || !t || flagOf(t.fl) !== 1) console.error(`${at} 의 ${x.id} REDIRECT → lp ${x.off} 가 len 0 · NORMAL 대상이 아니다`); }
       if (f === 0 && (+x.off || +x.len)) console.error(`${at} 의 ${x.id} 는 UNUSED 인데 off ${x.off} · len ${x.len} 이다`);
+    }
+    /* 조각 모으기(07) — kv 'compactify_tuples' 가 이 스텝에 'nitems N · presorted …' 로 바뀌면, 저장이 있는 lp 를 번호 순서로 세어 nitems 와,
+       앞 상태에서 그 lp 들의 오프셋이 줄곧 줄었는지(presorted)를 맞추고, 지금 오프셋이 페이지 끝부터 MAXALIGN 길이로 빈틈없이 쌓였는지 본다 */
+    const prev = i ? arr[i - 1] : null;
+    if (LPA && prev) for (const a of TEXTS) {
+      const v = bare(s[a].compactify_tuples), m = /nitems (\d+) · presorted (true|false)/.exec(v);
+      if (!m || v === bare(prev[a] && prev[a].compactify_tuples)) continue;
+      const no = (x) => +x.id.replace(/\D/g, ''), live = s[LPA].filter((x) => flagOf(x.fl) === 1 && +x.len > 0).sort((p, q) => no(p) - no(q));
+      const was = live.map((x) => (prev[LPA].find((y) => y.id === x.id) || {}).off);
+      const pre = was.every((o, j) => o != null && (j === 0 || o < was[j - 1]));
+      if (+m[1] !== live.length) console.error(`${at} 의 compactify_tuples nitems ${m[1]} 가 저장이 있는 lp ${live.length} 개와 다르다`);
+      if ((m[2] === 'true') !== pre) console.error(`${at} 의 compactify_tuples presorted ${m[2]} 가 앞 상태의 lp 순서 오프셋 ${was.join(' · ')} 로 셈한 ${pre} 와 다르다`);
+      let up = GRID ? bounds(s).special : PG;
+      for (const x of live) { up -= Math.ceil(x.len / 8) * 8; if (+x.off !== up) console.error(`${at} 의 ${x.id} off ${x.off} 가 조각 모으기 뒤 자리 ${up} 와 다르다`); }
     }
   });
   let cur = BAKES.get(null) || [...BAKES.values()][0];
