@@ -15,6 +15,7 @@
        'pg_locks 줄' 의 t · f 가 칸 줄 n 합(ok · hold)과 맞아야 한다.
        교착(04) — graph 노드의 w(대기 시작, 잰 값)와 knobs 의 deadlock_timeout 으로 희생자(x)를 다시 셈하고, '검사' 의 after N ms 가
        deadlock_timeout 보다 짧으면 알린다.
+       줄(06) — 큐 항목의 q · mode 로 걸린 것끼리의 충돌, 기다릴 까닭, 잰 pg_blocking_pids(bp), fastpath t(fp) 가 남을 수 있는지를 다시 센다.
        SSI(05) — 칸 줄 항목의 lt · who · rel · pg · cnt(SIReadLock 줄)를 knobs 의 max_pred_locks_* 로 다시 세어, 문턱을 넘은 잘은 락이
        남았거나 relation 아래 page · tuple 이 남으면 알린다. rw-conflict 그래프의 x 노드는 들고 나는 간선을 다 가져야 한다(피벗)
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
@@ -202,6 +203,29 @@ function make({ F, deck, labels, scene }) {
         if (!rw.some((e) => e.to === x.id) || !rw.some((e) => e.from === x.id)) console.error(`${at} : ${x.id} 를 40001 로 칠했는데 들어오고 나가는 rw-conflict 를 다 갖지 않았다 — 피벗이 아니다`);
     }
   });
+  /* 줄의 셈(06) — LOCK 하나의 granted · wait queue 를 lock.c · proc.c 의 규칙으로 다시 본다. 서로 다른 granted 끼리 충돌하면 안 되고,
+     기다리는 항목은 걸린 락이나 앞선 대기자의 요청과 충돌해야 한다(아니면 ProcLockWakeup 이 깨웠다). bp(잰 pg_blocking_pids)는 충돌하는
+     걸린 락의 주인(hard) + 충돌하는 앞선 대기자(soft)와 같아야 한다. fp(fastpath t)는 ShareUpdateExclusive 보다 약한 모드여야 하고, 같은
+     LOCK 에 그보다 센 모드가 걸리거나 기다리면 남을 수 없다(FastPathTransferRelationLocks) */
+  const cf = (p, q) => CONF[modeNo(p.mode) - 1].includes(modeNo(q.mode));
+  for (const a of QUEUES) for (const bk of BAKES.values()) bk.S.forEach((s, i) => {
+    const at = `pg locks ${sc.num}/${i + 1} 세계 : ${a}`, its = s[a];
+    const g = its.filter((x) => x.q === 'granted'), w = its.filter((x) => x.q === 'waiting');
+    g.forEach((x, j) => g.slice(j + 1).forEach((y) => { if (x.id !== y.id && cf(x, y)) console.error(`${at} : 걸린 ${x.id}(${x.mode}) 와 ${y.id}(${y.mode}) 가 충돌한다`); }));
+    w.forEach((x, j) => {
+      const hard = g.filter((y) => y.id !== x.id && cf(x, y)), soft = w.slice(0, j).filter((y) => cf(x, y));
+      if (!hard.length && !soft.length) console.error(`${at} : ${x.id}(${x.mode}) 가 기다릴 까닭이 없다 — 걸린 락과도 앞선 요청과도 충돌하지 않는다`);
+      if (Array.isArray(x.bp)) {
+        const want = [...hard, ...soft].map((y) => y.id).sort().join(', '), got = [...x.bp].sort().join(', ');
+        if (want !== got) console.error(`${at} : ${x.id} 의 pg_blocking_pids {${got}} — 걸린 락 · 앞선 대기자로 셈하면 {${want}}`);
+      }
+    });
+    const strong = its.find((y) => modeNo(y.mode) > 4);
+    for (const x of its.filter((y) => y.fp)) {
+      if (modeNo(x.mode) >= 4) console.error(`${at} : ${x.id} 의 ${x.mode} 는 fast-path 에 들 수 없다`);
+      if (strong) console.error(`${at} : ${strong.id} 의 ${strong.mode} 가 있는데 ${x.id} 가 fastpath t 로 남았다`);
+    }
+  });
   let cur = BAKES.get(null) || [...BAKES.values()][0];
 
   /* ── 알갱이 구역 ── */
@@ -278,7 +302,8 @@ function make({ F, deck, labels, scene }) {
     /* 요청이 견주는 waitMask 는 줄에서 자기 앞의 대기자들 것이다 — 자기는 아직 줄에 없다(LockAcquireExtended 가
        conflictTab[lockmode] & waitMask 를 보는 것은 줄에 서기 전). 줄 전체로 셈했더니 06/2 의 T2 가 제 비트에 걸렸다 */
     const ahead = rq && rq.q === 'waiting' ? w.slice(0, w.indexOf(rq)) : w;
-    return { g, w, gm: maskOf(g.map((x) => modeNo(x.mode))), wm: maskOf(w.map((x) => modeNo(x.mode))), wa: maskOf(ahead.map((x) => modeNo(x.mode))), rq, cm: rq ? confMask(modeNo(rq.mode)) : 0 };
+    /* fp(fastpath t) 항목은 백엔드의 칸에 있다 — 이 LOCK 의 grantMask 에 비트가 없다(06/1) */
+    return { g, w, gm: maskOf(g.filter((x) => !x.fp).map((x) => modeNo(x.mode))), wm: maskOf(w.map((x) => modeNo(x.mode))), wa: maskOf(ahead.map((x) => modeNo(x.mode))), rq, cm: rq ? confMask(modeNo(rq.mode)) : 0 };
   };
   const texts = (S) => S.map((s) => {
     const t = new Map(), on = (a) => s.touch.has(a);
