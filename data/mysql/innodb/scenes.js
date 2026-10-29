@@ -2111,80 +2111,107 @@ const SCENES = [
   num:'09', tab:'Online DDL', title:'Online DDL: The Metadata Lock Queue',
   sub:'테이블을 읽을 수 있다는 것과 MDL queue 가 비어 있다는 것은 다르다 — pending EXCLUSIVE 가 뒤를 전부 막는다',
   cast:['ses','stmt','mdl','bp','rlog','ibd'],
+  /* 잰 값(8.4.8-debug, 이 빌드) — ~/.cache/dbi/measure/in2/09.txt (measure09.sh) · 09-b.txt (measure09b.sh). 본 서버(3421, --debug-sync-timeout=60)에
+       o.t (id INT PRIMARY KEY, c INT NOT NULL, pad CHAR(100)) 100,000 행(PRIMARY n_leaf_pages 841). ALTER TABLE o.t ADD INDEX idx_c (c), ALGORITHM = INPLACE, LOCK = NONE.
+       세션은 배경 mysql 클라이언트, 문장 앞뒤 NOW(3), P_S.metadata_locks · SHOW PROCESSLIST · events_stages_history_long. online 구간은
+       DEBUG_SYNC alter_table_inplace_after_lock_downgrade 에서 ALTER 를 세워 두고 DML 을 넣었다.
+         1) H(523) BEGIN · SELECT c … id = 1 뒤 SLEEP: TABLE t SHARED_READ TRANSACTION GRANTED (sql_parse.cc:6179)
+            ALTER(525): TABLE t SHARED_UPGRADABLE GRANTED · EXCLUSIVE PENDING (mdl.cc:3765), #sql-14ac9_20d EXCLUSIVE GRANTED,
+               GLOBAL · SCHEMA · BACKUP LOCK INTENTION_EXCLUSIVE. PROCESSLIST "Waiting for table metadata lock"
+            SELECT(528) SHARED_READ PENDING · INSERT(529) SHARED_WRITE PENDING, SELECT 10 · UPDATE 10 을 더 넣자
+               SHARED_READ PENDING 11 · SHARED_WRITE PENDING 11 · EXCLUSIVE PENDING 1, PROCESSLIST 23 줄이 Waiting for table metadata lock
+            KILL 523 18:06:10.738 → SELECT(528) 10.809 에 끝(3.319 초 대기), 막혔던 20 개 1.807 ~ 2.116 초 대기 뒤 모두 통과, H 쪽은 ERROR 2013
+            내려놓은 ALTER: TABLE t SHARED_UPGRADABLE GRANTED 만. 그 사이 INSERT 120 행 0.036 초 · UPDATE 40 행 0.009 초, SHARED_WRITE GRANTED 와 함께
+            놓아 준 뒤 3.93 초에 끝. idx_c 로 센 행 100,121 = PRIMARY, CHECK TABLE OK, n_leaf_pages 160
+         (b) DML 없는 ALTER(100,121 행) 2.698 초 — preparing for alter table 1.8 ms · read PK and internal sort 207.3 ms · merge sort 2,379.8 ms · log apply index 0.3 ms.
+            idx_c 86 페이지 · DATA_SIZE 평균 15,168 B(16 KiB 의 92.6%) · n_leaf_pages 84. 인덱스가 먼저 있던 o.u 에 같은 행을 넣으면 129 페이지 · 61.7% · 128
+         2) lock_wait_timeout 5: 18:07:12.329 → 17.339 ERROR 1205 (HY000) "Lock wait timeout exceeded; try restarting transaction",
+            뒤 SELECT 는 SHARED_READ PENDING 4.021 초 뒤 같은 17.339 에 통과. SET lock_wait_timeout = 0 → Warning 1292 "Truncated incorrect lock_wait_timeout value: '0'", 값 1
+         3) lock_wait_timeout 5, 시작은 통과(13 ms 안에 내려놓음), online 구간에 H3(582)가 SHARED_READ 를 쥐자 마지막 EXCLUSIVE 가 21.597 부터 대기,
+            26.510 ERROR 1205, idx_c 없음, 뒤 SELECT 4.803 초 대기
+         4) ALTER 에 KILL QUERY → ERROR 1317 (70100) "Query execution was interrupted", 뒤 SELECT 같은 밀리초(32.944)에 통과
+         5) innodb_online_alter_log_max_size 65536 · online 구간에 UPDATE 100,121 행(47.300 초, 성공) → ALTER ERROR 1799 "Creating index 'idx_c' required more
+            than 'innodb_online_alter_log_max_size' bytes of modification log. Please try again.", idx_c 없음. 128 MB 에서는 같은 UPDATE(30.5 초) 뒤 ALTER 성공(4 min 6.330 sec —
+            09.txt 의 dump 는 60 초 대기가 먼저 끝나 비었고, 그 세션의 원본 출력을 끝에 덧붙였다)
+     전에 적었던 trx 80 · p:5 · "인덱스 2개" · "수백" 은 잰 값으로 바꿨다. */
   init:{
-    ses:{ kv:{ '실행 중':'긴 SELECT (trx 80)', 'ALTER 상태':'—', '막힌 세션':'0' } },
-    stmt:{ kv:{ 'DDL':'ALTER TABLE t ADD INDEX idx_c (c), ALGORITHM = INPLACE', '붙잡고 있는 것':'SELECT … FROM t   (트랜잭션 열린 채)' } },
-    mdl:{ items:[{ id:'1  긴 SELECT', tag:'hold', q:'granted', mode:'SR', sub:'SHARED_READ 보유 · 30초 남음' }] },
-    bp:{ items:[{ id:'p:5', tag:'clean', sub:'원본 테이블' }] },
+    ses:{ kv:{ '실행 중':'H (523) — SELECT 끝 · 트랜잭션 열림', 'ALTER 상태':'—', '막힌 세션':'0' } },
+    stmt:{ kv:{ '테이블':'o.t (id INT PRIMARY KEY, c INT, pad CHAR(100)) · 100,000 행', 'DDL':'ALTER TABLE o.t ADD INDEX idx_c (c), ALGORITHM = INPLACE, LOCK = NONE', '붙잡고 있는 것':'BEGIN; SELECT c FROM o.t WHERE id = 1;   (커밋 안 함)' } },
+    mdl:{ items:[{ id:'523  H', tag:'hold', q:'granted', mode:'SR', sub:'SHARED_READ · TRANSACTION · GRANTED' }] },
+    bp:{ items:[{ id:'PRIMARY', tag:'clean', sub:'원본 · 잎 841' }] },
     rlog:{ items:[] },
-    ibd:{ items:[{ id:'t.ibd', tag:'clean', sub:'원본 · 인덱스 2개' }] },
+    ibd:{ items:[{ id:'t.ibd', tag:'clean', sub:'원본 · 인덱스 1 개 (PRIMARY)' }] },
   },
   knobs:[
-    ['innodb_online_alter_log_max_size','128 MB','row log 가 넘으면 ALTER 가 실패하고 전부 버려진다'],
+    ['innodb_online_alter_log_max_size','128 MB','row log 가 넘으면 ALTER 가 실패하고 전부 버려진다 — 잰 값: 64 KiB 에서 UPDATE 100,121 행 뒤 ERROR 1799'],
     ['innodb_ddl_threads','4','인덱스 정렬·구축의 병렬도'],
     ['innodb_ddl_buffer_size','1 MB','정렬 버퍼. 작으면 디스크 병합이 늘어난다'],
-    ['lock_wait_timeout','31536000  (1년)','MDL 대기 한계. 기본값이 사실상 무한이라 ALTER 가 영원히 매달린다 — 최솟값은 1 이다(0 은 1 로 잘린다)'] ],
+    ['lock_wait_timeout','31536000  (1년)','MDL 대기 한계. 기본값이 사실상 무한이라 ALTER 가 영원히 매달린다 — 최솟값은 1 이다(잰 값: 0 은 Warning 1292 와 함께 1 로 잘린다)'] ],
   watch:[
-    ['SHOW PROCESSLIST','State 가 Waiting for table metadata lock 로 쌓인다'],
-    ['P_S.metadata_locks','누가 어떤 MDL 을 들고 있고 누가 기다리는지'],
+    ['SHOW PROCESSLIST','State 가 Waiting for table metadata lock 로 쌓인다 — 잰 판에서 23 줄'],
+    ['P_S.metadata_locks','누가 어떤 MDL 을 들고 있고(GRANTED) 누가 기다리는지(PENDING) — LOCK_DURATION 이 TRANSACTION 이면 커밋까지 간다'],
     ['I_S.INNODB_TRX','trx_started 로 붙잡고 있는 세션을 찾는다'] ],
   links:[
     ['02','오래 열린 트랜잭션이 원인이 되는 다른 경로'],
     ['10','새로 만든 인덱스는 왜 가장 조밀한가'] ],
 
   /* 기본값 1년은 "기다린다" 가 아니라 "포기하지 않는다" 다. 값을 낮추면 이 장면의
-     장애가 일어나지 않는다 — 적체가 쌓이기 전에 ALTER 가 먼저 실패하기 때문이다.
-     0 은 고를 수 없다 — 범위가 1 부터라 SET 하면 경고와 함께 1 로 잘린다(전에 이 자리에 0 값을
+     장애가 일어나지 않는다 — 적체가 쌓이기 전에 ALTER 가 먼저 실패하기 때문이다(잰 값 5.010 초 뒤 1205).
+     0 은 고를 수 없다 — 범위가 1 부터라 SET 하면 경고와 함께 1 로 잘린다(잰 값 Warning 1292. 전에 이 자리에 0 값을
      두고 "대기 없는 분기" 를 그렸는데, 그 분기는 서버 내부 호출만 탄다).
-     1·2 스텝은 같고 3~5 가 갈린다. 5스텝에서 원인을 정리하고 재실행하므로 6~9 는 물려받고,
-     10(마지막 EXCLUSIVE)은 같은 5초 한계에 걸린다는 것을 따로 적는다. */
+     1·2 스텝은 같고 3~5 가 갈린다. 5스텝에서 원인을 정리하고 재실행하므로 6~9 는 물려받되 6 · 7 은 ops(6 은 key 도)만 고치고,
+     10(마지막 EXCLUSIVE)은 같은 5초 한계에 걸린다는 것을 따로 적는다 — 그 실패는 잰 값이다(4.9 초 뒤 1205, idx_c 없음). */
   vary:{ knob:'lock_wait_timeout', base:'31536000', order:['5'], alt:{
     '5':{
-      3:{ note:'5s 경과 — queue 가 쌓이기 전에 ALTER 가 timeout', act:{ f:'mdl', t:'ses', lb:'ALTER 1205  ·  5초 후' },
-          why:'acquire_lock 이 set_timespec 으로 절대 시각을 잡고 그때까지만 기다린다. 그 5초 동안 EXCLUSIVE 요청은 대기 목록에 있으므로 새 SELECT · INSERT 도 막힌다. 대기 결과가 MDL_wait::TIMEOUT 이면 ER_LOCK_WAIT_TIMEOUT 을 낸다.',
-          key:'그래서 <em>줄은 5초까지만 쌓인다</em>. 수백 세션이 무한히 막히는 장애 대신, 5초의 지연과 ALTER 하나의 실패로 끝난다.',
+      3:{ note:'5s 경과 — queue 가 쌓이기 전에 ALTER 가 timeout', act:{ f:'mdl', t:'ses', lb:'ALTER 1205  ·  5.010 초 후' },
+          why:'acquire_lock 이 set_timespec 으로 절대 시각을 잡고 그때까지만 기다린다. 그 5초 동안 EXCLUSIVE 요청은 대기 목록에 있으므로 새 SELECT · INSERT 도 막힌다. 대기 결과가 MDL_wait::TIMEOUT 이면 ER_LOCK_WAIT_TIMEOUT 을 낸다. 잰 값: ALTER 는 5.010 초 뒤 ERROR 1205 (HY000) "Lock wait timeout exceeded; try restarting transaction". 그 사이 들어온 SELECT 는 SHARED_READ PENDING 으로 4.021 초 기다렸다가, ALTER 가 실패한 바로 그 밀리초에 지나갔다.',
+          key:'그래서 <em>줄은 5초까지만 쌓인다</em>. 끝없이 막히는 장애 대신, 5초의 지연과 ALTER 하나의 실패로 끝난다.',
           ref:'sql/mdl.cc', sym:'MDL_context::acquire_lock',
           fact:['set_timespec(&abs_timeout, lock_wait_timeout);',
                 'my_error(ER_LOCK_WAIT_TIMEOUT, MYF(0));',
                 'case MDL_wait::TIMEOUT:',
                 ['sql/sys_vars.cc','VALID_RANGE(1, LONG_TIMEOUT), DEFAULT(LONG_TIMEOUT), BLOCK_SIZE(1));']],
           beat:1,
-          ops:{ mdl:{ set:{ '2  ALTER TABLE':{ tag:'free', q:'gone', mode:'—', sub:'1205 · 5초 후 포기' } } },
+          /* 잰 판의 뒤 SELECT 는 하나였다 — 기다리다 ALTER 가 실패한 밀리초에 받고 곧 끝났다 */
+          ops:{ mdl:{ set:{ '525  ALTER TABLE':{ tag:'free', q:'gone', mode:'—', sub:'1205 · 5.010 초 후 포기' } },
+                      add:[{ id:'528  SELECT', tag:'hold', q:'granted', mode:'SR', sub:'4.021 초 기다렸다가 · 1205 와 같은 밀리초에 통과' }] },
                 ses:{ set:{ 'ALTER 상태':'실패 (1205)|red', '막힌 세션':'0|green' } } } },
 
       4:{ note:'long SELECT 는 무방해 — EXCLUSIVE 요청이 queue 에서 빠졌다',
-          why:'ALTER 가 큐에서 빠졌으므로 EXCLUSIVE 요청이 없다. 새로 들어오는 읽기·쓰기는 1번과 호환되어 그대로 통과한다. 기본값에서 수백 세션이 막혔던 이유는 ALTER 가 큐에 남아 있었기 때문이다.',
+          why:'ALTER 가 큐에서 빠졌으므로 EXCLUSIVE 요청이 없다. 새로 들어오는 읽기·쓰기는 H 와 호환되어 그대로 통과한다. 잰 값: 실패 직후 metadata_locks 의 TABLE t 에는 H 의 SHARED_READ GRANTED 하나만 남았다. 기본값에서 막힌 세션이 쌓였던 이유는 ALTER 가 큐에 남아 있었기 때문이다.',
           key:'값을 낮추는 것이 ALTER 를 <em>성공시키지는 않는다</em>. 바꾸는 것은 실패의 모양이다 — 되돌릴 수 있는 실패와 되돌릴 수 없는 장애 중 하나를 고르는 것.',
           ref:'sql/mdl.cc', sym:'MDL_lock::can_grant_lock',
           fact:['lock->remove_ticket(this, m_pins, &MDL_lock::m_waiting, ticket);',
                 'Find the first (and hence the oldest) waiting request which',
                 'SW | + + + + + + - - - - |'],
           beat:1,
-          ops:{ mdl:{ del:['2  ALTER TABLE'],
-                      add:[{ id:'3  SELECT · INSERT', tag:'hold', q:'granted', mode:'SR · SW', sub:'통과 · 1번과 호환' }] },
-                ses:{ set:{ '실행 중':'긴 SELECT (trx 80) · 계속' } } } },
+          ops:{ mdl:{ del:['525  ALTER TABLE','528  SELECT'] },
+                ses:{ set:{ '실행 중':'H (523) 열린 채 · 계속' } } } },
 
-      5:{ act:{ f:'mdl', t:'ses', lb:'1번 정리 → ALTER 재실행' },
+      5:{ act:{ f:'mdl', t:'ses', lb:'H 정리 → ALTER 재실행' },
           note:'할 일은 같다 — 원인 세션 정리 후 재실행',
-          why:'실패한 것은 ALTER 이고 원인은 1번이다. 1번을 끝내고 3번의 짧은 문장들도 끝난 뒤 재실행하면 이번에는 5초 안에 EXCLUSIVE 를 얻는다.',
+          why:'실패한 것은 ALTER 이고 원인은 H 다. H 를 끝내고 짧은 문장들도 끝난 뒤 재실행하면 이번에는 5초 안에 EXCLUSIVE 를 얻는다. 잰 값: 막는 세션이 없을 때 같은 5 초짜리 ALTER 는 시작 13 ms 안에 EXCLUSIVE · prepare · 내려놓기를 지났다.',
           key:'짧은 타임아웃이 준 것은 <em>장애 없이 원인을 찾을 시간</em>이다. 기본값에서는 그 시간 동안 서비스가 멈춰 있었다.',
           ref:'sql/mdl.cc', sym:'MDL_context::acquire_lock',
           fact:[['sql/sql_base.cc','if (thd->mdl_context.upgrade_shared_lock(table->mdl_ticket, MDL_EXCLUSIVE,'],
                 ['sql/sql_table.cc','// Upgrade to EXCLUSIVE before commit.']],
-          ops:{ mdl:{ del:['1  긴 SELECT','3  SELECT · INSERT'],
-                      add:[{ id:'2  ALTER TABLE', tag:'hold', q:'granted', mode:'X', sub:'재실행 · EXCLUSIVE 획득' }] },
+          ops:{ mdl:{ del:['523  H'],
+                      add:[{ id:'525  ALTER TABLE', tag:'hold', q:'granted', mode:'X', sub:'재실행 · EXCLUSIVE 획득' }] },
                 ses:{ set:{ '실행 중':'—', 'ALTER 상태':'준비 완료|green' } } } },
-      /* 6스텝은 물려받되 ops 만 고친다. 기본 스텝은 3·4번 줄을 지우지만 이 값에서는
+      /* 6스텝은 물려받되 ops 와 key 만 고친다(기본의 key 는 H 를 죽이기 전까지의 4.4 초다). 기본 스텝은 528 · 529 · 532… 줄을 통과시키지만 이 값에서는
          그 줄이 생기지 않았고, 막힌 세션도 이미 0 이다 — 검증이 둘 다 잡았다. */
-      6:{ ops:{ mdl:{ set:{ '2  ALTER TABLE':{ tag:'hold', q:'granted', mode:'SU', sub:'SHARED_UPGRADABLE · 통과 허용' } } },
+      6:{ key:'배타 구간은 <em>밀리초 단위</em>다. 잰 값: 막는 세션이 없으니 5 초 한계의 ALTER 가 시작 13 ms 안에 EXCLUSIVE 를 받고 내려놓았다 — 기본값 판에서는 H 를 죽이기 전까지 4.4 초였다.',
+          ops:{ mdl:{ set:{ '525  ALTER TABLE':{ tag:'hold', q:'granted', mode:'SU', sub:'SHARED_UPGRADABLE · 통과 허용' } } },
                 ses:{ set:{ 'ALTER 상태':'인덱스 구축 중|gold' } } } },
+      /* 7스텝은 기본 스텝이 막혔던 528 · 529 · 532… 를 지우지만 이 값에서는 그 줄이 없다 */
+      7:{ ops:{ bp:{ add:[{ id:'idx_c', tag:'pin', sub:'정렬 후 아래에서 채운다' }] } } },
       10:{ act:{ f:'ses', t:'mdl', lb:'다시 EXCLUSIVE · 5초 한계' },
            note:'마지막 EXCLUSIVE 도 같은 5초 — 여기서 실패하면 지은 것을 전부 버린다',
-           why:'마무리 승격도 같은 lock_wait_timeout 으로 기다린다. 그 사이 또 긴 트랜잭션이 테이블을 쥐고 있으면 5초 뒤 1205 로 실패하고, 정렬하고 로그를 적용한 새 인덱스가 통째로 버려진다.',
+           why:'마무리 승격도 같은 lock_wait_timeout 으로 기다린다. 잰 값: 내려놓은 사이 트랜잭션 하나(582)가 BEGIN · SELECT 로 SHARED_READ 를 쥐게 한 판에서, 구축을 마친 ALTER 는 다시 Waiting for table metadata lock 에 들어갔고, 그 대기를 본 지 4.913 초 뒤 ERROR 1205 를 받았다. SHOW INDEX 에 idx_c 는 없었다 — 정렬하고 로그를 적용한 새 인덱스가 통째로 버려졌다. 그 뒤에 온 SELECT 도 4.803 초를 기다렸다.',
            key:'짧은 타임아웃은 장애를 막지만 <em>마지막 1%에서 작업을 잃을 수도</em> 있다. 끝나기 직전에 다시 원인 세션을 확인해야 하는 이유다.',
            ref:'sql/mdl.cc', sym:'MDL_context::upgrade_shared_lock',
            beat:1,
-           ops:{ mdl:{ set:{ '2  ALTER TABLE':{ tag:'wait', q:'pending', mode:'SU → X', sub:'EXCLUSIVE 다시 · 5초 안에 못 받으면 1205' } } },
+           ops:{ mdl:{ set:{ '525  ALTER TABLE':{ tag:'wait', q:'pending', mode:'SU → X', sub:'EXCLUSIVE 다시 · 5초 안에 못 받으면 1205' } } },
                  ses:{ set:{ 'ALTER 상태':'마무리 EXCLUSIVE · 5초 한계|red' } } } },
     },
   } },
@@ -2192,7 +2219,7 @@ const SCENES = [
   steps:[
   { look:{ mdl:true },
     note:'long SELECT — SHARED_READ MDL 보유',
-    why:'MDL 은 테이블의 정의를 보호한다. 조회 중에 컬럼이 사라지면 안 되므로 SHARED_READ 를 잡는다 — 지속 기간이 MDL_TRANSACTION 이라 조회가 아니라 트랜잭션이 끝날 때 놓는다.',
+    why:'MDL 은 테이블의 정의를 보호한다. 조회 중에 컬럼이 사라지면 안 되므로 SHARED_READ 를 잡는다 — 지속 기간이 MDL_TRANSACTION 이라 조회가 아니라 트랜잭션이 끝날 때 놓는다. 잰 값: H 의 SELECT 가 끝나고 SLEEP 에 들어간 뒤에도 P_S.metadata_locks 에 TABLE t · SHARED_READ · TRANSACTION · GRANTED 가 남아 있었다.',
     key:'이 락은 <em>트랜잭션이 끝날 때까지</em> 유지된다. 쿼리 하나가 끝나도 트랜잭션이 열려 있으면 안 놓는다.',
     ref:'sql/mdl.cc', sym:'MDL_context::acquire_lock',
     fact:[['sql/mdl.h','To be used for tables in SELECTs, subqueries, and LOCK TABLE ... READ'],
@@ -2202,19 +2229,19 @@ const SCENES = [
 
   { act:{ f:'ses', t:'mdl', lb:'ALTER : EXCLUSIVE 요청' },
     note:'ALTER 도착 — SU 는 곧바로, X 로 올리는 데서 대기',
-    why:'ALTER 는 먼저 SHARED_UPGRADABLE 을 받는다 — 1번과 호환되어 곧바로 얻는다. 기다리는 것은 그것을 EXCLUSIVE 로 올리는 일이다. InnoDB 의 인덱스 추가는 prepare 뒤로 락이 필요 없는 대신, 그 테이블을 건드린 트랜잭션이 모두 끝나 있어야 한다 — 그래서 시작에 순간 EXCLUSIVE 가 필요하다.',
+    why:'ALTER 는 먼저 SHARED_UPGRADABLE 을 받는다 — H 와 호환되어 곧바로 얻는다. 기다리는 것은 그것을 EXCLUSIVE 로 올리는 일이다. InnoDB 의 인덱스 추가는 prepare 뒤로 락이 필요 없는 대신, 그 테이블을 건드린 트랜잭션이 모두 끝나 있어야 한다 — 그래서 시작에 순간 EXCLUSIVE 가 필요하다. 잰 값: ALTER(525)의 줄은 TABLE t SHARED_UPGRADABLE GRANTED 와 EXCLUSIVE PENDING, PROCESSLIST 의 State 는 Waiting for table metadata lock. 새 정의를 담을 #sql-14ac9_20d 의 EXCLUSIVE 는 이미 GRANTED 였다.',
     key:'"온라인"은 <em>중간이 온라인</em>이라는 뜻이다. 양 끝에는 배타 구간이 있고, 그 구간이 못 들어가면 시작조차 못 한다.',
     ref:'sql/sql_table.cc', sym:'mysql_inplace_alter_table',
     fact:[['sql/mdl.h','To be used for the first phase of ALTER TABLE.'],
           'Or the storage engine needs exclusive lock for just the prepare',
           'if (thd->mdl_context.upgrade_shared_lock(table->mdl_ticket, MDL_EXCLUSIVE,',
           ['storage/innobase/handler/handler0alter.cc','requires exclusive lock (any transactions that have accessed the table']],
-    ops:{ mdl:{ add:[{ id:'2  ALTER TABLE', tag:'x', q:'pending', mode:'SU → X', by:'1  긴 SELECT', sub:'SHARED_UPGRADABLE 보유 · EXCLUSIVE 로 올리기 대기' }] },
-          ses:{ set:{ 'ALTER 상태':'MDL 대기|red' } } } },
+    ops:{ mdl:{ add:[{ id:'525  ALTER TABLE', tag:'x', q:'pending', mode:'SU → X', by:'523  H', sub:'SHARED_UPGRADABLE GRANTED · EXCLUSIVE PENDING' }] },
+          ses:{ set:{ 'ALTER 상태':'Waiting for table metadata lock|red' } } } },
 
-  { act:{ f:'ses', t:'mdl', lb:'SELECT 도착' },
-    note:'새 SELECT — 1번과 호환인데도 block (pending EXCLUSIVE 우선)',
-    why:'MDL 의 대기는 단순한 FIFO 가 아니라 우선순위 표다. 기다리는 EXCLUSIVE 가 있으면 그와 호환되지 않는 새 SHARED_READ · SHARED_WRITE 는 먼저 받지 못한다 — 3번은 1번과 호환되지만 2번을 앞지를 수 없다. 같은 우선순위끼리는 온 순서다.',
+  { act:{ f:'ses', t:'mdl', lb:'SELECT · INSERT 도착' },
+    note:'새 SELECT · INSERT — H 와 호환인데도 block (pending EXCLUSIVE 우선)',
+    why:'MDL 의 대기는 단순한 FIFO 가 아니라 우선순위 표다. 기다리는 EXCLUSIVE 가 있으면 그와 호환되지 않는 새 SHARED_READ · SHARED_WRITE 는 먼저 받지 못한다 — H 와는 호환되지만 ALTER 를 앞지를 수 없다. 같은 우선순위끼리는 온 순서다. 잰 값: 1 초 뒤 들어온 SELECT 528 은 SHARED_READ PENDING, INSERT 529 는 SHARED_WRITE PENDING — 둘 다 Waiting for table metadata lock.',
     key:'앞지르기를 허용하면 EXCLUSIVE 가 <em>영원히 못 들어간다</em>. 기아를 막는 대가로 뒤가 다 막힌다.',
     ref:'sql/mdl.cc', sym:'MDL_lock::can_grant_lock',
     fact:['There are no waiting requests which have higher priority',
@@ -2222,84 +2249,90 @@ const SCENES = [
           'Request | Pending requests for lock |',
           'SR | + + + + + + + + - - |'],
     beat:1,
-    ops:{ mdl:{ add:[{ id:'3  SELECT', tag:'x', q:'pending', mode:'SR', by:'2  ALTER TABLE', sub:'2번 뒤에서 막힘 · 호환되는데도' }] },
-          ses:{ set:{ '막힌 세션':'1|red' } } } },
+    ops:{ mdl:{ add:[{ id:'528  SELECT', tag:'x', q:'pending', mode:'SR', by:'525  ALTER TABLE', sub:'SHARED_READ PENDING · 호환되는데도' },
+                     { id:'529  INSERT', tag:'x', q:'pending', mode:'SW', by:'525  ALTER TABLE', sub:'SHARED_WRITE PENDING' }] },
+          ses:{ set:{ '막힌 세션':'2|red' } } } },
 
-  { note:'queue 누적 — 순식간에 수백',
-    why:'애플리케이션은 응답이 없으니 재시도한다. 커넥션 풀이 소진되고 서비스가 멈춘 것처럼 보인다.',
+  { note:'queue 누적 — 들어오는 대로 전부',
+    why:'애플리케이션은 응답이 없으니 재시도한다. 커넥션 풀이 소진되고 서비스가 멈춘 것처럼 보인다. 잰 값: SELECT 10 · UPDATE 10 을 더 넣자 metadata_locks 는 SHARED_READ PENDING 11 · SHARED_WRITE PENDING 11 · EXCLUSIVE PENDING 1, SHOW PROCESSLIST 는 23 줄이 Waiting for table metadata lock 이었다. 그 모두를 붙잡은 H 의 State 는 User sleep 이다.',
     key:'장애의 겉모습은 "DB 가 죽었다"이고 실제 원인은 <em>커밋하지 않은 트랜잭션 하나</em>다. 지표는 Waiting for table metadata lock.',
     ref:'sql/mdl.cc', sym:'MDL_lock::can_grant_lock',
     fact:['{0, "Waiting for table metadata lock", 0, PSI_DOCUMENT_ME},',
           'lock->m_waiting.add_ticket(ticket);'],
     beat:1,
-    ops:{ mdl:{ add:[{ id:'4…  SELECT · INSERT …', tag:'x', q:'pending', mode:'SR · SW', by:'2  ALTER TABLE', sub:'수백 개' }] },
-          ses:{ set:{ '막힌 세션':'수백|red' } } } },
+    ops:{ mdl:{ add:[{ id:'532…551  SELECT · UPDATE', tag:'x', q:'pending', mode:'SR · SW', by:'525  ALTER TABLE', sub:'20 개 더 — PENDING 22' }] },
+          ses:{ set:{ '막힌 세션':'22  (PROCESSLIST 23 줄)|red' } } } },
 
-  { act:{ f:'mdl', t:'ses', lb:'1번 KILL → EXCLUSIVE 획득' },
-    note:'해법 — 원인(1번) 세션 kill, ALTER 를 죽이면 뒤는 풀려도 ALTER 는 실패',
-    why:'2번을 죽이면 3번 이후가 풀리지만 ALTER 는 실패한다. 1번을 죽이면 ALTER 가 진행되고 뒤도 풀린다.',
+  { act:{ f:'mdl', t:'ses', lb:'H KILL → EXCLUSIVE 획득' },
+    note:'해법 — 원인(H) 세션 kill, ALTER 를 죽이면 뒤는 풀려도 ALTER 는 실패',
+    why:'ALTER 를 죽이면 뒤가 풀리지만 ALTER 는 실패한다. H 를 죽이면 ALTER 가 진행되고 뒤도 풀린다. 잰 값: KILL 523 뒤 71 ms 에 SELECT 528 이 3.319 초 대기를 끝냈고, 막혔던 20 개도 1.8 ~ 2.1 초 대기 끝에 모두 지나갔다(H 의 클라이언트는 ERROR 2013). 대조로 ALTER 에 KILL QUERY 를 하면 ALTER 는 ERROR 1317 (70100) "Query execution was interrupted", 뒤의 SELECT 는 같은 밀리초에 풀렸다.',
     key:'죽여야 할 것은 <em>기다리는 쪽이 아니라 붙잡고 있는 쪽</em>이다. 목록에서 가장 오래된 트랜잭션을 찾아야 하는 이유.',
     ref:'sql/mdl.cc', sym:'MDL_context::acquire_lock',
     fact:['Find the first (and hence the oldest) waiting request which',
           'can be satisfied (taking into account priority). Grant lock to it.',
           'case MDL_wait::KILLED:',
           'my_error(ER_QUERY_INTERRUPTED, MYF(0));'],
-    ops:{ mdl:{ del:['1  긴 SELECT'],
-                set:{ '2  ALTER TABLE':{ tag:'hold', q:'granted', mode:'X', by:null, sub:'EXCLUSIVE 획득 · 준비' } } },
-          ses:{ set:{ '실행 중':'—', 'ALTER 상태':'준비 완료|green' } } } },
+    ops:{ mdl:{ del:['523  H'],
+                set:{ '525  ALTER TABLE':{ tag:'hold', q:'granted', mode:'X', by:null, sub:'EXCLUSIVE 획득 · prepare' } } },
+          ses:{ set:{ '실행 중':'H — KILL (ERROR 2013)', 'ALTER 상태':'준비 완료|green' } } } },
 
   { act:{ f:'ses', t:'mdl', lb:'SHARED_UPGRADABLE 로 내린다' },
     note:'prepare 완료 후 MDL downgrade — 여기부터 online',
-    why:'EXCLUSIVE 를 놓고 SHARED_UPGRADABLE 로 바꾼다. 이제 읽기와 쓰기가 모두 통과한다. FULLTEXT 인덱스이거나 LOCK=SHARED 를 주면 SHARED_NO_WRITE 로 내린다 — 그때는 쓰기가 막힌다.',
-    key:'배타 구간은 <em>밀리초 단위</em>다. 문제는 그 밀리초를 얻기까지 걸린 시간이었다.',
+    why:'EXCLUSIVE 를 놓고 SHARED_UPGRADABLE 로 바꾼다. 이제 읽기와 쓰기가 모두 통과한다. FULLTEXT 인덱스이거나 LOCK=SHARED 를 주면 SHARED_NO_WRITE 로 내린다 — 그때는 쓰기가 막힌다. 잰 값: 내려놓은 ALTER 의 TABLE t 줄은 SHARED_UPGRADABLE GRANTED 하나였다. 막는 세션 없이 돌린 ALTER 의 stage 이력에서 EXCLUSIVE 를 쥔 prepare(preparing for alter table)는 1.8 ms.',
+    key:'배타 구간은 <em>밀리초 단위</em>다. 문제는 그 밀리초를 얻기까지 걸린 시간이었다 — 여기서는 4.4 초, H 를 죽이기 전까지.',
     ref:'sql/sql_table.cc', sym:'mysql_inplace_alter_table',
     fact:['Downgrade the lock if storage engine has told us that exclusive lock was',
           'table->mdl_ticket->downgrade_lock(MDL_SHARED_UPGRADABLE);',
           ['sql/mdl.h','An upgradable shared metadata lock which allows concurrent updates and']],
-    /* 막혀 있던 3 · 4… 가 SU 와 호환되어 받는다 — 지우기만 했더니 'online' 인데 동시 DML 이 무대에 없었다 */
-    ops:{ mdl:{ set:{ '2  ALTER TABLE':{ tag:'hold', q:'granted', mode:'SU', sub:'SHARED_UPGRADABLE · 통과 허용' },
-                      '3  SELECT':{ tag:'hold', q:'granted', by:null, sub:'통과 · SU 와 호환' },
-                      '4…  SELECT · INSERT …':{ tag:'hold', q:'granted', by:null, sub:'통과 · SU 와 호환' } } },
+    /* 막혀 있던 528 · 529 · 532… 가 SU 와 호환되어 받는다 — 지우기만 했더니 'online' 인데 동시 DML 이 무대에 없었다 */
+    ops:{ mdl:{ set:{ '525  ALTER TABLE':{ tag:'hold', q:'granted', mode:'SU', sub:'SHARED_UPGRADABLE · 통과 허용' },
+                      '528  SELECT':{ tag:'hold', q:'granted', by:null, sub:'통과 · SU 와 호환' },
+                      '529  INSERT':{ tag:'hold', q:'granted', by:null, sub:'통과 · SU 와 호환' },
+                      '532…551  SELECT · UPDATE':{ tag:'hold', q:'granted', by:null, sub:'통과 · 1.8 ~ 2.1 초 기다렸다' } } },
           ses:{ set:{ 'ALTER 상태':'인덱스 구축 중|gold', '막힌 세션':'0|green' } } } },
 
   { act:{ f:'ibd', t:'bp', lb:'원본을 훑어 새 인덱스를 만든다' },
     note:'sort 기반 index build — 그 사이에도 DML 유입',
-    why:'인덱스를 한 행씩 삽입하지 않고 정렬 후 아래에서 위로 채운다. innodb_fill_factor 100 이면 보조 인덱스 페이지를 끝까지 채워 분할이 없다(클러스터 인덱스를 다시 만들 때는 페이지마다 1/16 을 남긴다).',
-    key:'그래서 <em>새로 만든 인덱스가 가장 조밀하다</em>. 오래 쓴 인덱스를 재구축하면 크기가 줄어드는 이유가 이것이다.',
+    why:'인덱스를 한 행씩 삽입하지 않고 정렬 후 아래에서 위로 채운다. innodb_fill_factor 100 이면 보조 인덱스 페이지를 끝까지 채워 분할이 없다(클러스터 인덱스를 다시 만들 때는 페이지마다 1/16 을 남긴다). 잰 값(막는 세션 · DML 없이): 100,121 행 ALTER 는 2.698 초 — read PK and internal sort 207 ms · merge sort 2,380 ms. 만든 idx_c 는 86 페이지, DATA_SIZE 평균이 16 KiB 의 92.6% 였다. 인덱스가 먼저 있는 표에 같은 행을 넣어 만든 idx_c 는 129 페이지 · 61.7%.',
+    key:'그래서 <em>새로 만든 인덱스가 가장 조밀하다</em> — 같은 행에 페이지가 3 분의 2 다. 오래 쓴 인덱스를 재구축하면 크기가 줄어드는 이유가 이것이다.',
     ref:'storage/innobase/handler/handler0alter.cc', sym:'ha_innobase::inplace_alter_table',
     fact:['const auto err = clean_up(ddl.build());',
           ['storage/innobase/btr/btr0load.cc','The B-tree bulk load'],
           ['storage/innobase/btr/btr0load.cc','m_reserved_space = UNIV_PAGE_SIZE * (100 - ddl::fill_factor) / 100;'],
           ['storage/innobase/handler/ha_innodb.cc','"Percentage of B-tree page filled during bulk insert",']],
-    ops:{ bp:{ add:[{ id:'새 인덱스', tag:'pin', sub:'정렬 후 아래에서 채운다' }] } } },
+    /* 막혔던 22 개는 내려놓은 직후 끝났다 — 잰 값: 그 뒤 TABLE t 에는 ALTER 의 SHARED_UPGRADABLE 만 남았다 */
+    ops:{ mdl:{ del:['528  SELECT','529  INSERT','532…551  SELECT · UPDATE'] },
+          bp:{ add:[{ id:'idx_c', tag:'pin', sub:'정렬 후 아래에서 채운다' }] } } },
 
   { act:{ f:'ses', t:'rlog', lb:'그 사이의 변경을 적어 둔다' },
     note:'진행 중 DML — row log 에 누적',
-    why:'새 인덱스는 아직 완성되지 않았으므로 직접 반영할 수 없다. 대신 순서대로 적어 둔다.',
-    key:'이 로그가 <em>innodb_online_alter_log_max_size</em> 를 넘으면 ALTER 가 실패한다. 그동안의 작업이 전부 버려진다.',
+    why:'새 인덱스는 아직 완성되지 않았으므로 직접 반영할 수 없다. 대신 순서대로 적어 둔다. 잰 값: ALTER 가 SHARED_UPGRADABLE 을 쥔 채 서 있는 동안 INSERT 120 행은 0.036 초, UPDATE 40 행은 0.009 초에 끝났고, 그 트랜잭션의 SHARED_WRITE 는 ALTER 의 줄 옆에 GRANTED 로 떠 있었다.',
+    key:'이 로그가 <em>innodb_online_alter_log_max_size</em> 를 넘으면 ALTER 가 실패한다. 잰 값: 그 값을 64 KiB 로 낮추고 이 자리에서 UPDATE 100,121 행을 돌리자 UPDATE 는 성공했고 ALTER 가 ERROR 1799 "Creating index \'idx_c\' required more than \'innodb_online_alter_log_max_size\' bytes of modification log" 로 끝났다 — idx_c 는 남지 않았다.',
     ref:'storage/innobase/include/row0log.h', sym:'row_log_apply',
     fact:['Logs an operation to a secondary index that is (or was) being created.',
           ['storage/innobase/row/row0log.cc','if (byte_offset + srv_sort_buf_size >= srv_online_max_size) {'],
           ['storage/innobase/row/row0log.cc','error = DB_ONLINE_LOG_TOO_BIG;'],
           ['storage/innobase/handler/ha_innodb.cc','nullptr, 128 << 20, 65536, ~0ULL, 0);']],
-    ops:{ rlog:{ add:[{ id:'INSERT ×120', tag:'hold', sub:'구축 중 들어온 변경' },
-                      { id:'UPDATE ×40', tag:'hold', sub:'순서대로' }] } } },
+    ops:{ mdl:{ add:[{ id:'561  INSERT · UPDATE', tag:'hold', q:'granted', mode:'SW', sub:'SHARED_WRITE · TRANSACTION · GRANTED' }] },
+          rlog:{ add:[{ id:'INSERT ×120', tag:'hold', sub:'0.036 초 · 구축 중 들어온 변경' },
+                      { id:'UPDATE ×40', tag:'hold', sub:'0.009 초 · 순서대로' }] } } },
 
   { act:{ f:'rlog', t:'bp', lb:'row log 적용' },
     note:'build 완료 — row log 를 새 index 에 apply',
-    why:'로그를 블록 단위로 한 번 적용한다. 앞쪽 블록은 인덱스 래치를 놓은 채 적용하고, 마지막 꼬리 블록만 인덱스의 X 래치 아래서 적용한다. 쓰기가 적용보다 빨라 로그가 innodb_online_alter_log_max_size 를 넘으면 DB_ONLINE_LOG_TOO_BIG 으로 실패한다.',
-    key:'쓰기가 계속 몰리면 <em>따라잡지 못하고 실패한다</em>. 그래서 온라인 DDL 은 한가한 시간에 돌리는 것이 맞다.',
+    why:'로그를 블록 단위로 한 번 적용한다. 앞쪽 블록은 인덱스 래치를 놓은 채 적용하고, 마지막 꼬리 블록만 인덱스의 X 래치 아래서 적용한다. 잰 값: DML 트랜잭션이 커밋해 SHARED_WRITE 를 놓은 뒤 ALTER 를 놓아 주자 3.93 초에 끝났고, idx_c 로 센 행은 100,121 로 PRIMARY 와 같았다(CHECK TABLE OK). 이 idx_c 의 n_leaf_pages 는 160 — DML 없이 만든 84 의 거의 두 배다. 꽉 찬 잎에 로그의 행이 끼어들면 분할할 수밖에 없다.',
+    key:'쓰기가 계속 몰리면 <em>따라잡지 못하고 실패한다</em> — 64 KiB 판의 ERROR 1799 가 그것이다. 128 MB 에서는 같은 UPDATE 뒤에도 성공했지만 이 빌드에서 4 분이 걸렸다. 그래서 온라인 DDL 은 한가한 시간에 돌리는 것이 맞다.',
     ref:'storage/innobase/include/row0log.h', sym:'row_log_apply',
     fact:['Apply the row log to the index upon completing index creation.',
           ['storage/innobase/ddl/ddl0builder.cc','err = row_log_apply(m_ctx.m_trx, m_index, m_ctx.m_table, m_local_stage);'],
           ['storage/innobase/row/row0log.cc','if (index->online_log->head.blocks == index->online_log->tail.blocks) {'],
           ['storage/innobase/row/row0log.cc','dict_index_set_online_status(index, ONLINE_INDEX_COMPLETE);']],
-    ops:{ rlog:{ del:['INSERT ×120','UPDATE ×40'] },
-          bp:{ set:{ '새 인덱스':{ tag:'clean', sub:'로그 반영 완료' } } } } },
+    ops:{ mdl:{ del:['561  INSERT · UPDATE'] },
+          rlog:{ del:['INSERT ×120','UPDATE ×40'] },
+          bp:{ set:{ 'idx_c':{ tag:'clean', sub:'로그 반영 완료 · 잎 160' } } } } },
 
   { act:{ f:'ses', t:'mdl', lb:'다시 EXCLUSIVE' },
     note:'마지막 EXCLUSIVE 한 번 — dictionary 교체 후 종료',
-    why:'이 순간은 짧지만, 그 사이에 또 긴 트랜잭션이 있으면 여기서도 막힌다 — 3~4 스텝의 적체가 그대로 다시 생긴다. ALTER 가 99% 에서 멈춘 것처럼 보인다.',
+    why:'이 순간은 짧지만, 그 사이에 또 긴 트랜잭션이 있으면 여기서도 막힌다 — 3~4 스텝의 적체가 그대로 다시 생긴다. 잰 값(lock_wait_timeout 5 판): online 구간에 들어온 트랜잭션이 SHARED_READ 를 쥐자, 구축을 마친 ALTER 가 다시 SHARED_UPGRADABLE GRANTED · EXCLUSIVE PENDING 으로 Waiting for table metadata lock 에 들어갔고, 뒤에 온 SELECT 는 SHARED_READ PENDING 이었다. ALTER 가 99% 에서 멈춘 것처럼 보인다.',
     key:'배타 구간이 <em>두 번</em> 있다는 것이 실무의 함정이다. 시작만 통과했다고 안심할 수 없다.',
     ref:'sql/mdl.cc', sym:'MDL_context::acquire_lock',
     fact:[['sql/sql_table.cc','// Upgrade to EXCLUSIVE before commit.'],
@@ -2308,12 +2341,11 @@ const SCENES = [
           ['sql/sql_base.cc','thd->variables.lock_wait_timeout))']],
     beat:1,
     /* 이번에는 막는 쪽이 없다 — 대기(wait)이지 막힘(x)이 아니다. 구축 중의 짧은 문장들은 끝났다 */
-    ops:{ mdl:{ set:{ '2  ALTER TABLE':{ tag:'wait', q:'pending', mode:'SU → X', sub:'EXCLUSIVE 다시 · 짧게' } },
-                del:['3  SELECT','4…  SELECT · INSERT …'] },
+    ops:{ mdl:{ set:{ '525  ALTER TABLE':{ tag:'wait', q:'pending', mode:'SU → X', sub:'EXCLUSIVE 다시 · 짧게' } } },
           ses:{ set:{ 'ALTER 상태':'마무리 EXCLUSIVE 구간|red' } } } },
 
   { note:'완료 — dictionary 와 엔진이 한 트랜잭션으로 전환',
-    why:'메타데이터가 InnoDB 테이블이므로 새 인덱스 등록과 dictionary 갱신이 같은 트랜잭션에 들어간다. 중간에 죽어도 반쯤 바뀐 상태가 남지 않는다.',
+    why:'메타데이터가 InnoDB 테이블이므로 새 인덱스 등록과 dictionary 갱신이 같은 트랜잭션에 들어간다. 중간에 죽어도 반쯤 바뀐 상태가 남지 않는다. 잰 값: SHOW INDEX 에 PRIMARY · idx_c 두 줄. 실패한 판(1205 · 1799 · 1317)에서는 모두 idx_c 가 없었다 — 반쯤 만든 인덱스가 남은 판은 없었다.',
     key:'8.0 의 DDL 이 원자적인 근거다. 5.7 의 <em>.frm 은 트랜잭션 밖에</em> 있었으므로 이것이 원리적으로 불가능했다.',
     ref:'storage/innobase/handler/handler0alter.cc', sym:'ha_innobase::inplace_alter_table',
     fact:['Changes to the table definition will be persisted in the data-dictionary at statement commit time.',
@@ -2321,9 +2353,9 @@ const SCENES = [
           ['storage/innobase/handler/ha_innodb.cc','HTON_SUPPORTS_ATOMIC_DDL | HTON_CAN_RECREATE |'],
           ['storage/innobase/dict/dict0dict.cc','const char *dict_sys_t::s_dd_space_file_name = "mysql.ibd";']],
     beat:1,
-    ops:{ mdl:{ del:['2  ALTER TABLE'] },
-          bp:{ del:['새 인덱스'] },
-          ibd:{ set:{ 't.ibd':{ tag:'clean', sub:'인덱스 3개 · 원자적으로 교체' } } },
+    /* idx_c 의 페이지는 끝난 뒤에도 풀에 있다 — 전에는 여기서 지워 새 인덱스가 사라진 듯 보였다 */
+    ops:{ mdl:{ del:['525  ALTER TABLE'] },
+          ibd:{ set:{ 't.ibd':{ tag:'clean', sub:'인덱스 2 개 (PRIMARY · idx_c) · 원자적으로 교체' } } },
           ses:{ set:{ 'ALTER 상태':'완료|green' } } } },
   ],
 },
