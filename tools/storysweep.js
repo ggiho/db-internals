@@ -56,6 +56,8 @@ const BREAKS = {
   confirm: { off: 1 },
   /* Lab 의 이름을 Story 요소에 붙인다 — 실제로 .wrap(display:grid) 이 이름표를 음절마다 접었다 */
   'css-leak': { js: true },
+  /* 첫 화면 — 목록을 무대보다 넓게 만들면 가로로 넘친다 */
+  'hub': { css: '.hub-decks{width:3000px !important;max-width:none !important}' },
   'word-split': { css: '.st-copy *{word-break:break-all !important}' },
   /* 실제로 있었던 결함을 되살린다 — 항목의 id 와 설명 사이 공백을 지운다('INSER / T'). 낱말이 줄보다 넓으면 빼는
      예외가 이것까지 가리지 않는지 본다 */
@@ -439,6 +441,21 @@ async function runSize(browser, [w, h]) {
     for (let t = 0; t < 12; t++) { await new Promise((r) => setTimeout(r, 250)); const cur = read(); if (same(prev, cur)) return cur; prev = cur; }
     return prev;
   }, k);
+  /* hub — 빈 주소의 첫 화면(src/story/Hub.jsx, 2026-10-29). 덱마다 링크가 하나 있고 그 링크가 Story 가 그리는 장면을 가리키는가,
+     가로로 넘치지 않는가, 오류 없이 뜨는가. 첫 화면은 장면 계획(plan)에 없어 따로 연다 */
+  {
+    await page.goto(`${BASE}/?probe&r=hub-${w}x${h}`, { waitUntil: 'load' });
+    await page.waitForSelector('.hub-decks a', { timeout: 20000 });
+    if (BREAK === 'hub') await page.addStyleTag({ content: BREAKS.hub.css });
+    await page.waitForTimeout(300);
+    const H = await page.evaluate(() => ({ links: [...document.querySelectorAll('.hub-decks a')].map((a) => a.getAttribute('href')),
+      sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth }));
+    const want = Object.keys(STORY), got = H.links.map((l) => (l.match(/^#(.+)\/([^/]+)\/1$/) || []).slice(1));
+    for (const d of want) if (!got.some(([dd]) => dd === d)) res.problems.push([res.size, 'hub', 'hub', `덱 ${d} 의 링크가 없다`]);
+    for (const [dd, n] of got) if (!STORY[dd] || !STORY[dd].nums.includes(n)) res.problems.push([res.size, 'hub', 'hub', `링크 #${dd}/${n}/1 이 Story 장면이 아니다`]);
+    if (H.sw > H.cw + 1) res.problems.push([res.size, 'hub', 'hub', `가로로 넘친다 ${H.sw} > ${H.cw}`]);
+    while (errs.length) res.problems.push([res.size, 'hub', 'errors', errs.shift()]);
+  }
   for (const p of plan) {
     /* scene-nav — 메뉴로 장면을 옮기면 해시만 바뀐다. 같은 세계 id 를 쓰는 장면끼리 스텝 수까지 같으면 Story 가 장을 다시 짜지 않아
        앞 장면의 세계가 남았다(postgres/heap 02 → 03 에서 5,000 중 630 알갱이). 이 스윕은 장면마다 문서를 새로 싣기 때문에

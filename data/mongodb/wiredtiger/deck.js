@@ -6,6 +6,7 @@
      · MongoDB 서버 코드(SSPL)는 fact 로 대조만 하고 발췌로 띄우지 않는다(verify 가 막는다). */
 const DECK = {
   title: 'MongoDB WiredTiger',
+  blurb: '메모리의 update chain 과 디스크 이미지 — reconciliation · journal · eviction · timestamp · ticket',
   brand: 'MONGODB 8.0.32',
   brand2: 'WIREDTIGER 11.3  ·  vs INNODB',
   favicon: '🍃',

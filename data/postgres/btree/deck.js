@@ -4,6 +4,7 @@
    TID 배열 하나로 묶는다 — 그리고 읽는 쪽은 락 없이 오른쪽 링크를 따라간다. */
 const DECK = {
   title: 'PostgreSQL B-tree',
+  blurb: 'nbtree 가 page 를 나누고 줄이는 법 — split · deduplication · suffix truncation · 삭제 · unique 검사',
   brand: 'POSTGRESQL 18.6',
   brand2: 'NBTREE  ·  vs INNODB',
   favicon: '🐘',

@@ -480,7 +480,8 @@ export default function Story() {
       <div ref={lbl} className="st-labels" aria-hidden="true" />
 
       <header className="st-top">
-        <a className="st-brand" href={'#' + deckId + '/' + STORY[deckId].first + '/1'}>db-internals</a>
+        {/* 첫 화면(덱 고르기)으로 — 예전에는 이 덱의 첫 장면이었다 */}
+        <a className="st-brand" href="#">db-internals</a>
         <button type="button" className="st-where" aria-expanded={menu} onClick={() => setMenu((m) => !m)}>
           <span className="d">{deck.DECK.title}</span>
           <span className="s">{scene.hidden && pairAB ? pairAB[0].num : scene.num} {scene.hidden && pairAB ? pairAB[0].tab : scene.tab}</span>

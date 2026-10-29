@@ -3,6 +3,7 @@
    mysql/locks 와 짝이 되는 덱이다. */
 const DECK = {
   title: 'PostgreSQL Locks',
+  blurb: '락이 어디에 어떻게 사나 — 모드 · 충돌표 · deadlock · SSI · 대기 줄 · 행 락 · fast-path',
   brand: 'POSTGRESQL 18.6',
   brand2: 'LOCKS  ·  vs INNODB',
   favicon: '🐘',

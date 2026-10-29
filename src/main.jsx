@@ -19,6 +19,8 @@ try { const t = localStorage.getItem('theme'); if (t === 'dark' || t === 'light'
 
 /* Story 는 그 장면에 세계가 있을 때만 받는다 — Lab 만 보는 사람은 내려받지 않는다 */
 const Story = lazy(() => import('./story/Story.jsx'));
+/* 첫 화면 — 빈 주소(덱도 장면도 없다). 예전에는 기본 덱(book/ch3)의 첫 장면이 열렸다 */
+const Hub = lazy(() => import('./story/Hub.jsx'));
 
 /* #play 면 게임. 아니면 Story 가 기본이고, ?lab 이거나 세계가 없는 장면이면 Lab(App) 이다.
    App 은 덱이 아닌 주소를 기본 덱으로 고쳐 쓰므로 #play 에서 App 을 띄우면 주소를 빼앗긴다 —
@@ -26,6 +28,7 @@ const Story = lazy(() => import('./story/Story.jsx'));
 const isPlay = () => /^#play(\/|$)/.test(location.hash);
 function modeOf() {
   if (isPlay()) return 'play';
+  if (!isLab() && (location.hash === '' || location.hash === '#')) return 'hub';
   if (!isLab() && hasStory(parse(location.hash.slice(1)))) return 'story';
   return 'lab';
 }
@@ -38,6 +41,7 @@ function Root() {
     return () => { removeEventListener('hashchange', f); removeEventListener('popstate', f); };
   }, []);
   if (mode === 'play') return <Play />;
+  if (mode === 'hub') return <Suspense fallback={<div className="boot">불러오는 중…</div>}><Hub /></Suspense>;
   if (mode === 'story') return <Suspense fallback={<div className="boot">불러오는 중…</div>}><Story /></Suspense>;
   return <App />;
 }
