@@ -348,7 +348,7 @@ export default function Hub() {
       <main>
         <section className="hub-hero">
           <div className="hub-intro">
-            <h1>엔진 속을,<br />추측 없이.</h1>
+            <h1 lang="en">Databases,<br />measured.</h1>
             <p>
               InnoDB · PostgreSQL · WiredTiger 를 소스에서 직접 빌드해 띄우고, 스텝마다 page 와 로그에 무엇이 남는지 쟀다.
               재지 못한 수는 '규칙으로 계산' 이라고 밝혔고, 설명마다 근거가 붙어 있다 — 소스의 줄, 논문, 책의 문장.
