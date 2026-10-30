@@ -25,6 +25,7 @@ const ACTORS = {
   /* 디스크 */
   row:  { nm:'행 (클러스터)',        lane:'disk', kind:'list', w:'w15' },
   sec:  { nm:'secondary 인덱스',        lane:'disk', kind:'list', w:'w15' },
+  cfk:  { nm:'child idx_pid',   lane:'disk', kind:'list', w:'w15' },
 };
 
 /* 레인 — 락이 잡히는 층. 경계선 두 개가 이 덱의 주제다 :
