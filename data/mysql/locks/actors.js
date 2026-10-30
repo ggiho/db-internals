@@ -16,6 +16,8 @@ const ACTORS = {
   cmx:  { nm:'호환 행렬',           lane:'mem',  kind:'matrix', w:'w15' },
   smx:  { nm:'강도 행렬',           lane:'mem',  kind:'matrix', w:'w15' },
   idx:  { nm:'INDEX',           lane:'mem',  kind:'axis', w:'w2' },
+  /* 클러스터 인덱스의 축 — 02 · 02v 는 이것 하나, 05 는 idx(idx_c) 와 둘. 키가 c 와 id 로 달라 한 축에 그릴 수 없다 */
+  pk:   { nm:'PRIMARY',         lane:'mem',  kind:'axis', w:'w2' },
   rv:   { nm:'READ VIEW',       lane:'mem',  kind:'kv'  },
   wait: { nm:'WAIT-FOR',        lane:'mem',  kind:'graph', w:'w15' },
   ps:   { nm:'P_S 관찰',           lane:'mem',  kind:'list', w:'w15' },

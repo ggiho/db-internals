@@ -10,7 +10,7 @@ export const CORE = {
     a: '바로 진행된다 — 테이블 락도 행 락도 없다',
     x: ['행 S 락 때문에 SELECT 가 끝날 때까지 기다린다', '테이블 IS 락과 충돌해 기다린다', '읽은 행이 커밋될 때까지 기다린다'],
   },
-  '02/6': {
+  '02/8': {
     q: 'SELECT 만 하고 커밋하지 않은 트랜잭션이 쥐고 있는 것은?',
     a: 'MDL_SHARED_READ 하나뿐 — InnoDB 층은 비어 있다',
     x: ['읽은 행마다 S 레코드 락, 그리고 테이블 IS 락', '테이블 IS 락과 MDL_SHARED_READ 두 개', '아무것도 없다 — 읽기만 한 트랜잭션은 락을 안 남긴다'],
@@ -20,7 +20,7 @@ export const CORE = {
     a: '기다린다 — X 는 어떤 모드와도 호환되지 않는다',
     x: ['진행된다 — 읽기 락이라 쓰기와 공존한다', '진행된다 — snapshot 을 읽었으니 충돌이 없다', '1205 로 즉시 실패한다'],
   },
-  '02v/6': {
+  '02v/7': {
     q: 'SELECT … FOR UPDATE 가 잡는 MDL 타입은?',
     a: 'MDL_SHARED_WRITE',
     x: ['MDL_SHARED_READ', 'MDL_EXCLUSIVE', 'MDL_SHARED_NO_WRITE'],

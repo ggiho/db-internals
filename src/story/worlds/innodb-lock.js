@@ -1,4 +1,4 @@
-/* mysql innodb 07 · 08 — 레코드 락과 교착. 그리는 것은 모두 bake 상태에서 읽는다 —
+/* mysql innodb 07 · 08 · mysql locks — 레코드 락과 교착. 그리는 것은 모두 bake 상태에서 읽는다 —
      · 인덱스 = axis 배우. 수직선 위의 레코드 점(items 의 v), 그 위에 잠금 범위(spans) —
        next (a, b] = 왼쪽 빈 원 · 오른쪽 찬 원, gap (a, b) = 양끝 빈 원, rec = 레코드 위의 굵은 점, blk = 기다리는 요청(빨간 화살표)
      · wait-for 그래프 = graph 배우. 노드와 간선, 간선이 이루는 사이클은 세계가 찾아 빨갛게
@@ -10,6 +10,12 @@
        blk · ii. 없으면 console.error (07 — 잰 data_locks 줄과 그림이 어긋나지 않게). 뒤에 ' · A' 처럼 임자를 붙여도 같고(08 — 두 트랜잭션이
        같은 레코드를 하나는 쥐고 하나는 기다린다), sub 에 WAITING 이 있으면 범위 대신 그 레코드의 blk 가 있어야 한다
        글 블록에 tables_locked 가 있으면(03) TABLE LOCKS 의 '표 · 모드' 칸 수와 같아야 한다 — INNODB_TRX 가 세는 것이 그 수다
+     · 축은 여럿일 수 있다(locks 05 — idx_c 와 PRIMARY). 배우마다 따로 줄 · 띠 · 이름표를 갖고 cast 순서대로 위에서 아래로 놓인다.
+       axis.nm 이 있으면 축 이름 대신 그것을 쓰고(INDEX · idx_c), axis.legend 가 참이면 이름 줄 오른쪽에 그 스텝에 있는 범위 종류의
+       범례를 이름표와 같은 색으로 적는다(들어가지 않으면 아래 줄). data_locks 꼴의 칸 id 는 어느 축에든 맞는 범위가 있으면 된다
+     · 글 블록의 'P_S.data_locks' 가 'N 줄 …' 이면(02 · 02v · 05) N = TABLE LOCKS 의 테이블 락 칸 + 모든 축의 범위(ii 제외 — 기다리지
+       않은 insert intention 은 data_locks 에 줄이 없다). 한 글 블록에 SHOW ENGINE INNODB STATUS 의 'N lock struct(s), heap size H,
+       M row lock(s)' 줄과 trx_rows_locked 가 함께 있으면 M = trx_rows_locked. 어긋나면 console.error
    손잡이가 있는 장면(07 격리 수준 · 08 innodb_deadlock_detect · 03 innodb_autoinc_lock_mode)은 값마다 따로 bake 해 두고 setVary 로 바꾼다.
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
@@ -78,7 +84,8 @@ function one({ F, deck, labels, sc }) {
   }
   const all = [...BAKES.values()].flatMap((b) => [b.S0, ...b.S]);
   const TEXTS = cast.filter((a) => A[a].kind === 'kv');
-  const IDX = cast.find((a) => A[a].kind === 'axis') || null;
+  /* 축은 여럿일 수 있다 — 05 는 idx_c 와 PRIMARY 를 따로 그린다(두 인덱스의 키가 다르다 : c 와 id) */
+  const IXS = cast.filter((a) => A[a].kind === 'axis');
   const GR = cast.find((a) => A[a].kind === 'graph') || null;
   const ROWS = cast.filter((a) => A[a].kind === 'list' || A[a].kind === 'frames');
   /* 층 — 배우의 lane 대로 위에서 아래로 : 서버(sql) | 경계 0 | InnoDB 메모리 | 경계 1 | 디스크.
@@ -87,12 +94,12 @@ function one({ F, deck, labels, sc }) {
   const laneOf = (a) => (A[a].lane === 'sql' ? 0 : A[a].lane === 'disk' ? 2 : 1);
   const SQLT = TEXTS.filter((a) => laneOf(a) === 0), MEMT = TEXTS.filter((a) => laneOf(a) !== 0);
   const SQLR = ROWS.filter((a) => laneOf(a) === 0), MEMR = ROWS.filter((a) => laneOf(a) === 1), DSKR = ROWS.filter((a) => laneOf(a) === 2);
-  const HAS = [SQLT.length + SQLR.length > 0, MEMT.length + MEMR.length + (IDX ? 1 : 0) + (GR ? 1 : 0) > 0, DSKR.length > 0];
+  const HAS = [SQLT.length + SQLR.length > 0, MEMT.length + MEMR.length + IXS.length + (GR ? 1 : 0) > 0, DSKR.length > 0];
   const EDGE_ON = [HAS[0] && (HAS[1] || HAS[2]), HAS[1] && HAS[2]];
   const ids = (a) => [...new Set(all.flatMap((s) => s[a].map((x) => x.id)))];
   const RIDS = Object.fromEntries(ROWS.map((a) => [a, ids(a)]));
-  const RECS = IDX ? ids(IDX) : [];
-  const SPIDS = IDX ? [...new Set(all.flatMap((s) => s[IDX + '#sp'].map((q) => q.id)))] : [];
+  const RECS = Object.fromEntries(IXS.map((X) => [X, ids(X)]));
+  const SPIDS = Object.fromEntries(IXS.map((X) => [X, [...new Set(all.flatMap((s) => s[X + '#sp'].map((q) => q.id)))]]));
   const NODES = GR ? ids(GR) : [];
   const EIDS = GR ? [...new Set(all.flatMap((s) => s[GR + '#e'].map((q) => q.id)))] : [];
   /* 사이클 위의 간선 — 간선마다, 그 끝에서 출발해 그 시작으로 돌아오는 길이 있으면 */
@@ -106,27 +113,31 @@ function one({ F, deck, labels, sc }) {
   /* 셈 맞추기 */
   for (const [kk, b] of BAKES) [b.S0, ...b.S].forEach((s, i) => {
     const at = `${sc.num} 세계${kk ? ' (' + sc.vary.knob + '=' + kk + ')' : ''} : ${i ? i + ' 스텝' : 'init'}`;
-    if (IDX) {
-      const vs = s[IDX].map((x) => x.v).sort((p, q) => p - q), ax = s[IDX + '#ax'];
+    for (const X of IXS) {
+      const vs = s[X].map((x) => x.v).sort((p, q) => p - q), ax = s[X + '#ax'];
       const prevOf = (v) => { const j = vs.indexOf(v); return j > 0 ? vs[j - 1] : ax.min; };
-      for (const q of s[IDX + '#sp']) {
+      for (const q of s[X + '#sp']) {
         if (q.kind === 'next' && (!vs.includes(q.to) || q.from !== prevOf(q.to))) console.error(`${at} : next-key ${q.id} (${q.from}, ${q.to}] 의 끝이 레코드와 맞지 않는다 — 레코드 ${vs.join(' · ')}`);
         if ((q.kind === 'gap' || q.kind === 'ii') && (!(vs.includes(q.from) || q.from === ax.min) || !vs.includes(q.to) || q.from !== prevOf(q.to))) console.error(`${at} : ${q.kind} ${q.id} (${q.from}, ${q.to}) 의 양끝이 이웃한 레코드가 아니다`);
         if (q.kind === 'rec' && (q.from !== q.to || !vs.includes(q.to))) console.error(`${at} : 레코드 락 ${q.id} 가 레코드 위에 있지 않다 (${q.from}–${q.to})`);
       }
     }
-    if (IDX) {
-      const vs = s[IDX].map((x) => x.v).sort((p, q) => p - q), ax = s[IDX + '#ax'], sp = s[IDX + '#sp'];
-      const prevOf = (v) => { const j = vs.indexOf(v); return j > 0 ? vs[j - 1] : ax.min; };
-      for (const r of ROWS) for (const it of s[r]) {
-        const m = /^([XS])(,GAP)?(,REC_NOT_GAP)?(,INSERT_INTENTION)?\s+(\d+)(?:\s+·\s+\S+)?$/.exec(it.id);
-        if (!m) continue;
-        const v = +m[5], ok = m[4] ? sp.some((q) => (q.kind === 'blk' || q.kind === 'ii') && vs.includes(v) && q.from > prevOf(v) && q.from < v)
+    if (IXS.length) {
+      /* 축이 여럿이면 어느 축에든 맞는 범위가 있으면 된다 */
+      const fits = (X, m, it) => {
+        const vs = s[X].map((x) => x.v).sort((p, q) => p - q), ax = s[X + '#ax'], sp = s[X + '#sp'];
+        const prevOf = (v) => { const j = vs.indexOf(v); return j > 0 ? vs[j - 1] : ax.min; };
+        const v = +m[5];
+        return m[4] ? sp.some((q) => (q.kind === 'blk' || q.kind === 'ii') && vs.includes(v) && q.from > prevOf(v) && q.from < v)
           : /WAITING/.test(it.sub || '') ? sp.some((q) => q.kind === 'blk' && q.from === v && q.to === v)
           : m[3] ? sp.some((q) => q.kind === 'rec' && q.to === v)
           : m[2] ? sp.some((q) => q.kind === 'gap' && q.to === v)
           : sp.some((q) => q.kind === 'next' && q.to === v);
-        if (!ok) console.error(`${at} : data_locks 줄 ${it.id} 에 맞는 범위가 축에 없다`);
+      };
+      for (const r of ROWS) for (const it of s[r]) {
+        const m = /^([XS])(,GAP)?(,REC_NOT_GAP)?(,INSERT_INTENTION)?\s+(\d+)(?:\s+·\s+\S+)?$/.exec(it.id);
+        if (!m) continue;
+        if (!IXS.some((X) => fits(X, m, it))) console.error(`${at} : data_locks 줄 ${it.id} 에 맞는 범위가 축에 없다`);
       }
     }
     if (GR) { const cyc = cycleOf(s); for (const e of s[GR + '#e']) if (e.hot && !cyc.has(e.id)) console.error(`${at} : hot 간선 ${e.id} 가 사이클 위에 없다`); }
@@ -138,6 +149,25 @@ function one({ F, deck, labels, sc }) {
       const have = ROWS.filter((a) => A[a].nm === 'TABLE LOCKS').flatMap((a) => s[a]).filter((it) => it.tag !== 'free' && /^\S+ · (IS|IX|S|X|AUTO_INC)$/.test(it.id)).length;
       if (n !== have) console.error(`${at} : tables_locked ${n} 인데 TABLE LOCKS 의 테이블 락 칸은 ${have} 개다`);
     }
+    /* 02 · 05 — 글 블록의 'P_S.data_locks' 는 잰 data_locks 의 줄 수다(모든 trx). 그림이 그 줄을 다 그려야 한다 : TABLE LOCKS 의
+       테이블 락 칸 + 축들의 범위 하나하나(next · gap · rec · blk. ii 는 빼고 센다 — 기다리지 않은 insert intention 은 lock 을 만들지 않아
+       data_locks 에 줄이 없다) */
+    for (const t of TEXTS) {
+      const raw = s[t]['P_S.data_locks']; if (raw == null) continue;
+      const n = parseInt(bare(raw), 10);
+      const tbl = ROWS.filter((a) => A[a].nm === 'TABLE LOCKS').flatMap((a) => s[a]).filter((it) => it.tag !== 'free').length;
+      const rec = IXS.flatMap((X) => s[X + '#sp']).filter((q) => q.kind !== 'ii').length;
+      if (n !== tbl + rec) console.error(`${at} : P_S.data_locks ${n} 줄인데 그림은 테이블 락 ${tbl} + 레코드 락 ${rec}`);
+    }
+    /* SHOW ENGINE INNODB STATUS 의 'N lock struct(s), heap size H, M row lock(s)' 와 INNODB_TRX.trx_rows_locked 는 같은 trx 의
+       lock_number_of_rows_locked 를 읽는다 — 한 글 블록에 둘이 함께 있으면 M 과 trx_rows_locked 가 같아야 한다 */
+    for (const t of TEXTS) {
+      const kv = s[t], rl = kv['trx_rows_locked']; if (rl == null) continue;
+      for (const [k, v] of Object.entries(kv)) {
+        const m = /(\d+) lock struct\(s\), heap size (\d+), (\d+) row lock\(s\)/.exec(bare(v));
+        if (m && +m[3] !== parseInt(bare(rl), 10)) console.error(`${at} : ${k} 의 row lock(s) ${m[3]} 와 trx_rows_locked ${bare(rl)} 가 다르다`);
+      }
+    }
   });
   let cur = BAKES.get(null) || [...BAKES.values()][0];
 
@@ -145,7 +175,7 @@ function one({ F, deck, labels, sc }) {
   const R = {};
   let at = 0;
   const take = (k, n) => { R[k] = [at, at + n]; at += n; };
-  if (IDX) { take('line', 60); RECS.forEach((id) => take('r:' + id, RECN)); SPIDS.forEach((id) => take('s:' + id, SPN)); }
+  for (const X of IXS) { take('line:' + X, 60); RECS[X].forEach((id) => take('r:' + X + ':' + id, RECN)); SPIDS[X].forEach((id) => take('s:' + X + ':' + id, SPN)); }
   NODES.forEach((id) => take('n:' + id, NODEN));
   if (GR) take('edges', 80);
   for (const a of ROWS) RIDS[a].forEach((id) => take(a + ':' + id, SL));
@@ -162,8 +192,12 @@ function one({ F, deck, labels, sc }) {
   const EDG = deck.EDGES || [];
   const hd = Object.fromEntries(cast.map((a) => [a, label('aq')]));
   const tx = Object.fromEntries(TEXTS.map((a) => [a, label('aq ml aq-b')]));
-  const recLb = Object.fromEntries(RECS.map((id) => [id, label('aq aq-c')]));
-  const spLb = Object.fromEntries(SPIDS.map((id) => [id, label('aq')]));
+  const recLb = Object.fromEntries(IXS.map((X) => [X, Object.fromEntries(RECS[X].map((id) => [id, label('aq aq-c')]))]));
+  const spLb = Object.fromEntries(IXS.map((X) => [X, Object.fromEntries(SPIDS[X].map((id) => [id, label('aq')]))]));
+  /* 범례 — axis.legend 가 켜진 축만. 그 스텝에 있는 범위 종류만, 이름표와 같은 색으로 */
+  const lgLb = Object.fromEntries(IXS.map((X) => [X, label('aq')]));
+  const LEG = { next: ['q-g', 'next-key (a, b]'], gap: ['', 'gap (a, b)'], rec: ['q-gr', '레코드만'], blk: ['q-r', '▼ 대기'], ii: ['q-gr', 'insert intention'] };
+  const legendOf = (s, X) => (s[X + '#ax'].legend ? ['next', 'gap', 'rec', 'blk', 'ii'].filter((k) => s[X + '#sp'].some((q) => q.kind === k)).map((k) => `<span class="${LEG[k][0]}">${LEG[k][1]}</span>`).join('  ·  ') : '');
   const nLb = Object.fromEntries(NODES.map((id) => [id, { n: label('aq aq-c'), v: label('aq aq-c') }]));
   const eLb = Object.fromEntries(EIDS.map((id) => [id, label('aq')]));
   const rowLb = Object.fromEntries(ROWS.map((a) => [a, Object.fromEntries(RIDS[a].map((id) => [id, label('aq aq-c')]))]));
@@ -179,9 +213,12 @@ function one({ F, deck, labels, sc }) {
     const t = new Map(), on = (a) => s.touch.has(a);
     for (const a of cast) t.set(hd[a], [A[a].nm, on(a)]);
     for (const a of TEXTS) t.set(tx[a], [kvHtml(s[a], focusOf(s, a)), on(a), '', true, true]);
-    if (IDX) {
-      for (const id of RECS) { const it = s[IDX].find((x) => x.id === id); t.set(recLb[id], [it ? id : '', on(IDX), '', !!it]); }
-      for (const id of SPIDS) { const q = s[IDX + '#sp'].find((x) => x.id === id); t.set(spLb[id], [q ? q.lb || '' : '', !!q && on(IDX) && hotIt(s, IDX, id), q ? (q.kind === 'blk' ? 'red' : q.kind === 'next' ? 'gold' : q.kind === 'rec' || q.kind === 'ii' ? 'green' : '') : '', !!q && !!q.lb]); }
+    for (const X of IXS) {
+      /* 축 이름 — 데이터의 axis.nm 이 있으면 그것(05 의 INDEX · idx_c) */
+      t.set(hd[X], [s[X + '#ax'].nm || A[X].nm, on(X)]);
+      const lg = legendOf(s, X); t.set(lgLb[X], [lg, on(X), '', !!lg, true]);
+      for (const id of RECS[X]) { const it = s[X].find((x) => x.id === id); t.set(recLb[X][id], [it ? id : '', on(X), '', !!it]); }
+      for (const id of SPIDS[X]) { const q = s[X + '#sp'].find((x) => x.id === id); t.set(spLb[X][id], [q ? q.lb || '' : '', !!q && on(X) && hotIt(s, X, id), q ? (q.kind === 'blk' ? 'red' : q.kind === 'next' ? 'gold' : q.kind === 'rec' || q.kind === 'ii' ? 'green' : '') : '', !!q && !!q.lb]); }
     }
     if (GR) {
       const cyc = cycleOf(s);
@@ -207,10 +244,10 @@ function one({ F, deck, labels, sc }) {
   const rnd = U.rng(59);
   const dust = new Float32Array(N * 2), jit = new Float32Array(N * 2).map(() => rnd() - 0.5);
   const RH = 15, SROW = 22;
-  const ixX = (s, v) => { const ax = s[IDX + '#ax']; return G.ix.x0 + ((v - ax.min) / (ax.max - ax.min)) * (G.ix.x1 - G.ix.x0); };
+  const ixX = (s, X, v) => { const ax = s[X + '#ax'], g = G.ix[X]; return g.x0 + ((v - ax.min) / (ax.max - ax.min)) * (g.x1 - g.x0); };
   function build(L) {
     const ww = L.x1 - L.x0, wh = L.y1 - L.y0, gap = 18, HD = 18;
-    G = { L, anc: {}, slot: {}, ix: { x0: L.x0 + 14, x1: L.x1 - 14 } };
+    G = { L, anc: {}, slot: {}, ix: Object.fromEntries(IXS.map((X) => [X, { x0: L.x0 + 14, x1: L.x1 - 14 }])), barY: {} };
     /* 글 블록의 격자 — 층마다 따로(서버 층의 SESSION · STATEMENT, InnoDB 층의 READ VIEW) */
     const grid = (list) => {
       let tn = Math.max(1, Math.min(3, list.length));
@@ -223,21 +260,25 @@ function one({ F, deck, labels, sc }) {
     const GT = [grid(SQLT), grid(MEMT)];
     /* 범위의 줄 — 데이터의 row(0 이 수직선에 가깝다). 이름표는 그 줄의 막대 위에서 줄 나누기 —
        같은 줄의 (10,20] 과 (20,30] 이름표가 겹쳤다. 줄마다 이름표가 쌓인 만큼 띠를 높인다 */
-    const nRow = IDX ? Math.max(1, ...all.flatMap((s) => s[IDX + '#sp'].map((q) => (q.row ?? 0) + 1))) : 0;
-    const lrows = Array(nRow).fill(1);
-    G.ix.x0 = L.x0 + 14; G.ix.x1 = L.x1 - 14;
-    if (IDX) for (const b of BAKES.values()) b.SPL = b.S.map((s, kk) => {
+    const nRow = Object.fromEntries(IXS.map((X) => [X, Math.max(1, ...all.flatMap((s) => s[X + '#sp'].map((q) => (q.row ?? 0) + 1)))]));
+    const lrows = Object.fromEntries(IXS.map((X) => [X, Array(nRow[X]).fill(1)]));
+    if (IXS.length) for (const b of BAKES.values()) b.SPL = b.S.map((s, kk) => {
       const T = b.TX[kk], wOf = (lb) => { const e = T.get(lb); const h = e && e[3] !== false ? e[0] : ''; if (!h) return 0; const keep = lb.el.innerHTML; lb.el.innerHTML = h; const w = lb.el.getBoundingClientRect().width; lb.el.innerHTML = keep; return w; };
       const out = {};
-      for (let r = 0; r < nRow; r++) {
-        const qs = s[IDX + '#sp'].filter((q) => (q.row ?? 0) === r).map((q) => { const xa = ixX(s, q.from), xb = ixX(s, q.to), w = wOf(spLb[q.id]), dot = q.kind === 'rec' || q.kind === 'blk'; return { id: q.id, cx: dot ? xa + 9 + w / 2 : (xa + xb) / 2, pins: [dot ? xa : (xa + xb) / 2], w }; }).filter((q) => q.w);
-        const st = stagger(qs, L.x0, L.x1);
-        lrows[r] = Math.max(lrows[r], st.rows);
-        for (const q of st.out) out[q.id] = q;
+      for (const X of IXS) {
+        out[X] = {};
+        for (let r = 0; r < nRow[X]; r++) {
+          const qs = s[X + '#sp'].filter((q) => (q.row ?? 0) === r).map((q) => { const xa = ixX(s, X, q.from), xb = ixX(s, X, q.to), w = wOf(spLb[X][q.id]), dot = q.kind === 'rec' || q.kind === 'blk'; return { id: q.id, cx: dot ? xa + 9 + w / 2 : (xa + xb) / 2, pins: [dot ? xa : (xa + xb) / 2], w }; }).filter((q) => q.w);
+          const st = stagger(qs, L.x0, L.x1);
+          lrows[X][r] = Math.max(lrows[X][r], st.rows);
+          for (const q of st.out) out[X][q.id] = q;
+        }
       }
       return out;
     });
-    const bandH = lrows.map((n) => 16 + n * RH);
+    const bandH = Object.fromEntries(IXS.map((X) => [X, lrows[X].map((n) => 16 + n * RH)]));
+    /* 범례가 축 이름 줄의 오른쪽에 들어가지 않으면 그 아래 줄에 */
+    const lgTwo = Object.fromEntries(IXS.map((X) => [X, most(hd[X]).w + most(lgLb[X]).w + 16 > ww]));
     /* 그래프 — 노드는 가로로, 칸 폭은 이름표만큼 */
     /* 노드 폭 — 설명이 한 줄로 들어가는 폭, 단 무대에 노드가 다 들어가는 폭까지. 넘치면 설명은 줄을 바꾼다 */
     const NG = 70, nCap = GR ? (ww - (NODES.length - 1) * NG) / Math.max(1, NODES.length) : 0;
@@ -286,11 +327,14 @@ function one({ F, deck, labels, sc }) {
       texts(GT[0]); rows(SQLR);
       edge(0);
       texts(GT[1]);
-      if (IDX) {
-        place(hd[IDX], L.x0, y); y += HD + 6;
-        G.ix.top = y; y += bandH.reduce((p, q) => p + q, 0) + 6; G.ix.y = y; G.anc[IDX] = { x: L.x0 + ww / 2, y }; y += 10 + 16 + 10 * k;
+      for (const X of IXS) {
+        place(hd[X], L.x0, y);
+        if (lgTwo[X]) { place(lgLb[X], L.x0, y + HD); y += HD; } else place(lgLb[X], L.x1, y, 'r', 't');
+        y += HD + 6;
+        const g = G.ix[X], bh = bandH[X];
+        g.top = y; y += bh.reduce((p, q) => p + q, 0) + 6; g.y = y; G.anc[X] = { x: L.x0 + ww / 2, y }; y += 10 + 16 + 10 * k;
         /* 줄 r 의 막대 y — 수직선에서 위로 띠를 쌓는다 */
-        G.barY = bandH.map((_, r) => G.ix.y - 12 - bandH.slice(0, r).reduce((p, q) => p + q, 0));
+        G.barY[X] = bh.map((_, r) => g.y - 12 - bh.slice(0, r).reduce((p, q) => p + q, 0));
       }
       rows(MEMR);
       if (GR && !side) y += placeGraph(L.x0, y) + 10 * k;
@@ -316,11 +360,11 @@ function one({ F, deck, labels, sc }) {
   const nodeAt = (s, id) => { const j = NODES.indexOf(id); return j < 0 ? null : { x: G.gr.x0 + G.gr.nw / 2 + j * (G.gr.nw + G.ng), y: G.gr.y }; };
   /* 간선 — 두 노드 사이의 곧은 화살표. 오른쪽으로 가는 것은 위, 왼쪽으로 가는 것은 아래 */
   const edgeLine = (s, e) => { const A0 = nodeAt(s, e.from), B0 = nodeAt(s, e.to); if (!A0 || !B0) return null; const rt = B0.x > A0.x, y = A0.y + (rt ? -6 : 6), xa = A0.x + (rt ? 1 : -1) * (G.gr.nw / 2 + 4), xb = B0.x - (rt ? 1 : -1) * (G.gr.nw / 2 + 4); return { xa, xb, y, rt }; };
-  const spY = (q) => G.barY[q.row ?? 0];
+  const spY = (X, q) => G.barY[X][q.row ?? 0];
   function anchor(a, s, lbText) {
-    if (a === IDX && G.ix.y) {
+    if (IXS.includes(a) && G.ix[a].y) {
       const m = /(\d+)/.exec(lbText || ''), v = m ? +m[1] : null;
-      if (v != null) return [ixX(s, v), G.ix.y];
+      if (v != null) return [ixX(s, a, v), G.ix[a].y];
     }
     if (a === GR && G.gr) { const id = NODES.find((x) => (lbText || '').includes(x)) || [...modOf(s, GR)].find((x) => NODES.includes(x)); const P = id ? nodeAt(s, id) : null; if (P) return [P.x, P.y]; }
     if (ROWS.includes(a)) { const id = RIDS[a].find((x) => (lbText || '').includes(x)) || [...modOf(s, a)][0]; const P = id ? rowSlot(s, a, id) : null; if (P) return [P.x, P.y]; }
@@ -343,23 +387,23 @@ function one({ F, deck, labels, sc }) {
     for (let i = R.DST[0]; i < R.DST[1]; i++) put(o, i, dust[i * 2], dust[i * 2 + 1], end ? 0.02 : 0.05 * (0.4 + jit[i * 2]), 0, 3, 1, FAINT);
     const into = (i, x, y) => [U.lerp(dust[i * 2], x, form), U.lerp(dust[i * 2 + 1], y, form)];
     const src = act ? anchor(act.f, s, act.lb) : null;
-    if (IDX) {
-      const on = s.touch.has(IDX) && !end;
-      { const [l0, l1] = R.line; for (let i = l0; i < l1; i++) { const u = (i - l0) / (l1 - l0 - 1), [xx, yy] = into(i, U.lerp(G.ix.x0, G.ix.x1, u), G.ix.y); put(o, i, xx, yy, (on ? 0.6 : 0.35) * dim * form, 0, 0.02, 1, INK); } }
+    for (const X of IXS) {
+      const on = s.touch.has(X) && !end, g = G.ix[X];
+      { const [l0, l1] = R['line:' + X]; for (let i = l0; i < l1; i++) { const u = (i - l0) / (l1 - l0 - 1), [xx, yy] = into(i, U.lerp(g.x0, g.x1, u), g.y); put(o, i, xx, yy, (on ? 0.6 : 0.35) * dim * form, 0, 0.02, 1, INK); } }
       /* 레코드 — 수직선 위의 점, 새로 들어온 레코드(INSERT 25)는 금빛 */
-      for (const id of RECS) {
-        const [r0] = R['r:' + id], it = s[IDX].find((x) => x.id === id), pv = prev[IDX].find((x) => x.id === id);
-        if (!it) { hide('r:' + id); continue; }
+      for (const id of RECS[X]) {
+        const key = 'r:' + X + ':' + id, [r0] = R[key], it = s[X].find((x) => x.id === id), pv = prev[X].find((x) => x.id === id);
+        if (!it) { hide(key); continue; }
         const born = !pv && !end;
-        for (let m = 0; m < RECN; m++) { const i = r0 + m, th = (m / RECN) * Math.PI * 2, [xx, yy] = into(i, ixX(s, it.v) + Math.cos(th) * 3.2, G.ix.y + Math.sin(th) * 3.2); put(o, i, xx, yy, (on ? 0.95 : 0.6) * dim * form, born ? 0.5 : 0, 0.02, 1.4, born ? GOLD : INK); }
+        for (let m = 0; m < RECN; m++) { const i = r0 + m, th = (m / RECN) * Math.PI * 2, [xx, yy] = into(i, ixX(s, X, it.v) + Math.cos(th) * 3.2, g.y + Math.sin(th) * 3.2); put(o, i, xx, yy, (on ? 0.95 : 0.6) * dim * form, born ? 0.5 : 0, 0.02, 1.4, born ? GOLD : INK); }
       }
       /* 잠금 범위 — 막대 + 끝의 원(빈 원 = 열린 끝, 찬 원 = 닫힌 끝) */
-      for (const id of SPIDS) {
-        const [s0] = R['s:' + id], q = s[IDX + '#sp'].find((x) => x.id === id), pq = prev[IDX + '#sp'].find((x) => x.id === id);
-        if (!q && !(pq && !end)) { hide('s:' + id); continue; }
-        const z = q || pq, gone = q ? 0 : show(p, 0.1, 0.4), y = spY(z), xa = ixX(s, z.from), xb = ixX(s, z.to), col = SPC[z.kind] ?? INK;
-        const lit = q && on && hotIt(s, IDX, id), lv = (lit ? 0.95 : on ? 0.6 : 0.4) * dim * form * (1 - gone);
-        const born = q && !pq && !end, from = born && act && act.t === IDX ? src : null;
+      for (const id of SPIDS[X]) {
+        const key = 's:' + X + ':' + id, [s0] = R[key], q = s[X + '#sp'].find((x) => x.id === id), pq = prev[X + '#sp'].find((x) => x.id === id);
+        if (!q && !(pq && !end)) { hide(key); continue; }
+        const z = q || pq, gone = q ? 0 : show(p, 0.1, 0.4), y = spY(X, z), xa = ixX(s, X, z.from), xb = ixX(s, X, z.to), col = SPC[z.kind] ?? INK;
+        const lit = q && on && hotIt(s, X, id), lv = (lit ? 0.95 : on ? 0.6 : 0.4) * dim * form * (1 - gone);
+        const born = q && !pq && !end, from = born && act && act.t === X ? src : null;
         for (let m = 0; m < SPN; m++) {
           const i = s0 + m, f = m / SPN;
           let x, yy = y, sz = 1.3, a0 = lv;
@@ -442,11 +486,11 @@ function one({ F, deck, labels, sc }) {
       shown = kk;
       for (const [lb, [txt, , cls = '', , html = false]] of T) { setText(lb, txt, html); for (const c of ['gold', 'red', 'green']) lb.el.classList.toggle(c, cls === c); }
       const s = S[kk];
-      if (IDX) {
-        for (const it of s[IDX]) place(recLb[it.id], ixX(s, it.v), G.ix.y + 10, 'c', 't');
+      for (const X of IXS) {
+        for (const it of s[X]) place(recLb[X][it.id], ixX(s, X, it.v), G.ix[X].y + 10, 'c', 't');
         /* 범위 이름 — 막대의 가운데 위, 점(rec · blk)은 그 오른쪽 */
-        const SPL = cur.SPL[kk];
-        for (const q of s[IDX + '#sp']) { const L2 = SPL[q.id]; if (L2) place(spLb[q.id], L2.l, spY(q) - 8 - L2.row * RH, 'l', 'b'); }
+        const SPL = cur.SPL[kk][X];
+        for (const q of s[X + '#sp']) { const L2 = SPL[q.id]; if (L2) place(spLb[X][q.id], L2.l, spY(X, q) - 8 - L2.row * RH, 'l', 'b'); }
       }
       if (GR) for (const id of NODES) { const P = nodeAt(s, id); if (P) { place(nLb[id].n, P.x, P.y, 'c', 'c'); place(nLb[id].v, P.x, P.y + 21, 'c', 't'); } }
       for (const a of ROWS) for (const it of s[a]) { const P = rowSlot(s, a, it.id); if (P) place(rowLb[a][it.id], P.x, P.y, 'c', 'c'); }
@@ -484,14 +528,14 @@ function one({ F, deck, labels, sc }) {
     ctx.globalAlpha = 0.45 * o; ctx.strokeStyle = css.faint; ctx.setLineDash([3, 4]);
     for (const y of G.edgeY) if (y != null) seg(ctx, L.x0, y, L.x1, y);
     ctx.setLineDash([]);
-    if (IDX) {
+    for (const X of IXS) {
       /* 축의 양 끝 값과 범위 막대 끝에서 레코드까지의 점선 */
       ctx.globalAlpha = 0.3 * o; ctx.strokeStyle = css.faint; ctx.setLineDash([2, 3]);
-      for (const q of s[IDX + '#sp']) { const y = spY(q); for (const v of q.from === q.to ? [q.from] : [q.from, q.to]) seg(ctx, ixX(s, v), y + 4, ixX(s, v), G.ix.y - 4); }
+      for (const q of s[X + '#sp']) { const y = spY(X, q); for (const v of q.from === q.to ? [q.from] : [q.from, q.to]) seg(ctx, ixX(s, X, v), y + 4, ixX(s, X, v), G.ix[X].y - 4); }
       ctx.setLineDash([]);
       ctx.globalAlpha = 0.3 * o;
-      const SPL = cur.SPL[kk];
-      for (const q of s[IDX + '#sp']) { const L2 = SPL[q.id]; if (L2 && L2.row > 0) seg(ctx, L2.pins[0], spY(q) - 8 - L2.row * RH + 1, L2.pins[0], spY(q) - 7); }
+      const SPL = cur.SPL[kk][X];
+      for (const q of s[X + '#sp']) { const L2 = SPL[q.id]; if (L2 && L2.row > 0) seg(ctx, L2.pins[0], spY(X, q) - 8 - L2.row * RH + 1, L2.pins[0], spY(X, q) - 7); }
     }
     if (GR) {
       /* 간선 끝의 화살촉 */
