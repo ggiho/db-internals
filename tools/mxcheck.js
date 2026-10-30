@@ -55,13 +55,22 @@ for (const ln of mdlsrc.slice(at, at + 1400).split('\n')) {
   const m = ln.match(/^\s*(S|SH|SR|SW|SWLP|SU|SRO|SNW|SNRW|X)\s+\|([^|]*)\|/);
   if (m) { mdlNames.push(m[1]); mdlRows.push(m[2].trim().split(/\s+/).filter(c => c === '+' || c === '-')); }
 }
+/* 대기 우선표 — 같은 주석의 둘째 표(m_waiting_incompatible[0], locks 10 의 mdlw) */
+const pat = mdlsrc.indexOf('Pending requests for lock');
+const mdlPend = [];
+for (const ln of mdlsrc.slice(pat, pat + 1400).split('\n')) {
+  const m = ln.match(/^\s*(S|SH|SR|SW|SWLP|SU|SRO|SNW|SNRW|X)\s+\|([^|]*)\|/);
+  if (m) mdlPend.push(m[2].trim().split(/\s+/).filter(c => c === '+' || c === '-'));
+}
 const SRC = {
+  'm_waiting_incompatible': mdlPend,
+  'm_granted_incompatible': mdlRows,
   'lock_compatibility_matrix': carr('lock_compatibility_matrix'),
   'lock_strength_matrix':      carr('lock_strength_matrix'),
   'MDL_lock::m_object_lock_strategy': mdlRows,
 };
 console.log('소스 : 호환 ' + SRC['lock_compatibility_matrix'].length + '행 · 강도 ' +
-  SRC['lock_strength_matrix'].length + '행 · MDL ' + mdlRows.length + '행(' + mdlNames.join(' ') + ')');
+  SRC['lock_strength_matrix'].length + '행 · MDL ' + mdlRows.length + '행(' + mdlNames.join(' ') + ') · MDL 대기 ' + mdlPend.length + '행');
 
 let bad = 0, checked = 0;
 for (const f of found) {

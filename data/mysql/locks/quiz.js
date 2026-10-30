@@ -100,6 +100,11 @@ export const CORE = {
     a: 'ALTER · LOCK TABLES · I_S 가 각자 다른 단계를 써서',
     x: ['테이블마다 인덱스 수만큼 단계를 따로 두어야 해서', 'MyISAM 호환을 위해 옛 THR_LOCK 모드를 그대로 남겨 두어서', '행 락까지 MDL 이 대신 표현하려고 늘려서'],
   },
+  '10/9': {
+    q: 'A 가 SELECT 로 SHARED_READ 를 쥐고 DROP 의 EXCLUSIVE 가 기다릴 때, 새 SELECT 는?',
+    a: 'PENDING — 기다리는 X 를 앞지르지 못한다',
+    x: ['GRANTED — A 의 SHARED_READ 와 호환이다', 'GRANTED — 읽기는 대기 우선표를 보지 않는다', 'ERROR 1205 를 바로 받는다'],
+  },
   '11/1': {
     q: 'BEGIN; SELECT …; 뒤 방치된 세션이 ALTER 를 막을 때 P_S.data_locks 는?',
     a: '비어 있다 — 쥔 것은 MDL_SHARED_READ 뿐이다',

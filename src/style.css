@@ -306,6 +306,9 @@ html,body{background:var(--bg);color:var(--body);font-family:var(--sans)}
   .cap{grid-template-columns:1fr;gap:14px}
   .cap-r{border-left:none;border-top:1px solid var(--line);padding:12px 0 0}
   .lane{grid-template-columns:60px minmax(0,1fr)}
+  /* 열이 10 개인 행렬은 한 줄을 다 쓴다 — locks 10 의 10×10 둘이 STATEMENT 와 한 줄을 셋으로 나누자
+     칸이 14px 이 되어 머리글 SWLP · SRO · SNW · SNRW 가 5.6 ~ 11.8px 잘렸다(768, 40건) */
+  .act:has(.mx thead th:nth-child(11)){flex-basis:100%}
 }
 
 /* ── 767px 아래 : 만들지 않는다 ──

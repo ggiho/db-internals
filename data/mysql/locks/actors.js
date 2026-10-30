@@ -8,6 +8,7 @@ const ACTORS = {
   stmt: { nm:'STATEMENT',       lane:'sql',  kind:'kv', w:'w2' },
   mdl:  { nm:'MDL QUEUE',       lane:'sql',  kind:'list', w:'w15' },
   mdlm: { nm:'MDL 호환표',          lane:'sql',  kind:'matrix', w:'w2' },
+  mdlw: { nm:'MDL 대기 우선표',       lane:'sql',  kind:'matrix', w:'w2' },
 
   /* InnoDB 층 */
   tl:   { nm:'TABLE LOCKS',     lane:'mem',  kind:'list', w:'w15' },

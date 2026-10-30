@@ -7,8 +7,11 @@
      · 범례를 따로 적은 행렬(mx.no — 강도 표의 예 · 아니오)의 '-' 는 빨강이 아니라 먹색 — '아니오' 는 충돌이 아니다
        축의 이름은 lb.l 이 '행 = A · 열 = B' 로 적으면 A · B, 아니면 STATEMENT 의 키 가운데 값의 첫 낱말이 그 행 · 열 이름인 것
        (강도 행렬 : 이미 걸린 락 X · 새 요청 S)
-     · dim 이 있으면 그 칸들만 또렷하고 나머지는 흐리다(Lab · 무대와 같은 뜻 — 한 줄이나 한 열을 짚는다)
-     · mx.meas = 두 세션으로 잰 칸 { '행/열' : 본 결과 '+' | '-' } — 칸 귀퉁이의 먹색 점, 범례에 '잰 칸'. 점이 없는 칸은 표의 규칙일 뿐이다(locks 04)
+     · dim 이 있으면 그 칸들만 또렷하고 나머지는 흐리다(Lab · 무대와 같은 뜻 — 한 줄이나 한 열을 짚는다). 그 스텝이 건드린 행렬에서만 —
+       아니면 앞 스텝의 dim 이 남아 locks 10 의 9 · 10 에서 호환표의 SU 행(8 스텝의 것)만 밝았다
+     · mx.meas = 두 세션으로 잰 칸 { '행/열' : 본 결과 '+' | '-' } — 칸 귀퉁이의 먹색 점, 범례에 '잰 칸'. 점이 없는 칸은 표의 규칙일 뿐이다(locks 04 · 10)
+     · mx.of = 이 행렬이 대기 우선표인 허가표의 배우(locks 10 의 mdlw → mdlm) — 대칭을 따지지 않고, 대신 INV2 를 본다
+     · 칸 하나의 알갱이는 장면의 칸 수로 나눈다 — 10×10 둘(locks 10)을 25 개씩 그리면 5,000 개로 count 를 넘었다
      · 그 스텝이 건드리지 않은 행렬은 흐리게. kv 는 글 블록
      · act 는 덩어리가 on 칸에서 글 블록으로(행렬 → 행렬이면 그 가운데로)
    셈 맞추기는 audit() — make 가 console.error 로 낸다(storysweep 의 errors 가 잡는다). 무엇을 보는지는 audit 의 주석에.
@@ -18,7 +21,7 @@ import { kvLine } from './kvline.js';
 import { dockAt } from './dock.js';
 import { bake, stepsOf } from '../../bake.js';
 
-const MC = 25, TOK = 150, SW = 20;
+const MC0 = 25, TOK = 150, SW = 20;
 const bare = (v) => String(v ?? '').replace(/\|(gold|red|green)$/, '');
 const tone = (v) => (/\|(gold|red|green)$/.exec(String(v ?? '')) || [])[1] || '';
 const span = { gold: 'q-g', red: 'q-r', green: 'q-gr' };
@@ -63,11 +66,12 @@ function axisTags(st, s, a) {
 
 /* ── 셈 맞추기 — 장면 하나. 어긋나면 그 글을 돌려준다 ──
      모양 : 칸 수 = 행 × 열, 칸은 '+' · '-' 뿐 · on · dim 의 칸('행/열')이 행렬에 있다
-     대칭 : 범례가 허용 · 막힘(호환 — 두 락 사이의 관계)이고 행 = 열이면 칸 (a, b) = (b, a)
+     대칭 : 범례가 허용 · 막힘(호환 — 두 락 사이의 관계)이고 행 = 열이면 칸 (a, b) = (b, a). of 가 있는 대기 우선표는 빼고
+     INV2 : of 의 허가표와 행 · 열이 같고, 대기 우선표의 - 칸은 허가표에서도 - 다(mdl.cc — 기다리던 것이 허가돼도 새로 막히는 요청이 없다)
      순서 : lb.l 이 '강하거나 같은가' 면 반사(대각선이 전부 +) · 반대칭(a ≠ b 이면 둘 다 + 일 수 없다) · 추이
      두 표 : 강도 a ≥ b 이면 a 와 함께 설 수 있는 락은 b 와도 함께 선다 — 호환 열 a 의 + 가 열 b 의 + 안에 든다
              (이미 쥔 강한 락이 있으면 약한 락을 새로 만들지 않는다 — 그래도 되려면 이것이 참이어야 한다)
-     잰 칸 : meas 의 칸이 행렬에 있고, 본 결과가 그 칸의 값과 같다(호환 표 : 함께 GRANTED = + · WAITING = -,
+     잰 칸 : meas 의 칸이 행렬에 있고, 본 결과가 그 칸의 값과 같다(호환 표 : 함께 GRANTED = + · WAITING · PENDING = -,
              강도 표 : 새 락을 안 만듦 = + · 하나 더 만듦 = -). 글이 GRANTED · WAITING 을 말하면 on 칸(하나)이 잰 칸이고 값이 맞다
      act : 'R / C  →  낱말' 이면 그 행렬의 on 에 R/C 가 있고, 낱말이 그 칸의 범례 값이다
      글 : '결과' 같은 값에 범례 값 하나만 있으면 on 칸(하나)의 값과 같다 · lb.l 의 축 이름과 같은 키의 값은 첫 낱말이 그 축의 on 칸 ·
@@ -89,7 +93,12 @@ export function audit(deck, sc) {
         else if (v !== cell(r, c)) out.push(`${at(i)} 의 ${a} 잰 칸 ${key} 에서 본 것은 '${v}' 인데 표는 '${cell(r, c)}' 다`);
       }
       const sq = rows.length === cols.length && rows.every((r) => cols.includes(r));
-      if (sq && !mx.yes && !mx.no) for (const r of rows) for (const c of cols) if (r < c && cell(r, c) !== cell(c, r)) out.push(`${at(i)} 의 ${a} 가 대칭이 아니다 — ${r}/${c} '${cell(r, c)}' · ${c}/${r} '${cell(c, r)}'`);
+      if (mx.of) {
+        const B = s[mx.of], bc = (r, c) => B && (B.cells[B.rows.indexOf(r)] || [])[B.cols.indexOf(c)];
+        if (!B || !B.rows || B.rows.join() !== rows.join() || B.cols.join() !== cols.join()) out.push(`${at(i)} 의 ${a} 는 ${mx.of} 의 대기 우선표인데 행 · 열이 다르다`);
+        else for (const r of rows) for (const c of cols) if (cell(r, c) === '-' && bc(r, c) !== '-') out.push(`${at(i)} 의 ${a} ${r}/${c} 는 - 인데 ${mx.of} 에서는 '${bc(r, c)}' 다 — INV2 (대기에 막히면 허가에도 막힌다)`);
+      }
+      if (sq && !mx.yes && !mx.no && !mx.of) for (const r of rows) for (const c of cols) if (r < c && cell(r, c) !== cell(c, r)) out.push(`${at(i)} 의 ${a} 가 대칭이 아니다 — ${r}/${c} '${cell(r, c)}' · ${c}/${r} '${cell(c, r)}'`);
       if (sq && ORDER.test((mx.lb && mx.lb.l) || '')) {
         for (const r of rows) if (cell(r, r) !== '+') out.push(`${at(i)} 의 ${a} 대각선 ${r}/${r} 가 + 가 아니다 — 자기보다 강하거나 같지 않다`);
         for (const r of rows) for (const c of cols) if (r !== c && cell(r, c) === '+' && cell(c, r) === '+') out.push(`${at(i)} 의 ${a} ${r}/${c} · ${c}/${r} 가 둘 다 + 다(반대칭이 아니다)`);
@@ -117,7 +126,7 @@ export function audit(deck, sc) {
     for (const a of touched) {
       const mx = s[a], [r, c] = mx.on[0].split('/'), v = (mx.cells[mx.rows.indexOf(r)] || [])[mx.cols.indexOf(c)], word = v === '+' ? yesOf(mx) : noOf(mx), ax = axesOf(mx);
       for (const t of st.TEXTS) for (const [k, raw] of Object.entries(s[t])) {
-        const w0 = bare(raw), seen = !mx.yes && !mx.no && (step.ops || {})[t] && (step.ops[t].set || {})[k] !== undefined ? (/\bGRANTED\b/.test(w0) ? '+' : /\bWAITING\b/.test(w0) ? '-' : null) : null;
+        const w0 = bare(raw), seen = !mx.yes && !mx.no && (step.ops || {})[t] && (step.ops[t].set || {})[k] !== undefined ? (/\bGRANTED\b/.test(w0) ? '+' : /\b(WAITING|PENDING)\b/.test(w0) ? '-' : null) : null;
         if (seen && (mx.meas || {})[r + '/' + c] !== seen) out.push(`${at(i)} 의 ${t}.${k} "${w0}" — ${a} ${r}/${c} 가 '${seen}' 로 잰 칸이 아니다 (meas ${JSON.stringify((mx.meas || {})[r + '/' + c] ?? null)})`);
         const w = w0, says = [yesOf(mx), noOf(mx)].filter((x) => new RegExp(`(^|[\\s·])${x}($|[\\s·])`).test(w));
         if (says.length === 1 && (step.ops || {})[t] && (step.ops[t].set || {})[k] !== undefined && says[0] !== word) out.push(`${at(i)} 의 ${t}.${k} "${w}" 인데 ${a} ${r}/${c} 칸은 '${word}'`);
@@ -135,6 +144,9 @@ function make({ F, deck, labels, scene }) {
   const N = F.N, sc = scene(), st = stateOf(deck, sc), { A, S0, S, NK, MATS, TEXTS } = st;
   for (const m of audit(deck, sc)) console.error(m);
   const SHAPE = Object.fromEntries(MATS.map((a) => [a, { r: S0[a].rows.length, c: S0[a].cols.length }]));
+  /* 칸 하나의 알갱이 — 04(칸 50)는 25 그대로, 10(칸 200)은 count 안에 들도록 줄인다 */
+  const CELLS = MATS.reduce((t, a) => t + SHAPE[a].r * SHAPE[a].c, 0);
+  const MC = Math.max(9, Math.min(MC0, Math.floor((N - MATS.length * 2 * SW - TOK - 100) / Math.max(1, CELLS))));
 
   /* ── 알갱이 구역 ── */
   const R0 = {};
@@ -204,7 +216,10 @@ function make({ F, deck, labels, scene }) {
     const tagW = Object.fromEntries(MATS.map((a) => [a, Math.ceil(most(ML[a].rt).w)])), rhW = Object.fromEntries(MATS.map((a) => [a, Math.ceil(Math.max(14, ...ML[a].r.map((lb) => most(lb).w)))]));
     const fixedW = (a) => tagW[a] + (tagW[a] ? 8 : 0) + rhW[a] + 8;
     const capH = (a, w) => { wrap(ML[a].cap, w); return most(ML[a].cap).h; };
-    const blockH = (a, cs, w) => HD + LH + LH + SHAPE[a].r * cs + 8 + LH + 6 + capH(a, w);
+    /* 열 이름이 칸보다 넓으면 한 칸 걸러 한 줄 위로 — 10×10(locks 10)의 SWLP · SNW · SNRW 가 31px 칸에서 서로 붙었다 */
+    const colW = Object.fromEntries(MATS.map((a) => [a, Math.ceil(Math.max(0, ...ML[a].c.map((lb) => most(lb).w)))]));
+    let STG = {};
+    const blockH = (a, cs, w) => HD + LH + LH + (STG[a] ? LH : 0) + SHAPE[a].r * cs + 8 + LH + 6 + capH(a, w);
     const tryLay = (side) => {
       const n = MATS.length, bw = side ? (ww - (n - 1) * gap) / n : ww;
       const csW = Math.min(...MATS.map((a) => (bw - fixedW(a)) / SHAPE[a].c));
@@ -212,10 +227,13 @@ function make({ F, deck, labels, scene }) {
       const fixH = side ? Math.max(...MATS.map((a) => blockH(a, 0, bw))) : MATS.reduce((t, a) => t + blockH(a, 0, bw), 0);
       const rowsH = side ? Math.max(...MATS.map((a) => SHAPE[a].r)) : MATS.reduce((t, a) => t + SHAPE[a].r, 0);
       const cs = Math.floor(Math.min(42, csW, (restH - fixH) / rowsH));
-      return { side, bw, cs, h: tH + (side ? Math.max(...MATS.map((a) => blockH(a, cs, bw))) : MATS.reduce((t, a) => t + blockH(a, cs, bw), 0) + (n - 1) * 14) };
+      const stg = Object.fromEntries(MATS.map((a) => [a, colW[a] + 4 > cs]));
+      if (MATS.some((a) => stg[a] && !STG[a])) { const keep = STG; STG = stg; const L2 = tryLay(side); STG = keep; return L2; }
+      return { side, bw, cs, stg: { ...STG }, h: tH + (side ? Math.max(...MATS.map((a) => blockH(a, cs, bw))) : MATS.reduce((t, a) => t + blockH(a, cs, bw), 0) + (n - 1) * 14) };
     };
     const lays = MATS.length > 1 ? [tryLay(true), tryLay(false)] : [tryLay(false)];
     const lay = lays.reduce((p, q) => (q.cs > p.cs + 2 ? q : p));
+    STG = lay.stg;
     if (lay.cs < 14 || lay.h > wh + 1) console.error(`locks ${sc.num} 행렬 세계 : 칸 ${lay.cs}px · 높이 ${Math.round(lay.h)} / 무대 ${Math.round(wh)} (${L.W}×${L.H})`);
     for (const a of MATS) wrap(ML[a].cap, lay.bw);
     HT = lay.h;
@@ -226,10 +244,10 @@ function make({ F, deck, labels, scene }) {
     for (const a of TEXTS) { PA(hd[a], L.x0, y); PA(tx[a], L.x0, y + HD); G.text[a] = { x: L.x0, y, h: HD + most(tx[a]).h }; y += HD + most(tx[a]).h + 12; }
     MATS.forEach((a, n) => {
       const bx = lay.side ? L.x0 + n * (lay.bw + gap) : L.x0, by = lay.side ? y : y + MATS.slice(0, n).reduce((t, b) => t + blockH(b, lay.cs, lay.bw) + 14, 0);
-      const M = ML[a], cs = lay.cs, gx = bx + fixedW(a), gy = by + HD + LH + LH;
+      const M = ML[a], cs = lay.cs, gx = bx + fixedW(a), gy = by + HD + LH + LH + (STG[a] ? LH : 0);
       G.mat[a] = { x: gx, y: gy, cs, bx, by, w: lay.bw };
       PA(hd[a], bx, by);
-      M.c.forEach((lb, j) => PA(lb, gx + (j + 0.5) * cs, gy - 4, 'c', 'b'));
+      M.c.forEach((lb, j) => PA(lb, gx + (j + 0.5) * cs, gy - 4 - (STG[a] && j % 2 ? LH : 0), 'c', 'b'));
       M.r.forEach((lb, i) => PA(lb, gx - 8, gy + (i + 0.5) * cs, 'r', 'c'));
       /* 축 이름 — 그 스텝의 on 행 왼쪽 · on 열 위. 열 이름은 격자 폭 안에서 가운데로 */
       S.forEach((s, kk) => {
@@ -237,7 +255,7 @@ function make({ F, deck, labels, scene }) {
         if (g.rowAt) G.pos[kk].set(M.rt, [gx - 8 - rhW[a] - 8, gy + (mx.rows.indexOf(g.rowAt) + 0.5) * cs, 'r', 'c']);
         if (g.colAt) {
           const w = widthOf(M.ct, TX[kk].get(M.ct)[0]), cx = gx + (mx.cols.indexOf(g.colAt) + 0.5) * cs;
-          G.pos[kk].set(M.ct, [Math.max(bx + w / 2, Math.min(bx + lay.bw - w / 2, cx)), gy - 4 - LH, 'c', 'b']);
+          G.pos[kk].set(M.ct, [Math.max(bx + w / 2, Math.min(bx + lay.bw - w / 2, cx)), gy - 4 - LH - (STG[a] ? LH : 0), 'c', 'b']);
         }
       });
       const ly = gy + SHAPE[a].r * cs + 8 + LH / 2;
@@ -286,7 +304,7 @@ function make({ F, deck, labels, scene }) {
       const on = new Set(mx.on || []), dm = new Set(mx.dim || []), pon = new Set(pm.on || []), g = TAGS[kk][a], noC = mx.no ? INK : RED;
       for (let i = 0; i < SHAPE[a].r; i++) for (let j = 0; j < SHAPE[a].c; j++) {
         const key = mx.rows[i] + '/' + mx.cols[j], yes = (mx.cells[i] || [])[j] === '+', x0 = M.x + j * cs + 3.5, y0 = M.y + i * cs + 3.5;
-        const hot = on.has(key), off = dm.size && !dm.has(key) && !hot, band = live2 && (g.rows.includes(mx.rows[i]) || g.cols.includes(mx.cols[j]));
+        const hot = on.has(key), off = live2 && dm.size && !dm.has(key) && !hot, band = live2 && (g.rows.includes(mx.rows[i]) || g.cols.includes(mx.cols[j]));
         /* 새로 짚은 칸은 서서히 금빛 — 서는 자리 전에 끝난다 */
         const q = hot && live2 ? (pon.has(key) ? 1 : lit0) : 0;
         const al = (live2 ? (band ? 0.95 : 0.7) : 0.45) * (off ? 0.28 : 1) * dim * form;
