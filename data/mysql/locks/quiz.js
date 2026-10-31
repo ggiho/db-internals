@@ -110,7 +110,12 @@ export const CORE = {
     a: '비어 있다 — 쥔 것은 MDL_SHARED_READ 뿐이다',
     x: ['그 SELECT 가 읽은 행의 S 락이 보인다', '테이블 IS 락 한 줄이 보인다', 'ALTER 가 요청한 X 가 PENDING 으로 보인다'],
   },
-  '11/5': {
+  '11/7': {
+    q: 'ALTER 가 lock_wait_timeout 으로 1205 를 받으면 그 뒤에 줄 선 SELECT 들은?',
+    a: '같은 순간 모두 지나간다 — 원인 트랜잭션은 그대로 열려 있다',
+    x: ['ALTER 와 함께 1205 를 받는다', '원인 트랜잭션이 끝날 때까지 계속 기다린다', '하나씩 차례로 lock_wait_timeout 만큼 더 기다린다'],
+  },
+  '11/9': {
     q: 'MDL 대기 줄을 푸는 방법은?',
     a: 'GRANTED 를 쥔 쪽이 COMMIT 하거나 KILL 된다',
     x: ['ALTER 를 KILL 한다 — 그러면 다시 해도 된다', 'lock_wait_timeout 을 늘린다', '뒤에 쌓인 SELECT 들을 KILL 한다'],

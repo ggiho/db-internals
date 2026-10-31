@@ -8,6 +8,10 @@
      · 나머지 kv 는 글 블록(SQL 층), 나머지 list · frames 는 칸 줄. SQL 층과 InnoDB 사이 · 메모리와 디스크 사이에 점선
      · 셈 맞추기 — 보유 줄의 mode 끼리 호환되지 않거나(X 는 무엇과도 함께 보유되지 않는다), by 가 없는 칸을 가리키거나,
        q 가 granted · pending · gone 밖이면 console.error
+     · 시간 띠 — init 의 MDL 배우에 tl 이 있으면(locks 11) 잰 PENDING 수를 초 위의 계단으로 대기열 아래에 그린다.
+       tl = { at:[배우, 키] — 그 값 '1차 +12.25 초' 가 지금(차수 · 초), n:[배우, 키] — 그 값의 첫 정수가 지금의 PENDING,
+              runs:{ 차수:[[초, 수] …] }, lb } — 지금의 차수는 지금까지, 앞 차수는 흐리게 끝까지. 셈 맞추기 : 지금의 잰 수 =
+       대기 줄의 칸 수 = n 의 수, 차수 안의 초는 늘기만 한다. 차수 이름은 지난 차수의 떨어지는 곳에
    손잡이가 있는 장면(lock_wait_timeout)은 값마다 따로 bake 해 두고 setVary 로 바꾼다.
    움직임은 p 0.52 안에 끝낸다(서는 자리 0.58 = 끝 상태). 포인터에 반응하지 않는다. */
 import { INK, GOLD, RED, GREEN, ACCENT, FAINT, U } from '../field.js';
@@ -72,6 +76,16 @@ function make({ F, deck, labels, scene }) {
     return out;
   };
   const SQLQ = !!MQ && A[MQ].lane === 'sql';
+  const TL = MQ && sc.init[MQ] && sc.init[MQ].tl ? sc.init[MQ].tl : null, RUNS = TL ? Object.keys(TL.runs) : [];
+  const TMAX = TL ? Math.ceil(Math.max(...RUNS.flatMap((r) => TL.runs[r].map((q) => q[0]))) + 1) : 0;
+  const NMAX = TL ? Math.max(1, ...RUNS.flatMap((r) => TL.runs[r].map((q) => q[1]))) : 0;
+  const TXS = TL ? Array.from({ length: Math.floor(TMAX / 5) + 1 }, (_, i) => i * 5) : [];
+  const kvOf = (s, ak) => bare(((s[ak[0]] || {})[ak[1]]) ?? '');
+  const nowOf = (s) => { const m = TL && /^(\S+)\s+\+?([\d.]+)\s*초/.exec(kvOf(s, TL.at)); return m && TL.runs[m[1]] ? { run: m[1], t: Number(m[2]) } : null; };
+  const valAt = (run, t) => { let v = 0; for (const [x, n] of TL.runs[run]) if (x <= t + 1e-9) v = n; return v; };
+  /* 차수의 이름표 자리 — 가장 높은 데서 0 으로 떨어지는 초(두 차수가 1 초에 하나씩 같은 계단을 올라 겹치므로 떨어지는 곳에 단다) */
+  const dropOf = (r) => { const q = TL.runs[r]; let pk = 0; q.forEach((x, i) => { if (x[1] > q[pk][1]) pk = i; }); const d = q.slice(pk).find((x) => x[1] === 0); return d ? d[0] : q[q.length - 1][0]; };
+  if (TL) for (const r of RUNS) TL.runs[r].forEach((q, i, a) => { if (i && q[0] < a[i - 1][0]) console.error(`${sc.num} 세계 : 시간 띠 ${r} 의 ${i + 1} 번째 점 ${q[0]} 초가 앞 점보다 이르다`); });
 
   /* 셈 맞추기 */
   for (const [kk, b] of BAKES) [b.S0, ...b.S].forEach((s, i) => {
@@ -81,6 +95,13 @@ function make({ F, deck, labels, scene }) {
     for (const it of its) {
       if (!['granted', 'pending', 'gone'].includes(it.q)) console.error(`${at} : ${it.id} 의 q ${it.q} 를 모른다`);
       if (it.by && !its.some((x) => x.id === it.by)) console.error(`${at} : ${it.id} 를 막는 ${it.by} 가 대기열에 없다`);
+    }
+    if (TL) {
+      const nw = nowOf(s), pend = its.filter((x) => x.q === 'pending').length;
+      if (!nw) console.error(`${at} : 시간 띠의 지금 ${TL.at.join('.')} '${kvOf(s, TL.at)}' 를 못 읽었다 — '차수 +초 초'`);
+      else if (valAt(nw.run, nw.t) !== pend) console.error(`${at} : ${nw.run} +${nw.t} 초에 잰 PENDING 은 ${valAt(nw.run, nw.t)} 인데 대기 줄은 ${pend} 칸이다`);
+      const nv = TL.n ? /\d+/.exec(kvOf(s, TL.n)) : null;
+      if (TL.n && (!nv || Number(nv[0]) !== pend)) console.error(`${at} : ${TL.n.join('.')} '${kvOf(s, TL.n)}' 의 수가 대기 줄 ${pend} 칸과 다르다`);
     }
     const held = its.flatMap((x) => (x.q === 'granted' ? heldOf(x.mode) : heldPart(x)).map((m) => ({ id: x.id, m })));
     if (held.some((h) => h.m === 'X') && new Set(held.map((h) => h.id)).size > 1) console.error(`${at} : X 를 쥔 칸이 있는데 다른 칸도 보유 중이다 — ${held.map((h) => h.id + ' ' + h.m).join(', ')}`);
@@ -113,6 +134,7 @@ function make({ F, deck, labels, scene }) {
   const rowLb = Object.fromEntries(ROWS.map((a) => [a, Object.fromEntries(RIDS[a].map((id) => [id, label('aq aq-c')]))]));
   const rowCap = Object.fromEntries(ROWS.map((a) => [a, label('aq ml aq-b')]));
   const edgeLb = EDG.map(() => label('aq')), tok = label('stn-tok');
+  const tlLb = TL ? { cap: label('aq ml aq-b'), now: label('aq'), x: TXS.map(() => label('aq aq-c')), y: [label('aq'), label('aq')], run: Object.fromEntries(RUNS.map((r) => [r, label('aq')])) } : null;
 
   const focusOf = (s, a) => (Array.isArray(s.look[a]) ? new Set(s.look[a].map(String)) : null);
   const modOf = (s, a) => { const c = s.chg[a]; return new Set(c ? [...(c.mod || []), ...(c.add || []), ...(c.keys || [])].map(String) : []); };
@@ -145,6 +167,15 @@ function make({ F, deck, labels, scene }) {
       for (const id of RIDS[a]) { const it = s[a].find((x) => x.id === id); t.set(rowLb[a][id], [it ? id : '', on(a) && !!it && hotIt(s, a, id), it && it.tag === 'x' ? 'red' : '', !!it]); }
       t.set(rowCap[a], [capOf(s[a]) || (s[a].length ? '' : '—'), on(a), '', true, true]);
     }
+    if (TL) {
+      const nw = nowOf(s), ci = nw ? RUNS.indexOf(nw.run) : -1, v = nw ? valAt(nw.run, nw.t) : 0;
+      t.set(tlLb.cap, [esc(TL.lb || ''), on(MQ), '', true, true]);
+      TXS.forEach((x, i) => t.set(tlLb.x[i], [x + ' 초', false]));
+      t.set(tlLb.y[0], ['0', false]); t.set(tlLb.y[1], [String(NMAX), false]);
+      /* 차수 이름은 지난 차수에만 — 지금의 차수는 오른쪽 위의 글이 말하고, 그 선은 아직 이름 자리(떨어지는 곳)까지 오지 않았다 */
+      RUNS.forEach((r, i) => t.set(tlLb.run[r], [r, false, '', i < ci]));
+      t.set(tlLb.now, [nw ? `${nw.run} +${nw.t} 초  ·  PENDING ${v}` : '', true, v ? 'red' : 'green', !!nw]);
+    }
     EDG.forEach((e, i) => t.set(edgeLb[i], [e.lb, false, (s.step.hot || (s.step.act && s.step.act.hot)) === e.hot ? 'gold' : '', i === 0 ? (TEXTS.length > 0 || SQLQ) && (ROWS.length > 0 || (!!MQ && !SQLQ)) : MEMR.length > 0 && DSKR.length > 0]));
     return t;
   });
@@ -158,7 +189,7 @@ function make({ F, deck, labels, scene }) {
   const rnd = U.rng(67);
   const dust = new Float32Array(N * 2), jit = new Float32Array(N * 2).map(() => rnd() - 0.5);
   /* 두 줄 사이 — 16 이었을 때 보유 칸 바로 아래의 대기 칸에서 그 칸으로 가는 화살표가 15px 이라 보이지 않았다(locks 11) */
-  const QH = 36, LANEW = 40, QG = 30;
+  const QH = 36, LANEW = 40, QG = 30, TLH = 50;
   /* build 가 짠 높이 — Story 가 남는 높이만큼 세계를 더 키운다(Story.jsx rebuild) */
   let HT = 0;
   function build(L) {
@@ -170,15 +201,27 @@ function make({ F, deck, labels, scene }) {
     for (const a of TEXTS) wrap(tx[a], tW);
     const tRows = Math.ceil(TEXTS.length / tn), tHs = Array.from({ length: tRows }, (_, r) => hMax(TEXTS.slice(r * tn, r * tn + tn).map((a) => tx[a])));
     /* 대기열 칸 폭 — 이름과 mode 중 넓은 것. 한 줄에 다 들어가지 않으면 좁힌다 */
-    const qw0 = Object.fromEntries(QIDS.map((id) => [id, Math.max(70, Math.max(most(qLb[id].n).w, most(qLb[id].m).w) + 16)]));
+    /* 잴 때는 앞 build 가 건 maxWidth 를 풀고 잰다 — 걸린 채 재면 접힌 폭이 나온다 */
+    const natW = (lb) => { const k = lb.el.style.maxWidth; lb.el.style.maxWidth = 'none'; const w = most(lb).w; lb.el.style.maxWidth = k; return w; };
+    const qnat = Object.fromEntries(QIDS.map((id) => [id, Math.max(natW(qLb[id].n), natW(qLb[id].m), ...(HIDS.includes(id) ? [natW(hLb[id].n), natW(hLb[id].m)] : []))]));
+    const qw0 = Object.fromEntries(QIDS.map((id) => [id, Math.max(70, qnat[id] + 16)]));
     const perLane = MQ ? Math.max(1, ...all.flatMap((s) => [0, 1].map((l) => s[MQ].filter((x) => laneOf(x) === l).length))) : 1;
-    const widest = MQ ? Math.max(...all.flatMap((s) => [0, 1].map((l) => laneIts(s, l).reduce((t, x) => t + qw0[x.id] + 10, -10)))) : 0;
-    const qScale = widest > ww - LANEW ? (ww - LANEW) / widest : 1;
-    G.qw = Object.fromEntries(QIDS.map((id) => [id, qw0[id] * qScale]));
+    /* 줄여도 칸 사이 10px 은 그대로이므로 틈을 빼고 나눈다 — 틈까지 함께 나눴더니 locks 11 의 12 칸이 무대 오른쪽으로 8 ~ 40px 나갔다 */
+    const lanes = MQ ? all.flatMap((s) => [0, 1].map((l) => laneIts(s, l))).filter((it) => it.length) : [];
+    /* 줄여도 글자보다 좁히지 않는다 — 고르게 줄였더니 1024 에서 ALTER 의 'SU → X' 가 칸 밖으로 나가 이음 알갱이 위에 얹혔다(locks 11).
+       글자 폭에 닿은 칸은 거기서 멈추고, 남은 몫은 아직 여유 있는 칸들이 더 줄여 진다 */
+    const qmn = Object.fromEntries(QIDS.map((id) => [id, Math.min(qw0[id], qnat[id] + 8)]));
+    const fit = (it, sc) => it.reduce((t, x) => t + Math.max(qmn[x.id], qw0[x.id] * sc), 0);
+    const scaleOf = (it) => { const room = ww - LANEW - 10 * (it.length - 1); if (fit(it, 1) <= room) return 1; let lo = 0, hi = 1; for (let i = 0; i < 30; i++) { const m = (lo + hi) / 2; if (fit(it, m) <= room) lo = m; else hi = m; } return lo; };
+    const qScale = Math.min(1, ...lanes.map(scaleOf));
+    G.qw = Object.fromEntries(QIDS.map((id) => [id, Math.max(qmn[id], qw0[id] * qScale)]));
     for (const id of QIDS) { wrap(qLb[id].n, G.qw[id] - 6); wrap(qLb[id].m, G.qw[id] - 6); }
     for (const id of HIDS) { wrap(hLb[id].n, G.qw[id] - 6); wrap(hLb[id].m, G.qw[id] - 6); }
     wrap(qCap, ww);
     const qcH = MQ ? most(qCap).h : 0;
+    /* 시간 띠의 설명은 오른쪽의 지금 글자 자리를 남기고 접는다 */
+    if (TL) wrap(tlLb.cap, Math.max(120, ww - most(tlLb.now).w - 16));
+    const tlCapH = TL ? Math.max(most(tlLb.cap).h, most(tlLb.now).h) : 0;
     const sw = Object.fromEntries(ROWS.map((a) => [a, Object.fromEntries(RIDS[a].map((id) => [id, Math.max(30, Math.ceil(most(rowLb[a][id]).w) + 14)]))]));
     const rc = ww >= 400 ? 2 : 1, rW = (ww - (rc - 1) * gap) / rc;
     /* 칸 줄의 폭 — 한 상태에 함께 있는 칸들의 폭 중 가장 넓은 것(innodb-lock 과 같은 이유 — '(비었다)' 까지 더해 설명이 멀어졌다, locks 11 의 P_S) */
@@ -205,6 +248,17 @@ function make({ F, deck, labels, scene }) {
         G.lane = [y + QH / 2, y + QH + QG + QH / 2]; G.anc[MQ] = { x: L.x0 + ww / 2, y: G.lane[0] };
         place(laneLb[0], L.x0, G.lane[0], 'l', 'c'); place(laneLb[1], L.x0, G.lane[1], 'l', 'c');
         y += 2 * QH + QG + 26; G.qCapY = y; place(qCap, L.x0, y); y += qcH + 12 * k;
+        if (TL) {
+          /* 시간 띠 — 위 줄에 설명(왼쪽) · 지금(오른쪽), 아래에 계단, 그 밑에 초 */
+          /* 세로축의 꼭대기 수는 띠의 위 끝에 가운데를 맞추므로 그 반 높이만큼 더 띄운다 — 6 만 띄웠더니 1728 이상에서 설명과 겹쳤다 */
+          place(tlLb.cap, L.x0, y); place(tlLb.now, L.x1, y, 'r', 't'); y += tlCapH + 4 + Math.ceil(most(tlLb.y[1]).h / 2);
+          const T = (G.tl = { x0: L.x0 + LANEW, x1: L.x1 - 8, y0: y, y1: y + TLH });
+          place(tlLb.y[1], T.x0 - 6, T.y0, 'r', 'c'); place(tlLb.y[0], T.x0 - 6, T.y1, 'r', 'c');
+          /* 0 초는 축 끝에서 오른쪽으로 — 가운데에 두었더니 세로축의 0 과 겹쳤다(1366 이하) */
+          TXS.forEach((x, i) => place(tlLb.x[i], T.x0 + (x / TMAX) * (T.x1 - T.x0), T.y1 + 4, i ? 'c' : 'l', 't'));
+          for (const r of RUNS) place(tlLb.run[r], T.x0 + (dropOf(r) / TMAX) * (T.x1 - T.x0) + 5, (T.y0 + T.y1) / 2, 'l', 'c');
+          y = T.y1 + 4 + 14 + 12 * k;
+        }
       };
       if (MQ && SQLQ) queue();
       if ((TEXTS.length || SQLQ) && (ROWS.length || (MQ && !SQLQ)) && EDG[0]) { y += 2 * k; G.edgeY[0] = y; place(edgeLb[0], L.x1, y + 2, 'r', 't'); y += 8 + 8 * k; }
@@ -390,6 +444,24 @@ function make({ F, deck, labels, scene }) {
         const ang = Math.atan2(y1 - cy, B.x - cx);
         seg(ctx, B.x, y1, B.x - Math.cos(ang - 0.4) * 6, y1 - Math.sin(ang - 0.4) * 6); seg(ctx, B.x, y1, B.x - Math.cos(ang + 0.4) * 6, y1 - Math.sin(ang + 0.4) * 6);
       }
+    }
+    if (TL && G.tl) {
+      /* 시간 띠 — 축 · 지금의 차수(빨강, 지금까지) · 앞 차수(흐리게, 끝까지) · 지금의 점 */
+      const T = G.tl, nw = nowOf(s), ci = nw ? RUNS.indexOf(nw.run) : -1;
+      const X = (v) => T.x0 + (Math.min(v, TMAX) / TMAX) * (T.x1 - T.x0), Y = (n) => T.y1 - (n / NMAX) * (T.y1 - T.y0);
+      ctx.globalAlpha = 0.4 * o; ctx.strokeStyle = css.faint; ctx.lineWidth = 1;
+      seg(ctx, T.x0, T.y1 + 0.5, T.x1, T.y1 + 0.5); seg(ctx, T.x0 + 0.5, T.y0, T.x0 + 0.5, T.y1);
+      for (const x of TXS) seg(ctx, X(x), T.y1, X(x), T.y1 + 3);
+      RUNS.forEach((r, i) => {
+        if (i > ci) return;
+        const cur = i === ci, upto = cur ? nw.t : TMAX, q = TL.runs[r];
+        ctx.globalAlpha = (cur ? 0.9 : 0.3) * o; ctx.strokeStyle = cur ? css.red : css.ink; ctx.lineWidth = cur ? 1.6 : 1;
+        let pn = q[0][1]; ctx.beginPath(); ctx.moveTo(X(q[0][0]), Y(pn));
+        for (const [x, n] of q) { if (x > upto + 1e-9) break; ctx.lineTo(X(x), Y(pn)); ctx.lineTo(X(x), Y(n)); pn = n; }
+        ctx.lineTo(X(upto), Y(pn)); ctx.stroke();
+        if (cur) { ctx.globalAlpha = 0.95 * o; ctx.fillStyle = pn ? css.red : css.green; ctx.beginPath(); ctx.arc(X(nw.t), Y(pn), 3, 0, Math.PI * 2); ctx.fill(); }
+      });
+      ctx.lineWidth = 1;
     }
     ctx.restore();
   }
