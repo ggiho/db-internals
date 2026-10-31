@@ -2,6 +2,9 @@
      · 인덱스 = axis 배우. 수직선 위의 레코드 점(items 의 v), 그 위에 잠금 범위(spans) —
        next (a, b] = 왼쪽 빈 원 · 오른쪽 찬 원, gap (a, b) = 양끝 빈 원, rec = 레코드 위의 굵은 점, blk = 기다리는 요청(빨간 화살표)
      · wait-for 그래프 = graph 배우. 노드와 간선, 간선이 이루는 사이클은 세계가 찾아 빨갛게
+       이웃한 노드 사이 간선은 곧은 화살표, 사이에 다른 노드가 있는 간선은 설명 아래로 내려가는 ㄷ 자 활(locks 16 — 셋이 A 하나를 기다린다).
+       노드 설명에 'w N'(INNODB_TRX.trx_schedule_weight)이 있으면 그 장면의 그래프는 InnoDB 의 blocking_trx 다 — 기다리는 노드는 나가는 간선이
+       꼭 하나, 기다리지 않는 노드는 없고, 무게는 1 + 들어오는 간선 시작 노드 무게의 합(CATS 규칙). 어긋나면 console.error
      · 나머지 kv 는 글 블록(SQL 층), 나머지 list 는 칸 줄
      · 셈 맞추기 — next 의 b 가 레코드가 아니거나 a 가 그 바로 앞 레코드(첫 레코드면 축의 시작)가 아니거나, gap 의 양끝이
        이웃한 레코드가 아니거나, rec 가 레코드 위에 있지 않거나, hot 으로 칠한 간선이 사이클 위에 없으면 console.error
@@ -115,6 +118,22 @@ function one({ F, deck, labels, sc }) {
   const SPIDS = Object.fromEntries(IXS.map((X) => [X, [...new Set(all.flatMap((s) => s[X + '#sp'].map((q) => q.id)))]]));
   const NODES = GR ? ids(GR) : [];
   const EIDS = GR ? [...new Set(all.flatMap((s) => s[GR + '#e'].map((q) => q.id)))] : [];
+  /* 사이에 다른 노드가 있는 두 노드 사이의 간선(locks 16 — 대기자 셋이 모두 A 를 기다린다)은 곧은 화살표로 그리면 사이 노드를 지나간다.
+     그래서 노드 아래, 설명 아래로 내려가는 ㄷ 자 활로 그린다. 활끼리 가로로 겹치면 한 단 더 깊게 — 짧은 것부터 단을 정한다 */
+  const arcLv = (s) => {
+    const out = new Map(), put = [], on = new Set(GR ? s[GR].map((x) => NODES.indexOf(x.id)) : []);
+    const E = GR ? s[GR + '#e'].map((e) => ({ e, a: NODES.indexOf(e.from), b: NODES.indexOf(e.to) })).filter((q) => q.a >= 0 && q.b >= 0) : [];
+    for (const q of E.sort((p, r) => Math.abs(p.a - p.b) - Math.abs(r.a - r.b))) {
+      const lo = Math.min(q.a, q.b), hi = Math.max(q.a, q.b);
+      /* 사이 칸이 비어 있으면(locks 01 의 10 스텝 — C 가 아직 없다) 곧은 화살표로 둔다 */
+      let mid = false; for (let j = lo + 1; j < hi; j++) if (on.has(j)) mid = true;
+      if (!mid) { out.set(q.e.id, 0); continue; }
+      const lv = 1 + Math.max(0, ...put.filter((r) => r.lo < hi && lo < r.hi).map((r) => r.lv));
+      put.push({ lo, hi, lv }); out.set(q.e.id, lv);
+    }
+    return out;
+  };
+  const ARCMAX = Math.max(0, ...all.map((s) => Math.max(0, ...arcLv(s).values())));
   /* 사이클 위의 간선 — 간선마다, 그 끝에서 출발해 그 시작으로 돌아오는 길이 있으면 */
   const cycleOf = (s) => {
     if (!GR) return new Set();
@@ -163,6 +182,21 @@ function one({ F, deck, labels, sc }) {
       }
     }
     if (GR) { const cyc = cycleOf(s); for (const e of s[GR + '#e']) if (e.hot && !cyc.has(e.id)) console.error(`${at} : hot 간선 ${e.id} 가 사이클 위에 없다`); }
+    /* 16 — 노드 설명에 'w N'(INNODB_TRX.trx_schedule_weight)이 있으면 그래프는 InnoDB 의 wait-for(trx->lock.blocking_trx)다 :
+       기다리는 노드마다 나가는 간선이 꼭 하나, 무게는 lock_wait_compute_and_publish_weights_except_cycles 의 규칙대로
+       1 + (그 노드로 들어오는 간선의 시작 노드 무게의 합). 잰 무게와 그린 간선이 어긋나면 console.error */
+    if (GR && s[GR].some((it) => /(^|\s)w \d+/.test(it.sub))) {
+      const E = s[GR + '#e'], wOf = (id) => { const it = s[GR].find((x) => x.id === id), m = it && /(?:^|\s)w (\d+)/.exec(it.sub); return m ? +m[1] : null; };
+      for (const it of s[GR]) {
+        const outN = E.filter((e) => e.from === it.id).length;
+        if (it.tag === 'wait' && outN !== 1) console.error(`${at} : 기다리는 노드 ${it.id} 의 간선이 ${outN} 개 — blocking_trx 는 하나다`);
+        if (it.tag !== 'wait' && outN) console.error(`${at} : 기다리지 않는 노드 ${it.id} 에서 간선이 나간다`);
+        const w = wOf(it.id); if (w == null) continue;
+        if (it.tag !== 'wait') { console.error(`${at} : 기다리지 않는 노드 ${it.id} 에 무게 w ${w} — 무게는 기다리는 trx 에만 실린다`); continue; }
+        const want = 1 + E.filter((e) => e.to === it.id).reduce((t, e) => t + (wOf(e.from) ?? 1), 0);
+        if (w !== want) console.error(`${at} : ${it.id} 의 w ${w} 인데 들어오는 간선으로 세면 ${want}`);
+      }
+    }
     /* 13 — bitmap 띠. n bits 는 RecLock::lock_size 의 규칙 8 × (1 + (n_heap + 64) / 8) 이어야 하고(STATUS 의 'n bits 624' 와 ibdpage 의
        PAGE_N_HEAP 555 를 따로 적으므로 둘이 어긋나면 하나가 틀렸다), 켜진 bit 는 그 page 의 heap_no 0 ‥ n_heap − 1 안이어야 한다.
        같은 trx · page · mode 의 struct 가 같은 크기로 둘이면 틀렸다 — lock_rec_add_to_queue 와 lock_rec_lock_fast 는 그때 bit 만 켠다 */
@@ -385,7 +419,7 @@ function one({ F, deck, labels, sc }) {
         g.list.forEach((a, i) => { const x = L.x0 + (i % g.tn) * (g.tW + gap), yy = rowY[Math.floor(i / g.tn)]; place(hd[a], x, yy); place(tx[a], x, yy + HD); G.anc[a] = { x: x + g.tW - 18, y: yy + 8 }; });
         y = rowY[g.tRows];
       };
-      const placeGraph = (x0, yy) => { place(hd[GR], x0, yy); G.gr = { x0, y: yy + HD + 15, nw }; G.anc[GR] = { x: x0 + nw / 2, y: yy + HD + 15 }; return HD + 30 + 6 + nvH + 6; };
+      const placeGraph = (x0, yy) => { place(hd[GR], x0, yy); G.gr = { x0, y: yy + HD + 15, nw, nvH }; G.anc[GR] = { x: x0 + nw / 2, y: yy + HD + 15 }; return HD + 30 + 6 + nvH + 6 + (ARCMAX ? 9 * (ARCMAX - 1) + 6 : 0); };
       const rows = (list) => {
         for (const a of list) {
           const x0 = a === sideR ? L.x0 + rW + gap : L.x0;
@@ -436,7 +470,22 @@ function one({ F, deck, labels, sc }) {
   const rowSlot = (s, a, id) => { const g = G.slot[a]; let x = 0, n = 0; for (const it of s[a]) { const w = g.sw[it.id]; if (x > 0 && x + w > g.W0 + 0.5) { n++; x = 0; } if (it.id === id) return { x: g.x0 + x + w / 2, y: g.y + 13 + n * (26 + 6), w }; x += w + 6; } return null; };
   const nodeAt = (s, id) => { const j = NODES.indexOf(id); return j < 0 ? null : { x: G.gr.x0 + G.gr.nw / 2 + j * (G.gr.nw + G.ng), y: G.gr.y }; };
   /* 간선 — 두 노드 사이의 곧은 화살표. 오른쪽으로 가는 것은 위, 왼쪽으로 가는 것은 아래 */
-  const edgeLine = (s, e) => { const A0 = nodeAt(s, e.from), B0 = nodeAt(s, e.to); if (!A0 || !B0) return null; const rt = B0.x > A0.x, y = A0.y + (rt ? -6 : 6), xa = A0.x + (rt ? 1 : -1) * (G.gr.nw / 2 + 4), xb = B0.x - (rt ? 1 : -1) * (G.gr.nw / 2 + 4); return { xa, xb, y, rt }; };
+  const edgeLine = (s, e) => {
+    const A0 = nodeAt(s, e.from), B0 = nodeAt(s, e.to); if (!A0 || !B0) return null;
+    const rt = B0.x > A0.x, sg = rt ? 1 : -1, lv = arcLv(s).get(e.id) || 0;
+    if (!lv) { const y = A0.y + (rt ? -6 : 6), xa = A0.x + sg * (G.gr.nw / 2 + 4), xb = B0.x - sg * (G.gr.nw / 2 + 4); return { xa, xb, y, rt }; }
+    /* ㄷ 자 활 — 다리는 노드 사이 틈에, 바닥은 설명 아래 단마다 9px 씩 */
+    const off = G.gr.nw / 2 + 10 + 8 * (lv - 1), xa = A0.x + sg * off, xb = B0.x - sg * off, y0 = A0.y + 15, y1 = A0.y + 21 + G.gr.nvH + 6 + 9 * (lv - 1);
+    return { arc: true, xa, xb, y: y0, y1, rt };
+  };
+  /* 간선 위의 점 u ∈ [0, 1] — 곧은 것은 선분, 활은 내려가는 다리 · 바닥 · 올라가는 다리를 길이대로 */
+  const edgeAt = (ln, u) => {
+    if (!ln.arc) return [U.lerp(ln.xa, ln.xb, u), ln.y];
+    const h = ln.y1 - ln.y, w = Math.abs(ln.xb - ln.xa), d = u * (2 * h + w);
+    if (d < h) return [ln.xa, ln.y + d];
+    if (d < h + w) return [U.lerp(ln.xa, ln.xb, (d - h) / w), ln.y1];
+    return [ln.xb, ln.y1 - (d - h - w)];
+  };
   const spY = (X, q) => G.barY[X][q.row ?? 0];
   /* bitmap 띠 — j 번째 항목의 이름 줄 y, 띠의 위 y, bit 하나의 폭 */
   const bmAt = (s, a, id) => { const j = s[a].findIndex((x) => x.id === id); if (j < 0) return null; const g = G.bm[a], it = s[a][j], ry = g.y0 + j * g.rh; return { it, ry, sy: ry + (g.two ? 2 : 1) * g.lh + 3, bw: (G.L.x1 - G.L.x0) / it.nbits }; };
@@ -524,7 +573,7 @@ function one({ F, deck, labels, sc }) {
       for (const e of E) {
         const ln = edgeLine(s, e); if (!ln) continue;
         for (let m = 0; m < per && i < e1; m++, i++) {
-          const u = m / (per - 1), [xx, yy] = into(i, U.lerp(ln.xa, ln.xb, u), ln.y);
+          const u = m / (per - 1), [px, py] = edgeAt(ln, u), [xx, yy] = into(i, px, py);
           put(o, i, xx, yy, (on ? 0.9 : 0.5) * dim * form, cyc.has(e.id) && on ? 0.5 : 0, 0.02, 1.3, cyc.has(e.id) ? RED : ACCENT);
         }
       }
@@ -659,7 +708,8 @@ function one({ F, deck, labels, sc }) {
         const ln = edgeLine(s, e); if (!ln) continue;
         const sx = ln.rt ? -1 : 1;
         ctx.globalAlpha = 0.8 * o; ctx.strokeStyle = cyc.has(e.id) ? css.red : css.accent;
-        seg(ctx, ln.xb, ln.y, ln.xb + sx * 6, ln.y - 4); seg(ctx, ln.xb, ln.y, ln.xb + sx * 6, ln.y + 4);
+        if (ln.arc) { seg(ctx, ln.xb, ln.y, ln.xb - 4, ln.y + 6); seg(ctx, ln.xb, ln.y, ln.xb + 4, ln.y + 6); }
+        else { seg(ctx, ln.xb, ln.y, ln.xb + sx * 6, ln.y - 4); seg(ctx, ln.xb, ln.y, ln.xb + sx * 6, ln.y + 4); }
       }
     }
     ctx.restore();
