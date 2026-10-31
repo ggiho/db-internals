@@ -33,7 +33,7 @@ import { bake, stepsOf, valuesOf } from '../../bake.js';
 import { stagger } from './stagger.js';
 
 const HANGUL = /[가-힣]/;
-const SL = 44, TOK = 150, RECN = 10, SPN = 40, NODEN = 48;
+const SL = 44, TOK = 150, RECN = 10, SPN = 40, NODEN = 48, BN = 40, STRIP = 12;
 const bare = (v) => String(v ?? '').replace(/\|(gold|red|green)$/, '');
 const tone = (v) => (/\|(gold|red|green)$/.exec(String(v ?? '')) || [])[1] || '';
 const span = { gold: 'q-g', red: 'q-r', green: 'q-gr' };
@@ -95,18 +95,23 @@ function one({ F, deck, labels, sc }) {
   /* 축은 여럿일 수 있다 — 05 는 idx_c 와 PRIMARY 를 따로 그린다(두 인덱스의 키가 다르다 : c 와 id) */
   const IXS = cast.filter((a) => A[a].kind === 'axis');
   const GR = cast.find((a) => A[a].kind === 'graph') || null;
-  const ROWS = cast.filter((a) => A[a].kind === 'list' || A[a].kind === 'frames');
+  /* bitmap 띠(locks 13) — 배우 정의에 bitmap:true 인 list. Lab 은 칸 줄로 그리고, 여기서는 struct 하나를 page 의 heap_no 띠 하나로 그린다 */
+  const BMS = cast.filter((a) => A[a].kind === 'list' && A[a].bitmap);
+  const ROWS = cast.filter((a) => (A[a].kind === 'list' || A[a].kind === 'frames') && !A[a].bitmap);
   /* 층 — 배우의 lane 대로 위에서 아래로 : 서버(sql) | 경계 0 | InnoDB 메모리 | 경계 1 | 디스크.
      글 블록을 늘 맨 위에, 경계 0 을 그 바로 아래에 두었더니 MDL QUEUE(lane sql)가 InnoDB 쪽에 그려졌다(locks 01 · 11 · 12),
      경계 1 은 아예 그리지 않아 ROW LOCKS 와 행 (클러스터)(lane disk, '락은 여기 없다') 사이에 선이 없었다(locks 07 · 08 · 09) */
   const laneOf = (a) => (A[a].lane === 'sql' ? 0 : A[a].lane === 'disk' ? 2 : 1);
   const SQLT = TEXTS.filter((a) => laneOf(a) === 0), MEMT = TEXTS.filter((a) => laneOf(a) !== 0);
   const SQLR = ROWS.filter((a) => laneOf(a) === 0), MEMR = ROWS.filter((a) => laneOf(a) === 1), DSKR = ROWS.filter((a) => laneOf(a) === 2);
-  const HAS = [SQLT.length + SQLR.length > 0, MEMT.length + MEMR.length + IXS.length + (GR ? 1 : 0) > 0, DSKR.length > 0];
+  const HAS = [SQLT.length + SQLR.length > 0, MEMT.length + MEMR.length + IXS.length + BMS.length + (GR ? 1 : 0) > 0, DSKR.length > 0];
   const EDGE_ON = [HAS[0] && (HAS[1] || HAS[2]), HAS[1] && HAS[2]];
   const ids = (a) => [...new Set(all.flatMap((s) => s[a].map((x) => x.id)))];
   const RIDS = Object.fromEntries(ROWS.map((a) => [a, ids(a)]));
   const RECS = Object.fromEntries(IXS.map((X) => [X, ids(X)]));
+  const BIDS = Object.fromEntries(BMS.map((a) => [a, ids(a)]));
+  /* struct 하나가 세는 것 — bits 는 켜진 heap_no 의 [lo, hi] 들, rep 는 이 띠가 대신하는 같은 모양의 struct 수(13 의 page 6 ‥ 212 × 180) */
+  const nBits = (it) => (it.bits || []).reduce((t, [lo, hi]) => t + hi - lo + 1, 0) * (it.rep || 1);
   const SPIDS = Object.fromEntries(IXS.map((X) => [X, [...new Set(all.flatMap((s) => s[X + '#sp'].map((q) => q.id)))]]));
   const NODES = GR ? ids(GR) : [];
   const EIDS = GR ? [...new Set(all.flatMap((s) => s[GR + '#e'].map((q) => q.id)))] : [];
@@ -158,6 +163,36 @@ function one({ F, deck, labels, sc }) {
       }
     }
     if (GR) { const cyc = cycleOf(s); for (const e of s[GR + '#e']) if (e.hot && !cyc.has(e.id)) console.error(`${at} : hot 간선 ${e.id} 가 사이클 위에 없다`); }
+    /* 13 — bitmap 띠. n bits 는 RecLock::lock_size 의 규칙 8 × (1 + (n_heap + 64) / 8) 이어야 하고(STATUS 의 'n bits 624' 와 ibdpage 의
+       PAGE_N_HEAP 555 를 따로 적으므로 둘이 어긋나면 하나가 틀렸다), 켜진 bit 는 그 page 의 heap_no 0 ‥ n_heap − 1 안이어야 한다.
+       같은 trx · page · mode 의 struct 가 같은 크기로 둘이면 틀렸다 — lock_rec_add_to_queue 와 lock_rec_lock_fast 는 그때 bit 만 켠다 */
+    for (const a of BMS) {
+      const seen = new Map();
+      for (const it of s[a]) {
+        const nb = 8 * (1 + Math.floor((it.nheap + 64) / 8));
+        if (it.nbits !== nb) console.error(`${at} : ${it.id} 의 n bits ${it.nbits} — n_heap ${it.nheap} 이면 규칙 8 × (1 + (n_heap + 64) / 8) 로 ${nb}`);
+        for (const [lo, hi] of it.bits || []) if (!(lo >= 0 && lo <= hi && hi < it.nheap)) console.error(`${at} : ${it.id} 의 bit ${lo} ‥ ${hi} 가 heap_no 0 ‥ ${it.nheap - 1} 밖이다`);
+        const k = `${it.trx} · ${it.page} · ${it.mode} · ${it.nbits}`;
+        if (seen.has(k)) console.error(`${at} : ${seen.get(k)} 와 ${it.id} 는 같은 trx · page · mode · 크기 — struct 하나에 bit 만 켜졌어야 한다`);
+        seen.set(k, it.id);
+      }
+    }
+    /* 13 — 글 블록에 'trx' 와 STATUS 의 'N lock struct(s) … M row lock(s)' 가 함께 있으면, 그 trx 의 N = TABLE LOCKS 에서 그 trx 번호로 끝나는
+       칸 + 그 trx 의 bitmap struct 수(rep 포함), M = 그 struct 들의 켜진 bit 수. 'trx_lock_structs K' 가 있으면 K = N */
+    if (BMS.length) for (const t of TEXTS) {
+      const kv = s[t], tr = /\d+/.exec(bare(kv['trx'] ?? ''));
+      if (!tr) continue;
+      for (const [k, v] of Object.entries(kv)) {
+        const m = /(\d+) lock struct\(s\), heap size (\d+), (\d+) row lock\(s\)/.exec(bare(v)); if (!m) continue;
+        const mine = BMS.flatMap((a) => s[a]).filter((it) => String(it.trx) === tr[0]);
+        const tbl = ROWS.filter((a) => A[a].nm === 'TABLE LOCKS').flatMap((a) => s[a]).filter((it) => it.tag !== 'free' && new RegExp(`(^|\\D)${tr[0]}$`).test(it.id)).length;
+        const ns = tbl + mine.reduce((p, it) => p + (it.rep || 1), 0), nr = mine.reduce((p, it) => p + nBits(it), 0);
+        if (+m[1] !== ns) console.error(`${at} : ${k} 의 ${m[1]} lock struct(s) 인데 그림은 trx ${tr[0]} 의 테이블 락 ${tbl} + bitmap struct ${ns - tbl}`);
+        if (+m[3] !== nr) console.error(`${at} : ${k} 의 ${m[3]} row lock(s) 인데 trx ${tr[0]} 의 bitmap 에 켜진 bit 는 ${nr}`);
+        const ks = /trx_lock_structs\s+(\d+)/.exec(bare(kv['trx_rows_locked'] ?? ''));
+        if (ks && +ks[1] !== +m[1]) console.error(`${at} : trx_lock_structs ${ks[1]} 와 STATUS 의 ${m[1]} lock struct(s) 가 다르다`);
+      }
+    }
     /* 03 — 글 블록의 tables_locked 는 INNODB_TRX.trx_tables_locked = lock_number_of_tables_locked 다. 테이블 수가 아니라 trx 가 쥔
        테이블 락 수(같은 t 의 IS · IX 는 2, AUTO_INC 도 하나)이므로, TABLE LOCKS 칸 가운데 '표 · 모드' 꼴('t · IS' · 'a · AUTO_INC')의 수와 같아야 한다 */
     for (const t of TEXTS) {
@@ -173,7 +208,8 @@ function one({ F, deck, labels, sc }) {
       const raw = s[t]['P_S.data_locks']; if (raw == null) continue;
       const n = parseInt(bare(raw), 10);
       const tbl = ROWS.filter((a) => A[a].nm === 'TABLE LOCKS').flatMap((a) => s[a]).filter((it) => it.tag !== 'free').length;
-      const rec = IXS.flatMap((X) => s[X + '#sp']).filter((q) => q.kind !== 'ii').length;
+      /* 13 — bitmap 의 켜진 bit 하나가 data_locks 의 한 줄이다(p_s.cc 는 struct 가 아니라 bit 마다 줄을 낸다) */
+      const rec = IXS.flatMap((X) => s[X + '#sp']).filter((q) => q.kind !== 'ii').length + BMS.flatMap((a) => s[a]).reduce((p, it) => p + nBits(it), 0);
       if (n !== tbl + rec) console.error(`${at} : P_S.data_locks ${n} 줄인데 그림은 테이블 락 ${tbl} + 레코드 락 ${rec}`);
     }
     /* SHOW ENGINE INNODB STATUS 의 'N lock struct(s), heap size H, M row lock(s)' 와 INNODB_TRX.trx_rows_locked 는 같은 trx 의
@@ -196,6 +232,7 @@ function one({ F, deck, labels, sc }) {
   NODES.forEach((id) => take('n:' + id, NODEN));
   if (GR) take('edges', 80);
   for (const a of ROWS) RIDS[a].forEach((id) => take(a + ':' + id, SL));
+  for (const a of BMS) BIDS[a].forEach((id) => take('b:' + a + ':' + id, BN));
   take('tok', TOK);
   R.DST = [at, N];
   if (at > N) throw new Error('innodb lock 세계 : 알갱이가 모자란다');
@@ -219,6 +256,9 @@ function one({ F, deck, labels, sc }) {
   const eLb = Object.fromEntries(EIDS.map((id) => [id, label('aq')]));
   const rowLb = Object.fromEntries(ROWS.map((a) => [a, Object.fromEntries(RIDS[a].map((id) => [id, label('aq aq-c')]))]));
   const rowCap = Object.fromEntries(ROWS.map((a) => [a, label('aq ml aq-b')]));
+  /* bitmap 띠의 이름(왼쪽, struct 의 id)과 셈(오른쪽, sub) */
+  const bmL = Object.fromEntries(BMS.map((a) => [a, Object.fromEntries(BIDS[a].map((id) => [id, label('aq')]))]));
+  const bmR = Object.fromEntries(BMS.map((a) => [a, Object.fromEntries(BIDS[a].map((id) => [id, label('aq')]))]));
   const edgeLb = EDG.map(() => label('aq')), tok = label('stn-tok');
 
   const focusOf = (s, a) => (Array.isArray(s.look[a]) ? new Set(s.look[a].map(String)) : null);
@@ -248,6 +288,10 @@ function one({ F, deck, labels, sc }) {
     for (const a of ROWS) {
       for (const id of RIDS[a]) { const it = s[a].find((x) => x.id === id); t.set(rowLb[a][id], [it ? id : '', on(a) && !!it && hotIt(s, a, id), it && it.tag === 'x' ? 'red' : '', !!it]); }
       t.set(rowCap[a], [capOf(s[a]) || (s[a].length ? '' : '—'), on(a), '', true, true]);
+    }
+    for (const a of BMS) for (const id of BIDS[a]) {
+      const it = s[a].find((x) => x.id === id), hot = on(a) && !!it && hotIt(s, a, id), cls = it && it.tag === 'wait' ? 'red' : '';
+      t.set(bmL[a][id], [it ? id : '', hot, cls, !!it]); t.set(bmR[a][id], [it ? it.sub || '' : '', hot, cls, !!it && !!it.sub]);
     }
     EDG.forEach((e, i) => t.set(edgeLb[i], [e.lb, false, (s.step.hot || (s.step.act && s.step.act.hot)) === e.hot ? 'gold' : '', !!EDGE_ON[i]]));
     return t;
@@ -323,6 +367,12 @@ function one({ F, deck, labels, sc }) {
       rcH[a] = rSide[a] ? hs : hb;
     }
     const nvH = GR ? hMax(NODES.map((id) => nLb[id].v)) : 0;
+    /* bitmap 띠 한 줄 — 이름 줄(이름과 셈이 한 줄에 들어가지 않으면 두 줄), 3px, 띠, 아래 10px. 항목 수는 가장 많은 상태의 것 */
+    const BMG = Object.fromEntries(BMS.map((a) => {
+      const wl = Math.max(0, ...BIDS[a].map((id) => most(bmL[a][id]).w)), wr = Math.max(0, ...BIDS[a].map((id) => most(bmR[a][id]).w));
+      const lh = hMax([...BIDS[a].map((id) => bmL[a][id]), ...BIDS[a].map((id) => bmR[a][id])]), two = wl + wr + 16 > ww;
+      return [a, { lh, two, rh: (two ? 2 : 1) * lh + 3 + STRIP + 10, n: Math.max(1, ...all.map((s) => s[a].length)) }];
+    }));
     const lay = (y0, k = 1) => {
       let y = y0;
       const texts = (g) => {
@@ -343,7 +393,7 @@ function one({ F, deck, labels, sc }) {
         }
       };
       const edge = (i) => { if (!EDGE_ON[i] || !EDG[i]) return; y += (i ? 4 : 2) * k; G.edgeY[i] = y; place(edgeLb[i], L.x1, y + 2, 'r', 't'); y += 8 + 8 * k; };
-      G.edgeY = [null, null]; G.cap = {};
+      G.edgeY = [null, null]; G.cap = {}; G.bm = {};
       texts(GT[0]); rows(SQLR);
       edge(0);
       texts(GT[1]);
@@ -358,6 +408,7 @@ function one({ F, deck, labels, sc }) {
         G.barY[X] = bh.map((_, r) => g.y - 12 - bh.slice(0, r).reduce((p, q) => p + q, 0));
       }
       rows(MEMR);
+      for (const a of BMS) { place(hd[a], L.x0, y); G.bm[a] = { ...BMG[a], y0: y + HD }; G.anc[a] = { x: L.x0 + 30, y: y + HD + BMG[a].lh + 3 + STRIP / 2 }; y += HD + BMG[a].n * BMG[a].rh + 4 * k; }
       if (GR && !side) y += placeGraph(L.x0, y) + 10 * k;
       edge(1);
       rows(DSKR);
@@ -382,6 +433,8 @@ function one({ F, deck, labels, sc }) {
   /* 간선 — 두 노드 사이의 곧은 화살표. 오른쪽으로 가는 것은 위, 왼쪽으로 가는 것은 아래 */
   const edgeLine = (s, e) => { const A0 = nodeAt(s, e.from), B0 = nodeAt(s, e.to); if (!A0 || !B0) return null; const rt = B0.x > A0.x, y = A0.y + (rt ? -6 : 6), xa = A0.x + (rt ? 1 : -1) * (G.gr.nw / 2 + 4), xb = B0.x - (rt ? 1 : -1) * (G.gr.nw / 2 + 4); return { xa, xb, y, rt }; };
   const spY = (X, q) => G.barY[X][q.row ?? 0];
+  /* bitmap 띠 — j 번째 항목의 이름 줄 y, 띠의 위 y, bit 하나의 폭 */
+  const bmAt = (s, a, id) => { const j = s[a].findIndex((x) => x.id === id); if (j < 0) return null; const g = G.bm[a], it = s[a][j], ry = g.y0 + j * g.rh; return { it, ry, sy: ry + (g.two ? 2 : 1) * g.lh + 3, bw: (G.L.x1 - G.L.x0) / it.nbits }; };
   function anchor(a, s, lbText) {
     if (IXS.includes(a) && G.ix[a].y) {
       /* 이름표의 수 가운데 그 축의 범위 안에 드는 첫 수 — 05 의 '200 → id=20' 은 idx_c 축에서 200, PRIMARY 축에서 20 이다
@@ -391,6 +444,8 @@ function one({ F, deck, labels, sc }) {
     }
     if (a === GR && G.gr) { const id = NODES.find((x) => (lbText || '').includes(x)) || [...modOf(s, GR)].find((x) => NODES.includes(x)); const P = id ? nodeAt(s, id) : null; if (P) return [P.x, P.y]; }
     if (ROWS.includes(a)) { const id = RIDS[a].find((x) => (lbText || '').includes(x)) || [...modOf(s, a)][0]; const P = id ? rowSlot(s, a, id) : null; if (P) return [P.x, P.y]; }
+    /* bitmap — 이름표가 가리키는 struct(없으면 이 스텝에 바뀐 것)의 첫 켜진 bit */
+    if (BMS.includes(a) && G.bm[a]) { const id = BIDS[a].find((x) => (lbText || '').includes(x)) || [...modOf(s, a)].find((x) => BIDS[a].includes(x)); const P = id ? bmAt(s, a, id) : null; if (P) { const lo = ((P.it.bits || [])[0] || [0])[0]; return [G.L.x0 + (lo + 0.5) * P.bw, P.sy + STRIP / 2]; } }
     const P = G.anc[a];
     return P ? [P.x, P.y] : [G.L.x0, G.L.y0];
   }
@@ -486,6 +541,26 @@ function one({ F, deck, labels, sc }) {
         put(o, i, xx, yy, lv * (1 - gone), 0, 0.03, 1.1, TAGC[tg] ?? INK);
       }
     }
+    /* bitmap — 알갱이는 켜진 bit 위에(띠와 칸 경계는 overlay 가 그린다). 켜진 bit 수만큼 나눠 앉고, 새 struct 는 토큰 출발점에서 날아온다 */
+    for (const a of BMS) for (const id of BIDS[a]) {
+      const key = 'b:' + a + ':' + id, it = s[a].find((x) => x.id === id), pv = prev[a].find((x) => x.id === id);
+      if (!it && !(pv && !end)) { hide(key); continue; }
+      const P = it ? bmAt(s, a, id) : bmAt(prev, a, id);
+      if (!P) { hide(key); continue; }
+      const runs = P.it.bits || [], tot = runs.reduce((t, [lo, hi]) => t + hi - lo + 1, 0) || 1;
+      const gone = it ? 0 : show(p, 0.1, 0.4), born = it && !pv && !end, from = born && act && act.t === a ? src : null;
+      const lv = (s.touch.has(a) && !end ? (hotIt(s, a, id) ? 0.95 : 0.6) : 0.45) * dim * form, col = P.it.tag === 'wait' ? RED : GOLD;
+      for (let m = 0; m < BN; m++) {
+        const i = R[key][0] + m, f = m / BN;
+        let u = (m + 0.5) / BN * tot, r = runs[0] || [0, 0];
+        for (const q of runs) { const n = q[1] - q[0] + 1; if (u < n) { r = q; break; } u -= n; }
+        let x = G.L.x0 + (r[0] + Math.min(u, r[1] - r[0] + 1)) * P.bw, y = P.sy + 2 + (m % 4) * ((STRIP - 4) / 3);
+        if (from) { const q = show(fly, f * 0.4, 0.6 + f * 0.4); x = U.lerp(from[0] + jit[i * 2] * 10, x, q); y = U.lerp(from[1] + jit[i * 2 + 1] * 10, y, q) - Math.sin(q * Math.PI) * 18; }
+        if (gone) { x += jit[i * 2] * 24 * gone; y += jit[i * 2 + 1] * 24 * gone; }
+        const [xx, yy] = into(i, x, y);
+        put(o, i, xx, yy, lv * (1 - gone), 0, 0.03, 1.1, col);
+      }
+    }
     const [t0, t1] = R.tok, tn = t1 - t0;
     if (act) {
       const [fx, fy] = src, [tx2, ty2] = anchor(act.t, s, act.lb), e = U.smooth(fly), gone = show(p, 0.42, 0.52), self = act.f === act.t;
@@ -517,6 +592,7 @@ function one({ F, deck, labels, sc }) {
       }
       if (GR) for (const id of NODES) { const P = nodeAt(s, id); if (P) { place(nLb[id].n, P.x, P.y, 'c', 'c'); place(nLb[id].v, P.x, P.y + 21, 'c', 't'); } }
       for (const a of ROWS) for (const it of s[a]) { const P = rowSlot(s, a, it.id); if (P) place(rowLb[a][it.id], P.x, P.y, 'c', 'c'); }
+      for (const a of BMS) for (const it of s[a]) { const P = bmAt(s, a, it.id); place(bmL[a][it.id], G.L.x0, P.ry); if (G.bm[a].two) place(bmR[a][it.id], G.L.x0, P.ry + G.bm[a].lh); else place(bmR[a][it.id], G.L.x1, P.ry, 'r', 't'); }
       /* 옆 설명은 그 스텝의 칸 끝 바로 옆 — 줄 폭(가장 넓은 상태)에 두면 칸이 적은 스텝에서 멀리 떨어졌다. 설명의 줄바꿈 폭은
          가장 넓은 상태의 것 그대로라 높이는 변하지 않는다. 칸이 바뀌면 설명 글도 바뀌므로(사라졌다 나타난다) 자리를 옮겨도 튀지 않는다 */
       for (const a of ROWS) if (G.cap[a] != null) place(rowCap[a], G.slot[a].x0 + Math.max(0, s[a].reduce((t, x) => t + G.slot[a].sw[x.id] + 6, -6)) + 12, G.cap[a]);
@@ -559,6 +635,17 @@ function one({ F, deck, labels, sc }) {
       ctx.globalAlpha = 0.3 * o;
       const SPL = cur.SPL[kk][X];
       for (const q of s[X + '#sp']) { const L2 = SPL[q.id]; if (L2 && L2.row > 0) seg(ctx, L2.pins[0], spY(X, q) - 8 - L2.row * RH + 1, L2.pins[0], spY(X, q) - 7); }
+    }
+    /* bitmap 띠 — page 의 heap_no 0 ‥ n_heap − 1 은 옅게 채우고 그 뒤(64 비트 여유와 바이트 올림)는 비운다. n_heap 자리에 눈금,
+       바이트 경계마다 아래 짧은 눈금(바이트 폭이 4px 이상일 때), 켜진 bit 는 금색(기다리는 요청은 빨강) */
+    for (const a of BMS) for (const it of s[a]) {
+      const P = bmAt(s, a, it.id), x0 = L.x0, w = L.x1 - L.x0, { sy, bw } = P;
+      ctx.globalAlpha = 0.08 * o; ctx.fillStyle = css.ink; ctx.fillRect(x0, sy, it.nheap * bw, STRIP);
+      ctx.globalAlpha = 0.45 * o; ctx.strokeStyle = css.faint; ctx.strokeRect(x0 + 0.5, sy + 0.5, w - 1, STRIP - 1);
+      if (8 * bw >= 4) { ctx.globalAlpha = 0.3 * o; for (let b = 8; b < it.nbits; b += 8) seg(ctx, x0 + b * bw, sy + STRIP - 3, x0 + b * bw, sy + STRIP); }
+      ctx.globalAlpha = 0.7 * o; ctx.strokeStyle = css.ink; seg(ctx, x0 + it.nheap * bw, sy - 2, x0 + it.nheap * bw, sy + STRIP + 2);
+      ctx.globalAlpha = 0.85 * o; ctx.fillStyle = it.tag === 'wait' ? css.red : css.gold;
+      for (const [lo, hi] of it.bits || []) ctx.fillRect(x0 + lo * bw, sy + 2, Math.max(2, (hi - lo + 1) * bw), STRIP - 4);
     }
     if (GR) {
       /* 간선 끝의 화살촉 */

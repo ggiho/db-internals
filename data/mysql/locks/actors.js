@@ -22,6 +22,9 @@ const ACTORS = {
   rv:   { nm:'READ VIEW',       lane:'mem',  kind:'kv'  },
   wait: { nm:'WAIT-FOR',        lane:'mem',  kind:'graph', w:'w15' },
   ps:   { nm:'P_S 관찰',           lane:'mem',  kind:'list', w:'w15' },
+  /* 13 — 레코드 락 struct 하나 = (trx, page, mode) 의 bitmap 하나. Lab 은 칸 줄로, Story 세계(innodb-lock)는 bitmap 띠로 그린다 */
+  bm:   { nm:'RECORD LOCK STRUCTS', lane:'mem', kind:'list', bitmap:true, w:'w2' },
+  lm:   { nm:'BITMAP 셈',          lane:'mem',  kind:'kv'  },
 
   /* 디스크 */
   row:  { nm:'행 (클러스터)',        lane:'disk', kind:'list', w:'w15' },
