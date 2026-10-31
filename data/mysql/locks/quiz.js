@@ -200,4 +200,19 @@ export const CORE = {
     a: '행에서 — 테이블 IX 는 받고 레코드 50 에서 WAITING',
     x: ['테이블에서 — 행 락이 많아 테이블 X 로 올라갔다', 'MDL 에서 — 10 만 행을 쥔 trx 가 MDL_EXCLUSIVE 를 쥔다', '기다리지 않는다 — FOR UPDATE 는 MVCC 로 읽는다'],
   },
+  '14/2': {
+    q: 'A 가 INSERT 하고 커밋하지 않았다. data_locks 에 그 레코드의 줄이 없는데도 다른 trx 의 FOR SHARE 가 막히는 근거는?',
+    a: '레코드의 DB_TRX_ID 가 살아 있는 A 를 가리킨다',
+    x: ['INSERT 가 숨은 X 락 struct 를 data_locks 밖에 따로 쥔다', '테이블 IX 가 그 레코드의 S 를 막는다', 'A 의 undo 로그가 그 page 를 latch 로 잠가 둔다'],
+  },
+  '14/4': {
+    q: 'B 가 A 의 커밋 전 INSERT 행을 FOR SHARE 로 읽으려 할 때, data_locks 에 새로 생기는 GRANTED 레코드 락의 임자는?',
+    a: 'A — B 의 스레드가 A 의 이름으로 X,REC_NOT_GAP 을 만든다',
+    x: ['B — S,REC_NOT_GAP 을 먼저 GRANTED 로 받고 기다린다', '아무도 아니다 — implicit 락은 끝까지 data_locks 에 안 나온다', 'A — A 가 다음 문장을 실행할 때 X 를 건다'],
+  },
+  '14/8': {
+    q: 'secondary 인덱스 레코드에는 DB_TRX_ID 가 없다. 그 레코드의 implicit 락 임자는 어떻게 찾나?',
+    a: 'page 의 max trx id, 그다음 클러스터 레코드의 버전',
+    x: ['secondary 레코드 끝에 숨은 trx id 칸을 읽는다', 'secondary 에는 implicit 락이 없어 늘 explicit 락을 만든다', 'trx_sys 의 활성 목록에서 그 index_id 를 쓴 trx 를 찾는다'],
+  },
 };
