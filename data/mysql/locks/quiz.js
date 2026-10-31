@@ -230,4 +230,24 @@ export const CORE = {
     a: 'page 의 max trx id, 그다음 클러스터 레코드의 버전',
     x: ['secondary 레코드 끝에 숨은 trx id 칸을 읽는다', 'secondary 에는 implicit 락이 없어 늘 explicit 락을 만든다', 'trx_sys 의 활성 목록에서 그 index_id 를 쓴 trx 를 찾는다'],
   },
+  '15/2': {
+    q: 'A 가 S,GAP 20 으로 틈 (10, 20) 을 쥐고 있다. 다른 trx B 의 DELETE … WHERE id=20 은?',
+    a: '바로 된다 — 레코드 락은 gap 락을 기다리지 않는다',
+    x: ['기다린다 — B 의 X 와 A 의 S 는 모드가 호환되지 않는다', '1205 로 끝난다 — gap 락은 그 레코드의 삭제를 금지한다', 'A 의 S,GAP 이 X,GAP 으로 올라간 뒤 B 가 기다린다'],
+  },
+  '15/6': {
+    q: 'A 가 S,GAP 20 을 쥔 채, 남이 지운 20 이 purge 로 page 에서 떨어졌다. data_locks 의 A 줄은?',
+    a: 'S,GAP 30 — 틈이 (10, 30) 으로 넓어졌다',
+    x: ['없어진다 — 매달려 있던 레코드가 page 에서 사라졌다', 'S,GAP 20 그대로 — 지워진 키를 끝까지 가리킨다', 'S 30 — 다음 레코드의 next-key 락이 되어 30 까지 잠근다'],
+  },
+  '15/7': {
+    q: '(10, 20) 을 쥔 A 의 gap 락이 purge 뒤 30 으로 옮겨 갔다. purge 전에는 0.001 sec 에 들어간 INSERT 25 는 이제?',
+    a: '기다린다 — 30 의 gap 락이 막는다',
+    x: ['바로 들어간다 — A 가 원래 잠근 틈은 (10, 20) 뿐이다', '바로 들어간다 — 물려받은 gap 락은 INSERT 를 막지 않는다', '1062 로 끝난다 — 지워진 20 의 자리가 아직 예약되어 있다'],
+  },
+  '15/10': {
+    q: 'A 가 SAVEPOINT 뒤 넣은 25 를 B 가 FOR SHARE 로 기다린다. A 가 ROLLBACK TO SAVEPOINT 하면?',
+    a: 'A 는 X,GAP 30, B 는 S,GAP 30 을 쥔다',
+    x: ['B 는 1205 까지 기다린다 — savepoint 로는 A 의 X 가 풀리지 않는다', 'A 의 락은 다 풀리고 B 는 아무 락 없이 Empty set 을 받는다', 'B 가 S,REC_NOT_GAP 25 를 받고 A 는 X,REC_NOT_GAP 25 를 유지한다'],
+  },
 };
