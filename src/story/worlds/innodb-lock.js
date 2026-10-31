@@ -11,8 +11,16 @@
        같은 레코드를 하나는 쥐고 하나는 기다린다), sub 에 WAITING 이 있으면 범위 대신 그 레코드의 blk 가 있어야 한다
        글 블록에 tables_locked 가 있으면(03) TABLE LOCKS 의 '표 · 모드' 칸 수와 같아야 한다 — INNODB_TRX 가 세는 것이 그 수다
      · 축은 여럿일 수 있다(locks 05 — idx_c 와 PRIMARY). 배우마다 따로 줄 · 띠 · 이름표를 갖고 cast 순서대로 위에서 아래로 놓인다.
-       axis.nm 이 있으면 축 이름 대신 그것을 쓰고(INDEX · idx_c), 항목의 lb 가 있으면 레코드 이름으로 id 대신 그것을 쓰고('200, 20'), axis.legend 가 참이면 이름 줄 오른쪽에 그 스텝에 있는 범위 종류의
-       범례를 이름표와 같은 색으로 적는다(들어가지 않으면 아래 줄). data_locks 꼴의 칸 id 는 어느 축에든 맞는 범위가 있으면 된다
+       axis.nm 이 있으면 축 이름 대신 그것을 쓰고(INDEX · idx_c), 항목의 lb 가 있으면 레코드 이름으로 id 대신 그것을 쓰고('200, 20' —
+       Lab 은 id 를 쓴다), axis.legend 가 참이면 이름 줄 오른쪽에 그 스텝에 있는 범위 종류의 범례를 이름표와 같은 색으로 적는다
+       (들어가지 않으면 아래 줄). 축 하나뿐인 장면의 그림은 축이 하나이던 때와 같다
+     · 축이 여럿일 때 data_locks 꼴 칸의 짝 — 칸은 제 INDEX_NAME 의 축에서만 범위를 찾는다(locks 08 — 부모 PRIMARY 와 자식 idx_pid) :
+         칸   { id:'S,REC_NOT_GAP 1', index:'PRIMARY' } · { id:'X 1, 10', index:'idx_pid' }  — id 는 'LOCK_MODE LOCK_DATA[ · 임자]',
+              LOCK_DATA 가 secondary 의 '키, PK' 여도 되고 첫 수를 축의 v 와 견준다. index = data_locks 의 INDEX_NAME
+         축   그 index 에 답하는 축 하나 — axis.index 가 있으면 그것에만, 없으면 배우 열쇠(pk)나 이름(axis.nm, 없으면 배우 nm)을
+              공백 · 괄호 · 쉼표로 가른 낱말 하나('PRIMARY  (id)' → PRIMARY, 'INDEX  idx_c  (c, id)' → idx_c)
+         축이 하나면 index 를 안 적어도 그 축이다(innodb 07 · 08). 축이 여럿인데 index 가 없거나, 답하는 축이 없거나 둘 이상이거나
+         (부모 · 자식 PRIMARY 처럼 — 그때는 axis.index:'parent.PRIMARY' 와 index:'parent.PRIMARY'), 그 축에 맞는 범위가 없으면 console.error
      · 글 블록의 'P_S.data_locks' 가 'N 줄 …' 이면(02 · 02v · 05) N = TABLE LOCKS 의 테이블 락 칸 + 모든 축의 범위(ii 제외 — 기다리지
        않은 insert intention 은 data_locks 에 줄이 없다). 한 글 블록에 SHOW ENGINE INNODB STATUS 의 'N lock struct(s), heap size H,
        M row lock(s)' 줄과 trx_rows_locked 가 함께 있으면 M = trx_rows_locked. 어긋나면 console.error
@@ -123,7 +131,10 @@ function one({ F, deck, labels, sc }) {
       }
     }
     if (IXS.length) {
-      /* 축이 여럿이면 어느 축에든 맞는 범위가 있으면 된다 */
+      /* 줄은 제 INDEX_NAME 의 축에서만 찾는다(locks 08 — 부모 PRIMARY 와 자식 idx_pid). 어느 축에든 맞으면 된다고 두었더니
+         idx_c 라고 적은 'X,REC_NOT_GAP 20' 이 PRIMARY 의 rec 20 에 맞아 지나갔다(망가뜨린 사본). 줄의 index 가 INDEX_NAME 이고, 축은 axis.index 가 있으면
+         그것에만, 없으면 배우 열쇠나 이름(axis.nm · 배우 nm)의 낱말에 답한다. 축이 하나면 index 없이도 그 축이다 */
+      const answers = (X, n) => { const ax = s[X + '#ax']; return ax.index ? ax.index === n : X === n || String(ax.nm || A[X].nm).split(/[\s(),]+/).includes(n); };
       const fits = (X, m, it) => {
         const vs = s[X].map((x) => x.v).sort((p, q) => p - q), ax = s[X + '#ax'], sp = s[X + '#sp'];
         const prevOf = (v) => { const j = vs.indexOf(v); return j > 0 ? vs[j - 1] : ax.min; };
@@ -135,9 +146,15 @@ function one({ F, deck, labels, sc }) {
           : sp.some((q) => q.kind === 'next' && q.to === v);
       };
       for (const r of ROWS) for (const it of s[r]) {
-        const m = /^([XS])(,GAP)?(,REC_NOT_GAP)?(,INSERT_INTENTION)?\s+(\d+)(?:\s+·\s+\S+)?$/.exec(it.id);
+        /* LOCK_DATA 는 PRIMARY 면 '20', secondary 면 '200, 20'(키, PK) — 첫 수를 축의 v 와 견준다 */
+        const m = /^([XS])(,GAP)?(,REC_NOT_GAP)?(,INSERT_INTENTION)?\s+(\d+)(?:,\s*\d+)*(?:\s+·\s+\S+)?$/.exec(it.id);
         if (!m) continue;
-        if (!IXS.some((X) => fits(X, m, it))) console.error(`${at} : data_locks 줄 ${it.id} 에 맞는 범위가 축에 없다`);
+        const ix = it.index == null ? null : String(it.index);
+        const hit = ix == null ? (IXS.length === 1 ? IXS : []) : IXS.filter((X) => answers(X, ix));
+        if (ix == null && IXS.length > 1) console.error(`${at} : 축이 ${IXS.length} 개(${IXS.join(' · ')})인데 data_locks 줄 ${it.id} 에 index(INDEX_NAME) 가 없다`);
+        else if (!hit.length) console.error(`${at} : data_locks 줄 ${it.id} 의 index ${ix} 에 답하는 축이 없다 — 축 ${IXS.map((X) => s[X + '#ax'].index || s[X + '#ax'].nm || A[X].nm).join(' · ')}`);
+        else if (hit.length > 1) console.error(`${at} : data_locks 줄 ${it.id} 의 index ${ix} 에 축 ${hit.join(' · ')} 가 다 답한다 — axis.index 로 가르라`);
+        else if (!fits(hit[0], m, it)) console.error(`${at} : data_locks 줄 ${it.id} 에 맞는 범위가 ${hit[0]} 축(${ix ?? '하나뿐'})에 없다`);
       }
     }
     if (GR) { const cyc = cycleOf(s); for (const e of s[GR + '#e']) if (e.hot && !cyc.has(e.id)) console.error(`${at} : hot 간선 ${e.id} 가 사이클 위에 없다`); }
