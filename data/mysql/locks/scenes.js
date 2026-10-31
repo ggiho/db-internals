@@ -1734,7 +1734,7 @@ const SCENES = [
 {
   num:'08', tab:'Foreign Keys', title:'Foreign Key Checks: Shared Locks on the Parent Row',
   sub:'참조 무결성은 parent row 의 S lock 으로 — child trx 가 끝날 때까지',
-  cast:['stmt','pk','tl','rl','cfk'],
+  cast:['stmt','pk','cix','tl','rl'],
   knobs:[
     ['foreign_key_checks','ON','세션 변수 — 끈 세션의 검사와 락만 사라진다 (7 – 10 스텝)'],
     ['innodb_lock_wait_timeout','50','부모가 잠겨 있으면 부모 쪽 DELETE 가 여기서 기다린다']],
@@ -1761,15 +1761,19 @@ const SCENES = [
      PHASE 3 — B(1370, foreign_key_checks=0) DELETE parent id=10 → OK, data_locks parent IX · PRIMARY X,REC_NOT_GAP 10. COMMIT · SET foreign_key_checks=1
        뒤에도 NOT EXISTS 로 찾은 고아 (5, 10) · (6, 99) 가 남는다. */
   init:{
-    stmt:{ kv:{ 'SQL':'—', '세션':'A  ·  foreign_key_checks=1  ·  RR', '검사':'—', '결과':'—', 'data_locks':'0 줄', '다른 경우':'—' } },
-    pk:{ axis:{ nm:'parent PRIMARY',  min:0, max:40 }, items:[
+    stmt:{ kv:{ 'SQL':'—', '검사':'—', '결과':'—', 'data_locks':'0 줄' } },
+    /* 두 축 — 부모 PRIMARY(id) 와 자식 idx_pid(pid, id). data_locks 의 INDEX_NAME 은 부모 · 자식 다 'PRIMARY' 일 수 있어서
+       부모 축은 axis.index 'parent.PRIMARY' 에만 답한다(자식 PRIMARY 의 supremum 줄은 'child.PRIMARY' — 그 축은 그리지 않는다).
+       자식 축은 'idx_pid' 에 답하고, 항목의 v 는 LOCK_DATA 의 첫 수(pid)다. 눈금은 부모와 같은 0 ‥ 40 — (99, 6) 은 그 너머라
+       축에 두지 않는다(어느 스텝에도 그 항목의 explicit 락은 없다 — 7 스텝 STATEMENT 의 결과에 적는다).
+       8 스텝 A2 의 X 이름표는 'X,REC_NOT_GAP A2' — ' · A2' 로 쓰면 Lab 768 의 축 카드에서 왼쪽으로 2.8px 넘쳤다 */
+    pk:{ axis:{ nm:'parent PRIMARY', index:'parent.PRIMARY',  min:0, max:40 }, items:[
       { id:'10', v:10 }, { id:'20', v:20 }, { id:'30', v:30 }], spans:[] },
+    cix:{ axis:{ nm:'child idx_pid', min:0, max:40 }, items:[], spans:[] },
     /* 테이블 락은 TABLE LOCKS 에(01 – 07 과 같은 배우). 어느 trx 의 것인지 id 에 */
     tl:{ items:[{ id:'(비었다)', tag:'free', sub:'아직' }] },
-    /* data_locks 의 RECORD 줄 — 'LOCK_MODE LOCK_DATA · 임자'. 부모 PRIMARY 줄은 위 축의 범위와 세계가 맞춰 본다.
-       자식 쪽 줄('20, 1' 꼴)은 축 밖이라 sub 에 인덱스 이름을 적는다 */
+    /* data_locks 의 RECORD 줄 — 'LOCK_MODE LOCK_DATA · 임자', index = 그 줄의 INDEX_NAME. 세계가 그 축의 범위와 맞춰 본다 */
     rl:{ items:[{ id:'(비었다)', tag:'free', sub:'아직' }] },
-    cfk:{ items:[{ id:'(비었다)', tag:'free', sub:'자식 아직 없음' }] },
   },
   steps:[
   { act:{ f:'stmt', t:'pk', lb:'부모 PRIMARY 에서 20 을 찾는다' },
@@ -1784,8 +1788,7 @@ const SCENES = [
           'err = row_ins_check_foreign_constraint(true, foreign, table, entry, thr);'],
     /* 검사는 idx_pid 항목을 넣기 직전 — 클러스터 행은 들어갔고 idx_pid 항목은 아직이다 */
     ops:{ stmt:{ set:{ 'SQL':'A : INSERT INTO child(pid) VALUES(20)', '검사':'부모 PRIMARY 를 PAGE_CUR_GE 로' } },
-          tl:{ del:['(비었다)'], add:[{ id:'child · IX · A', tag:'hold', sub:'trx 1360' }] },
-          cfk:{ del:['(비었다)'], add:[{ id:'(20, 1)', tag:'free', sub:'아직 — 클러스터 행만, idx_pid 항목은 검사 뒤' }] } } },
+          tl:{ del:['(비었다)'], add:[{ id:'child · IX · A', tag:'hold', sub:'trx 1360' }] } } },
 
   { act:{ f:'pk', t:'rl', lb:'부모 테이블 IS · 부모 행 S' },
     note:'parent row 에 S,REC_NOT_GAP — child trx 종료까지',
@@ -1798,8 +1801,8 @@ const SCENES = [
           'err = row_ins_set_rec_lock(LOCK_S, LOCK_REC_NOT_GAP, block, rec,'],
     ops:{ pk:{ span:{ add:[{ id:'s20', from:20, to:20, kind:'rec', lb:'S,REC_NOT_GAP · A', row:0 }] } },
           tl:{ add:[{ id:'parent · IS · A', tag:'hold', sub:'trx 1360' }] },
-          rl:{ del:['(비었다)'], add:[{ id:'S,REC_NOT_GAP 20 · A', tag:'hold', sub:'parent PRIMARY · GRANTED' }] },
-          cfk:{ set:{ '(20, 1)':{ tag:'x', sub:'A 의 새 항목 · implicit X' } } },
+          rl:{ del:['(비었다)'], add:[{ id:'S,REC_NOT_GAP 20 · A', index:'parent.PRIMARY', tag:'hold', sub:'parent PRIMARY · GRANTED' }] },
+          cix:{ add:[{ id:'20', v:20, lb:'20, 1' }] },
           stmt:{ set:{ '검사':'짝 있음 → 잠그고 통과', '결과':'OK  ·  id 1', 'data_locks':'3 줄|green' } } },
     beat:1 },
 
@@ -1816,8 +1819,8 @@ const SCENES = [
           ['storage/innobase/row/row0undo.cc','lock on the record to explicit. When the record is actually'],
           ['storage/innobase/row/row0undo.cc','deleted this lock will be inherited by the next record.']],
     ops:{ pk:{ span:{ add:[{ id:'g30', from:20, to:30, kind:'gap', lb:'S,GAP (20,30) · A', row:1 }] } },
-          rl:{ add:[{ id:'S,GAP 30 · A', tag:'hold', sub:'parent PRIMARY · 실패의 근거' },
-                    { id:'X supremum · A', tag:'hold', sub:'child PRIMARY · 되돌린 행 자리' }] },
+          rl:{ add:[{ id:'S,GAP 30 · A', index:'parent.PRIMARY', tag:'hold', sub:'parent PRIMARY · 실패의 근거' },
+                    { id:'X supremum · A', index:'child.PRIMARY', tag:'hold', sub:'child PRIMARY · 되돌린 행 자리' }] },
           stmt:{ set:{ 'SQL':'A : INSERT INTO child(pid) VALUES(25)', '검사':'짝 없음 → 다음 레코드 30 에 S,GAP', '결과':'ERROR 1452 (23000)|red', 'data_locks':'5 줄' } } } },
 
   { look:{ pk:['g30'], stmt:true },
@@ -1829,7 +1832,7 @@ const SCENES = [
           'err = row_ins_set_rec_lock(LOCK_S, LOCK_ORDINARY, block, rec, check_index,',
           ['storage/innobase/row/row0undo.cc','if (!node->partial || node->trx.isolation_level < trx_t::REPEATABLE_READ) {'],
           ['storage/innobase/include/lock0priv.h','a page. The locks on the supremum record are always thought to be of the gap']],
-    ops:{ stmt:{ set:{ '다른 경우':'RC → IS 만  ·  RR pid=35 → S supremum|green' } } } },
+    ops:{ stmt:{ set:{ '검사':'RC → IS 만  ·  RR pid=35 → S supremum|green' } } } },
 
   { act:{ f:'stmt', t:'pk', lb:'B : DELETE parent 20 → X 는 S 에 막힌다' },
     note:'이 순간 타 세션 DELETE FROM parent WHERE id=20 은 block',
@@ -1842,11 +1845,11 @@ const SCENES = [
           ['storage/innobase/lock/lock0lock.cc','dberr_t err = rec_lock.add_to_waitq(conflicting.wait_for);']],
     ops:{ pk:{ span:{ add:[{ id:'b20', from:20, to:20, kind:'blk', lb:'X,REC_NOT_GAP · B 대기', row:2 }] } },
           tl:{ add:[{ id:'parent · IX · B', tag:'hold', sub:'trx 1361' }] },
-          rl:{ add:[{ id:'X,REC_NOT_GAP 20 · B', tag:'wait', sub:'parent PRIMARY · WAITING' }] },
-          stmt:{ set:{ 'SQL':'B : DELETE FROM parent WHERE id=20', '세션':'B  ·  foreign_key_checks=1', '검사':'—', '결과':'LOCK WAIT  ·  1361 ↔ 1360|red', 'data_locks':'7 줄' } } },
+          rl:{ add:[{ id:'X,REC_NOT_GAP 20 · B', index:'parent.PRIMARY', tag:'wait', sub:'parent PRIMARY · WAITING' }] },
+          stmt:{ set:{ 'SQL':'B : DELETE FROM parent WHERE id=20', '검사':'—', '결과':'LOCK WAIT  ·  1361 ↔ 1360|red', 'data_locks':'7 줄' } } },
     beat:1 },
 
-  { act:{ f:'pk', t:'cfk', lb:'A 커밋 → B 가 자식 idx_pid 를 훑는다' },
+  { act:{ f:'pk', t:'cix', lb:'A 커밋 → B 가 자식 idx_pid 를 훑는다' },
     note:'역방향 — parent 삭제 시 child 존재 확인 → 1451',
     why:'A 가 커밋하면 B 가 부모 20 의 X 를 얻고, row_upd_check_references_constraints 가 같은 검사 함수를 반대로(check_ref = false) 돌린다 — 자식 테이블에 IS, idx_pid 를 (20) 로 열어 첫 항목 (20, 1) 에 S,REC_NOT_GAP. 지워지지 않은 짝이 있으니 RESTRICT 판정으로 DB_ROW_IS_REFERENCED 다. ON DELETE CASCADE 였다면 그 자리에서 자식 행에 X 를 걸고 함께 지운다 — 깊이는 FK_MAX_CASCADE_DEL 15 까지.',
     key:'잰 값: ERROR 1451 (23000): Cannot delete or update a parent row: a foreign key constraint fails (`fk`.`child`, CONSTRAINT `fk_pid` …). 문장은 되돌아갔지만 B 의 4 줄은 남았다 — parent X,REC_NOT_GAP 20 · child IS · <em>child idx_pid S,REC_NOT_GAP 20, 1</em>.',
@@ -1859,14 +1862,14 @@ const SCENES = [
           ['storage/innobase/handler/ha_innodb.cc','return (HA_ERR_ROW_IS_REFERENCED);'],
           ['share/messages_to_clients.txt','Cannot delete or update a parent row: a foreign key constraint fails%.192s']],
     ops:{ pk:{ span:{ del:['s20', 'g30', 'b20'], add:[{ id:'x20', from:20, to:20, kind:'rec', lb:'X,REC_NOT_GAP · B', row:0 }] } },
+          cix:{ span:{ add:[{ id:'cs20', from:20, to:20, kind:'rec', lb:'S,REC_NOT_GAP · B', row:0 }] } },
           tl:{ del:['child · IX · A', 'parent · IS · A'], add:[{ id:'child · IS · B', tag:'hold', sub:'trx 1361 · 자식 검사' }] },
           rl:{ del:['S,REC_NOT_GAP 20 · A', 'S,GAP 30 · A', 'X supremum · A'],
                set:{ 'X,REC_NOT_GAP 20 · B':{ tag:'x', sub:'parent PRIMARY · GRANTED' } },
-               add:[{ id:'S,REC_NOT_GAP 20, 1 · B', tag:'hold', sub:'child idx_pid · GRANTED' }] },
-          cfk:{ set:{ '(20, 1)':{ tag:'hold', sub:'A 커밋 · B 가 S,REC_NOT_GAP → 참조 있음' } } },
-          stmt:{ set:{ '검사':'B : 자식 idx_pid (20) 를 훑는다', '결과':'ERROR 1451 (23000)|red', 'data_locks':'4 줄  (B)', '다른 경우':'—' } } } },
+               add:[{ id:'S,REC_NOT_GAP 20, 1 · B', index:'idx_pid', tag:'hold', sub:'child idx_pid · GRANTED' }] },
+          stmt:{ set:{ '검사':'B : 자식 idx_pid (20) 를 훑는다', '결과':'ERROR 1451 (23000)|red', 'data_locks':'4 줄  (B)' } } } },
 
-  { act:{ f:'stmt', t:'cfk', lb:'A2 (검사 OFF) : 부모 없는 값도 들어간다' },
+  { act:{ f:'stmt', t:'cix', lb:'A2 (검사 OFF) : 부모 없는 값도 들어간다' },
     note:'foreign_key_checks=0 — 부모를 찾지도, 잠그지도 않는다',
     why:'B 는 ROLLBACK 했다. 새 세션 A2 가 SET foreign_key_checks = 0 뒤 pid=10 과 pid=99 를 넣는다. 검사 함수는 trx->check_foreigns 부터 본다 — false 면 부모 인덱스를 열기 전에 돌아간다. 이 값은 세션 변수 foreign_key_checks 에서 오므로 끈 세션의 문장에만 걸린다.',
     key:'잰 값: 두 INSERT 가 다 들어갔고(99 는 부모가 없다), data_locks 는 child TABLE IX <em>한 줄</em>이다 — 부모 IS 도, 부모 행 S 도 없다. 락을 없애는 설정이 곧 <em>보장을 없애는 설정</em>이다.',
@@ -1877,14 +1880,12 @@ const SCENES = [
           ['sql/sys_vars.cc','"foreign_key_checks", "foreign_key_checks",'],
           ['sql/sys_vars.cc','HINT_UPDATEABLE SESSION_VAR(option_bits), NO_CMD_LINE,']],
     ops:{ pk:{ span:{ del:['x20'] } },
+          cix:{ add:[{ id:'10', v:10, lb:'10, 5' }], span:{ del:['cs20'] } },
           tl:{ del:['parent · IX · B', 'child · IS · B'], add:[{ id:'child · IX · A2', tag:'hold', sub:'trx 1365' }] },
           rl:{ del:['X,REC_NOT_GAP 20 · B', 'S,REC_NOT_GAP 20, 1 · B'], add:[{ id:'(비었다)', tag:'free', sub:'부모 쪽 줄 없음' }] },
-          cfk:{ set:{ '(20, 1)':{ tag:'clean', sub:'A 가 커밋한 자식' } },
-                add:[{ id:'(10, 5)', tag:'x', sub:'A2 · implicit X · 검사 없음' },
-                     { id:'(99, 6)', tag:'x', sub:'A2 · 부모 99 없음 · 고아' }] },
-          stmt:{ set:{ 'SQL':'A2 : INSERT INTO child(pid) VALUES(10), (99)', '세션':'A2  ·  foreign_key_checks=0', '검사':'건너뜀  ·  check_foreigns = false|red', '결과':'OK  ·  id 5 · 6', 'data_locks':'1 줄  (child IX)' } } } },
+          stmt:{ set:{ 'SQL':'A2 : SET foreign_key_checks=0; INSERT … (10), (99)', '검사':'건너뜀  ·  check_foreigns = false|red', '결과':'OK  ·  id 5 · 6  (pid 99 는 부모 없음)|red', 'data_locks':'1 줄  (child IX)' } } } },
 
-  { act:{ f:'pk', t:'cfk', lb:'B (ON) : 부모는 통과, 자식 항목에서 막힌다' },
+  { act:{ f:'pk', t:'cix', lb:'B (ON) : 부모는 통과, 자식 항목에서 막힌다' },
     note:'지우는 세션이 ON 이면 — 이번엔 자식 쪽에서 막힌다',
     why:'B 는 foreign_key_checks 가 ON 이다. 부모 10 에는 A2 의 락이 없으니 X,REC_NOT_GAP 을 바로 얻고, 자식 idx_pid 를 훑다가 커밋 안 된 (10, 5) 를 만난다. 그 항목의 implicit 락을 B 의 스레드가 explicit 으로 바꿔 A2 이름으로 세운 뒤 S,REC_NOT_GAP 으로 기다린다 — data_locks 의 THREAD_ID 는 락 구조를 만든 스레드다.',
     key:'잰 값: child idx_pid X,REC_NOT_GAP 10, 5 (trx 1365 · THREAD_ID 74 = B 의 스레드) 와 B 의 S,REC_NOT_GAP 10, 5 WAITING, data_lock_waits 1368 ↔ 1365. 부모 쪽 B 의 X,REC_NOT_GAP 10 은 GRANTED — <em>막힌 곳이 부모가 아니라 자식 인덱스</em>다.',
@@ -1894,16 +1895,16 @@ const SCENES = [
           ['storage/innobase/handler/p_s.cc','lock_get_psi_event(&lock, &thread_id, &event_id);'],
           ['storage/innobase/row/row0upd.cc','err = row_ins_check_foreign_constraint(false, foreign, table, entry, thr);']],
     ops:{ pk:{ span:{ add:[{ id:'x10', from:10, to:10, kind:'rec', lb:'X,REC_NOT_GAP · B', row:0 }] } },
+          cix:{ span:{ add:[{ id:'cx10', from:10, to:10, kind:'rec', lb:'X,REC_NOT_GAP A2', row:0 }, { id:'cb10', from:10, to:10, kind:'blk', lb:'S,REC_NOT_GAP · B', row:1 }] } },
           tl:{ add:[{ id:'parent · IX · B', tag:'hold', sub:'trx 1368' }, { id:'child · IS · B', tag:'hold', sub:'trx 1368 · 자식 검사' }] },
           rl:{ del:['(비었다)'], add:[
-            { id:'X,REC_NOT_GAP 10 · B', tag:'x', sub:'parent PRIMARY · GRANTED' },
-            { id:'X,REC_NOT_GAP 10, 5 · A2', tag:'x', sub:'child idx_pid · implicit → explicit (THREAD 74)' },
-            { id:'S,REC_NOT_GAP 10, 5 · B', tag:'wait', sub:'child idx_pid · WAITING' }] },
-          cfk:{ set:{ '(10, 5)':{ tag:'wait', sub:'A2 의 X(explicit) · B 가 S 로 기다림' } } },
-          stmt:{ set:{ 'SQL':'B : DELETE FROM parent WHERE id=10', '세션':'B  ·  foreign_key_checks=1', '검사':'부모 X 뒤 자식 idx_pid (10) 를 훑는다', '결과':'LOCK WAIT  ·  1368 ↔ 1365|red', 'data_locks':'6 줄' } } },
+            { id:'X,REC_NOT_GAP 10 · B', index:'parent.PRIMARY', tag:'x', sub:'parent PRIMARY · GRANTED' },
+            { id:'X,REC_NOT_GAP 10, 5 · A2', index:'idx_pid', tag:'x', sub:'child idx_pid · implicit → explicit (THREAD 74)' },
+            { id:'S,REC_NOT_GAP 10, 5 · B', index:'idx_pid', tag:'wait', sub:'child idx_pid · WAITING' }] },
+          stmt:{ set:{ 'SQL':'B : DELETE FROM parent WHERE id=10', '검사':'부모 X 뒤 자식 idx_pid (10) 를 훑는다', '결과':'LOCK WAIT  ·  1368 ↔ 1365|red', 'data_locks':'6 줄' } } },
     beat:1 },
 
-  { act:{ f:'cfk', t:'stmt', lb:'A2 커밋 → 참조가 살아 있다 → 1451' },
+  { act:{ f:'cix', t:'stmt', lb:'A2 커밋 → 참조가 살아 있다 → 1451' },
     note:'A 가 검사를 꺼도 B 의 검사는 남는다',
     why:'A2 가 커밋하면 B 의 S 가 들어서고, (10, 5) 는 지워지지 않은 짝이므로 6 스텝과 같은 RESTRICT 판정이 난다. 검사의 게이트는 지금 문장을 실행하는 trx 의 check_foreigns 다 — 넣은 쪽이 껐는지는 상관없다.',
     key:'잰 값: B 는 1451 을 받았고, 남은 줄은 child IS · parent IX · idx_pid S,REC_NOT_GAP 10, 5 · PRIMARY X,REC_NOT_GAP 10 이다. 넣을 때 검사를 껐어도 <em>지울 때의 검사</em>가 고아를 막는다.',
@@ -1912,8 +1913,8 @@ const SCENES = [
           'err = DB_ROW_IS_REFERENCED;',
           ['share/messages_to_clients.txt','Cannot delete or update a parent row: a foreign key constraint fails%.192s']],
     ops:{ tl:{ del:['child · IX · A2'] },
+          cix:{ span:{ del:['cx10', 'cb10'], add:[{ id:'cs10', from:10, to:10, kind:'rec', lb:'S,REC_NOT_GAP · B', row:0 }] } },
           rl:{ del:['X,REC_NOT_GAP 10, 5 · A2'], set:{ 'S,REC_NOT_GAP 10, 5 · B':{ tag:'hold', sub:'child idx_pid · GRANTED' } } },
-          cfk:{ set:{ '(10, 5)':{ tag:'hold', sub:'A2 커밋 · B 가 S → 참조 있음' } } },
           stmt:{ set:{ '결과':'ERROR 1451 (23000)|red', 'data_locks':'4 줄  (B)' } } } },
 
   { act:{ f:'stmt', t:'pk', lb:'B 도 OFF : 부모 10 이 지워진다' },
@@ -1926,9 +1927,9 @@ const SCENES = [
           ['storage/innobase/row/row0upd.cc','Checks if possible foreign key constraints hold after a delete of the record'],
           ['sql/sys_vars.cc','REVERSE(OPTION_NO_FOREIGN_KEY_CHECKS), DEFAULT(true), NO_MUTEX_GUARD,']],
     ops:{ tl:{ del:['child · IS · B'], set:{ 'parent · IX · B':{ sub:'trx 1370' } } },
+          cix:{ span:{ del:['cs10'] } },
           rl:{ del:['S,REC_NOT_GAP 10, 5 · B'], set:{ 'X,REC_NOT_GAP 10 · B':{ sub:'parent PRIMARY · 지운 행' } } },
-          cfk:{ set:{ '(10, 5)':{ tag:'x', sub:'부모 10 이 사라짐 · 고아' }, '(99, 6)':{ sub:'고아' } } },
-          stmt:{ set:{ 'SQL':'B : SET foreign_key_checks=0; DELETE … id=10', '세션':'B  ·  foreign_key_checks=0', '검사':'양쪽 다 건너뜀|red', '결과':'OK  ·  고아 (5, 10) · (6, 99)|red', 'data_locks':'2 줄' } } },
+          stmt:{ set:{ 'SQL':'B : SET foreign_key_checks=0; DELETE … id=10', '검사':'양쪽 다 건너뜀|red', '결과':'OK  ·  고아 (5, 10) · (6, 99)|red', 'data_locks':'2 줄' } } },
     beat:1 },
   ],
 },

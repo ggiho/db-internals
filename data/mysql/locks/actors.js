@@ -19,6 +19,8 @@ const ACTORS = {
   /* 클러스터 인덱스의 축 — 02 · 02v 는 이것 하나, 05 는 idx(idx_c) 와 둘. 키가 c 와 id 로 달라 한 축에 그릴 수 없다 */
   pk:   { nm:'PRIMARY',         lane:'mem',  kind:'axis', w:'w2' },
   tpk:  { nm:'t PRIMARY',       lane:'mem',  kind:'axis', w:'w2' },
+  /* 08 — 자식의 secondary. 부모 PRIMARY(pk) 아래에 두 번째 축으로. LOCK_DATA 는 '10, 5'(pid, id) */
+  cix:  { nm:'child idx_pid',   lane:'mem',  kind:'axis', w:'w2' },
   rv:   { nm:'READ VIEW',       lane:'mem',  kind:'kv'  },
   wait: { nm:'WAIT-FOR',        lane:'mem',  kind:'graph', w:'w15' },
   ps:   { nm:'P_S 관찰',           lane:'mem',  kind:'list', w:'w15' },
@@ -29,7 +31,6 @@ const ACTORS = {
   /* 디스크 */
   row:  { nm:'행 (클러스터)',        lane:'disk', kind:'list', w:'w15' },
   sec:  { nm:'secondary 인덱스',        lane:'disk', kind:'list', w:'w15' },
-  cfk:  { nm:'child idx_pid',   lane:'disk', kind:'list', w:'w15' },
 };
 
 /* 레인 — 락이 잡히는 층. 경계선 두 개가 이 덱의 주제다 :
