@@ -135,9 +135,24 @@ export const CORE = {
     a: 'GRANTED 를 쥔 쪽이 COMMIT 하거나 KILL 된다',
     x: ['ALTER 를 KILL 한다 — 그러면 다시 해도 된다', 'lock_wait_timeout 을 늘린다', '뒤에 쌓인 SELECT 들을 KILL 한다'],
   },
-  '12/6': {
+  '12/1': {
     q: '테이블 이름 단위 대기와 행 단위 대기는 각각 어느 P_S 표에서 보나?',
     a: 'metadata_locks 와 data_locks',
     x: ['둘 다 data_locks', 'data_lock_waits 와 metadata_locks', 'events_waits_current 와 data_locks'],
+  },
+  '12/4': {
+    q: 'sys.innodb_lock_waits 의 blocking_query 에 나오는 것은?',
+    a: '막는 세션이 지금 실행 중인 문장 — 쉬고 있으면 NULL',
+    x: ['그 락을 잡은 문장', '막힌 쪽이 기다리며 실행 중인 문장', '막는 트랜잭션이 지금까지 실행한 문장 전체'],
+  },
+  '12/7': {
+    q: 'innodb_lock_wait_timeout 이 지나 1205 를 받은 트랜잭션은(기본 설정)?',
+    a: '열려 있다 — 문장만 되돌아가고 앞서 얻은 락은 남는다',
+    x: ['통째로 ROLLBACK 되어 락이 모두 풀린다', '그때까지 한 일이 자동으로 COMMIT 된다', '세션 연결이 끊긴다'],
+  },
+  '12/9': {
+    q: '두 트랜잭션이 서로의 행을 기다리면(innodb_deadlock_detect ON)?',
+    a: '하나가 바로 1213 을 받아 통째로 되돌아가고, 다른 하나는 이어서 진행한다',
+    x: ['둘 다 innodb_lock_wait_timeout 이 지나 1205 를 받는다', '둘 다 1213 을 받고 되돌아간다', '하나가 1213 을 받지만 문장만 되돌아가고 트랜잭션은 열려 있다'],
   },
 };
