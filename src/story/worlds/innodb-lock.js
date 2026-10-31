@@ -11,7 +11,7 @@
        같은 레코드를 하나는 쥐고 하나는 기다린다), sub 에 WAITING 이 있으면 범위 대신 그 레코드의 blk 가 있어야 한다
        글 블록에 tables_locked 가 있으면(03) TABLE LOCKS 의 '표 · 모드' 칸 수와 같아야 한다 — INNODB_TRX 가 세는 것이 그 수다
      · 축은 여럿일 수 있다(locks 05 — idx_c 와 PRIMARY). 배우마다 따로 줄 · 띠 · 이름표를 갖고 cast 순서대로 위에서 아래로 놓인다.
-       axis.nm 이 있으면 축 이름 대신 그것을 쓰고(INDEX · idx_c), axis.legend 가 참이면 이름 줄 오른쪽에 그 스텝에 있는 범위 종류의
+       axis.nm 이 있으면 축 이름 대신 그것을 쓰고(INDEX · idx_c), 항목의 lb 가 있으면 레코드 이름으로 id 대신 그것을 쓰고('200, 20'), axis.legend 가 참이면 이름 줄 오른쪽에 그 스텝에 있는 범위 종류의
        범례를 이름표와 같은 색으로 적는다(들어가지 않으면 아래 줄). data_locks 꼴의 칸 id 는 어느 축에든 맞는 범위가 있으면 된다
      · 글 블록의 'P_S.data_locks' 가 'N 줄 …' 이면(02 · 02v · 05) N = TABLE LOCKS 의 테이블 락 칸 + 모든 축의 범위(ii 제외 — 기다리지
        않은 insert intention 은 data_locks 에 줄이 없다). 한 글 블록에 SHOW ENGINE INNODB STATUS 의 'N lock struct(s), heap size H,
@@ -217,7 +217,8 @@ function one({ F, deck, labels, sc }) {
       /* 축 이름 — 데이터의 axis.nm 이 있으면 그것(05 의 INDEX · idx_c) */
       t.set(hd[X], [s[X + '#ax'].nm || A[X].nm, on(X)]);
       const lg = legendOf(s, X); t.set(lgLb[X], [lg, on(X), '', !!lg, true]);
-      for (const id of RECS[X]) { const it = s[X].find((x) => x.id === id); t.set(recLb[X][id], [it ? id : '', on(X), '', !!it]); }
+      /* 레코드 이름 — 항목의 lb 가 있으면 그것(05 의 '200, 20'). Lab 은 id 를 쓰는데 768 의 좁은 카드에서 '200, 20' 셋은 겹쳤다 */
+      for (const id of RECS[X]) { const it = s[X].find((x) => x.id === id); t.set(recLb[X][id], [it ? it.lb || id : '', on(X), '', !!it]); }
       for (const id of SPIDS[X]) { const q = s[X + '#sp'].find((x) => x.id === id); t.set(spLb[X][id], [q ? q.lb || '' : '', !!q && on(X) && hotIt(s, X, id), q ? (q.kind === 'blk' ? 'red' : q.kind === 'next' ? 'gold' : q.kind === 'rec' || q.kind === 'ii' ? 'green' : '') : '', !!q && !!q.lb]); }
     }
     if (GR) {
@@ -277,8 +278,10 @@ function one({ F, deck, labels, sc }) {
       return out;
     });
     const bandH = Object.fromEntries(IXS.map((X) => [X, lrows[X].map((n) => 16 + n * RH)]));
-    /* 범례가 축 이름 줄의 오른쪽에 들어가지 않으면 그 아래 줄에 */
-    const lgTwo = Object.fromEntries(IXS.map((X) => [X, most(hd[X]).w + most(lgLb[X]).w + 16 > ww]));
+    /* 범례가 축 이름 줄의 오른쪽에 들어가지 않으면 그 아래 줄에. 그 줄이 경계 0 의 이름표('MDL → INNODB', 오른쪽 끝)와 같은 높이면
+       범례는 그 이름표 왼쪽에서 끝난다 — 1280×720 의 05 에서 축이 경계 바로 아래에 붙자 범례가 그 이름표를 덮었다 */
+    const hdW = Object.fromEntries(IXS.map((X) => [X, most(hd[X]).w])), lgW = Object.fromEntries(IXS.map((X) => [X, most(lgLb[X]).w]));
+    const eb0 = EDG[0] && EDGE_ON[0] ? most(edgeLb[0]) : null;
     /* 그래프 — 노드는 가로로, 칸 폭은 이름표만큼 */
     /* 노드 폭 — 설명이 한 줄로 들어가는 폭, 단 무대에 노드가 다 들어가는 폭까지. 넘치면 설명은 줄을 바꾼다 */
     const NG = 70, nCap = GR ? (ww - (NODES.length - 1) * NG) / Math.max(1, NODES.length) : 0;
@@ -329,7 +332,8 @@ function one({ F, deck, labels, sc }) {
       texts(GT[1]);
       for (const X of IXS) {
         place(hd[X], L.x0, y);
-        if (lgTwo[X]) { place(lgLb[X], L.x0, y + HD); y += HD; } else place(lgLb[X], L.x1, y, 'r', 't');
+        const xr = eb0 && G.edgeY[0] != null && y < G.edgeY[0] + 2 + eb0.h + 2 ? L.x1 - eb0.w - 16 : L.x1;
+        if (hdW[X] + lgW[X] + 16 > xr - L.x0) { place(lgLb[X], L.x0, y + HD); y += HD; } else place(lgLb[X], xr, y, 'r', 't');
         y += HD + 6;
         const g = G.ix[X], bh = bandH[X];
         g.top = y; y += bh.reduce((p, q) => p + q, 0) + 6; g.y = y; G.anc[X] = { x: L.x0 + ww / 2, y }; y += 10 + 16 + 10 * k;
@@ -363,7 +367,9 @@ function one({ F, deck, labels, sc }) {
   const spY = (X, q) => G.barY[X][q.row ?? 0];
   function anchor(a, s, lbText) {
     if (IXS.includes(a) && G.ix[a].y) {
-      const m = /(\d+)/.exec(lbText || ''), v = m ? +m[1] : null;
+      /* 이름표의 수 가운데 그 축의 범위 안에 드는 첫 수 — 05 의 '200 → id=20' 은 idx_c 축에서 200, PRIMARY 축에서 20 이다
+         — 첫 수만 보면 PRIMARY 축에서는 200 이 축 밖이다 */
+      const ax = s[a + '#ax'], v = ((lbText || '').match(/\d+/g) || []).map(Number).find((x) => x >= ax.min && x <= ax.max);
       if (v != null) return [ixX(s, a, v), G.ix[a].y];
     }
     if (a === GR && G.gr) { const id = NODES.find((x) => (lbText || '').includes(x)) || [...modOf(s, GR)].find((x) => NODES.includes(x)); const P = id ? nodeAt(s, id) : null; if (P) return [P.x, P.y]; }

@@ -55,6 +55,11 @@ export const CORE = {
     a: 'idx_c 에 둘(200 · 300 앞 gap), PRIMARY 에 하나',
     x: ['idx_c 에 하나, PRIMARY 에 하나 — 지나간 레코드마다 한 줄', 'PRIMARY 에만 하나 — 레코드 락은 클러스터에만', '세 행 모두에 하나씩 — 테이블을 훑었으므로'],
   },
+  '05/9': {
+    q: 'RR 에서 UPDATE … WHERE c=200 (UNIQUE 아닌 idx_c) 이 커밋 전일 때, 다른 세션의 INSERT 중 기다리는 것은?',
+    a: 'c=150 과 c=250 — c=200 둘레의 빈자리',
+    x: ['c=50 과 c=350 — 인덱스 양 끝의 빈자리', '없다 — 행 락은 id=20 하나뿐이다', '모든 INSERT — 테이블에 IX 가 걸렸다'],
+  },
   '06/1': {
     q: 'RR 에서 UPDATE … WHERE c=200 이 UNIQUE 아닌 c 인덱스를 탈 때 잠기는 곳은?',
     a: 'c=200 항목 · 그 행 · c=300 앞의 gap',
