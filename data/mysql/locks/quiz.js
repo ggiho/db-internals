@@ -1,7 +1,17 @@
 /* 핵심 문항 — beat 스텝의 요점. 형식과 원칙은 postgres/mvcc/quiz.js 머리말. */
 export const CORE = {
+  '01/6': {
+    q: 'RR 에서 BEGIN; UPDATE t … WHERE id=20(PK) 한 건 뒤 data_locks 에 보이는 것은?',
+    a: 'TABLE IX 한 줄과 PRIMARY X,REC_NOT_GAP 20 한 줄',
+    x: ['PRIMARY X 20 한 줄 — gap 까지 잠그는 next-key 다', 'TABLE X 한 줄 — 고치는 테이블 전체를 잠근다', 'TABLE IX 한 줄뿐 — 행 락은 암시적이라 안 보인다'],
+  },
+  '01/10': {
+    q: 'A 가 UPDATE 를 커밋하지 않은 채, C 의 ALTER 와 B 의 같은 행 UPDATE 가 각각 기다린다. data_locks 에 WAITING 줄이 생기는 쪽은?',
+    a: 'B 만 — C 는 MDL 에서 멈춰 InnoDB 에 닿지 않는다',
+    x: ['C 만 — ALTER 는 테이블 X 를 기다린다', '둘 다 — 기다리는 락은 모두 data_locks 에 있다', '둘 다 아니다 — 대기는 metadata_locks 에만 보인다'],
+  },
   '01/11': {
-    q: 'UPDATE 한 건이 잡은 MDL · 테이블 IX · 행 X 는 언제 풀리나?',
+    q: 'BEGIN 안의 UPDATE 한 건이 잡은 t 의 SHARED_WRITE · 테이블 IX · 행 X 는 언제 풀리나?',
     a: '셋 다 트랜잭션이 끝날 때',
     x: ['MDL 은 문장 끝, 행 락은 커밋 때', '행 락은 문장 끝, MDL 은 커밋 때', 'IX 는 행 락을 잡은 직후 바로'],
   },
