@@ -358,7 +358,12 @@ function one({ F, deck, labels, sc }) {
     const sideR = side ? MEMR[0] : null;
     G.ng = NG;
     if (GR && NODES.length * (nw + NG) - NG > ww + 1) console.error(`innodb ${sc.num} 세계 : 그래프가 무대보다 넓다 (${L.W}×${L.H})`);
-    const rcH = {}, rSide = {};
+    /* 칸 줄이 제 폭(W0)을 넘으면 다음 줄로 — 한 줄에 다 들어가는 상태는 전과 같은 자리다. 줄 수는 가장 많이 접히는 상태의 것.
+       접지 않던 동안 1024×768 에서 칸 다섯 개 · 스무 자쯤이 한계라 데이터 쪽에서 글을 줄였다 */
+    const RL = 26 + 6;
+    const wrapN = (s, a, W0) => { let x = 0, n = 1; for (const it of s[a]) { const w = sw[a][it.id]; if (x > 0 && x + w > W0 + 0.5) { n++; x = 0; } x += w + 6; } return n; };
+    const rcH = {}, rSide = {}, rN = {}, rW0 = {};
+    for (const a of ROWS) { rW0[a] = a === sideR ? rW : ww; rN[a] = Math.max(1, ...all.map((s) => wrapN(s, a, rW0[a]))); }
     for (const a of ROWS) {
       const W0 = a === sideR ? rW : ww, used = usedW(a), sideW = W0 - used - 12;
       wrap(rowCap[a], W0); const hb = most(rowCap[a]).h;
@@ -384,10 +389,10 @@ function one({ F, deck, labels, sc }) {
       const rows = (list) => {
         for (const a of list) {
           const x0 = a === sideR ? L.x0 + rW + gap : L.x0;
-          place(hd[a], x0, y); G.slot[a] = { x0, y: y + HD, sw: sw[a] }; G.anc[a] = { x: x0 + 30, y: y + HD + 13 };
+          place(hd[a], x0, y); G.slot[a] = { x0, y: y + HD, sw: sw[a], W0: rW0[a] }; G.anc[a] = { x: x0 + 30, y: y + HD + 13 };
           let hh;
           if (rSide[a]) { G.cap[a] = y + HD + 4; place(rowCap[a], x0 + rSide[a], G.cap[a]); hh = HD + Math.max(26, rcH[a] + 4); }
-          else { G.cap[a] = null; place(rowCap[a], x0, y + HD + 26 + 8); hh = HD + 26 + 8 + rcH[a]; }
+          else { const ex = (rN[a] - 1) * RL; G.cap[a] = null; place(rowCap[a], x0, y + HD + 26 + 8 + ex); hh = HD + 26 + 8 + ex + rcH[a]; }
           if (a === sideR) hh = Math.max(hh, placeGraph(L.x0, y));
           y += hh + 14 * k;
         }
@@ -428,7 +433,7 @@ function one({ F, deck, labels, sc }) {
     if (dy) G.lay(L.y0 + dy, G.k);
     shown = -2;
   }
-  const rowSlot = (s, a, id) => { let x = G.slot[a].x0; for (const it of s[a]) { const w = G.slot[a].sw[it.id]; if (it.id === id) return { x: x + w / 2, y: G.slot[a].y + 13, w }; x += w + 6; } return null; };
+  const rowSlot = (s, a, id) => { const g = G.slot[a]; let x = 0, n = 0; for (const it of s[a]) { const w = g.sw[it.id]; if (x > 0 && x + w > g.W0 + 0.5) { n++; x = 0; } if (it.id === id) return { x: g.x0 + x + w / 2, y: g.y + 13 + n * (26 + 6), w }; x += w + 6; } return null; };
   const nodeAt = (s, id) => { const j = NODES.indexOf(id); return j < 0 ? null : { x: G.gr.x0 + G.gr.nw / 2 + j * (G.gr.nw + G.ng), y: G.gr.y }; };
   /* 간선 — 두 노드 사이의 곧은 화살표. 오른쪽으로 가는 것은 위, 왼쪽으로 가는 것은 아래 */
   const edgeLine = (s, e) => { const A0 = nodeAt(s, e.from), B0 = nodeAt(s, e.to); if (!A0 || !B0) return null; const rt = B0.x > A0.x, y = A0.y + (rt ? -6 : 6), xa = A0.x + (rt ? 1 : -1) * (G.gr.nw / 2 + 4), xb = B0.x - (rt ? 1 : -1) * (G.gr.nw / 2 + 4); return { xa, xb, y, rt }; };
